@@ -35,6 +35,8 @@ PF.appjson = (function () {
   var SEARCH_TPL = { query: opt('string'), filter: opt('string'), results: 'string', what: 'string', site: opt('string'), uses: ['string'] };
   var SEARCH_RUN = extend(SEARCH_TPL, { jql: opt('string'), link: opt('string'), searchId: opt('string'), ready: 'boolean', why: opt('string') });
   function orSearch(base, kind) { return { $or: [base, extend(base, { search: kind === 'run' ? SEARCH_RUN : SEARCH_TPL })] }; }
+  /* A linked step with module results (3.0) carries their fields; every other step is exactly as before. */
+  function orResult(base, more) { var o = base.$or ? base.$or : [base]; return { $or: o.concat(o.map(function (x) { return extend(x, more); })) }; }
   var SCHEMA = {
     envelope: { contract: 'string', app: 'string', readAt: 'string', complete: 'boolean', problems: [{ path: 'string', kind: 'string', why: 'string' }], note: 'string', data: map('any') },
     error: { contract: 'string', app: 'string', error: { kind: 'string', why: 'string' }, problems: [{ path: 'string', kind: 'string', why: 'string' }] },
@@ -77,23 +79,52 @@ PF.appjson = (function () {
   /* Conditions (2.1): whether a step or a phase (on its gate) applies in the run: true, false (Not needed) or null (held). */
   var APPLIES = { $or: ['boolean', 'null'] };
   /* Test runs (2.1): test says a run is one; stage names its stage folder (null for any other run). */
+  /* Module results (3.0): result is the run's own (its checklist's result: and the value its decision set, '' until then),
+     outcome how it ended in words ("Completed · needs-work"), null while it runs. Both appear only on a run of a checklist that declares a result. */
   var SUMMARY2 = extend(SUMMARY, { format: 'string', features: ['string'], details: map(VALUE), test: 'boolean', stage: opt({ folder: 'string' }) });
+  var RESULT2 = { result: opt({ name: 'string', value: 'string' }), outcome: opt('string') };
+  /* A linked step held by the result its run returned (3.0): that run, the result, and the reason the step gives. */
+  var HELD_BY = { process: 'string', id: 'string', result: 'string', reason: 'string' };
+  /* awaiting (3.0): the linked run ended (or changed) and only the parent's recorder settles the step; reads never write. */
+  var CHANGED = { step: 'string', process: 'string', id: 'string', result: 'string', reason: 'string' };
+  var AWAITING = { process: 'string', id: 'string', result: 'string', reason: 'string' };
   var FOLLOWUP2 = extend(FOLLOWUP, { test: 'boolean' });
   /* A detail that must match a pattern (2.16, Appendix A) carries pattern; every other detail is exactly as before. */
   var DETAIL = { name: 'string', type: 'string', options: ['string'] };
+  var DESIGN_TIP = { id: 'string', at: 'string', ref: opt('string'), text: 'string' };
+  var STEP_REF = { id: opt('string'), excerpt: 'string' };
+  var LIB_CHECKLIST = { process: 'string', title: 'string', source: 'string', version: opt('number'), folder: opt('string'), owner: opt('string'), runs: 'string',
+    context: [{ name: 'string', type: 'string' }], roles: ['string'],
+    steps: [{ id: 'string', phase: 'string', type: 'string', text: 'string', must: 'boolean', roles: ['string'], fields: map('string') }],
+    searches: [{ step: 'string', query: opt('string'), filter: opt('string'), normalized: opt('string'), results: opt('string'), site: opt('string') }],
+    gates: [{ id: 'string', phase: 'string', title: 'string', implicit: 'boolean', owner: opt('string'), approves: 'string', pattern: opt('string') }],
+    sets: [{ step: 'string', names: ['string'] }], children: [{ step: 'string', process: 'string', version: opt('number'), pass: ['string'], carry: ['string'] }],
+    types: ['string'], teamTypes: ['string'], unknownTypes: ['string'], skills: [{ name: 'string', implements: opt('number'), steps: opt(['string']), status: 'string' }] };
   var SCHEMA2 = {
-    envelope: SCHEMA.envelope, error: SCHEMA.error, processes: SCHEMA.processes, next: SCHEMA.next, followups: { followUps: [FOLLOWUP2] }, request: SCHEMA.request,
+    envelope: SCHEMA.envelope, error: SCHEMA.error, processes: SCHEMA.processes,
+    next: extend(SCHEMA.next, { next: opt(extend(SCHEMA.next.next.$or[0], { step: opt(orResult(orSearch({ id: 'string', text: 'string', roles: [ROLE] }, 'run'), { heldBy: opt(HELD_BY), awaiting: opt(AWAITING) })) })) }), followups: { followUps: [FOLLOWUP2] }, request: SCHEMA.request,
     /* stage: the staged version shown (process --stage), else null. */
-    process: extend(SCHEMA.process, { format: 'string', features: ['string'], stage: opt({ folder: 'string', proposed: 'number', stagedBy: 'string', stagedAt: 'string' }), details: [{ $or: [DETAIL, extend(DETAIL, { pattern: 'string' })] }],
-      phases: [extend(SCHEMA.process.phases[0], { when: ['string'], steps: [orSearch(extend(SCHEMA.process.phases[0].steps[0], { when: ['string'], evidence: [extend(EVIDENCE2, { min: opt('string'), max: opt('string'), unit: opt('string') })] }), 'template')] })] }),
+    process: orResult(extend(SCHEMA.process, { format: 'string', features: ['string'], stage: opt({ folder: 'string', proposed: 'number', stagedBy: 'string', stagedAt: 'string' }), details: [{ $or: [DETAIL, extend(DETAIL, { pattern: 'string' })] }],
+      phases: [extend(SCHEMA.process.phases[0], { when: ['string'], steps: [orResult(orSearch(extend(SCHEMA.process.phases[0].steps[0], { when: ['string'], evidence: [extend(EVIDENCE2, { min: opt('string'), max: opt('string'), unit: opt('string') })] }), 'template'), { accepts: opt(['string']), imports: opt('string') })] })] }), { result: { name: 'string', options: ['string'], step: opt('string') } }),
     /* testRunsLeftOut: test runs that match but aren't listed (D3: left out unless asked for with --tests). */
-    runs: { runs: [SUMMARY2], planned: [extend(SCHEMA.runs.planned[0], { format: 'string', pin: opt({ folder: 'string', version: 'number' }) })], testRunsLeftOut: 'number' },
-    run: { run: opt(extend(SUMMARY2, { roles: [ROLE], pins: map(PIN), migrations: [MIGRATION],
-      steps: [orSearch(extend(SCHEMA.run.run.$or[0].steps[0], { values: map(VALUE), evidence: [EVIDENCE2], applies: APPLIES, held: opt('string') }), 'run')],
-      gates: [extend(SCHEMA.run.run.$or[0].gates[0], { applies: APPLIES })], followUps: [FOLLOWUP2] })) },
+    runs: { runs: [orResult(SUMMARY2, RESULT2)], planned: [extend(SCHEMA.runs.planned[0], { format: 'string', pin: opt({ folder: 'string', version: 'number' }) })], testRunsLeftOut: 'number' },
+    run: { run: opt(orResult(orResult(extend(SUMMARY2, { roles: [ROLE], pins: map(PIN), migrations: [MIGRATION],
+      steps: [orResult(orSearch(extend(SCHEMA.run.run.$or[0].steps[0], { values: map(VALUE), evidence: [EVIDENCE2], applies: APPLIES, held: opt('string') }), 'run'), { accepts: opt(['string']), result: opt('string'), heldBy: opt(HELD_BY), awaiting: opt(AWAITING) })],
+      gates: [extend(SCHEMA.run.run.$or[0].gates[0], { applies: APPLIES })], followUps: [FOLLOWUP2] }), RESULT2), { resultsChanged: [CHANGED] })) },
     /* flightdeck draft check (2.13): the verdict the Publish dialog gives the text, from the folder as it is now. from: the draft
        in maps/drafts/ (ref its path) or the file given with --from (ref null); rev: SHA-256 of the text checked. */
-    draftCheck: { process: 'string', from: { kind: 'string', ref: opt('string'), rev: 'string' }, checks: { blockers: ['string'], suggestions: ['string'] }, publish: { ok: 'boolean', blockers: ['string'] } },
+    draftCheck: { process: 'string', from: { kind: 'string', ref: opt('string'), rev: 'string' }, checks: { blockers: ['string'], suggestions: ['string'],
+      /* blockerSteps and suggestionSteps (3.0): the step each finding names, in the same order, or null. */
+      blockerSteps: [opt(STEP_REF)], suggestionSteps: [opt(STEP_REF)] }, publish: { ok: 'boolean', blockers: ['string'] },
+      /* design (3.0): PF.library.lints, advice that never stops publishing; library says whether every published checklist
+         was read for the tips that compare with them. */
+      design: { tips: [DESIGN_TIP], library: { complete: 'boolean', note: 'string' } } },
+    /* flightdeck library inspect (3.0): PF.library.inspect, every checklist normalized, what links to what, and candidates
+       that look alike across checklists, each with its reason. */
+    library: { checklists: [LIB_CHECKLIST], usedBy: [{ process: 'string', by: { process: 'string', source: 'string', step: 'string', version: opt('number') } }],
+      overlaps: [{ kind: 'string', reason: 'string', key: 'string', items: [{ process: 'string', source: 'string', id: 'string' }] }],
+      stepTypes: [{ id: 'string', team: 'boolean', usedBy: [{ process: 'string', source: 'string', steps: ['string'] }] }],
+      completeness: { complete: 'boolean', unread: [{ process: opt('string'), path: 'string', why: 'string' }], note: 'string' } },
     /* flightdeck type read and type list (2.14): one step-type file as the command reads it (state, the SHA-256 of its exact
        bytes, what the app makes of it), and every .json entry in step-types/ in the order the app's loader reads them. */
     stepType: { type: { id: 'string', path: 'string', state: 'string', rev: opt('string'), bytes: opt('number'), bom: opt('boolean'), lineEndings: opt('string'), utf8: opt('boolean'),
@@ -240,7 +271,7 @@ PF.appjson = (function () {
       return { id: s(ph.id), title: s(ph.title), mode: s(ph.mode), tracks: (ph.tracks || []).map(function (t) { return { id: s(t.id), title: s(t.title), roles: t.roles.map(s) }; }),
         steps: ph.steps.map(function (st) {
           var t = T.get(st.type, types);
-          return { id: s(st.id), text: s(st.text), type: s(st.type), must: !!st.must, planned: !!st.planned, roles: st.roles.map(s), binds: st.binds.map(s), sets: list(st.fields.sets),
+          return { id: s(st.id), text: s(st.text), type: s(st.type), must: !!st.must, planned: !!st.planned, roles: st.roles.map(s), binds: st.binds.map(s), sets: M.setNames(st.fields.sets).map(s),
             fields: strMap(st.fields), track: orNull(st.track), timing: timing(st.fields), evidence: evidence(t ? T.recordFields(t, st.fields) : []) };
         }),
         gate: { id: s(ph.gate.id), title: s(ph.gate.title), implicit: !!ph.gate.implicit, owner: orNull(ph.gate.owner), approves: s(ph.gate.approves), binds: ph.gate.binds.map(s), note: s(ph.gate.note), timing: timing(ph.gate.fields) } };
@@ -355,7 +386,44 @@ PF.appjson = (function () {
   }
   function details2(r, mp, nameOf) { var o = Object.create(null); Object.keys(r.details || {}).forEach(function (k) { o[k] = value(r, mp, 'details.' + k, r.details[k], nameOf); }); return o; }
   function head2(r, out) { out.format = s(r.format); out.features = Array.isArray(r.features) ? r.features.map(s) : []; return out; }
-  function summary2(r, nameOf) { var out = summary(r, nameOf); out.details = details2(r, R.mapOf(r), nameOf); head2(r, out); out.test = R.isTest(r); out.stage = r.test === true && r.stage ? { folder: s(r.stage.folder) } : null; return out; }
+  function summary2(r, nameOf) {
+    var out = summary(r, nameOf), res = r._unrunnable ? null : R.resultOf(r);
+    out.details = details2(r, R.mapOf(r), nameOf); head2(r, out); out.test = R.isTest(r); out.stage = r.test === true && r.stage ? { folder: s(r.stage.folder) } : null;
+    if (!r._unrunnable && M.resultDef(R.mapOf(r))) { out.result = res ? { name: s(res.name), value: s(res.value) } : null; out.outcome = r.ended ? s(R.outcomeText(r)) : null; }
+    return out;
+  }
+  /* A step that carries module results' fields: a linked step that accepts results, or whose link recorded one. */
+  function resulted(r, step, a) { return step.type === 'run.process' && (!!R.acceptsOf(r, step) || !!(a && a.child && typeof a.child.result === 'string')); }
+  /* A step whose linked run (kids: 'process/id' -> run, read but never written) ended or changed since this run last settled it. */
+  function awaiting(r, step, a, kids) {
+    var c = a && a.child && !a.child.failed && kids && Object.prototype.hasOwnProperty.call(kids, a.child.process + '/' + a.child.id) ? kids[a.child.process + '/' + a.child.id] : null;
+    if (!c || !c.ended || r.state !== 'running' || !R.childCurrent(r, step, a) || a.s === 'na') return null;
+    /* Settled for exactly this answer, and the run still stands (no gate reopened since): nothing waits. */
+    if (typeof a.child.answer === 'string' && a.child.answer === R.answerOf(c) && !R.childCheck(c)) return null;
+    var res = R.resultOf(c), val = res ? res.value : '', who = String(c.title || c.process).slice(0, 50);
+    var what = typeof a.child.answer === 'string' ? who + ' changed after this step counted it (now ' + R.outcomeText(c) + ')' : who + ' ended: ' + R.outcomeText(c);
+    return { process: s(a.child.process), id: s(a.child.id), result: s(val), reason: s(what + '; this run\'s recorder settles this step when they next open Flightdeck') };
+  }
+  function heldBy(r, step, a) { var why = a ? R.resultHeld(r, step, a) : ''; return why ? { process: s(a.child.process), id: s(a.child.id), result: s(a.child.result), reason: s(why) } : null; }
+  /* next with contract 2: the blocked step says when the result its linked run returned holds it (heldBy). */
+  function next2(r, nameOf, personId, o) {
+    var out = next(r, nameOf, personId), mp = R.mapOf(r);
+    /* A step awaiting its recorder's settlement comes before any work further on (3.0): what it settles to can reopen a gate. */
+    var wait = null;
+    /* Only work further on than the awaiting step gives way to it; a pause and earlier unfinished work keep their place. */
+    var at = function (id) { var f = M.findStep(mp, id); return f ? f.phaseIndex * 10000 + mp.phases[f.phaseIndex].steps.indexOf(f.step) : -1; };
+    mp.phases.forEach(function (ph) { ph.steps.forEach(function (x) { var a = r.steps[x.id]; if (!wait && x.type === 'run.process' && R.acceptsOf(r, x) && awaiting(r, x, a, o && o.kids)) wait = { step: x, pi: mp.phases.indexOf(ph), pos: at(x.id) }; }); });
+    var n = out.next, ph = wait ? mp.phases[wait.pi] : null;
+    var later = function (kind, stepId, pi) { return kind === 'complete' || ((kind === 'step' || kind === 'blocked') && stepId != null && at(stepId) > wait.pos) || (kind === 'gate' && pi != null && pi * 10000 + 9999 > wait.pos); };
+    if (wait && n && later(n.kind, n.step && n.step.id, n.phase && n.phase.index)) {
+      n.kind = 'step'; n.phase = { index: wait.pi, id: s(ph.id), title: s(ph.title) }; n.gate = null; n.tracks = [];
+      n.step = { id: s(wait.step.id), text: s(wait.step.text), roles: rolePeople(r, wait.step.roles, nameOf) };
+    }
+    if (wait && out.mine && later('step', out.mine.step.id)) out.mine = { phase: { index: wait.pi, id: s(ph.id), title: s(ph.title) }, step: { id: s(wait.step.id), text: s(wait.step.text) } };
+    var st = out.next && out.next.step, x = st ? M.findStep(mp, st.id) : null;
+    if (st && x && resulted(r, x.step, r.steps[st.id])) { st.heldBy = heldBy(r, x.step, r.steps[st.id]); st.awaiting = awaiting(r, x.step, r.steps[st.id], o && o.kids); }
+    return out;
+  }
   function followUps2(items, nameOf) { return { followUps: (items || []).map(function (x) { var o = followUp(x, nameOf); o.test = !!x.test; return o; }) }; }
   function evidence2(listIn) {
     return (listIn || []).map(function (d) {
@@ -381,7 +449,8 @@ PF.appjson = (function () {
     out.stage = pub.stage && si.stage ? { folder: s(si.folder), proposed: +si.stage.proposed || 0, stagedBy: s(si.stagedBy), stagedAt: s(si.stagedAt) } : null;
     out.details = [];
     if (!pub.ok) return out;
-    var mp = pub.map, types = pub.types || {}, dt = mp.meta.detailTypes || {};
+    var mp = pub.map, types = pub.types || {}, dt = mp.meta.detailTypes || {}, rd = M.resultDef(mp);
+    if (rd) out.result = { name: s(rd.name), options: rd.options.map(s), step: rd.step ? s(rd.step.id) : null };
     out.details = mp.meta.context.map(function (n) { var d = Object.prototype.hasOwnProperty.call(dt, n) ? dt[n] : null; var o = { name: s(n), type: d ? typeOf(d) : 'text', options: d && d.options ? d.options.map(s) : [] }; if (d && d.kind === 'pattern') o.pattern = s(d.pattern); return o; });
     out.phases.forEach(function (ph, pi) {
       var when = function (o) { return (o.when || []).map(function (w) { return s(w.text); }); };
@@ -390,6 +459,10 @@ PF.appjson = (function () {
         st.when = when(mp.phases[pi].steps[si]);
         var x = mp.phases[pi].steps[si], t = T.get(x.type, types), list = t ? T.recordFields(t, x.fields) : [];
         if (R.isSearchStep(x)) st.search = searchTpl(x, mp);
+        if (x.type === 'run.process' && (x.fields.accepts != null || M.setsOf(x.fields.sets).some(function (b) { return b.from === 'result'; }))) {
+          st.accepts = x.fields.accepts != null ? String(x.fields.accepts).split(',').map(function (v) { return v.trim(); }).filter(Boolean).map(s) : null;
+          st.imports = M.setsOf(x.fields.sets).filter(function (b) { return b.from === 'result'; }).map(function (b) { return s(b.name); })[0] || null;
+        }
         st.evidence = evidence2(list).map(function (e, i) { var d = list[i]; e.min = d.kind === 'number' && d.min != null ? s(d.min) : null; e.max = d.kind === 'number' && d.max != null ? s(d.max) : null; e.unit = d.kind === 'number' && d.unit != null ? s(d.unit) : null; return e; });
       });
     });
@@ -416,9 +489,18 @@ PF.appjson = (function () {
     });
     return out;
   }
-  function run2(r, items, nameOf) {
+  function run2(r, items, nameOf, o) {
     var mp = R.mapOf(r), out = run(r, items, nameOf).run, base = summary2(r, nameOf);
-    out.details = base.details; head2(r, out); out.test = base.test; out.stage = base.stage;
+    /* An ended run that uses results (3.0): each step whose linked run (o.kids) changed since, read-only. */
+    if (Array.isArray(r.features) && r.features.indexOf('module-results') >= 0) {
+      out.resultsChanged = [];
+      Object.keys(r.steps || {}).forEach(function (id) {
+        var a = r.steps[id], x = M.findStep(mp, id), k = a && a.child ? a.child.process + '/' + a.child.id : '', c = k && o && o.kids && Object.prototype.hasOwnProperty.call(o.kids, k) ? o.kids[k] : null;
+        var why = x && c ? R.resultChanged(r, x.step, a, c) : '';
+        if (why) { var res = R.resultOf(c); out.resultsChanged.push({ step: s(id), process: s(a.child.process), id: s(a.child.id), result: s(res && !res.conflict ? res.value : ''), reason: s(why) }); }
+      });
+    }
+    out.details = base.details; head2(r, out); out.test = base.test; out.stage = base.stage; if ('result' in base) { out.result = base.result; out.outcome = base.outcome; }
     out.pins = {}; if (r.pins && r.pins.children) Object.keys(r.pins.children).forEach(function (k) { var c = r.pins.children[k]; out.pins[k] = { process: s(c.process), version: +c.version || 0, folder: s(c.folder), mapHash: s(c.mapHash), typesHash: s(c.typesHash) }; });
     out.followUps.forEach(function (f) { f.test = R.isTest(r); });
     out.migrations = (r._archivedMigrations || []).concat(Array.isArray(r.migrations) ? r.migrations : []).map(function (m) { return migration(m, nameOf); });
@@ -428,6 +510,7 @@ PF.appjson = (function () {
       st.values = vals; st.evidence = evidence2(x ? R.evidenceFor(r, x.step).list : []);
       var ap = x ? R.applies(r, mp, x.phaseIndex, x.step) : { applies: true };
       st.applies = ap.applies; st.held = ap.applies === null ? s(ap.why) : null;
+      if (x && resulted(r, x.step, a)) { st.accepts = R.acceptsOf(r, x.step) || null; st.result = a && a.child && typeof a.child.result === 'string' ? s(a.child.result) : null; st.heldBy = heldBy(r, x.step, a); st.awaiting = awaiting(r, x.step, a, o && o.kids); }
       if (x && R.isSearchStep(x.step)) st.search = searchRun(r, mp, x.step);
     });
     out.gates.forEach(function (g, pi) { g.applies = R.applies(r, mp, pi).applies; });
@@ -464,6 +547,6 @@ PF.appjson = (function () {
     }).sort(function (a, b) { return a.key < b.key ? -1 : 1; }) };
   }
 
-  return { CONTRACT: CONTRACT, CONTRACT2: CONTRACT2, WRITE1: WRITE1, reportOut: reportOut, targets: targets, SCHEMA2: SCHEMA2, process2: process2, runs2: runs2, followUps2: followUps2, run2: run2, summary2: summary2, CONTRACT_OF: contractOf, VERSIONS: VERSIONS, NOTE: NOTE, KINDS: KINDS, SCHEMA: SCHEMA, opt: opt, map: map, conforms: conforms, envelope: envelope, failure: failure, names: names,
+  return { CONTRACT: CONTRACT, CONTRACT2: CONTRACT2, WRITE1: WRITE1, reportOut: reportOut, targets: targets, SCHEMA2: SCHEMA2, process2: process2, next2: next2, runs2: runs2, followUps2: followUps2, run2: run2, summary2: summary2, CONTRACT_OF: contractOf, VERSIONS: VERSIONS, NOTE: NOTE, KINDS: KINDS, SCHEMA: SCHEMA, opt: opt, map: map, conforms: conforms, envelope: envelope, failure: failure, names: names,
     v1Pub: v1Pub, v1Processes: v1Processes, v1Run: v1Run, pubProblem: pubProblem, processes: processes, process: process, runs: runs, run: run, next: next, followUps: followUps, summary: summary, request: request };
 })();

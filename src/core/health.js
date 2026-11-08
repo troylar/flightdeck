@@ -114,7 +114,7 @@ PF.health = (function () {
       if (!p || !p.latest || !p.latest.map) return;
       PF.links.broken(p.latest.map, PF.links.childrenFrom(function (n) { return byId[n] || null; })).forEach(function (b) {
         add({ id: 'link-broken:' + p.id + ':' + b.step.id, severity: 'warn', area: 'Checklists', title: 'A linked step can\'t start its child',
-          detail: (p.latest.map.meta.title || p.id) + ' step "' + b.step.text.slice(0, 40) + '" passes ' + b.names.join(', ') + ' to ' + b.title + ', whose latest version (v' + b.version + ') doesn\'t have ' + (b.names.length > 1 ? 'them' : 'it') + '. New runs can\'t start that child until ' + (p.latest.map.meta.title || p.id) + ' changes. Publish a version that passes what ' + b.title + ' has.',
+          detail: (p.latest.map.meta.title || p.id) + ' ' + U.stepName(b.step, 'step') + ' passes ' + b.names.join(', ') + ' to ' + b.title + ', whose latest version (v' + b.version + ') doesn\'t have ' + (b.names.length > 1 ? 'them' : 'it') + '. New runs can\'t start that child until ' + (p.latest.map.meta.title || p.id) + ' changes. Publish a version that passes what ' + b.title + ' has.',
           paths: ['maps/drafts/' + p.id + '.md'], action: { act: 'open-process', id: p.id, label: 'Open the checklist' } });
       });
     });
@@ -127,7 +127,7 @@ PF.health = (function () {
         if (x.step.type !== 'run.process') return;
         var gone = PF.links.teams(x.step).filter(function (n) { return PF.teamValues.lookup(tvs, n).missing; });
         if (gone.length) add({ id: 'team-missing:' + p.id + ':' + x.step.id, severity: 'warn', area: 'Checklists', title: 'A linked step passes a team value that isn\'t set',
-          detail: (p.latest.map.meta.title || p.id) + ' step "' + x.step.text.slice(0, 40) + '" passes the team value ' + gone.map(function (n) { return '"' + n + '"'; }).join(', ') + ', which isn\'t in team-values.json. New runs ask for it when the child starts. Add it in Settings › Team values, or change the checklist.',
+          detail: (p.latest.map.meta.title || p.id) + ' ' + U.stepName(x.step, 'step') + ' passes the team value ' + gone.map(function (n) { return '"' + n + '"'; }).join(', ') + ', which isn\'t in team-values.json. New runs ask for it when the child starts. Add it in Settings › Team values, or change the checklist.',
           paths: [PF.teamValues.FILE, 'maps/drafts/' + p.id + '.md'], action: { act: 'open-process', id: p.id, label: 'Open the checklist' } });
       });
     });
@@ -188,6 +188,11 @@ PF.health = (function () {
       var r = runs.filter(function (x) { return x && x.process === m.process && x.id === m.run; })[0];
       add({ id: 'child-mark:' + m.process + '/' + m.run + '/' + m.step, severity: 'warn', area: 'Runs', title: '"' + (r ? r.title : m.run) + '": a linked step\'s run doesn\'t stand',
         detail: 'Its step was ' + m.text + '.', paths: ['runs/' + m.process + '/' + m.run + '/run.json', 'runs/' + m.child + '/run.json'], action: { act: 'open-run', id: m.child, label: 'Open the linked run' } });
+    });
+    PF.run.resultMarks(runs).forEach(function (m) {
+      var r = runs.filter(function (x) { return x && x.process === m.process && x.id === m.run; })[0];
+      add({ id: 'result-changed:' + m.process + '/' + m.run + '/' + m.step, severity: 'warn', area: 'Runs', title: '"' + (r ? r.title : m.run) + '": ' + PF.run.RESULT_CHANGED,
+        detail: 'Step "' + m.step + '"' + m.text.slice(PF.run.RESULT_CHANGED.length) , paths: ['runs/' + m.process + '/' + m.run + '/run.json', 'runs/' + m.child + '/run.json'], action: { act: 'open-run', id: m.child, label: 'Open the linked run' } });
     });
     conflicted.forEach(function (r) { add({ id: 'conflicts:' + r.process + '/' + r.id, severity: 'stop', area: 'Runs', title: '"' + r.title + '" has ' + plural(r._conflicts.length, 'other version'), detail: 'Two windows saved it without seeing each other. Compare the copies and keep the right one; nothing is merged for you.', paths: r._conflicts.map(function (n) { return 'runs/' + r.process + '/' + r.id + '/' + n; }), action: { act: 'open-run', id: r.process + '/' + r.id, label: 'Compare copies' }, help: HELP.conflicts }); });
     /* Conflict copies in a run folder whose run.json is missing or couldn't be read: no run page lists them, so they're
@@ -344,8 +349,11 @@ PF.health = (function () {
     var olds = Object.keys(seen).map(function (k) { return seen[k]; }).sort(cmpV).map(function (v) { return v.join('.'); });
     if (olds.length) {
       var floor = olds.filter(function (v) { return cmpV(semverOf(v), [1, 11, 1]) < 0; });
+      /* From 3.0 the warning also names its must-understand features (results, loops) for copies before 3.0. */
+      var pre2 = olds.filter(function (v) { return cmpV(semverOf(v), [2, 0, 0]) < 0; }), pre3 = (!mine || cmpV(mine, [3, 0, 0]) >= 0) ? olds.filter(function (v) { return cmpV(semverOf(v), [3, 0, 0]) < 0; }) : [];
+      var when = !pre3.length ? ' before anyone uses Flightdeck 2.0 features, and re-enter' : (pre2.length ? ' before anyone uses Flightdeck 2.0 features or' : ' before anyone') + ' publishes a version that uses results or loops (Flightdeck 3.0 features); Flightdeck ' + listOf(pre3) + (pre3.length === 1 ? ' shows' : ' show') + ' those versions and their runs by name only and can\'t run them. Re-enter';
       add({ id: 'older-copies', severity: floor.length ? 'warn' : 'info', area: 'Flightdeck', title: 'Teammates are using an older Flightdeck',
-        detail: 'In the last 7 days, windows running Flightdeck ' + listOf(olds) + ' answered connection checks or edited drafts here.' + (floor.length ? ' Flightdeck ' + listOf(floor) + ' can\'t tell what a newer Flightdeck wrote: it may hide runs made with Flightdeck 2.0 and offer a version it can\'t read.' : '') + ' Move every computer to ' + (snap.app && snap.app !== 'dev' ? 'Flightdeck ' + snap.app : 'this Flightdeck') + ' before anyone uses Flightdeck 2.0 features, and re-enter any change an older window said it couldn\'t save.',
+        detail: 'In the last 7 days, windows running Flightdeck ' + listOf(olds) + ' answered connection checks or edited drafts here.' + (floor.length ? ' Flightdeck ' + listOf(floor) + ' can\'t tell what a newer Flightdeck wrote: it may hide runs made with Flightdeck 2.0 and offer a version it can\'t read.' : '') + ' Move every computer to ' + (snap.app && snap.app !== 'dev' ? 'Flightdeck ' + snap.app : 'this Flightdeck') + when + ' any change an older window said it couldn\'t save.',
         paths: [], action: help(HELP.older), help: HELP.older });
     } else if (snap.connection || d.presence) ok('older-copies', 'No older Flightdeck answered a connection check or edited a draft here in the last 7 days.');
 

@@ -67,7 +67,7 @@
       '<span class="sr">. Show it in the checklist</span></button>' + (cond ? '<span class="pv-when">' + cond + '</span>' : '') + (meta ? '<span class="pv-meta">' + meta + '</span>' : '') + '</div></li>';
   }
   function stepList(steps, name, line) { return '<ol class="fp-sl" aria-label="Steps in ' + esc(name) + '">' + steps.map(line).join('') + '</ol>'; }
-  /* The phase's steps behind a native disclosure, lanes side by side as in the card, and the gate as the last line. */
+  /* The phase's steps behind a native disclosure, lanes side by side as in the card. The gate is drawn once, beneath the card. */
   function stepsBlock(p, i, open, go, types, auto) {
     var musts = p.steps.filter(function (s) { return s.must; }).length;
     var line = function (s) { return stepLine(s, go, types, auto); };
@@ -78,7 +78,6 @@
       return '<div class="fp-slane"><p class="fp-slane-h"><b>' + esc(name) + '</b>' + (t.roles.length ? ' <span class="pv-role">' + esc(K.atRoles(t.roles, 'pv-lane-roles')) + '</span>' : '') + '</p>' +
         stepList(p.steps.filter(function (s) { return s.track === t.id && t.id; }), name, line) + '</div>';
     }).join('') + '</div>';
-    body += p.gate.implicit ? '<p class="fp-sgate">' + I('check') + '<span>Phase checked, no named gate</span></p>' : '<p class="fp-sgate">' + I('gate') + '<span>Gate: ' + esc(p.gate.title) + '</span></p>';
     return '<details class="fp-steps" data-fps="' + i + '" data-fps-open="' + (open ? 1 : 0) + '"' + (open ? ' open' : '') + '><summary id="fps-' + i + '">' + plural(p.steps.length, 'step') + (musts ? ' · ' + musts + ' must-do' : '') +
       '<span class="sr"> in ' + esc(p.title) + '</span></summary><div class="fp-sbody">' + body + '</div></details>';
   }

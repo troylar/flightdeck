@@ -402,7 +402,7 @@ rule('The checker reports the same versions as unusable as the app, with the sam
     await forge(8, md.replace(/^## Before the pull request/m, '## Questions\n- Which branch?\n\n## Before the pull request')),
     await forge(9, md, t => { t.confirm = { id: 'confirm', fields: { where: null } }; }),
     await forge(10, md.replace(first, '$1\n  where: Your repository\n  require: build')),
-    await forge(12, md, t => { t.confirm.version = 5; }), // 3 is 2.0 typed evidence, 4 the 2.16 Jira search; 5 is newer than any this copy reads
+    await forge(12, md, t => { t.confirm.version = 6; }), // 3 is 2.0 typed evidence, 4 the 2.16 Jira search, 5 the 3.0 loop; 6 is newer than any this copy reads
     await forge(13, md, t => { t.confirm.futureBehavior = 'conditional'; }),
     await forge(14, md, t => { t.confirm.fields.where.when = 'x'; }),
     await forge(15, md, t => { t.confirm.fields.where.kind = 'condition'; }),
@@ -763,7 +763,7 @@ rule('The checker agrees with the app on typed run details and typed evidence: d
       await forge(10, md, (t) => { t['team.count'].record[0].min = 'abc'; }),
       await forge(11, md, (t) => { t['team.count'].record[0].min = '5'; t['team.count'].record[0].max = '1'; }),
       await forge(12, md, (t) => { t['team.count'].record[1].unit = 'rows'; }),
-      await forge(13, md, (t) => { t['team.count'].version = 5; })
+      await forge(13, md, (t) => { t['team.count'].version = 6; })
     ];
     const good = [await forge(14, md)];
     const app = await repo.loadAll(d, { deep: true }), pubs = app.processes.find(p => p.process === 'x').pubs;
@@ -974,6 +974,137 @@ rule('Round 3: frozen search definitions and patterns: the checker refuses what 
   const jp = pats.map(p => PF.values.compilePattern(p).ok);
   assert.deepStrictEqual(jp, [false, false, false, false, false, true, true, true], 'empty classes are refused by the app');
   assert.deepStrictEqual(out.pats, jp, 'and by the checker: ' + JSON.stringify(out.pats));
+});
+
+rule('A step named in a message: its ID and its text cut at a word with …, the same in the checker as in the app', () => {
+  const U = PF.util;
+  assert.strictEqual(U.stepLabel({ id: 'tag', text: 'Tag the release' }), 'Step "Tag the release" {#tag}', 'short text stays whole');
+  assert.strictEqual(U.excerpt('Confirm the production deploy job finished green on every node'), 'Confirm the production deploy job…', 'never mid-word');
+  assert.strictEqual(U.excerpt('Wait for the deploy, the logs and those, then go on'), 'Wait for the deploy, the logs and those…', 'a cut right after a word keeps it and drops the comma');
+  assert.strictEqual(U.excerpt('x'.repeat(45)), 'x'.repeat(40) + '…', 'one long word is cut where the room ends');
+  assert.strictEqual(U.excerpt('🚀'.repeat(45)), '🚀'.repeat(40) + '…', 'counted in code points, never splitting one');
+  const py = python(); if (!py) return;
+  const texts = ['Tag the release', 'Confirm the production deploy job finished green on every node', 'Wait for the deploy, the logs and those, then go on', 'x'.repeat(45),
+    '🚀'.repeat(45), 'a'.repeat(19) + ' ' + 'b'.repeat(30), 'a'.repeat(20) + ' ' + 'b'.repeat(30), 'Exactly forty characters in this text...', 'Ends with a dash before the cut here - and more words'];
+  const steps = texts.map((t, i) => ({ id: i % 2 ? 's' + i : '', text: t }));
+  const src = "import json,sys,importlib.util\nspec=importlib.util.spec_from_file_location('cf',sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)\n" +
+    "d=json.load(sys.stdin)\nprint(json.dumps([m.step_label(s) for s in d]))";
+  const out = JSON.parse(cp.execFileSync(py, ['-I', '-c', src, CHECKER], { input: JSON.stringify(steps), encoding: 'utf8' }));
+  assert.deepStrictEqual(out, steps.map(s => U.stepLabel(s)));
+  const md = ['---', 'process: x', 'title: X', '---', '', '## S · DO-CONFIRM {#s}', '- [ ] Confirm the production deploy job finished green on every node {#green}', '', '## Gate: G {#g}', ''].join('\n');
+  const why = cp.execFileSync(py, ['-I', '-c', src.replace("[m.step_label(s) for s in d]", "m.unrunnable(d,{})"), CHECKER], { input: JSON.stringify(md), encoding: 'utf8' });
+  assert.strictEqual(JSON.parse(why), PF.publish.unrunnable(md, {}));
+  assert.ok(/^Step "Confirm the production deploy job finish" has no step type/.test(JSON.parse(why)), 'the words other apps read stay as 1.x said them: ' + why);
+});
+
+rule('Checks keep their words as every copy since 1.x says them; the step each finding names rides alongside with its ID and excerpt', () => {
+  const md = ['---', 'process: x', 'title: X', 'context: tag', '---', '', '## S · DO-CONFIRM {#s}', '- [ ] Read this {#read}', '- [ ] {confirm} Confirm the production deploy job finished green on every node {#green}', '  expect: soon',
+    '- [ ] {confirm} Use ^tagg in the notes {#use}', '', '## Gate: G {#g}', '  after: soon', ''].join('\n');
+  const c = JSON.parse(JSON.stringify(PF.map.check(PF.map.parse(md), {})));
+  assert.deepStrictEqual(c.blockers, ['Step "Read this" has no type. Every step needs one, like {confirm} or {ui.action}.', 'Step "Confirm the production deploy job finish": "expect" should look like 20m or 1h30m.',
+    'Step "Use in the notes" is tied to ^tagg, which isn\'t listed in context. Did you mean ^tag?', 'Gate "G": "after" should be a duration like 2h or 30m.']);
+  assert.strictEqual(c.blockerSteps.length, c.blockers.length); assert.strictEqual(c.suggestionSteps.length, c.suggestions.length);
+  const at = (b) => c.blockerSteps[c.blockers.findIndex(x => x.indexOf(b) === 0)];
+  assert.deepStrictEqual(at('Step "Read this"'), { id: 'read', excerpt: 'Read this' });
+  assert.deepStrictEqual(at('Step "Confirm the production'), { id: 'green', excerpt: 'Confirm the production deploy job…' });
+  assert.deepStrictEqual(at('Step "Use in'), { id: 'use', excerpt: 'Use in the notes' });
+  assert.strictEqual(at('Gate "G"'), null, 'a gate names no step');
+  assert.ok(c.suggestionSteps.every((x, i) => x === null || c.suggestions[i].indexOf('Step "' + x.excerpt.replace(/…$/, '')) === 0), JSON.stringify([c.suggestions, c.suggestionSteps]));
+});
+
+/* 3.0: check_folder.py --draft, for an assistant without the flightdeck command: the design tips that need no other checklist
+   (PF.library.lints, same ids, order and words) and the Publish dialog's blockers it can check, each in the app's words, with
+   what it didn't check listed so a clean result never reads as ready to publish. */
+const DRAFT_CASES = [
+  ['---', 'process: rel', 'title: Rel', 'context: version, unused, tag', 'roles: lead, qa, idle', 'runs: solo', '---', '',
+    '## Prep · READ-DO {#prep}', '- [ ] {confirm} Each story has a merged PR @lead ^version {#each}', '- [ ] {confirm} Release is READY to ship {#ready}',
+    '- [ ] {jira.search} No open blockers in the release {#blk}', '  query: fixVersion = ^version AND status != Done', '  results: any',
+    '- [ ] {review} Approve the release notes @qa {#notes}', '- [ ] {jira.issue} Sign-off recorded {#signoff}', '  action: update', '- [ ] {deploy} Tag ^tag {#tg}', '  sets: tag', '',
+    '## Gate: Ship · owner @lead {#g1}', ''].join('\n'),
+  ['---', 'process: t', 'title: T', 'roles: a, b', 'runs: solo', 'context: env', '---', '', '## P · DO-CONFIRM {#p}', '### Track: Web @a {#web}', '- [ ] {confirm} Check the web tier {#w}',
+    '### Track: Db @b {#db}', '- [ ] {confirm} Check every replica ^env {#d}', '', '## Q · DO-CONFIRM {#q}', '- [ ] {run.process} Run the child {#c}', '  process: other', ''].join('\n'),
+  ['---', 'process: bad', 'title: Bad', 'context: version', '---', '', '## P · READ-DO {#p}', '- [ ] Untyped step {#u}', '- [ ] {nope.type} Unknown type {#n}',
+    '- [ ] {jira.search} Search with nothing {#s}', '  results: maybe', '- [ ] {jenkins.job} Run the job {#j}', '  colour: blue', 'stray line', ''].join('\n'),
+  /* Whitespace as JavaScript reads it (a no-break space is one), and a verdict a run must record (a required choice or yes/no). */
+  ['---', 'process: ws', 'title: Ws', 'roles: lead(', 'context: env(', '---', '', '## P · READ-DO {#p}', '- [ ] {confirm} Check each\u00a0item {#e}', '- [ ] {confirm} All\u2003of the stories {#a}',
+    '- [ ] {jira.search} No\u00a0blockers {#n}', '  query: a = 1', '  results: any', '- [ ] {review} Review the READY or NOT READY verdict {#r}', '  document: https://example.com/d', '  require: verdict',
+    '- [ ] {review} Review the READY call {#o}', '  document: https://example.com/d', '- [ ] {confirm} Say READY or NOT READY {#y}', '  evidence: Yes-No',
+    '- [ ] {verify.health} Health is READY {#h}', '  require: result', '- [ ] {github.pr} Approve the READY PR {#g}', '  require: all', ''].join('\n'),
+];
+rule('check_folder.py --draft: the design tips are the app\'s, word for word, and its blockers are the app\'s, with what it didn\'t check listed', () => {
+  const tipsOf = (md) => JSON.parse(JSON.stringify(PF.library.lints(md)));
+  assert.deepStrictEqual(tipsOf(DRAFT_CASES[0]).map(t => t.id), ['whole-set', 'verdict', 'results-any', 'verdict', 'solo-roles', 'unused-role', 'unused-detail'], 'set-up: the first case has one of each');
+  assert.deepStrictEqual(tipsOf(DRAFT_CASES[1]).map(t => t.id), ['whole-set', 'solo-roles'], 'set-up: track roles count, and a linked step without carry: keeps every detail');
+  assert.deepStrictEqual(tipsOf(DRAFT_CASES[3]).map(t => t.id + '#' + t.ref), ['whole-set#e', 'whole-set#a', 'results-any#n', 'verdict#o', 'unused-role#null', 'unused-detail#null'], 'set-up: the whitespace and verdict case');
+  const py = python(); if (!py) return;
+  const drafts = DRAFT_CASES.concat(fs.readdirSync(path.join(__dirname, '..', 'example-folder', 'maps', 'drafts')).filter(f => f.endsWith('.md')).map(f => fs.readFileSync(path.join(__dirname, '..', 'example-folder', 'maps', 'drafts', f), 'utf8')));
+  const src = "import json,sys,importlib.util\nspec=importlib.util.spec_from_file_location('cf',sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)\n" +
+    "d=json.load(sys.stdin)\nprint(json.dumps([m.draft_check(md,[]) for md in d]))";
+  const out = JSON.parse(cp.execFileSync(py, ['-I', '-c', src, CHECKER], { input: JSON.stringify(drafts), encoding: 'utf8' }));
+  const verdicts = JSON.parse(cp.execFileSync(py, ['-I', '-c', src.replace('[m.draft_check(md,[]) for md in d]', '{k: list(v) for k, v in m._VERDICT_RECORDS.items()}'), CHECKER], { input: '[]', encoding: 'utf8' }));
+  const want = {}; PF.types.LIST.forEach(t => { const r = (t.record || []).filter(d => d.kind === 'choice' || d.kind === 'yes-no').map(d => d.name); if (r.length) want[t.id] = r; });
+  assert.deepStrictEqual(verdicts, JSON.parse(JSON.stringify(want)), 'the checker knows which built-in types record a choice or yes/no');
+  drafts.forEach((md, i) => {
+    assert.deepStrictEqual(out[i].tips, tipsOf(md), 'tips, draft ' + i);
+    const app = PF.map.check(PF.map.parse(md), {}).blockers;
+    assert.deepStrictEqual(out[i].blockers.filter(b => app.indexOf(b) < 0), [], 'every blocker is the app\'s, draft ' + i);
+    assert.strictEqual(out[i].complete, false);
+  });
+  assert.deepStrictEqual(out[2].blockers, [
+    'Line 14: Not understood, so it was skipped: "stray line"',
+    'Step "Untyped step" has no type. Every step needs one, like {confirm} or {ui.action}.',
+    'Step "Unknown type" has an unknown type {nope.type}.',
+    'Step "Search with nothing" needs "query:" (JQL) or "filter:" (a saved filter\'s number). It can\'t be filled in during a run.',
+    'Step "Search with nothing" "results" should be none, any, exactly N, at least N or at most N (N a whole number up to 999999).',
+    'Step "Run the job" has a field "colour" that {jenkins.job} doesn\'t use.']);
+  assert.deepStrictEqual(out[0].blockers, [], 'tips never block');
+  /* From the command line: a team type in step-types/ is known by name, and the output says what ran and what didn't. */
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-draft-'));
+  try {
+    fs.mkdirSync(path.join(dir, 'step-types'));
+    fs.writeFileSync(path.join(dir, 'step-types', 'team.check.json'), JSON.stringify({ id: 'team.check', label: 'Team check' }));
+    const file = path.join(dir, 'd.md');
+    fs.writeFileSync(file, DRAFT_CASES[2].replace('{nope.type}', '{team.check}'));
+    const cli = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, dir, '--draft', file], { encoding: 'utf8' }));
+    assert.ok(!cli.blockers.some(b => /unknown type/.test(b)), 'a team type is known: ' + cli.blockers);
+    assert.ok(cli.ran.length && cli.notRun.indexOf('people.json (owner and backup)') >= 0 && cli.notRun.indexOf('team step types\' fields') >= 0, JSON.stringify(cli));
+    assert.ok(/Flightdeck checks partly run/.test(cli.note));
+    const missing = cp.spawnSync(py, ['-I', CHECKER, dir, '--draft', path.join(dir, 'nope.md')], { encoding: 'utf8' });
+    assert.strictEqual(missing.status, 1);
+    assert.ok(/couldn't be read/.test(JSON.parse(missing.stdout).error));
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+/* 3.0: module results. The draft check gives the app's result blockers in its words, and a publication with module-results is
+   judged as the app judges it: known here, a later feature refused naming 3.0. */
+const RESULT_CHILD = (o) => ['---', 'process: validate-story', 'title: Validate a story', 'context: ' + (o.context || 'issue, disposition:choice(cleared|needs-work|deferred)')]
+  .concat(o.result === null ? [] : ['result: ' + (o.result || 'disposition')]).concat(['---', '', '## Assess · DO-CONFIRM {#assess}',
+    '- [!] {decide} Record the validation result {#verdict}', '  options: ' + (o.options || 'cleared, needs-work, deferred')]).concat(o.sets === null ? [] : ['  sets: ' + (o.sets || 'disposition=decision')])
+  .concat(o.extra || []).join('\n') + '\n';
+rule('check_folder.py --draft: a checklist\'s result and its bindings get the app\'s blockers, word for word; the features and the envelope agree', () => {
+  const py = python(); if (!py) return;
+  const cases = [RESULT_CHILD({}), RESULT_CHILD({ result: 'nope' }), RESULT_CHILD({ context: 'issue, disposition' }), RESULT_CHILD({ sets: null }),
+    RESULT_CHILD({ extra: ['- [ ] {decide} Again {#again}', '  options: cleared, needs-work, deferred', '  sets: disposition=decision'] }),
+    RESULT_CHILD({ extra: ['- [ ] {confirm} Note it {#note}', '  sets: disposition'] }), RESULT_CHILD({ extra: ['- [ ] {confirm} Note it {#note}', '  sets: disposition=decision'] }),
+    RESULT_CHILD({ options: 'cleared, deferred, needs-work' }), RESULT_CHILD({ result: null }), RESULT_CHILD({ sets: 'disposition=answer' }),
+    ['---', 'process: release', 'title: Release', 'context: issue, story_result:choice(cleared|needs-work|deferred)', '---', '', '## Stories · DO-CONFIRM {#stories}',
+      '- [!] {run.process} Validate the story {#story}', '  process: validate-story', '  sets: story_result=result', '  accepts: cleared, cleared', '- [ ] {run.process} Again {#again}',
+      '  process: validate-story', '  sets: story_result=result', '- [ ] {confirm} Ship {#ship}', '  sets: story_result=result', ''].join('\n')];
+  const src = "import json,sys,importlib.util\nspec=importlib.util.spec_from_file_location('cf',sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)\n" +
+    "d=json.load(sys.stdin)\nprint(json.dumps([[m.draft_check(md,[])['blockers'], m.features(m.parse_map(md), {})] for md in d]))";
+  const out = JSON.parse(cp.execFileSync(py, ['-I', '-c', src, CHECKER], { input: JSON.stringify(cases), encoding: 'utf8' }));
+  const RE = /result|decision|accepts|binding/;
+  cases.forEach((md, i) => {
+    const app = PF.map.check(PF.map.parse(md), {}).blockers;
+    assert.deepStrictEqual(out[i][0].slice().sort(), JSON.parse(JSON.stringify(app.filter(b => RE.test(b)))).sort(), 'the result blockers, case ' + i);
+    assert.deepStrictEqual(out[i][1], JSON.parse(JSON.stringify(PF.map.features(PF.map.parse(md)))), 'the features, case ' + i);
+  });
+  assert.deepStrictEqual(out[0][0], [], 'a sound result checks clean');
+  assert.ok(out[0][1].indexOf('module-results') >= 0);
+  const judge = (o) => JSON.parse(cp.execFileSync(py, ['-I', '-c', "import json,sys,importlib.util\nspec=importlib.util.spec_from_file_location('cf',sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)\nprint(json.dumps(m.judge('preflight-publication', json.load(sys.stdin))))", CHECKER], { input: JSON.stringify(o), encoding: 'utf8' }));
+  assert.strictEqual(judge({ format: 'preflight-publication/2', features: ['module-results'], app: '3.0.0' }).ok, true);
+  const later = judge({ format: 'preflight-publication/2', features: ['module-results', 'later-thing'], app: '3.1.0' });
+  assert.deepStrictEqual([later.ok, later.kind, later.needs], [false, 'newer', '3.1']);
 });
 
 run();

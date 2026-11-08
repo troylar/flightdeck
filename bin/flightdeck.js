@@ -883,6 +883,8 @@ function runCovers(proc, id, r) {
   const base = covers(['runs/' + proc + '/' + id, 'people.json'].concat(r && typeof r.folder === 'string' ? [(r.test === true ? 'staged/' : 'publications/') + r.process + '/' + r.folder] : []));
   return (p) => base(p) || p === 'followups' || p === 'followups/' + proc || p === 'followups/' + proc + '/' || String(p).startsWith('followups/' + proc + '/' + id + '.');
 }
+/* The checked publication reader the screen gives a loop (procOf): a process's versions as loadAll indexed them. */
+function procOfFrom(d) { return (id) => { const e = ((d && d.processes) || []).filter((p) => p.process === id)[0], i = e && e.index; return i ? { latest: i.latest, all: i.all || [], clashes: i.clashes || [], broken: i.broken || [] } : null; }; }
 function dependsOn(fs, prefixes) {
   const ok = covers(prefixes);
   const v = {};
@@ -929,6 +931,15 @@ async function readData(eng, adapter, req) {
       if (pw) L.note('people.json', 'malformed', pw);
       if (r) { relevant = runCovers(m[1], m[2], r); take(judgeRun(PF, r, one.pub)); }
       const usable = !!r && !newerRun(PF, r);
+      /* Loops (3.0): an approval the folder no longer matches holds its gate here as in every window (PF.loop.markStale). */
+      if (usable && two && Object.keys(r.steps || {}).some((id) => r.steps[id] && r.steps[id].loop)) {
+        const mp = PF.run.mapOf(r), kids = [];
+        Object.keys(r.steps).forEach((id) => { const x = r.steps[id] && r.steps[id].loop && PF.map.findStep(mp, id); const pr = x && String(PF.run.fieldsOf(r, x.step).process || ''); if (pr && kids.indexOf('runs/' + pr) < 0) kids.push('runs/' + pr, 'publications/' + pr); });
+        const gp = await repo.readPlans(L.fs, null, null, true).catch(() => null);
+        const dk = gp && kids.length ? await repo.loadAll(dependsOn(L.fs, kids), { readOnly: true, deep: true }).catch(() => null) : { runs: [] };
+        if (gp && dk) PF.loop.markStale([r].concat(dk.runs || []), { records: gp.scopes, unread: gp.scopesUnread, procOf: procOfFrom(dk) });
+        else { r._loopStale = Object.create(null); Object.keys(r.steps).forEach((id) => { if (r.steps[id] && r.steps[id].loop && r.steps[id].s === 'done') r._loopStale[id] = ['The loop\'s scope records couldn\'t be read.']; }); }
+      }
       /* run and next read only what they depend on (readRunOnly), so every problem met counts. */
       const keep = (list) => list, nameOf = A.names(one.people);
       /* Contract 2 lists a run/3's migration records, current and archived (history-*.jsonl): a failed read is a problem. */
@@ -945,8 +956,30 @@ async function readData(eng, adapter, req) {
           else L.note(x._file || 'runs/' + key + '/', 'malformed', 'An archived migration record isn\'t one Flightdeck can read, so some of the run\'s history may be missing.');
         });
       }
-      if (req.cmd === 'run') return done(keep, usable ? (two ? A.run2 : A.run)(r, F.list([r], one.fuDecisions), nameOf) : { run: null });
-      return done(keep, usable ? A.next(r, nameOf, req.person || null) : { run: key, person: req.person ? nameOf(req.person) : null, next: null, mine: null });
+      /* Module results (3.0): the linked runs of steps that accept results, read (never written) so contract 2 can say a step
+         awaits its recorder's settlement. One that can't be read is just not reported as awaited. */
+      const kids = {};
+      if (two && usable && r.format === PF.run.FORMAT3) {
+        const rmap = PF.run.mapOf(r);
+        for (const sid of Object.keys(r.steps || {})) {
+          const a = r.steps[sid], x = PF.map.findStep(rmap, sid);
+          if (!a || !a.child || !x || !PF.run.acceptsOf(r, x.step)) continue;
+          const kk = a.child.process + '/' + a.child.id;
+          if (Object.prototype.hasOwnProperty.call(kids, kk)) continue;
+          /* The linked run is read like the run itself: its folder and its version are what this output depends on. */
+          const was = relevant, mine = covers(['runs/' + kk]);
+          relevant = (p) => was(p) || mine(p);
+          const c = await repo.readRunOnly(L.fs, a.child.process, a.child.id).catch((e) => { L.note('runs/' + kk + '/run.json', 'unreadable', fileWhy(e && e.message || String(e))); return null; });
+          if (c && !c.found) L.note('runs/' + kk + '/run.json', 'nofile', 'The run linked to step "' + sid + '" isn\'t in the team folder (it may still be arriving, or it was deleted), so what it returned can\'t be read.');
+          if (!c || !c.found) continue;
+          take(c.bad.map((b) => ({ path: b.path, kind: b.kind || 'unreadable', why: fileWhy(b.why) })));
+          if (c.nofile) L.note('runs/' + kk + '/run.json', 'nofile', 'The run folder has no run.json.');
+          if (c.run && typeof c.run.folder === 'string') { const pub = covers([(c.run.test === true ? 'staged/' : 'publications/') + c.run.process + '/' + c.run.folder]), w2 = relevant; relevant = (p) => w2(p) || pub(p); take(judgeRun(PF, c.run, c.pub)); }
+          if (c.run && !c.run._unrunnable) kids[kk] = c.run;
+        }
+      }
+      if (req.cmd === 'run') return done(keep, usable ? (two ? (rr, it, nm) => A.run2(rr, it, nm, { kids }) : A.run)(r, F.list([r], one.fuDecisions), nameOf) : { run: null });
+      return done(keep, usable ? (two ? (rr, nm, pp) => A.next2(rr, nm, pp, { kids }) : A.next)(r, nameOf, req.person || null) : { run: key, person: req.person ? nameOf(req.person) : null, next: null, mine: null });
     }
     /* Each command reads only what its output depends on (needs()), so every problem the ledger holds is one that output
        depends on, and all of them are reported: there's no scope to fall behind what's read. */
@@ -1673,7 +1706,13 @@ async function readInputs(eng, text, ra, L, everything) {
      leaves the answer complete. */
   const used = PF.publish.usesOf(map), problems = everything().filter((x) => PF.publish.uses(used, x, shots));
   const ctx = PF.publish.checkContext({ people, types, workflows: d.jira ? d.jira.workflows : null, processes, teamValues, missingShots, unknown: PF.publish.unknownOf(problems, shots) });
-  return { verdict: PF.publish.publishCheck(text, ctx), problems };
+  /* Design tips (3.0): advice from the text, and the searches and gates published checklists already have. What couldn't be
+     read under publications/ is said in the tips and in library.complete, never read as "no other checklist has it". */
+  const unread = 'publications' in failed ? [{ process: null, path: 'publications/', why: failed.publications }]
+    : problems.filter((x) => /^publications\//.test(x.path)).map((x) => ({ process: x.path.split('/')[1] || null, path: x.path, why: x.why }));
+  const lib = PF.library.inspect(PF.library.entriesOf({ processes: 'publications' in failed ? [] : d.processes }), unread);
+  const design = { tips: PF.library.lints(text, { library: lib, process: map.meta.process }), library: { complete: lib.completeness.complete, note: lib.completeness.note } };
+  return { verdict: PF.publish.publishCheck(text, ctx), problems, design };
 }
 /* flightdeck draft check <team folder> <process> [--from <file | ->] --json (2.13): the verdict the Publish dialog gives the
    draft in maps/drafts/ (or the text given with --from), from the folder as it is now (draftInputs). Read-only; prints
@@ -1712,11 +1751,82 @@ async function draftCheck(argv) {
   }
   try {
     const got = await draftInputs(eng, dir, text);
-    const data = { process: proc, from: { kind: said.kind, ref: said.ref, rev: PF.proposals.sha(text) }, checks: got.verdict.checks, publish: got.verdict.publish };
+    const data = { process: proc, from: { kind: said.kind, ref: said.ref, rev: PF.proposals.sha(text) }, checks: got.verdict.checks, publish: got.verdict.publish, design: got.design };
     const e = A.envelope(eng.version, new Date().toISOString(), got.problems, data, C2);
     return { out: JSON.stringify(e, null, 2), code: e.complete ? 0 : EXIT.partial };
   } catch (e) {
     return failOut('failed', e instanceof Refused ? e.message : 'The team folder couldn\'t be read: ' + (e && e.message || String(e)), e && e.problems);
+  }
+}
+/* flightdeck library inspect <team folder> [--process <id>] --json (3.0): every checklist, normalized (PF.library.inspect):
+   the latest usable version of each process and any draft that differs from it, what links to what, the team step types
+   each uses, skill coverage, and candidates that look alike across checklists, each with its reason. Read-only; prints
+   flightdeck-read/2 with SCHEMA2.library. What couldn't be read is a problem (exit 4) and in completeness.unread, never
+   "nothing similar". With --process, only what concerns that process: its checklists, the links to and from it, the
+   overlaps it's in and the step types it uses. */
+async function libraryMain(argv) {
+  const VAL = ['--process'], args = argv.filter((a, i) => !a.startsWith('--') && !(i > 0 && VAL.indexOf(argv[i - 1]) >= 0));
+  let eng = null;
+  const C2 = 2, appOf = () => (eng ? eng.version : versionOf(app()) || '');
+  const failOut = (kind, why, problems, code) => { const F = eng ? eng.PF.appjson : null, json = F ? F.failure(appOf(), kind, why, problems || [], C2) : { contract: 'flightdeck-read/2', app: appOf(), error: { kind, why }, problems: [] }; return { out: JSON.stringify(json, null, 2), code: code || EXIT.error }; };
+  const usage = (why) => failOut('usage', why);
+  const pi = argv.indexOf('--process'), proc = pi >= 0 ? argv[pi + 1] : null;
+  if (pi >= 0 && (!proc || proc.startsWith('--') || !PROC_ID.test(proc))) return usage('say which process after --process (lowercase letters, numbers and dashes).');
+  const unknown = argv.filter((a) => a.startsWith('--') && ['--json', '--process'].indexOf(a) < 0);
+  if (unknown.length) return usage('library inspect doesn\'t take ' + unknown.join(', ') + '.');
+  if (!argv.includes('--json')) return usage('flightdeck library prints JSON. Add --json.');
+  if (args[1] !== 'inspect' || !args[2] || args[3]) return usage('say the team folder, for example: flightdeck library inspect <team folder> --json');
+  let dir;
+  try { eng = loadEngine(); dir = folderArg(args[2], 'library inspect'); } catch (e) { return failOut('failed', e.message); }
+  const PF = eng.PF, A = PF.appjson, ra = readAdapter(dir, { maxBytes: READ_MAX }), L = PF.repo.ledger(PF.repo.readOnly(ra, 'Reading the library'));
+  const everything = () => { const out = L.problems(), seen = {}; out.forEach((x) => { seen[x.path + '\u0000' + x.kind] = true; }); adapterProblems(ra).forEach((x) => { if (!seen[x.path + '\u0000' + x.kind]) out.push(x); }); return out; };
+  try {
+    const d = await PF.repo.loadAll(dependsOn(L.fs, ['publications', 'maps/drafts', 'step-types', 'skills', 'skill-registrations']), { readOnly: true, explain: true, deep: true, registrations: true });
+    const failed = d.failed || {};
+    const PARTS = { drafts: 'maps/drafts', publications: 'publications', 'step types': 'step-types', skills: 'skills' };
+    Object.keys(PARTS).forEach((k) => { if (k in failed && !L.problems().some((x) => x.path === PARTS[k] || x.path.indexOf(PARTS[k] + '/') === 0)) L.note(PARTS[k], /newer/.test(failed[k]) ? 'newer' : 'unreadable', failed[k]); });
+    (d.processes || []).forEach((p) => p.pubs.filter((x) => !x.ok && !x._readFailed).forEach((x) => { const k = A.pubProblem(x); L.note('publications/' + p.process + '/' + x.folder + '/', k.kind, k.why); }));
+    /* A draft too big or that failed to read is named, never left out as if the process had no draft. */
+    (d.unreadable || []).forEach((x) => { if (x && x.draft && !L.problems().some((y) => y.path === x.path)) L.note(x.path, 'unreadable', x.path + ' ' + x.why + '.'); });
+    const entries = PF.library.entriesOf(d);
+    /* Step types: a file that can't be used, one from a newer Flightdeck, and each past the 100 read, as draft check names them. */
+    if (!('step types' in failed)) {
+      ((d.stepTypes || {}).errors || []).forEach((x) => { const at = 'step-types/' + x.file; if (!L.problems().some((y) => y.path === at)) L.note(at, 'malformed', at + ': ' + x.errors.join('; ') + '.'); });
+      ((d.stepTypes || {}).refused || []).forEach((r) => L.note(r.path, 'newer', r.why));
+      PF.publish.excludedOf({ stepTypes: d.stepTypes }).forEach((x) => L.note(x.path, x.kind, x.why));
+    }
+    /* Versions that clash at the top leave a checklist out (PF.library.inspect says so too). */
+    entries.forEach((e) => {
+      const top = e.latest && e.latest.info ? +e.latest.info.version || 0 : 0, clash = (e.clashes || []).filter((n) => n >= top);
+      if (clash.length) L.note('publications/' + e.id + '/', 'conflict', 'More than one version is numbered v' + clash[0] + ', so which one new runs use can\'t be told.');
+    });
+    /* A draft with a line it doesn't understand is read as far as it goes (PF.library.inspect) and named here. */
+    entries.forEach((e) => {
+      if (!e.draft || !(e.draftChanged || !e.latest)) return;
+      const errs = PF.map.parse(e.draft.md).errors, at = 'maps/drafts/' + e.draft.file;
+      if (errs.length && !L.problems().some((x) => x.path === at)) L.note(at, 'malformed', at + ' line ' + errs[0].line + ': ' + errs[0].msg + (errs.length > 1 ? ' (and ' + (errs.length - 1) + ' more)' : ''));
+    });
+    /* Skill registrations that couldn't be read: a file, or a skill with a revision that can't be (no revision is current). */
+    (d.skills || []).forEach((x) => {
+      if (!(x.errors || []).length || !x.file || (x.skill && !x.refused)) return;
+      const at = x.refused && x.name ? 'skill-registrations/' + x.name + '/' : /^skill(s|-registrations)\//.test(x.file) ? x.file : 'skills/' + x.file;
+      if (!L.problems().some((y) => y.path === at)) L.note(at, x.newer ? 'newer' : 'unreadable', x.errors[0]);
+    });
+    const problems = everything();
+    const unread = problems.filter((x) => /^(publications|maps\/drafts|step-types|skills|skill-registrations)(\/|$)/.test(x.path))
+      .map((x) => ({ process: /^publications\//.test(x.path) ? x.path.split('/')[1] || null : /^maps\/drafts\//.test(x.path) ? (entries.filter((e) => e.draft && 'maps/drafts/' + e.draft.file === x.path)[0] || {}).id || null : null, path: x.path, why: x.why }));
+    if (proc && !entries.some((e) => e.id === proc) && !unread.length) return failOut('not-found', 'There\'s no checklist "' + proc + '" in the team folder, published or drafted.', problems, EXIT.notFound);
+    let lib = PF.library.inspect(entries, unread, { types: (d.stepTypes || {}).types || {} });
+    if (proc) {
+      const linked = lib.checklists.filter((c) => c.process === proc);
+      lib = { checklists: linked, usedBy: lib.usedBy.filter((e) => e.process === proc || e.by.process === proc),
+        overlaps: lib.overlaps.filter((o) => o.items.some((x) => x.process === proc)),
+        stepTypes: lib.stepTypes.filter((t) => t.usedBy.some((u) => u.process === proc)), completeness: lib.completeness };
+    }
+    const e = A.envelope(eng.version, new Date().toISOString(), problems, lib, C2);
+    return { out: JSON.stringify(e, null, 2), code: e.complete ? 0 : EXIT.partial };
+  } catch (e) {
+    return failOut('failed', e instanceof Refused ? e.message : 'The team folder couldn\'t be read: ' + (e && e.message || String(e)), everything());
   }
 }
 async function draftMain(argv) {
@@ -1754,7 +1864,7 @@ async function draftMain(argv) {
           : latest ? { rev: latest.rev, kind: 'version', ref: latest.folder, text: latest.text } : { rev: PP.sha(''), kind: 'none', ref: null, text: '' };
       /* The draft is there but couldn't be read, and nothing else continues it: its text is unknown, so nothing is checked. */
       const unread = !pending && s.draft.exists && s.draft.text == null;
-      const ck = unread ? { checks: { blockers: [], suggestions: [] }, problems: [] } : await checksOf(cf.text), problems = merged(s.problems, ck.problems);
+      const ck = unread ? { checks: { blockers: [], suggestions: [], blockerSteps: [], suggestionSteps: [] }, problems: [] } : await checksOf(cf.text), problems = merged(s.problems, ck.problems);
       const out = draftJson(eng, { process: proc, session, draft: s.draft, openIn: s.presence.openIn, mine: s.mine.map((m) => ({ id: m.id, rev: m.rev, status: m.status, text: m.text })),
         continueFrom: cf, checks: ck.checks, copies: s.copies, readAt: new Date(now).toISOString(), complete: problems.length === 0, problems });
       return { out: JSON.stringify(out, null, 2), code: out.complete ? 0 : EXIT.partial };
@@ -2510,6 +2620,18 @@ const HELP = `flightdeck: team process checklists, in one HTML file
   flightdeck draft check <team folder> <process> [--from <file|->] --json
                                       the verdict the Publish dialog gives the draft (or the text in the file): what
                                       stops publishing and the tips, from the folder as it is now. Only reads
+  flightdeck library inspect <team folder> [--process <id>] --json
+                                      for AI assistants: every checklist, normalized, what links to what, the step
+                                      types each uses, and what looks alike across checklists, with why. Only reads
+  flightdeck loop read <team folder> <process>/<run> <loop step> --json
+                                      for AI assistants: one loop of a run: its items, the exact counts, what
+                                      holds its gate and the approval. Only reads
+  flightdeck loop sync <team folder> <process>/<run> <loop step> --from <file|-> --tool <name>@<version> --key <key> [--dry-run] [--json]
+                                      for AI assistants: ask for a change to a loop's list (also loop add --keys,
+                                      with --title and --link for one item of items: item; exclude,
+                                      restore, exception, withdraw, owner, choose, plan, review), or ask the recorder
+                                      to start, start-all, approve, send-back or resolve. Writes one file in proposals/, once;
+                                      --dry-run previews; the recorder's window applies; never writes a run
   flightdeck skill register <team folder> --from <file|-> [--json]
                                       for AI assistants: register a skill against the exact version it was built
                                       from (Flightdeck 2.0). The only writer of skill-registrations/
@@ -2555,6 +2677,289 @@ Every file install replaces is first copied to .flightdeck/updates/<version>/rep
 Files your team changed are never replaced without --force. When this version also changed them, the new
 default goes to .flightdeck/updates/<version>/, with a README.md to hand to your AI assistant.`;
 
+/* ---------- Loops: flightdeck loop read | sync | add | exclude | restore | exception | withdraw | owner | review (3.0,
+   docs/apps.md, docs/design.md 44) ----------
+   read prints one loop of a parent run: its items, the roll-up, blockers, reviews waiting and the approval and every change
+   since. The others ask for a scope change by writing one new file in proposals/, once: a scope request (sync from an
+   observation, or add, exclude, restore, exception, withdraw, owner), or for review, a decision on proposed removals made by
+   a person (--as) that a tool records on their behalf. They never start a run and never write run.json; the parent's
+   recorder sees the change when Flightdeck reads the folder. --dry-run previews and writes nothing. The same --tool and --key
+   always mean the same request: a retry writes nothing; the key with other content is refused. */
+const LOOP_SUBS = ['read', 'sync', 'add', 'exclude', 'restore', 'exception', 'withdraw', 'owner', 'choose', 'plan', 'review', 'start', 'start-all', 'approve', 'send-back', 'resolve'];
+const LOOP_VAL = ['--from', '--key', '--tool', '--keys', '--title', '--link', '--item', '--reason', '--approver', '--owner', '--as', '--accept', '--keep', '--run', '--record', '--outcome'];
+const UNCERTAIN = 'Could not confirm whether the request was saved. Retry with the same key; a new key could ask twice.';
+function loopWords(json, sub) {
+  if (json.error) return 'flightdeck: ' + json.error.why + json.problems.map((x) => '\n  ' + x.path + ': ' + x.why).join('');
+  const d = json.data, lines = [];
+  if (sub === 'read') {
+    lines.push(d.title + ' · ' + d.summary);
+    if (d.noun) lines.push(d.items.length + ' ' + (d.items.length === 1 ? d.noun.one : d.noun.many) + ' listed' + (d.source ? ', fed by ' + d.source : ''));
+    if (d.observation) lines.push('Last observed ' + d.observation.observedAt + (d.observation.complete ? '' : ' (not complete: ' + d.observation.why + ')'));
+    if (d.approval) lines.push('Approved by ' + d.approval.by + ': ' + d.approval.summary);
+    if (d.review.length || d.changes.length) lines.push('Approval needs review:', ...d.review.concat(d.changes).map((x) => '  ' + x));
+    d.blockers.forEach((b) => lines.push('  ' + b.text));
+    d.pending.forEach((p) => lines.push('  ' + p.key + ' · proposed removal'));
+  } else lines.push(d.preview);
+  json.problems.forEach((x) => lines.push('  ' + x.path + ': ' + x.why));
+  return lines.join('\n');
+}
+async function loopMain(argv) {
+  const val = {}, args = argv.filter((a, i) => !a.startsWith('--') && !(i > 0 && LOOP_VAL.indexOf(argv[i - 1]) >= 0));
+  let eng = null;
+  const C2 = 2, asJson = argv.includes('--json'), dryRun = argv.includes('--dry-run'), sub = args[1], appOf = () => (eng ? eng.version : versionOf(app()) || '');
+  const out = (json, code) => ({ out: asJson ? JSON.stringify(json, null, 2) : loopWords(json, sub), code });
+  const failOut = (kind, why, problems, code) => { const F = eng ? eng.PF.appjson : null; return out(F ? F.failure(appOf(), kind, why, problems || [], C2) : { contract: 'flightdeck-read/2', app: appOf(), error: { kind, why }, problems: problems || [] }, code || (kind === 'not-found' ? EXIT.notFound : EXIT.error)); };
+  const usage = (why) => failOut('usage', why);
+  for (const f of LOOP_VAL) { const i = argv.indexOf(f); if (i >= 0) { if (argv[i + 1] == null || (argv[i + 1].startsWith('--') && f !== '--reason')) return usage('say what goes after ' + f + '.'); val[f] = argv[i + 1]; } }
+  const unknown = argv.filter((a, i) => a.startsWith('--') && ['--json', '--dry-run'].concat(LOOP_VAL).indexOf(a) < 0 && !(i > 0 && LOOP_VAL.indexOf(argv[i - 1]) >= 0));
+  if (unknown.length) return usage('loop doesn\'t take ' + unknown.join(', ') + '.');
+  if (LOOP_SUBS.indexOf(sub) < 0) return usage('say what to do: flightdeck loop ' + LOOP_SUBS.join(' | ') + ' <team folder> <process>/<run> <loop step> ...');
+  const m = RUN_KEY.exec(args[3] || ''), stepId = args[4];
+  if (!args[2] || !m || !stepId || args[5] || !/^[a-z0-9][a-z0-9-]{0,59}$/i.test(stepId)) return usage('say the team folder, the parent run and its loop step, for example: flightdeck loop ' + sub + ' <team folder> release-readiness/k3m9p2q8 stories --json');
+  const writes = sub !== 'read';
+  let tool = null;
+  if (writes) {
+    const tm = /^([a-z0-9][a-z0-9-]{0,29})@([A-Za-z0-9_.+-]{1,40})$/.exec(val['--tool'] || '');
+    if (!tm) return usage('say which tool asks, with its version, for example --tool release-helper@1.4.0.');
+    tool = { name: tm[1], version: tm[2] };
+    if (!val['--key'] || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(val['--key'])) return usage('say which key with --key: lowercase letters, numbers, dots, dashes or underscores, like import-42. The same key always means the same request.');
+  }
+  let dir;
+  try { eng = loadEngine(); dir = folderArg(args[2], 'loop ' + sub); } catch (e) { return failOut('failed', e.message); }
+  const PF = eng.PF, A = PF.appjson, LP = PF.loop, R = PF.run, repo = PF.repo, proc = m[1], runId = m[2];
+  const ra = readAdapter(dir, { maxBytes: READ_MAX }), L = repo.ledger(repo.readOnly(ra, 'Reading a loop'));
+  let childProc = '';
+  const relevant = (p) => p === '' || /^proposals(\/|$)/.test(p) || p === 'people.json' || p.indexOf('runs/' + proc + '/' + runId) === 0 || (!!childProc && p.indexOf('runs/' + childProc) === 0) || p === 'runs' || p === 'runs/' + proc;
+  const problems = () => { const all = L.problems(), seen = {}; all.forEach((x) => { seen[x.path + '\u0000' + x.kind] = true; }); adapterProblems(ra).forEach((x) => { if (!seen[x.path + '\u0000' + x.kind]) all.push(x); }); return all.filter((x) => relevant(x.path)); };
+  const done = (data) => { const e = A.envelope(eng.version, new Date().toISOString(), problems(), data, C2); return out(e, e.complete ? 0 : EXIT.partial); };
+  try {
+    const one = await repo.readRunOnly(L.fs, proc, runId);
+    if (!one.found) return failOut('not-found', 'There\'s no run ' + proc + '/' + runId + ' in the team folder.' + (writes ? ' Nothing was written.' : ''), problems());
+    const r = one.run;
+    if (!r) return failOut('failed', 'The run ' + proc + '/' + runId + ' couldn\'t be read, so its loop can\'t be.' + (writes ? ' Nothing was written.' : ''), problems());
+    if (newerRun(PF, r)) return failOut('failed', 'The run ' + proc + '/' + runId + ' was made with a newer Flightdeck: ' + r._unrunnable + (writes ? ' Nothing was written.' : ''), problems());
+    let map; try { map = R.mapOf(r); } catch (e) { return failOut('failed', 'The run\'s checklist can\'t be read here.', problems()); }
+    const x = PF.map.findStep(map, stepId);
+    if (!x || x.step.type !== 'for.each') return failOut('not-found', 'Step ' + stepId + ' of ' + proc + '/' + runId + ' isn\'t a loop ({for.each}).' + (writes ? ' Nothing was written.' : ''), problems());
+    /* A kind of item this copy doesn't know: the run is read-only here, named by its kind; no other kind stands in. */
+    if (!LP.kindOf(String(R.fieldsOf(r, x.step).items || '').trim())) return failOut('failed', (r._unrunnable || 'Step ' + stepId + ' takes a kind of item this copy of Flightdeck doesn\'t know.') + (writes ? ' Nothing was written.' : ''), problems());
+    childProc = String(R.fieldsOf(r, x.step).process || '');
+    const bad = [], got = await repo.readPlans(L.fs, bad, null, true);
+    bad.forEach((b) => L.note(b.path, b.kind || 'malformed', fileWhy(b.why)));
+    const d = childProc ? await repo.loadAll(dependsOn(L.fs, ['runs/' + childProc, 'publications/' + childProc]), { readOnly: true, explain: true, deep: true }) : { runs: [] };
+    const procOf = procOfFrom(d);
+    const nameOf = A.names(one.people), who = (p) => { const n = nameOf(p); return n ? n.name || n.id : ''; };
+    const unread = (got.scopesUnread || []).concat(bad.filter((b) => /^proposals\/req-/.test(String(b.path || ''))).map((b) => ({ file: String(b.path).slice(10), why: b.why, loop: null })));
+    const V = LP.view(r, stepId, { records: got.scopes, unread, runs: d.runs || [], procOf, who }), title = String(r.title || r.process);
+    /* What this loop's rows are called (noun:, or the kind's own), and an example key of its kind, for every message here. */
+    const N = V.noun, jira = V.kind === 'jira.issue', EX = jira ? ['ABC-101', 'ABC-102'] : ['staging', 'prod'];
+    if (sub === 'read') {
+      const R0 = V.rollup;
+      return done({ loop: V.loop, title, kind: V.kind, noun: { one: N.one, many: N.many }, source: V.fields.source || null, step: { id: stepId, text: x.step.text, state: (r.steps[stepId] || {}).s || 'open' }, process: childProc, pin: V.pin, accepts: V.accepts,
+        summary: R0.summary, counts: R0.counts, ok: R0.ok, blockers: R0.blockers,
+        items: R0.items.map((i) => ({ uid: i.uid, key: i.key, title: i.title, link: (V.ledger.items.filter((y) => y.uid === i.uid)[0] || {}).link || null, state: i.state, status: i.status, result: i.result || null, run: i.run || null, runs: i.runs, competing: i.competing,
+          recorder: i.recorder ? nameOf(i.recorder) : null, owner: i.owner ? nameOf(i.owner) : null, exception: i.exception ? { reason: i.exception.reason, approver: nameOf(i.exception.approver), onBehalf: i.exception.onBehalf } : null,
+          review: i.review, mismatch: i.mismatch, attempt: i.attempt, planned: i.planned ? { inputs: i.planned.inputs, attempt: i.planned.attempt } : null,
+          planConflict: i.planConflict, ownerConflict: i.ownerWhy || null, exceptionConflict: !!i.excReview })),
+        pending: V.ledger.pending, held: V.ledger.held, duplicates: V.ledger.duplicates, overLimit: V.ledger.overLimit,
+        observation: V.ledger.observation ? Object.assign({ record: V.ledger.observation.record }, V.ledger.observation.observation, { items: undefined, count: V.ledger.observation.observation.items.length }) : null,
+        approval: V.approved ? { by: V.approved.by, at: V.approved.at, onBehalf: V.approved.onBehalf || null, summary: V.approved.summary } : null,
+        changes: V.changes, review: V.review, ended: V.ended, late: V.ended ? V.changes : [], approvalStands: !(V.approved && V.changes.length), requests: LP.actionsOf(V) });
+    }
+    /* Anything this depends on that couldn't be read, or a scope record this one would follow that can't be: nothing is written. */
+    const held = (why) => done({ loop: V.loop, status: 'held', request: null, preview: why, why });
+    if (sub === 'review') return loopReview(eng, { dir, val, V, tool, dryRun, held, done, usage, failOut, problems, title });
+    let value, act = null;
+    /* The CLI asks; the recorder applies (docs/apps.md, Loops): a story's run, every startable one, the approval and a send-back
+       are requests the recorder's window carries out with the same checks as its buttons. Nothing here writes run.json. */
+    if (['start', 'start-all', 'approve', 'send-back', 'resolve'].indexOf(sub) >= 0) {
+      if (!val['--as'] || !/^[A-Za-z0-9_.-]{1,80}$/.test(val['--as'])) return usage('say who asks with --as <person id from people.json>. The recorder applies it on their behalf.');
+      /* A story named twice is refused before anything else, so a first try and its retry get the same answer. */
+      const named = String(val['--item'] || '').split(/[\s,]+/).filter(Boolean), twice = named.filter((k, i) => named.indexOf(k) !== i);
+      if (sub === 'resolve' && (!val['--record'] || ['applied', 'refused'].indexOf(val['--outcome']) < 0)) return usage('say which request with --record <request id> and what happened with --outcome applied or --outcome refused.');
+      if (sub === 'start' && twice.length) return usage('--item names ' + twice.filter((k, i) => twice.indexOf(k) === i).slice(0, 5).join(', ') + ' more than once. Name each ' + N.one + ' once. Nothing was written.');
+      const a = r.steps && r.steps[stepId], lines = [];
+      /* A retry under the same key is judged on what was first asked, before the loop's state now: an identical one says
+         already (even once carried out), anything else under the key is refused, naming what changed. */
+      const idA = LP.idFor(tool.name, val['--key']), fileA = 'proposals/' + idA + '.json';
+      if (unread.some((u) => u.file === idA + '.json')) return held('A request under this key is in the folder but can\'t be read yet. Nothing written. Check folder availability, then retry with the same key.');
+      const priorA = LP.actionsOf({ records: got.scopes.filter((x) => x.id === idA || x.proposal === idA) })[0] || (got.scopes.some((x) => x.id === idA) ? { ops: ['(not a ' + sub + ' request)'], items: [], as: '', reason: '' } : null);
+      if (priorA) {
+        const kindA = priorA.ops[0] === 'start' && priorA.all ? 'start-all' : priorA.ops[0], dA = [];
+        const recA = got.scopes.filter((x) => x.id === idA)[0], lpA = recA ? LP.loopOf(recA) : null;
+        if (!lpA || lpA.process !== V.loop.process || lpA.run !== V.loop.run || lpA.step !== V.loop.step) dA.push('loop');
+        if (kindA !== sub) dA.push('action');
+        if (priorA.as !== val['--as']) dA.push('as');
+        if ((priorA.reason || '') !== (val['--reason'] || '')) dA.push('reason');
+        if (sub === 'resolve' && ((priorA.record || '') !== val['--record'] || (priorA.outcome || '') !== val['--outcome'])) dA.push((priorA.record || '') !== val['--record'] ? 'record' : 'outcome');
+        if (sub === 'start' && JSON.stringify(priorA.items.slice().sort()) !== JSON.stringify(String(val['--item'] || '').split(/[\s,]+/).filter(Boolean).sort())) dA.push('items');
+        if (dA.length) return failOut('key-taken', 'This key already names a different request (' + fileA + '). Changed fields: ' + dA.join(', ') + '. Read that request (flightdeck loop read) before choosing a new key. Nothing was written.', problems());
+        return done({ loop: V.loop, status: 'already', request: { id: idA, file: fileA }, preview: 'Already requested (' + (priorA.status || 'pending') + (priorA.why ? ': ' + priorA.why : '') + '). Nothing written.', start: [], skip: [], approve: null, sendBack: null, runsStarted: 0, appliedBy: 'the recorder' });
+      }
+      if (V.ended) return failOut('invalid', 'This run has ended, so its loop takes no more requests. Nothing was written.', problems());
+      if (sub === 'start' || sub === 'start-all') {
+        const keys = sub === 'start' ? String(val['--item'] || '').split(/[\s,]+/).filter(Boolean) : null;
+        if (sub === 'start' && !keys.length) return usage('say which ' + N.one + ' with --item ' + EX[0] + '.');
+        const S = LP.launchable(r, V, keys, procOf);
+        if (!S.start.length) return failOut('invalid', 'Nothing to start' + (S.skip.length ? ': ' + S.skip.map((k) => k.key + ' (' + k.why + ')').join(', ') : '') + '. Nothing was written.', problems());
+        act = { start: S.start, skip: S.skip };
+        value = { loop: V.loop, changes: S.start.map((k) => Object.assign({ op: 'start', item: { key: k.key }, as: val['--as'] }, sub === 'start-all' ? { all: true } : {})) };
+        lines.push('Would ask the recorder to start ' + S.start.length + (S.start.length === 1 ? ' run: ' : ' runs: ') + S.start.map((k) => k.key).join(', ') + '.');
+        if (S.skip.length) lines.push('Skipped: ' + S.skip.map((k) => k.key + ' (' + k.why + ')').join(', ') + '.');
+      } else if (sub === 'resolve') {
+        /* Resolved by what the request left behind (LP.resolveWhy), never by doing it again: the recorder's window checks again. */
+        const tq = LP.actionsOf(V).filter((y) => y.id === val['--record'])[0];
+        if (!tq || tq.status !== 'review') return failOut('invalid', (tq ? val['--record'] + ' is ' + tq.status + ', not recorded both ways' : val['--record'] + ' isn\'t a request on this loop') + '; only an outcome recorded both ways is resolved. Nothing was written.', problems());
+        const rw = LP.resolveWhy(r, stepId, tq, val['--outcome'], d.runs || [], V.records);
+        if (rw) return failOut('invalid', rw + ' Nothing was written.', problems());
+        act = { resolve: { request: tq.id, outcome: val['--outcome'] } };
+        value = { loop: V.loop, changes: [{ op: 'resolve', record: tq.id, outcome: val['--outcome'], as: val['--as'] }] };
+        lines.push('Would ask the recorder to record ' + tq.id + ' as ' + val['--outcome'] + ' (it was recorded both ways).');
+      } else if (sub === 'approve') {
+        if (a && a.s === 'done' && a.loop && !V.changes.length) return failOut('invalid', 'This loop is already approved. Nothing was written.', problems());
+        if (!V.rollup.ok) return failOut('invalid', 'It can\'t be approved yet: ' + V.rollup.summary + '. ' + V.rollup.blockers.slice(0, 5).map((b) => b.text).join(' ') + ' Nothing was written.', problems());
+        act = { approve: V.rollup.summary };
+        value = { loop: V.loop, changes: [{ op: 'approve', as: val['--as'] }] };
+        lines.push('Would ask the recorder to approve: ' + V.rollup.summary + '.');
+      } else {
+        if (!(a && a.s === 'done' && a.loop)) return failOut('invalid', 'This loop isn\'t approved, so there is nothing to send back. Nothing was written.', problems());
+        act = { sendBack: V.changes };
+        value = { loop: V.loop, changes: [Object.assign({ op: 'send-back', as: val['--as'] }, val['--reason'] ? { reason: val['--reason'] } : {})] };
+        lines.push('Would ask the recorder to send the approval back for review' + (V.changes.length ? ': ' + V.changes.join(' ') : '.'));
+      }
+      const may = LP.requestCheck(r, V, { ops: value.changes.map((c) => c.op), items: value.changes.filter((c) => c.item).map((c) => c.item.key), as: val['--as'], reason: val['--reason'] || '' }, one.people);
+      if (may) return failOut('invalid', may + ' Nothing was written.', problems());
+      lines.push('The recorder\'s window applies it with the same checks as its buttons; no run starts until then.');
+      act.lines = lines;
+    } else if (sub === 'sync') {
+      if (!val['--from']) return usage('say where the observation is: --from observation.json (or - for standard input).');
+      const input = await readRequestInput(val['--from'], LP.LIMITS.bytes).catch((e) => ({ err: e }));
+      if (input.err) return usage('couldn\'t read the observation: ' + input.err.message);
+      if (input.tooBig) return failOut('invalid', 'An observation is at most ' + (LP.LIMITS.bytes / 1024) + ' KB; this one is more. Nothing is cut: narrow the search. Nothing was written.');
+      let obs; try { obs = JSON.parse(input.buf.toString('utf8').replace(/^﻿/, '')); } catch (e) { return failOut('invalid', 'The observation isn\'t complete JSON: ' + e.message + ' Nothing was written.'); }
+      /* An observation from another feed, or another scope of this one, is refused before anything is filed. */
+      const fw = LP.feedWhy(obs && typeof obs === 'object' ? obs : {}, V.fields, V.ledger.observation);
+      if (fw) return failOut('invalid', 'This ' + fw + '. Nothing was written.', problems());
+      value = { loop: V.loop, observation: obs };
+    } else {
+      /* A Jira key may come as its link; any other kind's key is taken exactly as typed (case and all). */
+      const items = (sub === 'add' ? String(val['--keys'] || '') : String(val['--item'] || '')).split(/[\s,]+/).filter(Boolean).map((k) => { const km = jira ? /([A-Z][A-Z0-9_]{0,29}-[1-9][0-9]{0,8})\/?$/.exec(k) : null; return km ? km[1] : k; });
+      if (!items.length) return usage(sub === 'add' ? 'say which ' + N.many + ' with --keys ' + EX.join(',') + (jira ? ' (keys or links).' : '.') : 'say which ' + N.one + ' with --item ' + EX[0] + '.');
+      if ((val['--title'] != null || val['--link'] != null) && (sub !== 'add' || items.length !== 1 || jira)) return usage('--title and --link go with adding one ' + (jira ? 'item of a list (items: item); a Jira story brings its own' : N.one + ' (--keys ' + EX[0] + ')') + '.');
+      const find = (k) => V.ledger.items.filter((i) => i.key === k)[0];
+      value = { loop: V.loop, changes: items.map((k) => {
+        const it = sub === 'add' ? Object.assign({ key: k }, val['--title'] != null ? { title: val['--title'] } : {}, val['--link'] != null ? { link: val['--link'] } : {}) : (find(k) && find(k).id ? { id: find(k).id, key: k } : { key: k }), c = { op: sub, item: it };
+        if (val['--reason'] != null) c.reason = val['--reason'];
+        if (sub === 'exception') { c.approver = val['--approver']; if (val['--as']) c.onBehalf = true; }
+        if (sub === 'owner') c.owner = val['--owner'] || '';
+        if (sub === 'choose') { const ch = LP.changeOf(V, 'choose', [k], { run: val['--run'] || '' }).changes[0]; c.run = ch.run; c.attempt = ch.attempt; c.candidates = ch.candidates; }
+        if (sub === 'plan') { const ch = LP.changeOf(V, 'plan', [k], { record: val['--record'] || '' }).changes[0]; c.record = ch.record; c.attempt = ch.attempt; }
+        return c;
+      }) };
+      if (sub !== 'add') { const miss = items.filter((k) => !find(k)); if (miss.length) return failOut('invalid', miss.join(', ') + (miss.length === 1 ? ' isn\'t' : ' aren\'t') + ' in this loop. Nothing was written.', problems()); }
+      if (sub === 'plan') { if (items.length !== 1 || !val['--record']) return usage('say which ' + N.one + ' with --item ' + EX[0] + ' and which of its plans to keep with --record <request id>.'); const pw = LP.planWhy(V, items[0], val['--record']); if (pw) return failOut('invalid', pw + ' Nothing was written.', problems()); }
+      if (sub === 'choose') { if (items.length !== 1 || !val['--run']) return usage('say which ' + N.one + ' with --item ' + EX[0] + ' and which of its runs counts with --run <run id>.'); const cw = LP.choiceWhy(V, items[0], val['--run']); if (cw) return failOut('invalid', cw + ' Nothing was written.', problems()); }
+    }
+    const c = LP.cleanIntent(value, val['--key'], tool, V.kind);
+    if (c.errors.length) return failOut('invalid', c.errors.join(' ') + ' Nothing was written.', problems());
+    const id = LP.idFor(tool.name, val['--key']), file = 'proposals/' + id + '.json';
+    const mine = got.scopes.filter((s) => s.id === id);
+    if (mine.length) {
+      const diffs = LP.differsRecord(c.intent, mine[0]);
+      if (diffs.length) return failOut('key-taken', 'This key already names a different request (' + file + '). Changed fields: ' + diffs.join(', ') + '. Read that request (flightdeck loop read) before choosing a new key. Nothing was written.', problems());
+      const P0 = LP.project(r, V, c.intent, { who });
+      return done({ loop: V.loop, status: 'already', request: { id, file }, preview: 'Already requested. Nothing written. ' + V.rollup.summary + '.', summary: V.rollup.summary, added: [], proposed: [], excluded: [], restored: [], children: [], impact: P0.impact, runsStarted: 0 });
+    }
+    if (problems().length) return held('Part of the team folder this depends on couldn\'t be read, so nothing was written. Check folder availability, then retry with the same key.');
+    if (act) {
+      const pgA = LP.seenFor(V.ledger, [], c.intent.changes.filter((ch) => ch.op === 'resolve').map((ch) => ch.record));
+      /* A resolution of more outcomes than one record names settles a page; it says how many are left (docs/design.md 44). */
+      if (pgA.left && act.lines.indexOf(LP.pageWords(pgA.left)) < 0) act.lines.push(LP.pageWords(pgA.left));
+      const fa = LP.buildRequest(c.intent, { seen: pgA.seen, children: [], now: new Date().toISOString(), app: eng.version });
+      const faw = LP.fileWhy(id + '.json', fa); if (faw) return failOut('invalid', faw + ' Nothing was written.', problems());
+      const dataA = (status) => ({ loop: V.loop, status, request: { id, file }, preview: title + (status === 'would-request' ? ' — preview only; no files written.' : ' — requested.') + '\n\n' + act.lines.join('\n'),
+        start: act.start || [], skip: act.skip || [], approve: act.approve || null, sendBack: act.sendBack || null, resolve: act.resolve || null, runsStarted: 0, appliedBy: 'the recorder' });
+      if (dryRun) return done(dataA('would-request'));
+      let resA;
+      try { resA = writeOnce(dir, ['proposals'], id + '.json', LP.text(fa)); } catch (e) { return failOut('failed', UNCERTAIN + ' (' + (e && e.message || String(e)) + ')', problems()); }
+      if (resA !== 'written') {
+        /* Taken meanwhile: read what is there; the same request is already, another one under this key is refused. */
+        let there = null; try { there = JSON.parse(fs.readFileSync(path.join(dir, 'proposals', id + '.json'), 'utf8')); } catch (e) { there = null; }
+        if (!there) return failOut('failed', UNCERTAIN, problems());
+        if (JSON.stringify(there.changes) !== JSON.stringify(fa.changes) || JSON.stringify(there.loop) !== JSON.stringify(fa.loop)) return failOut('key-taken', 'This key already names a different request (' + file + '). Read that request (flightdeck loop read) before choosing a new key. Nothing was written.', problems());
+        return done(Object.assign(dataA('requested'), { status: 'already', preview: 'Already requested. Nothing written.' }));
+      }
+      return done(dataA('requested'));
+    }
+    if (V.ledger.held.length) return held('This loop has a scope record this computer can\'t read yet (' + V.ledger.held.map((h) => h.record).join(', ') + '). Nothing written. Check folder availability, then retry.');
+    const P = LP.project(r, V, c.intent, { who });
+    if (P.overLimit) return failOut('invalid', 'This would put ' + LP.count(P.overLimit.count, N) + ' in scope; the loop takes at most ' + P.overLimit.max + '. Nothing is cut and nothing was written.', problems());
+    const f = LP.buildRequest(c.intent, { seen: P.seen, children: P.record.children, now: new Date().toISOString(), app: eng.version });
+    const fw = LP.fileWhy(id + '.json', f); if (fw) return failOut('invalid', fw + ' Nothing was written.', problems());
+    const data = (status) => ({ loop: V.loop, status, request: { id, file }, preview: LP.previewText(P, { title, dryRun: status === 'would-request', problems: problems() }),
+      added: P.added, proposed: P.proposed.map((p) => ({ uid: p.uid, key: p.key, title: p.title, run: p.run || null, recorder: p.recorder ? nameOf(p.recorder) : null, open: !!p.open, answered: p.answered || 0, total: p.total || 0 })),
+      excluded: P.excluded, restored: P.restored, children: P.children, impact: P.impact, observation: P.observation, runsStarted: 0, membershipVisible: false });
+    if (dryRun) return done(data('would-request'));
+    let res;
+    try { res = writeOnce(dir, ['proposals'], id + '.json', LP.text(f)); } catch (e) { return failOut('failed', UNCERTAIN + ' (' + (e && e.message || String(e)) + ')', problems()); }
+    if (res !== 'written') return failOut('failed', UNCERTAIN, problems());
+    return done(data('requested'));
+  } catch (e) {
+    return failOut('failed', e instanceof Refused ? e.message : 'The team folder couldn\'t be read: ' + (e && e.message || String(e)) + (writes ? ' Nothing was written.' : ''), problems());
+  }
+}
+/* loop review: a person's decision (--as) on proposed removals, --accept to remove them or --keep to keep them, one immutable
+   file per request that proposed them, named from the tool and key so a retry writes nothing. */
+async function loopReview(eng, o) {
+  const PF = eng.PF, LP = PF.loop, V = o.V, val = o.val;
+  const acc = val['--accept'], keep = val['--keep'];
+  if ((acc == null) === (keep == null)) return o.usage('say --accept ' + (V.kind === 'jira.issue' ? 'ABC-103,ABC-107' : 'staging,prod') + ' to remove them, or --keep ... to keep them in scope.');
+  if (!val['--as'] || !/^[A-Za-z0-9_.-]{1,80}$/.test(val['--as'])) return o.usage('say whose decision this is with --as <person id from people.json>. It is recorded as theirs, on their behalf.');
+  const keys = String(acc != null ? acc : keep).split(/[\s,]+/).filter(Boolean), op = acc != null ? 'accept' : 'keep';
+  const items = keys.map((k) => V.ledger.items.filter((i) => i.key === k)[0]);
+  /* A retry with the same key: the decisions it already wrote answer it. The same decision again writes nothing; another one
+     under this key is refused, naming what changed. */
+  const revOf = (p) => PF.sha256.hex(JSON.stringify([val['--key'], p])).slice(0, 8);
+  const prior = (V.records || []).filter((d) => d.type === 'decision' && d.id === d.proposal + '.status-' + o.tool.name + '-' + revOf(d.proposal));
+  if (prior.length) {
+    const uidOf = (k) => { const x = V.ledger.items.filter((i) => i.key === k)[0]; return x ? x.uid : k; };
+    const want = keys.map(uidOf).sort(), had = [].concat(...prior.map((d) => d.items)).sort();
+    const diffs = [];
+    if (prior.some((d) => d.op !== op)) diffs.push('op');
+    if (JSON.stringify(want) !== JSON.stringify(had)) diffs.push('items');
+    if (prior.some((d) => !d.by || d.by.person !== val['--as'])) diffs.push('as');
+    if (prior.some((d) => (d.reason || '') !== (val['--reason'] || ''))) diffs.push('reason');
+    if (diffs.length) return o.failOut('key-taken', 'This key already names a different decision (' + prior.map((d) => 'proposals/' + d.id + '.json').join(', ') + '). Changed fields: ' + diffs.join(', ') + '. Read the loop (flightdeck loop read) before choosing a new key. Nothing was written.', o.problems());
+    return o.done({ loop: V.loop, status: 'already', decisions: prior.map((d) => ({ file: 'proposals/' + d.id + '.json', items: d.items })), preview: 'Already recorded. Nothing written.', runsStarted: 0 });
+  }
+  const notPending = keys.filter((k, i) => !items[i] || !(items[i].state === 'proposed' || items[i].review.length));
+  if (notPending.length) return o.failOut('invalid', notPending.join(', ') + (notPending.length === 1 ? ' isn\'t' : ' aren\'t') + ' waiting for a removal decision. Read the loop again. Nothing was written.', o.problems());
+  if (o.problems().length) return o.held('Part of the team folder this depends on couldn\'t be read, so nothing was written. Check folder availability, then retry with the same key.');
+  const by = Object.create(null);
+  items.forEach((x) => { const p = x.proposal || x.proposedBy || ''; (by[p] = by[p] || []).push(x.uid); });
+  if (by['']) return o.failOut('invalid', 'Some of these items were decided two ways at once by exclusions or restorations, not proposed removals. Use flightdeck loop exclude or restore to decide them. Nothing was written.', o.problems());
+  const pageOf = (uids) => LP.seenFor(V.ledger, uids, [], ['verdict']), pageLeft = pageOf(items.map((x) => x.uid)).left;
+  const files = Object.keys(by).sort().map((p) => LP.buildDecision({ proposal: p, loop: V.loop, op, items: by[p], seen: pageOf(by[p]).seen, reason: val['--reason'] || '', by: val['--as'], onBehalf: o.tool.name,
+    writer: o.tool.name, rev: revOf(p), now: new Date().toISOString(), app: eng.version }));
+  const fdw = files.map((f) => LP.fileWhy(f.name, f.file)).filter(Boolean)[0]; if (fdw) return o.failOut('invalid', fdw + ' Nothing was written.', o.problems());
+  const preview = (o.dryRun ? 'Would record' : 'Recorded') + ' ' + val['--as'] + '\'s decision to ' + (op === 'accept' ? 'remove ' : 'keep ') + keys.join(', ') + (op === 'accept' ? ' from scope. Their assessment runs remain available.' : ' in scope.') + (pageLeft ? ' ' + LP.pageWords(pageLeft) : '') + (o.dryRun ? ' Nothing was written.' : '');
+  const data = (status) => ({ loop: V.loop, status, decisions: files.map((f) => ({ file: 'proposals/' + f.name, items: f.file.items })), preview, runsStarted: 0 });
+  if (o.dryRun) return o.done(data('would-request'));
+  let all = 'written';
+  for (const f of files) {
+    let res;
+    try { res = writeOnce(o.dir, ['proposals'], f.name, LP.text(f.file)); } catch (e) { return o.failOut('failed', UNCERTAIN, o.problems()); }
+    if (res !== 'written') {
+      /* The name was taken meanwhile: read what is there, and call it the same decision only if it is. */
+      let there = null; try { there = JSON.parse(fs.readFileSync(path.join(o.dir, 'proposals', f.name), 'utf8')); } catch (e) { there = null; }
+      const same = there && there.op === f.file.op && there.by === f.file.by && (there.reason || '') === (f.file.reason || '') && JSON.stringify((there.items || []).slice().sort()) === JSON.stringify(f.file.items.slice().sort());
+      if (!same) return o.failOut('key-taken', 'This key already names a different decision (proposals/' + f.name + '). Read the loop (flightdeck loop read) before choosing a new key.' + (all === 'written' && files.indexOf(f) > 0 ? ' Some of this decision was written before it.' : ' Nothing was written.'), o.problems());
+      all = 'already';
+    }
+  }
+  return o.done(data(all === 'written' ? 'requested' : 'already'));
+}
+
 function main(argv) {
   const out = [];
   /* Reading for other apps has flags of its own (--version takes a number there), so it's parsed apart. */
@@ -2565,6 +2970,8 @@ function main(argv) {
   if (first === 'skill' && !argv.includes('--help')) return skillMain(argv);
   if (first === 'report' && !argv.includes('--help')) return reportMain(argv);
   if (first === 'type' && !argv.includes('--help')) return typeMain(argv);
+  if (first === 'library' && !argv.includes('--help')) return libraryMain(argv);
+  if (first === 'loop' && !argv.includes('--help')) return loopMain(argv);
   const ti = argv.indexOf('--to'), to = ti >= 0 ? argv[ti + 1] : null;
   if (ti >= 0 && (!to || to.startsWith('--'))) fail('say which folder after --to, for example: flightdeck skills --to ~/skills');
   /* Flags that take a value: the value is never read as a command or a folder. */

@@ -26,8 +26,8 @@ PF.publish = (function () {
   function pinCheck(map, childProcs, unknown) {
     var pins = { children: {}, skills: {} }, pinBlockers = [];
     M.steps(map).forEach(function (x) {
-      var s = x.step, label = 'Step "' + s.text.slice(0, 40) + '"';
-      if (s.type === 'run.process' && Object.prototype.hasOwnProperty.call(s.fields, 'version') && !(unknown && unknown(s.fields.process, s.fields.version))) {
+      var s = x.step, label = U.stepName(s);
+      if ((s.type === 'run.process' || s.type === 'for.each') && Object.prototype.hasOwnProperty.call(s.fields, 'version') && !(unknown && unknown(s.fields.process, s.fields.version))) {
         var cp = childProcs && Object.prototype.hasOwnProperty.call(childProcs, s.fields.process) ? childProcs[s.fields.process] : null;
         var got = PF.pins.atVersion(cp, s.fields.process || '?', +s.fields.version);
         if (got.why) pinBlockers.push(label + ': version: ' + s.fields.version + ' can\'t be pinned: ' + got.why + '.'); else pins.children[s.id] = got.pin;
@@ -221,7 +221,7 @@ PF.publish = (function () {
     var map = M.parse(draftMd), c = M.check(map, ctx.options);
     var pub = c.blockers.length ? c.blockers : pinCheck(map, ctx.childProcs, ctx.unknownProcess).blockers;
     if (!pub.length) pub = ctx.missingShots.map(function (src) { return 'The screenshot ' + src + ' isn\'t in the team folder. Add it, or remove it from the checklist.'; });
-    return { checks: { blockers: c.blockers, suggestions: c.suggestions }, publish: { ok: !pub.length, blockers: pub.slice() } };
+    return { checks: { blockers: c.blockers, suggestions: c.suggestions, blockerSteps: c.blockerSteps, suggestionSteps: c.suggestionSteps }, publish: { ok: !pub.length, blockers: pub.slice() } };
   }
 
   /* Why this copy can't run a checklist, or '' if it can. Only what the version itself holds is checked, never the folder's
@@ -242,11 +242,13 @@ PF.publish = (function () {
     taken = taken.filter(function (n) { return n === '__proto__' || n in Object.prototype; })[0];
     if (taken) return 'It uses the name "' + taken + '" for a step, phase, gate, role or run detail, and Flightdeck keeps that name for itself. Publish the checklist again with another one.';
     for (var i = 0; i < all.length; i++) {
-      var s = all[i].step, label = 'Step "' + s.text.slice(0, 40) + '"', def = s.type ? T.get(s.type, types) : null;
+      var s = all[i].step, label = U.stepName(s), def = s.type ? T.get(s.type, types) : null;
       if (!s.type) return label + ' has no step type, so it can\'t be run. Publish the checklist again.';
       if (!def) return label + ' uses the step type {' + s.type + '}, which this copy of Flightdeck doesn\'t have and this version doesn\'t include. Update Flightdeck, or publish the checklist again.';
       /* A hand-written or newer types.json can hold anything; a type this copy can't fully read is reported, never thrown. */
       if (!T.understood(def)) return NEWER + ' ' + label + ' has a step type this copy can\'t read.';
+      /* A loop's kind of item this copy doesn't know: its runs are read-only, named by the kind; no other kind stands in. */
+      if (s.type === 'for.each' && !PF.loop.kindOf(String(s.fields.items || '').trim())) return label + ' takes items of kind "' + String(s.fields.items || '').trim().slice(0, 40) + '", which this copy of Flightdeck doesn\'t know. Update Flightdeck, or publish the checklist again with a kind it knows.';
       var bad; try { bad = T.checkFields(def, s.fields, { context: map.meta.context }).errors[0]; } catch (err) { return NEWER + ' ' + label + ' has a step type this copy can\'t read.'; }
       if (bad) return NEWER + ' ' + label + ' ' + bad;
     }
@@ -263,7 +265,7 @@ PF.publish = (function () {
     return f;
   }
   /* What each 2.0 feature is, in words, for the publish panel. */
-  var FEATURE_NAMES = { 'typed-details': 'typed run details', 'typed-evidence': 'typed evidence (a number, yes/no or date)', 'phase-notes': 'a note on a phase', 'phase-shots': 'screenshots on a phase', 'gate-shots': 'screenshots on a gate', 'pinned-children': 'a linked run pinned to a version (version:)', 'pinned-skills': 'a skill version a step expects (skillVersion:)', conditions: 'conditions (only when)', 'passed-details': 'a linked step that passes details under other names, fixed values or asks (pass:)', 'team-values': 'a linked step that passes a team value (pass: name=team:…)' , 'jira-search': 'a Jira search step', 'detail-patterns': 'a run detail with a pattern' };
+  var FEATURE_NAMES = { 'typed-details': 'typed run details', 'typed-evidence': 'typed evidence (a number, yes/no or date)', 'phase-notes': 'a note on a phase', 'phase-shots': 'screenshots on a phase', 'gate-shots': 'screenshots on a gate', 'pinned-children': 'a linked run pinned to a version (version:)', 'pinned-skills': 'a skill version a step expects (skillVersion:)', conditions: 'conditions (only when)', 'passed-details': 'a linked step that passes details under other names, fixed values or asks (pass:)', 'team-values': 'a linked step that passes a team value (pass: name=team:…)' , 'jira-search': 'a Jira search step', 'detail-patterns': 'a run detail with a pattern', 'module-results': 'a checklist result (result:, sets: =decision) or a linked step that accepts one (accepts:, sets: =result)', loops: 'a loop that runs a checklist for each item ({for.each})' };
   function needs(map, types) {
     var f = features(map, types); if (!f.length) return null;
     var typed = Object.keys((map.meta && map.meta.detailTypes) || {});
@@ -292,7 +294,7 @@ PF.publish = (function () {
     if (!p) return '';
     M.steps(map).forEach(function (x) {
       var s = x.step;
-      if (s.type === 'run.process' && Object.prototype.hasOwnProperty.call(s.fields, 'version')) want.children[s.id] = { process: s.fields.process, version: +s.fields.version };
+      if ((s.type === 'run.process' || s.type === 'for.each') && Object.prototype.hasOwnProperty.call(s.fields, 'version')) want.children[s.id] = { process: s.fields.process, version: +s.fields.version };
       if (s.type === 'run.skill' && Object.prototype.hasOwnProperty.call(s.fields, 'skillVersion')) want.skills[s.id] = { name: String(s.fields.skill || '').trim(), version: String(s.fields.skillVersion).trim() };
     });
     var have = { children: Object.create(null), skills: Object.create(null) };

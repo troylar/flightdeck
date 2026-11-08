@@ -503,7 +503,7 @@ PF.outline = (function () {
       Object.keys(st.fieldLines).forEach(function (f) {
         var i = st.fieldLines[f], fm = /^(\s{2,}[\w-]+:\s*)(.*?)(\r?)$/.exec(lines[i]);
         if (rl && (f === 'carry' || f === 'pass')) { var nv = f === 'carry' ? rl.carry : rl.pass; if (nv == null) { lines[i] = null; n++; } else put(i, fm[1] + nv + fm[3]); return; }
-        if (f === 'sets') put(i, fm[1] + fm[2].split(',').map(function (e) { return e.trim() === from ? e.replace(from, to) : e; }).join(',') + fm[3]);
+        if (f === 'sets') put(i, fm[1] + fm[2].split(',').map(function (e) { return e.split('=')[0].trim() === from ? e.replace(from, to) : e; }).join(',') + fm[3]);
         else if (f !== 'carry') put(i, fm[1] + swap(fm[2]) + fm[3]);
       });
       /* A new pass: line goes after the step's last field line. */
@@ -527,7 +527,7 @@ PF.outline = (function () {
         ph.steps.forEach(function (st) {
           st.binds = st.binds.map(named); st.when = st.when.map(cond);
           Object.keys(st.fields).forEach(function (f) {
-            if (f === 'sets') st.fields.sets = st.fields.sets.split(',').map(function (e) { return e.trim() === from ? e.replace(from, to) : e; }).join(',');
+            if (f === 'sets') st.fields.sets = st.fields.sets.split(',').map(function (e) { return e.split('=')[0].trim() === from ? e.replace(from, to) : e; }).join(',');
             else if (f !== 'carry') st.fields[f] = swap(st.fields[f]);
           });
         });
@@ -1013,7 +1013,7 @@ PF.outline = (function () {
   }
 
   /* ---------- the checklist's details: front matter context:, roles:, owner: and backup: ---------- */
-  var META = { context: 'list', roles: 'list', owner: 'person', backup: 'person' };
+  var META = { context: 'list', roles: 'list', owner: 'person', backup: 'person', result: 'detail' };
   var NAME_RE = /^[\w-]{1,60}$/, PERSON_RE = /^[\w.@-]{1,80}$/;
   function reserved(n) { return n === '__proto__' || n in Object.prototype; }
   /* What's wrong with a run detail's (key 'context') or role's ('roles') name, or ''. */
@@ -1091,8 +1091,10 @@ PF.outline = (function () {
       str = next.join(', ');
     } else {
       var v = set.value;
-      if (typeof v !== 'string') return { error: 'Choose a person.' };
-      if (v && (!PERSON_RE.test(v) || reserved(v))) return { error: 'That person\'s ID can\'t be written in a checklist. Choose someone else.' };
+      if (typeof v !== 'string') return { error: kind === 'detail' ? 'Choose a run detail.' : 'Choose a person.' };
+      /* The result (3.0) names one of the checklist's run details, or nothing. */
+      if (kind === 'detail' && v && meta.context.indexOf(v) < 0) return { error: '^' + v + ' isn\'t one of this checklist\'s run details.' };
+      if (kind === 'person' && v && (!PERSON_RE.test(v) || reserved(v))) return { error: 'That person\'s ID can\'t be written in a checklist. Choose someone else.' };
       if (v === String(meta[key] == null ? '' : meta[key]) && (v || !hits.length)) return { text: text, at: hits.length ? hits[hits.length - 1] : 0, same: true };
       str = v;
     }
@@ -1170,7 +1172,7 @@ PF.outline = (function () {
     }
     /* Forward only, checked here too: a draft that already breaks the rule would otherwise let a new break through. */
     var mp = M.parse(text), pi = kind === 'phase' ? t.index : t.phase.index, later = Object.create(null);
-    mp.phases.slice(pi).forEach(function (q) { q.steps.forEach(function (st) { String(st.fields.sets || '').split(',').forEach(function (x) { if (x.trim()) later[x.trim()] = true; }); }); });
+    mp.phases.slice(pi).forEach(function (q) { q.steps.forEach(function (st) { PF.map.setNames(st.fields.sets).forEach(function (x) { later[x] = true; }); }); });
     for (k = 0; k < want.length; k++) {
       var nm = PF.conditions.parse(want[k], meta.context, meta.detailTypes).test.name;
       if (later[nm]) return { error: '^' + nm + ' is set in this phase or a later one (sets:), so it can\'t decide whether this applies. Only a step in an earlier phase can set it.' };

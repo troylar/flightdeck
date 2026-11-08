@@ -1,5 +1,121 @@
 [
   {
+    "version": "3.0.0",
+    "date": "2026-11-08",
+    "headline": "Thoughtful checklists, results that mean ready, and loops for any list",
+    "changes": [
+      {
+        "kind": "improved",
+        "area": "Updating",
+        "title": "Move every computer to 3.0 before anyone uses results or loops",
+        "now": "A checklist with a result or a {for.each} step publishes in a format only Flightdeck 3.0 reads, and so do its runs and a loop's list changes. Copies before 3.0 show those files by name, can't run them and never change them, and the Publish panel says so before you publish. A checklist that uses neither publishes as before, and every teammate runs it.",
+        "where": "Publish, Folder health, map-format.md"
+      },
+      {
+        "kind": "new",
+        "area": "Checks",
+        "title": "Design tips on a checklist's shape",
+        "now": "Checks and the checklist's page list Design tips: one confirm over a whole set (each, every, all stories) that should be one result per item, READY or go/no-go wording on a step that isn't a decision, a role or run detail never used, and a search or gate another published checklist already has. A tip never stops publishing.",
+        "where": "Edit, Checks, a checklist's page, flightdeck draft check"
+      },
+      {
+        "kind": "new",
+        "area": "Library",
+        "title": "See what the library already has before writing a checklist",
+        "now": "A checklist's page has Used by and similar: the checklists that link to it, and the searches, steps and gates that look like its own. flightdeck library inspect gives the same for the whole folder, so an AI assistant reads what exists before it writes. A match is a candidate, never a verdict, and anything it couldn't read is named.",
+        "where": "A checklist's page, Step types, flightdeck library inspect"
+      },
+      {
+        "kind": "improved",
+        "area": "AI assistant files",
+        "title": "The checklist skills design first, then write the syntax",
+        "now": "The skills start from what a checklist is for and what the library already has, then write it. check_folder.py --draft checks a draft offline, with the same blockers and words as the app.",
+        "where": "AI assistant files, check_folder.py"
+      },
+      {
+        "kind": "new",
+        "area": "Module results",
+        "title": "A checklist says what its run returns",
+        "now": "result: names a choice in the run details, and one decision step sets it, so the decision and the detail are one value. A run then ends as Completed · <result> on the run screen, Runs, Home, evidence and search, so a run that decided needs work no longer reads as plain Completed.",
+        "where": "Edit, the run screen, Runs, Home"
+      },
+      {
+        "kind": "new",
+        "area": "Module results",
+        "title": "A linked step counts only the results it accepts",
+        "now": "accepts: says which of the child's results complete the step. Any other result holds the step with the reason, as in Validate a story returned needs-work; this step accepts cleared. When the run is reopened, corrected or returns a new answer, the step settles again and a passed gate goes back to review. After the parent ends, a change is shown, read-only.",
+        "where": "Edit, the run screen, a linked-run step"
+      },
+      {
+        "kind": "improved",
+        "area": "Command line",
+        "title": "Commands say a run's result",
+        "now": "process, run, runs and next add result, accepts, heldBy and awaiting, only for a checklist, run or step that uses results, so every other output stays byte for byte as before. draft check reports the new blockers.",
+        "where": "flightdeck process, run, runs, next, draft check"
+      },
+      {
+        "kind": "new",
+        "area": "Loops",
+        "title": "One run per item, for any list",
+        "now": "A {for.each} step starts one run of a checklist for each item in a list: the stories in a release, the environments to deploy to, the documents to review, the people in a cohort. Items come from a Jira search or another feed, or are added by hand. The step is approved only when every item in scope is cleared by its result or approved without a run.",
+        "where": "Edit, the run screen"
+      },
+      {
+        "kind": "new",
+        "area": "Loops",
+        "title": "A list names its rows and keeps to one source",
+        "now": "noun: environment / environments names the rows in the table, its buttons, notices and the command line. source: binds the loop to one feed; a list from another feed, site or query is refused. An item missing from a complete list is only proposed for removal, for a person to keep or remove, and an item added by hand is never proposed.",
+        "where": "Edit, the run screen, flightdeck loop"
+      },
+      {
+        "kind": "new",
+        "area": "Loops",
+        "title": "Approval sticks, and every change after it is listed",
+        "now": "Approving records each item with its state, result and run. Any later change (an item added or removed, an exception given or withdrawn, a result changed, two people deciding differently at once) is listed in words and sends the approval back for review. Nothing returns to approved by itself. A conflict wider than 50 records is settled 50 at a time.",
+        "where": "The run screen, a loop step"
+      },
+      {
+        "kind": "new",
+        "area": "Command line",
+        "title": "flightdeck loop reads a loop and asks for changes",
+        "now": "loop read shows the items, the exact counts, what holds the gate and the approval. loop sync, add, exclude, restore, exception, withdraw, owner, review, plan, choose, resolve, start, start-all, approve and send-back each file one request; the recorder's window carries it out and records applied or refused. The same --tool and --key is the same request, so a retry writes nothing.",
+        "where": "flightdeck loop, docs/apps.md"
+      },
+      {
+        "kind": "fixed",
+        "area": "Flight plan",
+        "title": "Each gate is drawn once",
+        "before": "A phase's gate showed twice: as the last line of its step list and again as the checkpoint beneath the phase.",
+        "now": "The step list holds only steps. The gate, named or not, is the checkpoint beneath the phase.",
+        "where": "A checklist's page, Flight plan"
+      },
+      {
+        "kind": "improved",
+        "area": "Checks",
+        "title": "Each finding says which step it names, by ID",
+        "before": "A check named a step by the first 40 characters of its text, so two steps that started alike read the same to an AI assistant.",
+        "now": "flightdeck draft check, draft read and draft save also give, for each finding, the step it names: its ID and its text cut at a word, as in {#green}, Confirm the production deploy job…. The findings' words are unchanged, so tools that read them still match.",
+        "where": "flightdeck draft check, draft read, draft save"
+      },
+      {
+        "kind": "improved",
+        "area": "Jira searches",
+        "title": "A missing Jira address is said once",
+        "before": "A draft whose Jira searches had no Jira address in Team values listed the same problem once for every search.",
+        "now": "It is said once per address, with how many searches need it and their step IDs, as in 7 Jira searches need the team's Jira address. The format guide now says publishing needs the address; Copy without a link is only for runs.",
+        "where": "Edit, Publish, map-format.md"
+      },
+      {
+        "kind": "improved",
+        "area": "Checks",
+        "title": "A name in a link field says where it goes",
+        "before": "A document name in a field that takes a link, like a review's Document, was refused for having spaces, with advice to write each space as %20.",
+        "now": "A tip beside the check says the field takes a web link and to put a name or file reference in a note. The check itself is worded as before, and a real link with a space gets no such tip.",
+        "where": "Edit, Publish"
+      }
+    ]
+  },
+  {
     "version": "2.16.2",
     "date": "2026-11-05",
     "headline": "One dot style everywhere, and checklist wording on every screen",

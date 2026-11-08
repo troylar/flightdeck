@@ -40,6 +40,25 @@ PF.util = (function () {
     return out.join('');
   }
 
+  /* A step named in a message: its ID, which is unique, and its text cut at a word, never mid-word, with … when cut. Two steps
+     can share their first 40 characters, so the ID is what tells them apart. Counted in code points; check_folder.py's
+     step_label() says the same. */
+  var EXCERPT_MAX = 40;
+  function excerpt(text, max) {
+    var t = String(text == null ? '' : text), cps = Array.from(t), n = max || EXCERPT_MAX;
+    if (cps.length <= n) return t;
+    var head = cps.slice(0, n), sp = head.lastIndexOf(' ');
+    /* A word longer than half the room is cut where the room ends. */
+    if (cps[n] !== ' ' && sp >= Math.floor(n / 2)) head = head.slice(0, sp);
+    return head.join('').replace(/[ .,;:!?-]+$/, '') + '\u2026';
+  }
+  function stepLabel(s, word) { return (word || 'Step') + ' "' + excerpt(s && s.text) + '"' + (s && s.id ? ' {#' + s.id + '}' : ''); }
+  /* A step as checks name it in their words, which other apps read (flightdeck draft check): its first 40 characters, as every
+     copy since 1.x says it. The ID and excerpt go alongside (PF.map.check's blockerSteps and suggestionSteps), never into
+     the words. */
+  function stepName(s, word) { return (word || 'Step') + ' "' + String(s && s.text || '').slice(0, 40) + '"'; }
+  function stepRef(s) { return s ? { id: s.id || null, excerpt: excerpt(s.text) } : null; }
+
   function slug(s, max) {
     return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, max || 40) || 'x';
   }
@@ -205,7 +224,7 @@ PF.util = (function () {
     return b >= 0.9 * DRAFT_BYTES ? String(Math.round(b / 1048576 * 100) / 100) + ' of 1 MB' : '';
   }
 
-  return { DRAFT_BYTES: DRAFT_BYTES, utf8Bytes: utf8Bytes, draftTooBig: draftTooBig, draftSize: draftSize, drift: drift, esc: esc, timeOnDayIn: timeOnDayIn, safeUrl: safeUrl, mdInline: mdInline, mdBlock: mdBlock, slug: slug, randomId: randomId, hash: hash, nthKey: nthKey, nthOf: nthOf,
+  return { DRAFT_BYTES: DRAFT_BYTES, utf8Bytes: utf8Bytes, draftTooBig: draftTooBig, draftSize: draftSize, drift: drift, esc: esc, timeOnDayIn: timeOnDayIn, safeUrl: safeUrl, mdInline: mdInline, mdBlock: mdBlock, excerpt: excerpt, stepLabel: stepLabel, stepName: stepName, stepRef: stepRef, slug: slug, randomId: randomId, hash: hash, nthKey: nthKey, nthOf: nthOf,
     hm: hm, when: when, full: full, day: day, dueWords: dueWords, localDateTime: localDateTime, clock: clock, duration: duration, timeToday: timeToday };
 })();
 /* Name order for the lists people scan by name (2.11): numbers in a name compare as numbers, so Process 2 comes before

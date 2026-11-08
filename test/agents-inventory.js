@@ -20,7 +20,7 @@ const BASE = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'baselines.json')
 const FIXTURE = fs.readFileSync(path.join(__dirname, 'fixtures', 'agents-2.14.0.md'), 'utf8');
 const AGENTS = read('AGENTS.md');
 /* AGENTS.md's ceiling: 2.14.0's copy less the room the design keeps for team notes and the index rows (design section 4). */
-const ROOM_CEILING = 19688;
+const ROOM_CEILING = 19688 + 141 + 358; /* 3.0: the library inspect row in Commands (assistant-start.test.js); the loop row and the scope-records rule (loops, design section 44) */
 const WHY_WORDS = /\b(never|must|only)\b/i;
 const GUIDANCE = /\b(never|must|don't|do not|check|checks|read|leave out|only|ignore|skip|should|unless|instead|avoid|make sure|was meant|reopens)\b|\bis only\b/i;
 const GRANT = /\byou (may|can)\b|\b(is|are) (fine|ok|okay|allowed)\b|\bfeel free\b|\ballowed to\b/i;
@@ -390,6 +390,7 @@ const ADDED = [
   { home: H.commands, text: '|---|---|---|', class: 'C1', why: 'the Commands table: every command an assistant runs, and where its how is' },
   { home: H.commands, text: '| `flightdeck runs`, `run`, `next`, `followups`, `processes`, `process` | Reading runs, versions and follow-ups; they never change the folder | *Reading runs* in the command guide |', class: 'C1', why: 'the Commands table: every command an assistant runs, and where its how is' },
   { home: H.commands, text: '| `flightdeck draft read`, `draft save`, `draft propose`, `draft check` | Reading, changing and checking a draft | *Editing drafts* in the command guide |', class: 'C1', why: 'the Commands table: every command an assistant runs, and where its how is' },
+  { home: H.commands, text: '| `flightdeck library inspect` | Reading every checklist at once, before designing or changing one | *Editing drafts* in the command guide |', class: 'C1', why: '3.0: library inspect, read before designing or changing a checklist' },
   { home: H.commands, text: '| `flightdeck type list`, `type read`, `type save` | Reading the team\'s step types, and saving one (only through `type save`) | `/flightdeck-new-step-type` |', class: 'C1', why: 'the Commands table: every command an assistant runs, and where its how is' },
   { home: H.commands, text: '| `flightdeck report targets`, `report check`, `report write` | Reporting work a tool did on a step | *Reporting work* in the command guide |', class: 'C1', why: 'the Commands table: every command an assistant runs, and where its how is' },
   { home: H.commands, text: '| `flightdeck skill register` | Registering a skill built from a 2.0 version | *Skills built from processes* in the command guide |', class: 'C1', why: 'the Commands table: every command an assistant runs, and where its how is' },
@@ -408,6 +409,9 @@ const ADDED = [
   { home: H.drafts, text: 'How:', class: 'C1', why: 'the section\'s How: line, to the part of a reference that says how' },
   { home: H.drafts, text: '*Editing drafts* in the command guide.', class: 'C1', why: 'the section\'s How: line, to the part of a reference that says how' },
   { home: H.drafts, text: 'Use `flightdeck draft read`, then `flightdeck draft save` with `--expect` and `--base`.', class: 'C1', why: 'the two commands, named, since the how moved to the guide' },
+  { home: H.never, text: "Scope records (`proposals/` files with `\"format\": \"flightdeck-plan/3\"`): a loop's list, written only by `flightdeck loop`.", class: 'C4', why: 'new in 3.0 (loops, design section 44): the loop commands, and that scope records are written only by them' },
+  { home: H.never, text: "Never write, edit or delete one.", class: 'C4', why: 'new in 3.0 (loops, design section 44): the loop commands, and that scope records are written only by them' },
+  { home: H.commands, text: "| `flightdeck loop read`, `loop sync` and the other `loop` commands | A loop's stories and results, and asking for a change to its list; never starts a run | *Asking for a run* in the command guide |", class: 'C1', why: 'new in 3.0 (loops, design section 44): the loop commands, and that scope records are written only by them' },
 ];
 /* Moved units with a rule word (WHY_WORDS: never, must, only) outside code, each reviewed apart from MOVED_GUIDANCE: why the word
    describes how a command or a file works, and is not a rule AGENTS.md must keep (rule 13). A kept rule reclassified as how fails
@@ -532,6 +536,41 @@ const REF_ADDED = [
   { home: G.checklist, text: '### Tracks and times', why: 'a ### subheading, to find a part of the section' },
   { home: G.checklist, text: '### Run details', why: 'a ### subheading, to find a part of the section' },
   { home: G.checklist, text: '### Linked processes and Jira', why: 'a ### subheading, to find a part of the section' },
+  { home: G.drafts, text: 'Its `design.tips` are the design tips the checklist\'s page shows: advice, never a reason it can\'t publish.', why: 'new in 3.0 (thoughtful authoring): the library read and the design tips' },
+  { home: G.drafts, text: '### The library', why: 'a ### subheading, to find a part of the section' },
+  { home: G.drafts, text: '`flightdeck library inspect <team folder> [--process <id>] --json` (Flightdeck 3.0) reads every checklist into one shape:', why: 'new in 3.0 (thoughtful authoring): the library read and the design tips' },
+  { home: G.drafts, text: '`checklists`, `usedBy` (which checklists link to which), `overlaps` (searches, steps and gates that look alike, with a `reason`) and `stepTypes` (which checklists use each type).', why: 'new in 3.0 (thoughtful authoring): the library read and the design tips' },
+  { home: G.drafts, text: 'Reading it changes nothing.', why: 'new in 3.0 (thoughtful authoring): the library read and the design tips' },
+  { home: G.drafts, text: 'An overlap is a reason to look, never proof two checklists do the same job.', why: 'new in 3.0 (thoughtful authoring): the library read and the design tips' },
+  { home: G.drafts, text: 'If `completeness.complete` is false, what `completeness.unread` names wasn\'t read: say so.', why: 'new in 3.0 (thoughtful authoring): the library read and the design tips' },
+  { home: G.checklist, text: 'Design it before you write it:', why: 'new in 3.0 (thoughtful authoring): design first, JQL details unquoted, the Jira address' },
+  { home: G.checklist, text: '`good-checklists.md` beside this file says how (the design brief, the library, one checklist or several).', why: 'new in 3.0 (thoughtful authoring): design first, JQL details unquoted, the Jira address' },
+  { home: G.checklist, text: 'Write a `^detail` in JQL without quotes (`fixVersion = ^version`):', why: 'new in 3.0 (thoughtful authoring): design first, JQL details unquoted, the Jira address' },
+  { home: G.checklist, text: 'Flightdeck quotes the value.', why: 'new in 3.0 (thoughtful authoring): design first, JQL details unquoted, the Jira address' },
+  { home: G.checklist, text: 'Publishing needs the team\'s Jira address in Team values.', why: 'new in 3.0 (thoughtful authoring): design first, JQL details unquoted, the Jira address' },
+  { home: G.checklist, text: '**A result the parent can trust** (Flightdeck 3.0): when a checklist ends in a verdict that another checklist waits on, give it `result: <detail>` (a choice in `context`, like `disposition:choice(cleared|needs-work)`) and bind its one `{decide}` step with `sets: disposition=decision`, its `options:` the same choices in the same order.', why: 'new in 3.0 (module results, design section 43): when to give a checklist a result and what the link accepts' },
+  { home: G.checklist, text: 'The linking `{run.process}` step adds `accepts: cleared` and, to keep the value, `sets: story_result=result`.', why: 'new in 3.0 (module results, design section 43): when to give a checklist a result and what the link accepts' },
+  { home: G.checklist, text: 'Any other result holds that step and keeps its gate closed.', why: 'new in 3.0 (module results, design section 43): when to give a checklist a result and what the link accepts' },
+  { home: G.checklist, text: 'Use it only for a verdict someone acts on; see map-format.md, Module results.', why: 'new in 3.0 (module results, design section 43): when to give a checklist a result and what the link accepts' },
+  { home: G.asking, text: "### Loops", why: 'new in 3.0 (loops, design section 44): reading a loop and asking for a change to its list' },
+  { home: G.asking, text: "A `{for.each}` step starts one run of another checklist for each item in a list (a loop): environments, documents, people, services, or Jira stories.", why: 'new in 3.0 (loops, design section 44): reading a loop and asking for a change to its list' },
+  { home: G.asking, text: "Its `noun:` (like environment / environments; item / items when left out, story / stories for Jira) is what `loop read` returns in `noun`; use it when you talk about the rows.", why: 'new in 3.0 (loops, slice 3b, design section 44.1): a loop names its rows with noun:, and loop read returns it' },
+  { home: G.asking, text: "Its list is kept as scope records in `proposals/`, written only by `flightdeck loop`; never write, edit or delete one by hand.", why: 'new in 3.0 (loops, design section 44): reading a loop and asking for a change to its list' },
+  { home: G.asking, text: "Read a loop with `flightdeck loop read <team folder> <process>/<run> <loop step> --json`: its items (with `kind`, `noun`, `source`, and each item's `link`), the exact counts (\"11 in scope · 9 cleared by validation · 1 approved without a run · 1 needs work\"), what holds its gate, and the approval with every change since.", why: 'new in 3.0 (loops, design section 44): reading a loop and asking for a change to its list' },
+  { home: G.asking, text: "Say the summary as it is; never round it into \"all done\".", why: 'new in 3.0 (loops, design section 44): reading a loop and asking for a change to its list' },
+  { home: G.asking, text: "Ask for a change with `flightdeck loop sync` (`--from` what a search or the loop's own feed read, whole; a list of items takes `source: {\"feed\": \"<the step's source:>\"}` and is refused from any other feed or scope), `loop add --keys` (and `--title`, `--link` with one key on a list of items; keys are taken exactly as typed), `loop exclude --item --reason`, `loop restore --item`, `loop exception --item --reason --approver`, `loop withdraw --item`, `loop owner --item --owner`, `loop choose --item --run` (which of an item's competing runs counts), or `loop review --accept|--keep --as <person>` (a person's decision, recorded on their behalf).", why: 'new in 3.0 (loops, design section 44): reading a loop and asking for a change to its list' },
+  { home: G.asking, text: "Every one takes `--tool <name>@<version> --key <key>` and writes one file, once.", why: 'new in 3.0 (loops, design section 44): reading a loop and asking for a change to its list' },
+  { home: G.asking, text: "Run it with `--dry-run` first and show the person the preview.", why: 'new in 3.0 (loops, design section 44): reading a loop and asking for a change to its list' },
+  { home: G.asking, text: "A loop's list changes when Flightdeck next reads the folder; the command never starts a run, and people start each item's run in Flightdeck.", why: 'new in 3.0 (loops, design section 44): reading a loop and asking for a change to its list' },
+  { home: G.asking, text: "Exit code 0 is requested, already requested, or (with `--dry-run`) what it would write; 4 nothing written, because a scope record or part of the folder couldn't be read; 1 refused (a key already used for a different request, or a request that isn't valid); 5 no such run or loop step.", why: 'new in 3.0 (loops, design section 44): reading a loop and asking for a change to its list' },
+  { home: G.asking, text: "The CLI asks; the recorder applies.", why: 'new in 3.0 (loops, design section 44): the CLI asks and the recorder applies a story\'s start, the approval and a send-back' },
+  { home: G.asking, text: "`loop start --item`, `loop start-all`, `loop approve` and `loop send-back [--reason]`, each with `--as <person id>` and `--dry-run` to preview, file a request; the recorder's window starts the runs or records the approval, and `loop read` shows each request as pending, applied or refused.", why: 'new in 3.0 (loops, design section 44): the CLI asks and the recorder applies a story\'s start, the approval and a send-back' },
+  { home: G.asking, text: "Never write `run.json` yourself.", why: 'new in 3.0 (loops, design section 44): the CLI asks and the recorder applies a story\'s start, the approval and a send-back' },
+  { home: G.asking, text: "If it can't confirm the save, retry with the same key, never a new one: a new key could ask twice.", why: 'new in 3.0 (loops, design section 44): reading a loop and asking for a change to its list' },
+  { home: G.asking, text: "The formats are in docs/apps.md of the Flightdeck repository.", why: 'new in 3.0 (loops, design section 44): reading a loop and asking for a change to its list' },
+  { home: G.checklist, text: "**The same checklist for each item in a list** (Flightdeck 3.0): a `{for.each}` step over a checklist with a `result:`, like `items: item`, `noun: environment / environments`, `pass: environment=item:key` and `accepts: healthy` for every environment to deploy to (or `items: jira.issue` with `from:` a Jira search for the stories in a release).", why: 'new in 3.0 (loops, design section 44): repeated work as a {for.each} step, never one confirm for all' },
+  { home: G.checklist, text: "Each item gets its own run; never one `{confirm}` for all of them.", why: 'new in 3.0 (loops, design section 44): repeated work as a {for.each} step, never one confirm for all' },
+  { home: G.checklist, text: "See map-format.md, Loops.", why: 'new in 3.0 (loops, design section 44): repeated work as a {for.each} step, never one confirm for all' },
 ];
 
 const NOTHING = 'Nothing here allows you to write a file `AGENTS.md` tells you not to.';
@@ -546,7 +585,7 @@ const YOU_MAY = {
     'Changing a step\'s type is allowed, but check its fields still fit the new type.': 'about a checklist\'s content, inside a draft AGENTS.md lets the assistant write' },
   [SKD + 'flightdeck-new-checklist/SKILL.md']: {
     'Read `AGENTS.md` in this folder first; it says what you may and may never write.': 'it sends permission back to AGENTS.md',
-    '**Ask only what you can\'t find,** in one message with at most 5 short questions.': '"you can\'t": not a grant',
+    '**Ask only what you can\'t find,** in one message with at most 5 short questions, together with the brief.': '"you can\'t": not a grant',
     'Fewer is fine; never pad a phase.': 'about step counts, not permission' },
   [SKD + 'flightdeck-review-checklist/SKILL.md']: {
     'The only commands you may run are `flightdeck draft check` and `flightdeck draft read`, below, which only read.': NARROW,
@@ -592,9 +631,6 @@ const DIRECT_WRITES = {
       why: "prohibition" }
   ],
   [SKD + "flightdeck-new-checklist/SKILL.md"]: [
-    { at: "Steps", lead: "Find the sources.", n: 1,
-      text: "Check `maps/drafts/` and `publications/` (list the files): if a checklist for this process already exists, stop and suggest `/flightdeck-edit-checklist` instead.",
-      why: "allowed: reads only (list the files); the write verb is the skill name `/flightdeck-edit-checklist`" },
     { at: "Steps", lead: "Save", n: 1,
       text: "It writes `maps/drafts/<process>.md` only if no draft is there and nobody has one open; otherwise your checklist is a proposal: it appears in the person's open editor if they have it open with nothing unsaved, or waits for them on the checklist's page (say which in your report).",
       why: "allowed: says what `flightdeck draft save` writes, not a write by the assistant" },

@@ -54,7 +54,11 @@ If the person has the draft open in Flightdeck's main editor with nothing unsave
 
 `draft read` returns `checks` for the text you continue from, and `draft save` and `draft propose` return them for the text you saved: `blockers` (would stop publishing) and `suggestions`. They load what the Publish dialog loads: people, step types, Jira workflows, published versions and team values.
 
-`flightdeck draft check <team folder> <process> [--from <file>] --json` gives the Publish dialog's verdict (`flightdeck-read/2`), and its `publish.blockers` also cover screenshots and `version:` pins.
+`flightdeck draft check <team folder> <process> [--from <file>] --json` gives the Publish dialog's verdict (`flightdeck-read/2`), and its `publish.blockers` also cover screenshots and `version:` pins. Its `design.tips` are the design tips the checklist's page shows: advice, never a reason it can't publish.
+
+### The library
+
+`flightdeck library inspect <team folder> [--process <id>] --json` (Flightdeck 3.0) reads every checklist into one shape: `checklists`, `usedBy` (which checklists link to which), `overlaps` (searches, steps and gates that look alike, with a `reason`) and `stepTypes` (which checklists use each type). Reading it changes nothing. An overlap is a reason to look, never proof two checklists do the same job. If `completeness.complete` is false, what `completeness.unread` names wasn't read: say so.
 
 ### Exit codes
 
@@ -115,7 +119,19 @@ This is for another app, such as a scheduler or a deploy tool, that needs a run.
 
 The app runs `flightdeck plan request <team folder> <request.json> --key <key> --json`. It writes one planned run to `proposals/`, once, for a person to start in Flightdeck; the same key and request again writes nothing. It never starts a run. Add `--dry-run` to see what it would write.
 
+The CLI asks; the recorder applies. `loop start --item`, `loop start-all`, `loop approve` and `loop send-back [--reason]`, each with `--as <person id>` and `--dry-run` to preview, file a request; the recorder's window starts the runs or records the approval, and `loop read` shows each request as pending, applied or refused. Never write `run.json` yourself.
+
 Exit code 0 is requested, already requested, or (with `--dry-run`) what it would write; 4 nothing written, because something it depends on couldn't be read; 1 refused; 5 no such process or version. The request's format is in docs/apps.md of the Flightdeck repository.
+
+### Loops
+
+A `{for.each}` step starts one run of another checklist for each item in a list (a loop): environments, documents, people, services, or Jira stories. Its `noun:` (like environment / environments; item / items when left out, story / stories for Jira) is what `loop read` returns in `noun`; use it when you talk about the rows. Its list is kept as scope records in `proposals/`, written only by `flightdeck loop`; never write, edit or delete one by hand.
+
+Read a loop with `flightdeck loop read <team folder> <process>/<run> <loop step> --json`: its items (with `kind`, `noun`, `source`, and each item's `link`), the exact counts ("11 in scope · 9 cleared by validation · 1 approved without a run · 1 needs work"), what holds its gate, and the approval with every change since. Say the summary as it is; never round it into "all done".
+
+Ask for a change with `flightdeck loop sync` (`--from` what a search or the loop's own feed read, whole; a list of items takes `source: {"feed": "<the step's source:>"}` and is refused from any other feed or scope), `loop add --keys` (and `--title`, `--link` with one key on a list of items; keys are taken exactly as typed), `loop exclude --item --reason`, `loop restore --item`, `loop exception --item --reason --approver`, `loop withdraw --item`, `loop owner --item --owner`, `loop choose --item --run` (which of an item's competing runs counts), or `loop review --accept|--keep --as <person>` (a person's decision, recorded on their behalf). Every one takes `--tool <name>@<version> --key <key>` and writes one file, once. Run it with `--dry-run` first and show the person the preview. A loop's list changes when Flightdeck next reads the folder; the command never starts a run, and people start each item's run in Flightdeck.
+
+Exit code 0 is requested, already requested, or (with `--dry-run`) what it would write; 4 nothing written, because a scope record or part of the folder couldn't be read; 1 refused (a key already used for a different request, or a request that isn't valid); 5 no such run or loop step. If it can't confirm the save, retry with the same key, never a new one: a new key could ask twice. The formats are in docs/apps.md of the Flightdeck repository.
 
 ## Evidence packs
 

@@ -148,7 +148,7 @@ PF.search = (function () {
     });
     var people = [r.recorder && r.recorder.person, r.createdBy, r.ended && r.ended.by];
     Object.keys(r.roles || {}).forEach(function (k) { people.push(r.roles[k]); });
-    return { id: 'run:' + key, kind: 'run', title: r.title, sub: (PF.run.isTest(r) ? 'Test run · staged v' : 'v') + (r.version || '?') + ' · ' + (r.ended ? str(r.ended.outcome) || 'Ended' : 'Running'), fields: f,
+    return { id: 'run:' + key, kind: 'run', title: r.title, sub: (PF.run.isTest(r) ? 'Test run · staged v' : 'v') + (r.version || '?') + ' · ' + (r.ended ? str(r._unrunnable ? r.ended.outcome : PF.run.outcomeText(r)) || 'Ended' : 'Running'), fields: f,
       people: uniq(people), types: [], at: r.savedAt || (r.ended && r.ended.at) || r.created || '', process: r.process, run: key, target: target({ view: 'run', run: key }) };
   }
   /* Each note's own signature, worked out once per note object (notes are built new from every read and never changed in

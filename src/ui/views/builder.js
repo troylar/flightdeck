@@ -40,7 +40,7 @@
       '<optgroup label="Everyday work">' + first(every).map(opt).join('') + '</optgroup><optgroup label="Software tools and commands">' + first(tools).map(opt).join('') + '</optgroup>' +
       (ids.length ? '<optgroup label="Your team\'s">' + first(ids.map(function (id) { return team[id]; })).map(opt).join('') + '</optgroup>' : '');
   }
-  var EVERYDAY = ['confirm', 'communicate', 'meeting', 'decide', 'review', 'wait', 'measure', 'ui.action', 'run.process'];
+  var EVERYDAY = ['confirm', 'communicate', 'meeting', 'decide', 'review', 'wait', 'measure', 'ui.action', 'run.process', 'for.each'];
   function typesUsed(ctx) {
     var ed = ctx.state.editor, text = ed ? (ed.text != null ? ed.text : ed.base) : '', u = {};
     (O.parse(String(text || '')).steps || []).forEach(function (s) { if (s.type) u[s.type] = true; });
@@ -357,13 +357,16 @@
   /* Sets a run detail (sets:): the checklist's run details as toggles; a name that isn't one of them is kept, marked, and
      removed by pressing it. */
   function setsRow(ctx, def, s, meta) {
-    var id = 'ob-fld-sets', g = G.field(def, 'sets', s.fields), cur = String(s.fields.sets || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean), all = (meta && meta.context) || [];
+    var id = 'ob-fld-sets', g = G.field(def, 'sets', s.fields), cur = M.setsOf(s.fields.sets).filter(function (b) { return !b.from; }).map(function (b) { return b.name; }), all = (meta && meta.context) || [];
+    /* Module results (3.0): a Decide step's decision may be the checklist's result, one value (sets: <result>=decision). */
+    var res = meta && meta.result, bound = res && M.boundFrom(s, res) === 'decision';
+    var resRow = s.type === 'decide' && res ? '<div class="row"><button type="button" class="chipbtn ob-req" data-act="ob-sets-result" data-id="' + esc(res) + '" aria-pressed="' + !!bound + '">Its decision is the checklist\'s result, ^' + esc(res) + '</button></div>' : '';
     var chip = function (n, bad) { return '<button type="button" class="chipbtn ob-req' + (bad ? ' bad" data-bad="1' : '') + '" data-act="ob-sets" data-id="' + esc(n) + '" aria-pressed="' + (cur.indexOf(n) >= 0) + '">^' + esc(n) + (bad ? ' <span class="small">Not one of this checklist\'s run details; press to remove it.</span>' : '') + '</button>'; };
     /* 20 at a time with Find past 20, the ones it sets always drawn (2.11, code review round 8). */
     var rr = K.roleRows(ctx.state, 'ob-sets', all, { soft: cur, keptLabel: 'Run details this step sets', label: 'Find a run detail', noun: 'run detail', focusOf: function (n) { return K.byAct('ob-sets', n); }, row: function (n) { return chip(n); } });
     var h = rr.rows + cur.filter(function (n) { return all.indexOf(n) < 0; }).map(function (n) { return chip(n, true); }).join('');
     return '<div class="field"><span id="q-' + id + '">' + esc(g.q) + '</span>' + rr.box + '<div class="row ob-grp" id="' + id + '" tabindex="-1" role="group" aria-labelledby="q-' + id + '" aria-describedby="' + described(ctx, id, g) + '">' +
-      (h || '<span class="small">The checklist lists no run details yet.</span>') + '</div>' + whyOf(id, g) + '</div>' + errMsg(ctx, id);
+      (h || '<span class="small">The checklist lists no run details yet.</span>') + '</div>' + resRow + whyOf(id, g) + '</div>' + errMsg(ctx, id);
   }
   /* What checking the step asks for, read the way the run reads it (R.evidenceFor), given what practice gives it: the
      draft's admitted map, the team's types and Jira workflows (core/practice.js). Kept per text, as a redraw is often. */
@@ -401,6 +404,17 @@
   }
   /* A {run.process} step's own section (2.8): which process, which version, and what each of its details gets. Every change
      is one O.editLink. */
+  /* What the linked checklist returns (3.0): its result's choices as Accepts toggles, and which choice detail here keeps it. */
+  function resultPart(ctx, st, meta, kid) {
+    var rd = M.resultDef(kid.map); if (!rd) return '';
+    var acc = M.setNames(st.fields.accepts), dt = meta.detailTypes || {}, imp = M.setsOf(st.fields.sets).filter(function (b) { return b.from === 'result'; }).map(function (b) { return b.name; })[0] || '';
+    var fits = meta.context.filter(function (n) { return ownKey(dt, n) && dt[n] && dt[n].kind === 'choice' && rd.options.every(function (o) { return dt[n].options.indexOf(o) >= 0; }); });
+    var opt = function (v, t, on) { return '<option value="' + esc(v) + '"' + (on ? ' selected' : '') + '>' + esc(t) + '</option>'; };
+    return '<h3 class="ob-sec">What ' + esc(kid.title) + ' returns</h3><div class="field"><span id="q-ob-accepts">This step counts as done when the run returns</span><div class="row ob-grp" role="group" aria-labelledby="q-ob-accepts">' +
+      rd.options.map(function (o) { return '<button type="button" class="chipbtn ob-req" data-act="ob-accepts" data-id="' + esc(o) + '" aria-pressed="' + (acc.indexOf(o) >= 0) + '">' + esc(o) + '</button>'; }).join('') + '</div>' +
+      '<p class="small">' + (acc.length ? 'Any other result holds this step, with the reason, until a new run returns one of these.' : 'None chosen: any Completed run counts, whatever it returns.') + '</p></div>' +
+      formSelect(ctx, 'ob-res-import', 'res-import', opt('', 'Don\'t keep it', !imp) + (imp && fits.indexOf(imp) < 0 ? opt(imp, '^' + imp + ' (doesn\'t hold every result)', true) : '') + fits.map(function (n) { return opt(n, '^' + n, n === imp); }).join(''));
+  }
   function linkSection(ctx, p, text, s, meta) {
     var f = s.fields, map = M.parse(text), x = O.mapStep(map, s) || { step: null }, st = x.step; if (!st) return '';
     var procs = ctx.processes().filter(function (e) { return e.id !== meta.process && e.id !== '__other'; }), other = ctx.state.obLinkOther === s.key || (f.process && !procs.some(function (e) { return e.id === f.process; }));
@@ -428,6 +442,7 @@
     /* A child that left the folder has nothing to pass; Find a run detail stays while it has text or focus (code review round 20). */
     if (!kid) return h + (K.findOn(ctx.state, 'ob-link-rows', false) ? K.findBox(ctx.state, 'ob-link-rows', 'Find a run detail', 0, 0, 'run detail') : '') + (f.process ? '<p class="small">' + esc(f.process) + ' isn\'t in this folder, so what it needs can\'t be shown.</p>' : '');
     var rr = PF.links.rows(st, meta.context, kid.map), setBy = M.setBy(kid.map), fixed = ctx.state.obLinkFixed || {}, t = kid.title;
+    h += resultPart(ctx, st, meta, kid);
     h += '<h3 class="ob-sec">What ' + esc(t) + ' needs</h3>' + (kid.draft ? '<p class="small">' + esc(t) + ' isn\'t published yet, so this can\'t be checked until it is.</p>' : '') +
       (kid.nextAdds && kid.nextAdds.length ? '<p class="small">' + esc(t) + '\'s draft adds ' + K.capJoin(kid.nextAdds, function (n) { return '^' + esc(n); }, null, 'ob-link-adds') + '.</p>' : '');
     /* Before 2.8 (no pass: line) nothing is asked: a name with no source starts empty ("Not passed"). Choosing Asked writes
@@ -866,9 +881,17 @@
       personSelect(ctx, 'ob-backup', 'backup', meta.backup, 'No backup') +
       listField(ctx, 'roles', 'Roles', 'Who does what, like lead or reviewer. Steps, lanes and gates choose from these.', meta.roles, '@', 'ob-add-role') +
       listField(ctx, 'context', 'Run details', 'Filled in when a run starts, like ticket or commit. Steps can be tied to them.', meta.context, '^', 'ob-add-ctx', ren) +
-      patternField(ctx) +
+      patternField(ctx) + resultSelect(ctx, meta) +
       '<p class="small">A role or run detail still in use can\'t be removed: take it out of its steps first.</p>' +
       '<details class="ob-src"><summary>Source details</summary><p class="small">The front matter\'s <code>owner:</code>, <code>backup:</code>, <code>roles:</code> and <code>context:</code> lines. Other lines stay as written.</p></details></section>';
+  }
+  /* The checklist's result (3.0): one of its choice run details, or none. */
+  function resultSelect(ctx, meta) {
+    var dt = meta.detailTypes || {}, cur = meta.result || '', opt = function (v, t, on) { return '<option value="' + esc(v) + '"' + (on ? ' selected' : '') + '>' + esc(t) + '</option>'; };
+    var choices = meta.context.filter(function (n) { return ownKey(dt, n) && dt[n] && dt[n].kind === 'choice'; });
+    if (!choices.length && !cur) return '';
+    return formSelect(ctx, 'ob-result', 'result', opt('', 'No result', !cur) + (cur && choices.indexOf(cur) < 0 ? opt(cur, '^' + cur + ' (not a choice run detail)', true) : '') +
+      choices.map(function (n) { return opt(n, '^' + n + ' (' + dt[n].options.join(', ') + ')', n === cur); }).join(''));
   }
   /* Text that matches a pattern (2.16, Appendix A.3): a name, the pattern and a value to try; Add writes name:pattern(...) only
      when the pattern can be read, so an unescaped ( ) or , is refused before anything is written. */

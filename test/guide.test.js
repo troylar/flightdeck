@@ -43,7 +43,7 @@ const BOX = {
   'ob-tr-title': ['form', 'tr-title'], 'ob-tr-role': ['form', 'tr-role'], 'ob-owner': ['form', 'owner'], 'ob-backup': ['form', 'backup'], 'ob-add-role': ['form', 'role'], 'ob-new-role': ['form', 'role'],
   'ob-add-ctx': ['form', 'context'], 'ob-q-text': ['form', 'questions'], 'ob-fld-': ['field', null], 'ob-host': ['form', 'pr-host'],
   'ob-jira': ['form', 'jira-action'], 'ob-jfind': ['form', 'jira-find'], 'ob-jres': ['form', 'jira-results'], 'ob-jres-n': ['form', 'jira-results-n'], 'ob-pat-name': ['form', 'pat-name'], 'ob-pat-src': ['form', 'pat-src'], 'ob-pat-test': ['form', 'pat-test'],
-  'ob-link-proc': ['form', 'link-proc'], 'ob-link-proc-other': ['form', 'link-proc-other'], 'ob-link-vn': ['form', 'link-vn'], 'ob-link-src-': ['form', 'link-src'], 'ob-link-val-': ['form', 'link-val']
+  'ob-result': ['form', 'result'], 'ob-res-import': ['form', 'res-import'], 'ob-link-proc': ['form', 'link-proc'], 'ob-link-proc-other': ['form', 'link-proc-other'], 'ob-link-vn': ['form', 'link-vn'], 'ob-link-src-': ['form', 'link-src'], 'ob-link-val-': ['form', 'link-val']
 };
 /* Not entry boxes: finding a part, choosing a type, Must be done and Automation planned (checkboxes with their own
    descriptions, 2.10), choosing files. */
@@ -96,6 +96,8 @@ rule('Guide: each checklist-field example, written into a one-step checklist, re
     /* A field asked for only for one action is checked with that action. */
     Object.keys(t.fields).forEach(f => {
       const d = t.fields[f], x = G.FIELDS[t.id][f]; if (!x.eg) return;
+      /* 3.0: a loop's from: names another step (its search), so a one-step checklist can't hold it; test/loops.test.js checks it. */
+      if (t.id === 'for.each' && f === 'from') return;
       const also = d.requiredWhen ? Object.keys(d.requiredWhen).map(k => k + ': ' + d.requiredWhen[k]) : t.fields.action && f !== 'action' ? ['action: ' + t.fields.action.options[t.fields.action.options.length - 1]] : [];
       check(t.id, f, x.eg, also);
     });
@@ -246,10 +248,10 @@ rule('T.applies: no condition applies; requiredWhen only when it matches; requir
 });
 rule('Guide: the type definitions, the fields every type accepts and the pins are exactly 2.4.0\'s', () => {
   const was = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'entry-boxes', 'types-2.4.0.json'), 'utf8'));
-  /* 2.16 adds one type, {jira.search}; every other type is 2.4.0's. */
-  same(T.LIST.filter(t => t.id !== 'jira.search'), was.LIST, 'T.LIST'); same(T.COMMON, was.COMMON, 'T.COMMON');
+  /* 2.16 adds one type, {jira.search}, and 3.0 one, {for.each}; every other type is 2.4.0's. */
+  same(T.LIST.filter(t => t.id !== 'jira.search' && t.id !== 'for.each'), was.LIST, 'T.LIST'); same(T.COMMON, was.COMMON, 'T.COMMON');
   /* 2.8 adds one pin, pass: on {run.process}; every other pin is 2.4.0's. */
-  const pins = JSON.parse(JSON.stringify(T.PINS)); same(pins['run.process'].pass, { label: 'Passes', kind: 'pass' }, 'the 2.8 pin'); delete pins['run.process'].pass;
+  const pins = JSON.parse(JSON.stringify(T.PINS)); same(pins['run.process'].pass, { label: 'Passes', kind: 'pass' }, 'the 2.8 pin'); delete pins['run.process'].pass; same(pins['run.process'].accepts, { label: 'Accepts', kind: 'accepts' }, 'the 3.0 pin'); delete pins['run.process'].accepts; delete pins['for.each'];
   same(pins, was.PINS, 'pins');
 });
 rule('Guide: the example folder\'s publication files, signatures, brief, read contract, receipt and run log are byte for byte 2.4.0\'s', () => {

@@ -72,6 +72,9 @@ PF.plans = (function () {
     if (v1 && isExact(o)) return { ok: false, kind: 'newer', why: 'is a ' + (k === 'status' ? 'plan decision' : 'plan') + ' made with a newer Flightdeck. ' + E.needsText('2.0'), needs: '2.0' };
     if (!k) return { ok: false, kind: 'malformed', why: 'isn\'t a file this copy can read here', needs: '' };
     var v = E.judge(k === 'status' ? 'flightdeck-plan-status' : 'flightdeck-plan', o);
+    /* A scope request or decision (3.0, plan/3 and plan-status/3, PF.loop) is never a plan: the folder reader dispatches it
+       before this one, and anything else that reaches here refuses it. */
+    if (v.ok && v.major === 3) return { ok: false, kind: 'malformed', why: 'is a scope ' + (k === 'status' ? 'decision' : 'request') + ' for a loop, not a plan', needs: '' };
     if (!v.ok) return { ok: false, kind: v.kind, why: v.kind === 'newer' ? 'is a ' + (k === 'status' ? 'plan decision' : 'plan') + ' made with a newer Flightdeck. ' + E.needsText(v.needs) : v.why, needs: v.needs || '' };
     return { ok: true, kind: k, why: k === 'plan' ? planWhy(o) : statusWhy(o) };
   }

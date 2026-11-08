@@ -90,7 +90,9 @@ async function same(files, proc, expect) {
   const dir = RF.toDisk(files, tmp()), r = cli(dir, proc), a = await appVerdict(files, proc);
   assert.strictEqual(r.code, 0, JSON.stringify(r.json));
   assert.strictEqual(r.json.complete, true);
-  assert.deepStrictEqual(r.json.data.checks, a.checks, 'the checks Review & publish shows');
+  const ck = r.json.data.checks;
+  assert.deepStrictEqual({ blockers: ck.blockers, suggestions: ck.suggestions }, a.checks, 'the checks Review & publish shows');
+  assert.ok(ck.blockerSteps.length === ck.blockers.length && ck.suggestionSteps.length === ck.suggestions.length, 'the step each finding names, one per finding');
   assert.deepStrictEqual(r.json.data.publish, a.publish, 'what Publish says: ' + JSON.stringify(a.publish));
   if (expect) expect(r.json.data);
   return r.json.data;
@@ -467,7 +469,7 @@ rule('Guard: PF.publish.unknownOf maps each ledger problem to the input it belon
    so a new read of an input is a test failure until it's listed (and the guard above covers it). */
 rule('Guard: every read of a check input in the checks is listed with its unknown state', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'map.js'), 'utf8');
-  const fnStart = src.indexOf('function check(map, opts)'), body = src.slice(fnStart, src.indexOf('\n  }\n', src.indexOf('return { blockers: blockers, suggestions: suggestions };', fnStart)));
+  const fnStart = src.indexOf('function check(map, opts)'), body = src.slice(fnStart, src.indexOf('\n  }\n', src.indexOf('return { blockers: blockers, suggestions: suggestions', fnStart)));
   const code = body.replace(/\/\*[\s\S]*?\*\//g, '');
   const reads = (code.match(/opts\.(people|types|workflows|processes|children|parents|teamValues|unknownType)\b/g) || []).reduce((o, k) => { o[k] = (o[k] || 0) + 1; return o; }, {});
   const LISTED = {
@@ -476,7 +478,7 @@ rule('Guard: every read of a check input in the checks is listed with its unknow
     'opts.unknownType': 3, /* a type whose file is unknown: no unknown-type blocker, and none of that step's fields scanned for references */
     'opts.workflows': 3, /* jiraCheck and the Jira step: null when jira/workflows.json is unknown */
     'opts.processes': 2, /* "isn't published yet": an unread process is listed as there; null when publications/ is unknown */
-    'opts.children': 2, /* child details and team value kinds: null for an unread process, so nothing is checked against an older version */
+    'opts.children': 4, /* child details and team value kinds (a {run.process} and, 3.0, a {for.each}): null for an unread process, so nothing is checked against an older version */
     'opts.parents': 2, /* parents passing a dropped detail: unread processes left out; null when publications/ is unknown */
     'opts.teamValues': 5 /* team value names and kinds, and a Jira search's address (site:): undefined when team-values.json is unknown, so none is checked (R4-3) */
   };
@@ -935,6 +937,206 @@ rule('Type parity, Python team_files: agrees on every command-written file; a BO
   const only = tdir({ 'step-types/a.b.json': '{"id":"a.b","label":""}' });
   assert.deepStrictEqual(team(only).stepTypes, ['a.b'], 'Python lists a type only checkCustom rejects');
   assert.strictEqual(JSON.parse((await FDB.main(['type', 'read', only, 'a.b', '--json'])).out).data.type.state, 'malformed', 'the command calls it malformed');
+});
+
+/* ---------- 3.0: the library and design tips, the same in the app and through the command ---------- */
+
+const RELEASE_PUB = ['---', 'process: release', 'title: Release', 'owner: person-avery', 'context: version, commit, ticket', 'roles: lead', '---', '', '## Scope · DO-CONFIRM {#scope}',
+  '- [ ] {jira.search} The release has stories @lead {#stories}', '  query: project = PAY AND fixVersion = ^version', '  results: at least 1',
+  '- [ ] {run.process} Check in the code @lead {#notes}', '  process: check-in', '  carry: commit', '',
+  '## Gate: Release approved · owner @lead {#approved}', '  approves: release of ^version', ''].join('\n');
+const DEPLOY_DRAFT = md({ process: 'deploy', context: 'fix_version', steps: ['- [!] {confirm} All stories are done @lead {#all}', '- [ ] {jira.search} Stories in the version @lead {#in}', '  query: PROJECT = PAY and FIXVERSION = ^fix_version', '  results: at least 1'] });
+const JIRA_TV = JSON.stringify({ format: 'flightdeck-team-values/1', values: { 'jira-base-url': { value: 'https://jira.example.com' } } });
+function libCli(dir, more) {
+  const r = cp.spawnSync(process.execPath, [BIN, 'library', 'inspect', dir].concat(more || []), { encoding: 'utf8', maxBuffer: 64 * 1048576 });
+  let json = null; try { json = JSON.parse(r.stdout); } catch (e) { /* asserted below */ }
+  assert.ok(json, 'JSON on stdout: ' + r.stdout + r.stderr);
+  if (!json.error) {
+    assert.deepStrictEqual(wrong(json, AJ.SCHEMA2.envelope), [], 'envelope');
+    assert.deepStrictEqual(wrong(json.data, AJ.SCHEMA2.library), [], 'SCHEMA2.library');
+    assert.strictEqual(json.contract, 'flightdeck-read/2');
+    assert.strictEqual(r.status === 4, !json.complete, 'exit 4 exactly when partial (exit ' + r.status + ')');
+  }
+  return { code: r.status, json };
+}
+function treeOf(dir) {
+  const out = {};
+  (function walk(d) { fs.readdirSync(d, { withFileTypes: true }).forEach(e => { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else out[path.relative(dir, p)] = fs.readFileSync(p, 'utf8'); }); })(dir);
+  return out;
+}
+
+rule('Library: flightdeck library inspect reads every checklist read-only: links, step types, skills and overlaps with their reasons', async () => {
+  const files = await folder({ base: { 'team-values.json': JIRA_TV }, publish: [example('maps/drafts/check-in.md'), RELEASE_PUB], drafts: { deploy: DEPLOY_DRAFT } });
+  const dir = RF.toDisk(files, tmp()), before = treeOf(dir);
+  const r = libCli(dir, ['--json']);
+  assert.strictEqual(r.code, 0, JSON.stringify(r.json.problems));
+  const d = r.json.data;
+  assert.deepStrictEqual(d.checklists.map(c => c.process + ':' + c.source).sort(), ['check-in:publication', 'deploy:draft', 'release:publication']);
+  assert.deepStrictEqual(d.usedBy, [{ process: 'check-in', by: { process: 'release', source: 'publication', step: 'notes', version: null } }]);
+  assert.deepStrictEqual(d.overlaps.filter(o => o.kind === 'search').map(o => o.reason + ': ' + o.items.map(x => x.process + '#' + x.id).join(' ')), ['same normalized JQL: release#stories deploy#in']);
+  assert.ok(d.stepTypes.some(t => t.id === 'change.request' ? false : t.id === 'run.process' && t.usedBy[0].process === 'release'));
+  assert.strictEqual(d.completeness.complete, true);
+  assert.deepStrictEqual(treeOf(dir), before, 'nothing in the folder changed');
+  const one = libCli(dir, ['--process', 'check-in', '--json']).json.data;
+  assert.deepStrictEqual(one.checklists.map(c => c.process), ['check-in']);
+  assert.strictEqual(one.usedBy.length, 1, 'the link to it stays');
+  assert.strictEqual(libCli(dir, ['--process', 'nope', '--json']).code, 5);
+  const noJson = libCli(dir, []);
+  assert.strictEqual(noJson.code, 1); assert.strictEqual(noJson.json.error.kind, 'usage');
+});
+
+rule('Library: a version that can\'t be read makes the answer partial and is named; it never reads as "nothing similar"', async () => {
+  const files = await folder({ base: { 'team-values.json': JIRA_TV }, publish: [example('maps/drafts/check-in.md'), RELEASE_PUB], drafts: { deploy: DEPLOY_DRAFT } });
+  const dir = RF.toDisk(files, tmp()), pubDir = path.join(dir, 'publications', 'release'), v = fs.readdirSync(pubDir)[0];
+  locked(path.join(pubDir, v, 'map.md'), () => {
+    const r = libCli(dir, ['--json']);
+    assert.strictEqual(r.code, 4, JSON.stringify(r.json.problems));
+    assert.strictEqual(r.json.data.completeness.complete, false);
+    assert.ok(r.json.data.completeness.unread.some(u => /^publications\/release\//.test(u.path)), JSON.stringify(r.json.data.completeness));
+    assert.ok(/can't be ruled out/.test(r.json.data.completeness.note));
+    const c = cli(dir, 'deploy');
+    assert.strictEqual(c.json.data.design.library.complete, false);
+    assert.ok(c.json.data.design.tips.some(t => t.id === 'library-unread'), JSON.stringify(c.json.data.design));
+  });
+});
+
+rule('Library: a draft with a line it doesn\'t understand is read as far as it goes, and named: partial, never "every checklist was read"', async () => {
+  const files = await folder({ base: { 'team-values.json': JIRA_TV }, publish: [example('maps/drafts/check-in.md'), RELEASE_PUB], drafts: { deploy: DEPLOY_DRAFT + 'stray line\n' } });
+  const r = libCli(RF.toDisk(files, tmp()), ['--json']);
+  assert.strictEqual(r.code, 4, JSON.stringify(r.json.problems));
+  assert.deepStrictEqual(r.json.problems.map(p => p.path + ' ' + p.kind), ['maps/drafts/deploy.md malformed']);
+  assert.deepStrictEqual(r.json.data.completeness.unread.map(u => u.process + ' ' + u.path), ['deploy maps/drafts/deploy.md']);
+  assert.ok(r.json.data.overlaps.some(o => o.items.some(x => x.process === 'deploy')), 'what it read still compares');
+});
+
+rule('Library: skill registrations in skill-registrations/ are read, and one that can\'t be read is named', async () => {
+  const src = path.join(__dirname, 'fixtures', 'v2', 'folder'), dir = tmp();
+  fs.cpSync(src, dir, { recursive: true });
+  let r = libCli(dir, ['--json']);
+  assert.strictEqual(r.code, 0, JSON.stringify(r.json.problems));
+  assert.deepStrictEqual(r.json.data.checklists.find(c => c.process === 'backup').skills.map(k => k.name), ['release-notes']);
+  fs.writeFileSync(path.join(dir, 'skill-registrations', 'release-notes', 'sk-bbbb2222.1.w-broken.json'), '{ not json');
+  r = libCli(dir, ['--json']);
+  assert.strictEqual(r.code, 4, JSON.stringify(r.json));
+  assert.ok(r.json.problems.some(p => /^skill-registrations\/release-notes\//.test(p.path)), JSON.stringify(r.json.problems));
+  assert.strictEqual(r.json.data.completeness.complete, false);
+});
+
+rule('Library: a step type that can\'t be read, or past the 100 read, and versions that clash make the answer partial and are named', async () => {
+  const base = await folder({ base: { 'team-values.json': JIRA_TV }, publish: [example('maps/drafts/check-in.md'), RELEASE_PUB], drafts: { deploy: DEPLOY_DRAFT } });
+  let r = libCli(RF.toDisk(Object.assign({}, base, { 'step-types/task.json': '{ not json' }), tmp()), ['--json']);
+  assert.strictEqual(r.code, 4, JSON.stringify(r.json.problems));
+  assert.ok(r.json.problems.some(p => p.path === 'step-types/task.json'), JSON.stringify(r.json.problems));
+  assert.strictEqual(r.json.data.completeness.complete, false);
+  const many = Object.assign({}, base); delete many['step-types/change.request.json'];
+  for (let i = 0; i <= 100; i++) many['step-types/t' + String(i).padStart(3, '0') + '.json'] = JSON.stringify({ id: 't' + String(i).padStart(3, '0'), label: 'T' + i });
+  many['maps/drafts/deploy.md'] = DEPLOY_DRAFT.replace('{confirm}', '{t100}');
+  r = libCli(RF.toDisk(many, tmp()), ['--json']);
+  assert.strictEqual(r.code, 4, JSON.stringify(r.json.problems));
+  assert.deepStrictEqual(r.json.problems.filter(p => p.kind === 'skipped').map(p => p.path), ['step-types/t100.json']);
+  const dep = r.json.data.checklists.find(c => c.process === 'deploy');
+  assert.deepStrictEqual([dep.teamTypes, dep.unknownTypes], [[], ['t100']], 'a type it didn\'t read is unknown, never built-in');
+  const clash = Object.assign({}, base), v1 = Object.keys(base).filter(k => /^publications\/release\/v1-[^/]+\//.test(k));
+  const old = v1[0].split('/')[2];
+  v1.forEach(k => { clash[k.replace(old, 'v1-zzzz9999')] = base[k].split(old).join('v1-zzzz9999'); });
+  r = libCli(RF.toDisk(clash, tmp()), ['--json']);
+  assert.strictEqual(r.code, 4, JSON.stringify(r.json.problems));
+  assert.ok(r.json.problems.some(p => p.path === 'publications/release/' && p.kind === 'conflict'), JSON.stringify(r.json.problems));
+  assert.ok(r.json.data.completeness.unread.some(u => u.process === 'release'), JSON.stringify(r.json.data.completeness));
+  const app = await appOn(clash, 'check-in'), part = libPart(app.html());
+  assert.ok(/<\/span>0\+<\/h2>/.test(part) && /can&#39;t be ruled out/.test(part), 'the page says partial: ' + part.slice(-600));
+});
+
+rule('Parity: design tips in draft check are the ones the checklist page shows; Used by and Similar match library inspect', async () => {
+  const files = await folder({ base: { 'team-values.json': JIRA_TV }, publish: [example('maps/drafts/check-in.md'), RELEASE_PUB], drafts: { deploy: DEPLOY_DRAFT } });
+  const dir = RF.toDisk(files, tmp()), c = cli(dir, 'deploy');
+  const tips = c.json.data.design.tips.map(t => t.text);
+  assert.ok(tips.some(t => /confirms a whole set at once/.test(t)) && tips.some(t => /runs the same search as Release \{#stories\}/.test(t)), JSON.stringify(tips));
+  assert.strictEqual(c.json.data.design.library.complete, true);
+  const app = boot({ picker: folderHandle('Team', Object.assign({}, files)), indexedDB: memoryIDB() }); await app.tick(60);
+  app.click('connect'); await app.tick(200);
+  app.choose('person-avery'); await app.tick();
+  app.click('open-process', 'deploy'); await app.tick();
+  let html = app.html();
+  const block = /<ul class="tips" aria-labelledby="tips-ov-h">([\s\S]*?)<\/ul>/.exec(html);
+  assert.ok(block, 'the page draws the design tips');
+  assert.deepStrictEqual([...block[1].matchAll(/<span class="lvl tip">Tip<\/span><span>([\s\S]*?)<\/span><\/li>/g)].map(m => unesc(m[1])), tips, 'the same tips, in the same order');
+  assert.ok(/Same Jira search<\/b>: \{#in\} here and <\/span><button type="button" class="link" data-act="go" data-view="process" data-process="release" data-map-ver="v1-[^"]+" data-step="stories">Release \{#stories\}/.test(html), 'Similar in other checklists, opening the version that matched');
+  app.click('open-process', 'check-in'); await app.tick();
+  html = app.html();
+  assert.ok(/data-process="release" data-map-ver="v1-[^"]+" data-step="notes">Release<\/button> <span>step \{#notes\}, follows the latest version/.test(html), 'Used by, as library inspect says it');
+  /* Step types name the checklists that use each type, as library inspect's stepTypes does for published ones. */
+  const lib = libCli(dir, ['--json']).json.data;
+  app.click('open-types'); await app.tick();
+  html = app.html();
+  ['jira.search', 'run.process', 'confirm'].forEach((id) => {
+    const want = (lib.stepTypes.find(t => t.id === id) || { usedBy: [] }).usedBy.filter(u => u.source === 'publication').map(u => u.process).sort();
+    const m = new RegExp('data-disc="type-in:' + id.replace('.', '\\.') + '"[^>]*><summary class="small">Which checklists</summary><ul class="small">([\\s\\S]*?)</ul>').exec(html);
+    assert.ok(m, id + ': the card lists its checklists');
+    assert.deepStrictEqual([...m[1].matchAll(/data-process="([^"]+)"/g)].map(x => x[1]).sort(), want, id);
+  });
+});
+
+/* ---------- 3.0: Used by and similar on a partial or large library, and where its links go ---------- */
+
+async function appOn(files, proc) {
+  const app = boot({ picker: folderHandle('Team', Object.assign({}, files)), indexedDB: memoryIDB() }); await app.tick(60);
+  app.click('connect'); await app.tick(200);
+  app.choose('person-avery'); await app.tick();
+  app.click('open-process', proc); await app.tick();
+  return app;
+}
+const libPart = (html) => (/<details class="panel" data-disc="lib:[\s\S]*?<\/details>/.exec(html) || [''])[0];
+const linking = (id, more) => md({ process: id, context: 'commit, ticket, version', steps: ['- [ ] {run.process} Check in the code @lead {#notes}', '  process: check-in'].concat(more || []) });
+
+rule('Used by and similar: a version that can\'t be read beside one that can still makes the panel partial; an empty list says among how many it read', async () => {
+  const files = await folder({ base: { 'team-values.json': JIRA_TV }, publish: [example('maps/drafts/check-in.md'), RELEASE_PUB, RELEASE_PUB.replace('title: Release', 'title: Release two')] });
+  let app = await appOn(files, 'check-in'), part = libPart(app.html());
+  assert.ok(/Used by and similar<span class="dot">&nbsp;·&nbsp;<\/span>1<\/h2>/.test(part), 'set-up: complete, one link: ' + part.slice(0, 300));
+  assert.ok(part.indexOf('Nothing in other checklists matches this one\'s searches, steps or gates, among the 2 checklists read.') >= 0, part);
+  const v2 = Object.keys(files).find(k => /^publications\/release\/v2-[^/]+\/publication\.json$/.test(k));
+  assert.ok(v2, 'set-up: release v2');
+  files[v2] = '{ not json';
+  app = await appOn(files, 'check-in'); part = libPart(app.html());
+  assert.ok(/Used by and similar<span class="dot">&nbsp;·&nbsp;<\/span>1\+<\/h2>/.test(part), 'partial though v1 reads: ' + part.slice(0, 300));
+  assert.ok(/can&#39;t be ruled out/.test(part), part);
+});
+
+rule('Used by, Similar and a step type\'s checklists show every one, 50 at a time with Show more, as library inspect lists them', async () => {
+  const drafts = {}, NAMES = [];
+  for (let i = 1; i <= 51; i++) { const id = 'p' + String(i).padStart(2, '0'); NAMES.push(id); drafts[id] = linking(id, ['- [ ] {jira.search} Stories @lead {#in}', '  query: PROJECT = PAY and FIXVERSION = ^version', '  results: at least 1']); }
+  const files = await folder({ base: { 'team-values.json': JIRA_TV }, publish: [example('maps/drafts/check-in.md'), RELEASE_PUB], drafts });
+  const rows = (html, lid) => [...html.matchAll(new RegExp('<li id="' + lid.replace(/[-:]/g, m => '\\' + m) + '-[^"]*" tabindex="-1">', 'g'))].length;
+  let app = await appOn(files, 'check-in');
+  assert.strictEqual(rows(app.html(), 'lib-used:check-in'), 50);
+  app.click('more', 'lib-used:check-in'); await app.tick();
+  assert.strictEqual(rows(app.html(), 'lib-used:check-in'), 52, 'the release and all 51 drafts');
+  app = await appOn(files, 'release');
+  assert.strictEqual(rows(app.html(), 'lib-sim:release'), 50);
+  app.click('more', 'lib-sim:release'); await app.tick();
+  assert.strictEqual(rows(app.html(), 'lib-sim:release'), 51);
+  /* A type 51 published checklists use: the card names each one. */
+  const pubs = [];
+  for (let i = 1; i <= 51; i++) pubs.push(md({ process: 'q' + String(i).padStart(2, '0'), steps: ['- [!] {wait} Wait for sign-off @lead {#w}', '  for: sign-off'] }));
+  const many = await folder({ publish: pubs });
+  app = await appOn(many, 'q01');
+  app.click('open-types'); await app.tick();
+  assert.strictEqual(rows(app.html(), 'type-in:wait'), 50);
+  app.click('more', 'type-in:wait'); await app.tick();
+  assert.strictEqual(rows(app.html(), 'type-in:wait'), 51);
+});
+
+rule('Used by and similar opens what matched: a publication at its version, with the step there, even when the draft dropped it', async () => {
+  const draft = RELEASE_PUB.replace(/- \[ \] \{run\.process\} Check in the code @lead \{#notes\}\n  process: check-in\n  carry: commit\n/, '');
+  assert.notStrictEqual(draft, RELEASE_PUB, 'set-up: the draft drops #notes');
+  const files = await folder({ base: { 'team-values.json': JIRA_TV }, publish: [example('maps/drafts/check-in.md'), RELEASE_PUB], drafts: { release: draft } });
+  const app = await appOn(files, 'check-in'), part = libPart(app.html());
+  const m = /<button type="button" class="link" data-act="go" data-view="process" data-process="release" data-map-ver="([^"]+)" data-step="notes">/.exec(part);
+  assert.ok(m, 'the publication\'s row names its version: ' + part);
+  app.click('go', undefined, { view: 'process', process: 'release', mapVer: m[1], step: 'notes' }); await app.tick();
+  const html = app.html();
+  assert.ok(/id="cl-st-notes"/.test(html), 'the step is on the page that opened');
+  assert.ok(new RegExp('<option value="' + m[1] + '"[^>]* selected').test(html), 'showing that version, not the draft');
 });
 
 run();

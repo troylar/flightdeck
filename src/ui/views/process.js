@@ -50,6 +50,67 @@
     var row = function (x) { PF.perf.add('checks.row'); return '<li id="' + esc(id + '-' + x.k) + '" tabindex="-1"><span class="lvl ' + x.lvl + '">' + x.w + '</span><span>' + esc(x.t) + '</span></li>'; };
     return K.list(st || {}, id, items, { keyOf: function (x) { return x.k; }, focusOf: function (k) { return K.byId(id + '-' + k); }, inDialog: !!(o && o.inDialog), draw: function (shown) { return '<ul class="checks">' + shown.map(row).join('') + '</ul>'; } });
   }
+  /* The library (3.0, PF.library): every checklist read into one shape, kept while the app's list of processes is the same
+     one, so a redraw doesn't read every checklist again. What couldn't be read is passed on, never dropped. */
+  var libCache = { procs: null, lib: null };
+  function libraryOf(ctx) {
+    var procs = ctx.processes ? ctx.processes() : [];
+    if (libCache.procs === procs && libCache.lib) return libCache.lib;
+    var failed = ctx.data.failed || {}, unread = [];
+    ['publications', 'drafts'].forEach(function (k) { if (k in failed) unread.push({ process: null, path: k === 'drafts' ? 'maps/drafts/' : 'publications/', why: String(failed[k]) }); });
+    (ctx.data.drafts && ctx.data.drafts.unreadable || []).forEach(function (u) { unread.push({ process: null, path: u.path, why: u.why }); });
+    /* Every version that can't be read, even when an older one can: the newer one may link to something the older doesn't. */
+    procs.forEach(function (p) { (p.broken || []).forEach(function (v) { unread.push({ process: p.id, path: 'publications/' + p.id + '/' + v.folder + '/', why: String(v.why || 'It can\'t be read here.') }); }); });
+    libCache = { procs: procs, lib: PF.library.inspect(procs, unread, { types: (ctx.data.stepTypes || {}).types || {} }) };
+    return libCache.lib;
+  }
+  /* Design tips (3.0): advice on the draft's shape, the same list flightdeck draft check prints as design.tips. Never a
+     blocker, so it sits under the checks with its own heading. */
+  /* Whether a fold the person opened stays open; its key names a process, so only its own entry counts. */
+  function opened(ctx, k) { var d = ctx.state.disc; return !!d && Object.prototype.hasOwnProperty.call(d, k) && !!d[k]; }
+  function designTips(ctx, text, pid, id) {
+    var tips = PF.library.lints(text, { library: libraryOf(ctx), process: pid });
+    if (!tips.length) return '';
+    id = id || 'tips';
+    /* Folded: advice, so it never crowds the checks that decide publishing (the screen's word budget, test/light.test.js). */
+    var k = 'tips:' + pid + ':' + id;
+    return '<details data-disc="' + esc(k) + '"' + (opened(ctx, k) ? ' open' : '') + '><summary class="small" id="' + esc(id) + '-h">Design tips · ' + tips.length + '</summary><p class="small">Advice, never a reason it can\'t publish.</p>' +
+      '<ul class="tips" aria-labelledby="' + esc(id) + '-h">' + tips.slice(0, 50).map(function (t) { return '<li><span class="lvl tip">Tip</span><span>' + esc(t.text) + '</span></li>'; }).join('') + '</ul>' +
+      (tips.length > 50 ? '<p class="small">And ' + (tips.length - 50) + ' more.</p>' : '') + '</details>';
+  }
+  var SIMILAR_WORDS = { 'same normalized JQL': 'Same Jira search', 'same saved filter': 'Same saved Jira filter', 'same type and fields': 'Same step type and fields', 'same gate approves pattern': 'Gate approves the same thing' };
+  /* Used by and Similar in other checklists (3.0): who links to this checklist, and parts of other checklists that look like
+     its own, each with why. Candidates only: two searches can match and still differ in who owns them or why. */
+  function libraryPanel(ctx, p) {
+    var lib = libraryOf(ctx), mine = PF.library.forProcess(lib, p.id), st = ctx.state;
+    var of = function (id, source) { return lib.checklists.filter(function (x) { return x.process === id && x.source === source; })[0] || null; };
+    var read = lib.checklists.map(function (x) { return x.process; }).filter(function (x, i, a) { return a.indexOf(x) === i; }).length;
+    var among = ', among the ' + read + ' checklist' + (read === 1 ? '' : 's') + ' read.';
+    /* Opens what matched: a publication at its own version, a draft as the draft, so the step named is the one shown. */
+    var open = function (id, source, step, words) {
+      var c = of(id, source), ver = source === 'publication' && c && c.folder ? ' data-map-ver="' + esc(c.folder) + '"' : '';
+      return '<button type="button" class="link" data-act="go" data-view="process" data-process="' + esc(id) + '"' + ver + (step ? ' data-step="' + esc(step) + '"' : '') + '>' + esc(words) + '</button>';
+    };
+    var titled = function (id, source) { var c = of(id, source) || of(id, 'publication') || of(id, 'draft'); return (c ? c.title : id) + (source === 'draft' ? ' (draft)' : ''); };
+    /* 50 at a time (common.js list), each row keyed by what it names, so Show more reaches every one library inspect lists. */
+    var paged = function (lid, rows, keyOf, drawRow) {
+      var ks = K.uniqKeys(rows, keyOf), items = rows.map(function (r, i) { return { r: r, k: K.domKey(ks[i]) }; });
+      return K.list(st, lid, items, { keyOf: function (x) { return x.k; }, focusOf: function (k) { return K.byId(lid + '-' + k); },
+        draw: function (shown) { return '<ul class="small vlist">' + shown.map(function (x) { return '<li id="' + esc(lid + '-' + x.k) + '" tabindex="-1">' + drawRow(x.r) + '</li>'; }).join('') + '</ul>'; } });
+    };
+    var k = 'lib:' + p.id;
+    var h = '<details class="panel" data-disc="' + esc(k) + '"' + (opened(ctx, k) ? ' open' : '') + '><summary><h2 id="lib-h">' + I('fork') + 'Used by and similar<span class="dot">&nbsp;·&nbsp;</span>' + (mine.usedBy.length + mine.similar.length) + (mine.complete ? '' : '+') + '</h2></summary>' + '<h3 class="small">Used by</h3>';
+    h += mine.usedBy.length ? paged('lib-used:' + p.id, mine.usedBy, function (e) { return e.by.process + '\n' + e.by.source + '\n' + e.by.step; }, function (e) {
+      return open(e.by.process, e.by.source, e.by.step, titled(e.by.process, e.by.source)) + ' <span>step {#' + esc(e.by.step) + '}, ' + (e.by.version ? 'pinned to v' + e.by.version : 'follows the latest version') + '</span>';
+    }) : '<p class="small">No other checklist links to this one' + esc(among) + '</p>';
+    h += '<h3 class="small">Similar in other checklists</h3>';
+    h += mine.similar.length ? paged('lib-sim:' + p.id, mine.similar, function (x) { return x.kind + '\n' + x.mine + '\n' + x.process + '\n' + x.source + '\n' + x.id; }, function (x) {
+      return '<span><b>' + esc(SIMILAR_WORDS[x.reason] || x.reason) + '</b>: {#' + esc(x.mine) + '} here and </span>' + open(x.process, x.source, x.kind === 'gate' ? null : x.id, titled(x.process, x.source) + ' {#' + x.id + '}');
+    }) + '<p class="small">Look before you change either: similar isn\'t always the same work.</p>' : '<p class="small">Nothing in other checklists matches this one\'s searches, steps or gates' + esc(among) + '</p>';
+    if (!mine.complete) h += '<p class="small" role="status">' + esc(mine.note) + '</p>';
+    return h + '</details>';
+  }
+
   /* How runs of this process have gone, one version at a time (docs/design.md section 23; views/insights.js draws it). */
   function insights(ctx, p) { return V.insightsPage(ctx, p); }
   /* What in jira/workflows.json couldn't be used: one notice, with each problem 20 at a time in its fold past one (code review
@@ -370,8 +431,8 @@
   function publishNeeds(ctx, p) {
     var map = M.parse(p.draft.md), n = PF.publish.needs(map, PF.types.freeze(M.usedTypes(map), (ctx.data.stepTypes || {}).types)); if (!n) return '';
     var list = n.names.length === 1 ? n.names[0] : n.names.slice(0, -1).join(', ') + ' and ' + n.names[n.names.length - 1];
-    /* The release that first runs all of it (PF.envelope.minimum), and the last one that can't. */
-    var need = n.needs || '2.0', nm = need.split('.'), before = +nm[1] > 0 ? nm[0] + '.' + (+nm[1] - 1) : '1.22';
+    /* The release that first runs all of it (PF.envelope.minimum), and the last one that can't (for a major, the last release before it). */
+    var need = n.needs || '2.0', nm = need.split('.'), before = +nm[1] > 0 ? nm[0] + '.' + (+nm[1] - 1) : ({ 2: '1.22', 3: '2.16' })[nm[0]] || '1.22';
     return '<p class="small pub-needs" role="note"><b>Needs Flightdeck ' + esc(need) + ':</b> ' + esc(list) + '. Teammates on Flightdeck ' + esc(before) + ' or earlier see this version but can\'t run it until they update. Leave ' + (n.names.length === 1 ? 'it' : 'these') + ' out if they need to run it now.</p>';
   }
   /* The checklist's views (2.16): one strip under the title, the same nav the workspace's view control is. Edit keeps its
@@ -430,7 +491,7 @@
     /* One is one notice, as before; more are one notice, announced once, with each step 20 at a time in its fold (2.11, D10). */
     if (pub && ctx.procOf) {
       var lb = PF.links.broken(pub.map, PF.links.childrenFrom(ctx.procOf)), lbk = 'links-broken:' + p.id;
-      var lbText = function (b) { PF.perf.add('links.broken'); return 'Step "' + esc(b.step.text.slice(0, 40)) + '" passes ' + esc(b.names.slice(0, 50).join(', ') + (b.names.length > 50 ? ', and ' + (b.names.length - 50) + ' more' : '')) + ' to ' + esc(b.title) + ', whose latest version (v' + esc(b.version) + ') doesn\'t have ' + (b.names.length > 1 ? 'them' : 'it') + '.'; };
+      var lbText = function (b) { PF.perf.add('links.broken'); return esc(U.stepLabel(b.step)) + ' passes ' + esc(b.names.slice(0, 50).join(', ') + (b.names.length > 50 ? ', and ' + (b.names.length - 50) + ' more' : '')) + ' to ' + esc(b.title) + ', whose latest version (v' + esc(b.version) + ') doesn\'t have ' + (b.names.length > 1 ? 'them' : 'it') + '.'; };
       if (lb.length === 1) h += '<div class="notice warn" role="status"><span>' + lbText(lb[0]) + ' New runs can\'t start that child until this checklist changes.</span></div>';
       else if (lb.length) h += '<div class="notice warn links-broken" role="status"><div><b>' + lb.length.toLocaleString('en-US') + ' linked steps can\'t start their child as it is now.</b> New runs can\'t start those children until this checklist changes.' +
         '<details data-disc="' + esc(lbk) + '"' + ((st.disc || {})[lbk] ? ' open' : '') + '><summary class="small">Which steps, and why</summary>' + K.list(st, lbk, lb, { page: 20, keyOf: function (b) { return b.step.id; }, focusOf: function (k) { return K.byId('lb-' + p.id + '-' + k); },
@@ -441,7 +502,7 @@
     h += '<div class="pgrid"><div class="stack">';
     if (p.draft && p.draftChanged) {
       var c = M.check(M.parse(p.draft.md), V.checkOptions(ctx));
-      h += '<section class="panel"><div class="row between"><h2 style="margin:0">Draft · ' + esc(p.draft.file) + '</h2><span class="small">' + (p.typesChanged && p.typesChanged.length ? 'Step type ' + esc(K.capJoin(p.typesChanged)) + ' changed since v' + pub.info.version + '; publish to use it' : p.draftChanged ? 'Has changes not yet published' : 'Same as the published version') + '</span></div>' + checkList(c, ctx.state, 'checks-ov');
+      h += '<section class="panel"><div class="row between"><h2 style="margin:0">Draft · ' + esc(p.draft.file) + '</h2><span class="small">' + (p.typesChanged && p.typesChanged.length ? 'Step type ' + esc(K.capJoin(p.typesChanged)) + ' changed since v' + pub.info.version + '; publish to use it' : p.draftChanged ? 'Has changes not yet published' : 'Same as the published version') + '</span></div>' + checkList(c, ctx.state, 'checks-ov') + designTips(ctx, p.draft.md, p.id, 'tips-ov');
       if (p.draftChanged) {
         /* Publishing takes the draft in the folder: while newer edits wait unsaved in the editor, it would publish the older text. */
         var base = corrBase(ctx, p), shots = ctx.shotBusy ? ctx.shotBusy(p.id) : 0, held = base.dirty || base.conflict || shots;
@@ -459,7 +520,7 @@
     h += V.checklistPanel(ctx, p);
     h += '</div><aside class="stack">';
     var mine = K.keeps(ctx, p);
-    h += fixesPanel(ctx, p) + (mine ? readyPanel(ctx, p, pub) + skillsPanel(ctx, p) : '');
+    h += fixesPanel(ctx, p) + (mine ? readyPanel(ctx, p, pub) + skillsPanel(ctx, p) : '') + libraryPanel(ctx, p);
     /* Versions: the newest on show, earlier ones folded; one line each; the change note shows in full on hover and in Changes. */
     var verLi = function (v, i) {
       var older = p.all[i + 1];
@@ -476,7 +537,7 @@
     var runs = ctx.data.runs.filter(function (r) { return r.process === p.id; }).sort(function (a, b) { return a.created < b.created ? 1 : -1; });
     h += '<section class="panel" aria-labelledby="pr-h"><h2 id="pr-h">Recent runs</h2>' + (runs.length ? '<ul class="plist">' + runs.slice(0, 3).map(function (r) {
       var hl = K.headline(r, R.mapOf(r));
-      return '<li><button data-act="open-run" data-id="' + esc(runKey(r)) + '"><span class="t">' + esc(r.title) + '</span><span class="pill ' + hl.s + '">' + esc(r.ended ? K.outcomeWord(r.ended.outcome) : 'running') + '</span><span class="small">' + esc(U.day(r.created)) + ' · ' + esc(K.verWord(r)) + '</span></button></li>';
+      return '<li><button data-act="open-run" data-id="' + esc(runKey(r)) + '"><span class="t">' + esc(r.title) + '</span><span class="pill ' + hl.s + '">' + esc(r.ended ? R.outcomeText(r, K.outcomeWord) : 'running') + '</span><span class="small">' + esc(U.day(r.created)) + ' · ' + esc(K.verWord(r)) + '</span></button></li>';
     }).join('') + '</ul>' + (runs.length > 3 ? '<button class="link" data-act="runs-of" data-id="' + esc(p.id) + '">All ' + runs.length + ' runs of this checklist</button>' : '') : '<p class="small">No runs yet. Start one with <b>Start a run</b>.</p>') + '</section>';
     return h + (mine ? '' : skillsFold(ctx, p, pub)) + '</aside></div>';
   }
@@ -777,7 +838,7 @@
     h += '<form class="panel stack" id="' + formId + '" data-scope="' + esc(scope) + '" data-process="' + esc(p.id) + '" data-folder="' + esc(pub.info.folder) + '"' + (plan ? ' data-plan-hash="' + esc(plan._sha) + '" data-plan-conflict="' + (plan._conflicting ? '1' : '') + '"' : '') + '><div class="grid2"><label class="field" for="run-title">Run name<input id="run-title" maxlength="100" value="' + esc(defTitle) + '"></label>';
     /* A detail a step produces during the run (sets:) isn't asked for here; the form says which step fills it in. */
     var setBy = M.setBy(pub.map), given = pre.details && typeof pre.details === 'object' ? pre.details : {};
-    var later = meta.context.filter(function (f) { return Object.prototype.hasOwnProperty.call(setBy, f) && !(plan && given[f]); });
+    var later = meta.context.filter(function (f) { return Object.prototype.hasOwnProperty.call(setBy, f) && (!(plan && given[f]) || !!PF.run.boundSource(pub.map, f)); });
     meta.context.filter(function (f) { return later.indexOf(f) < 0; }).forEach(function (f) {
       var g = typeof given[f] === 'string' ? given[f] : '', def = PF.run.typedDef({ snapshot: '' }, pub.map, 'details.' + f);
       if (!def) { h += '<label class="field" for="detail-' + esc(f) + '">' + esc(f) + '<input id="detail-' + esc(f) + '" data-detail="' + esc(f) + '" maxlength="120" value="' + esc(g) + '"></label>'; return; }
@@ -893,5 +954,5 @@
   /* The approvals a version names a role for (2.10): who approves is chosen when it starts. */
   function approvals(map) { return (map.phases || []).filter(function (ph) { return ph.gate && !ph.gate.implicit && ph.gate.owner && map.meta.roles.indexOf(ph.gate.owner) >= 0; }).map(function (ph) { return { role: ph.gate.owner, title: ph.gate.title }; }); }
   V.approvals = approvals;
-  V.process = process; V.readyPanel = readyPanel; V.start = start; V.teamSetup = teamSetup; V.checkList = checkList; V.mapPreview = mapPreview; V.fixesOf = fixesOf; V.corrBase = corrBase; V.corrApply = corrApply; V.briefBox = briefBox; V.diffHtml = diffHtml; V.planChoice = planChoice; V.planHeldWhy = planHeldWhy; V.earlierWords = earlierWords; V.proposalsPanel = proposalsPanel; V.proposalReview = proposalReview; V.editingNote = editingNote; V.mainNote = mainNote; V.propWords = propWords;
+  V.process = process; V.libraryOf = libraryOf; V.designTips = designTips; V.libraryPanel = libraryPanel; V.readyPanel = readyPanel; V.start = start; V.teamSetup = teamSetup; V.checkList = checkList; V.mapPreview = mapPreview; V.fixesOf = fixesOf; V.corrBase = corrBase; V.corrApply = corrApply; V.briefBox = briefBox; V.diffHtml = diffHtml; V.planChoice = planChoice; V.planHeldWhy = planHeldWhy; V.earlierWords = earlierWords; V.proposalsPanel = proposalsPanel; V.proposalReview = proposalReview; V.editingNote = editingNote; V.mainNote = mainNote; V.propWords = propWords;
 })();

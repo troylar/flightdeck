@@ -798,7 +798,9 @@ const D10_OK = [
   { file: 'overlays.js', has: 'esc(nm(x))', why: PERSON }, { file: 'pages.js', has: 'nmFu(p)', why: PERSON },
   { file: 'process.js', has: 'nmStage(x)', why: PERSON }, { file: 'process.js', has: 'nmRun(x)', why: PERSON },
   { file: 'run.js', has: 'String(value || \'\').trim().toLowerCase()', why: 'a step\'s choices, set by its type' },
-  { file: 'run.js', has: 'nmMe(p)', why: PERSON }, { file: 'run.js', has: 'nmTo(p)', why: PERSON }, { file: 'run.js', has: 'nmRole(p)', why: PERSON },
+  { file: 'run.js', has: '\'<option value="\' + esc(o.record) + \'">\'', why: 'a story\'s plans in conflict for one attempt, at most 20, each naming at most 5 inputs' },
+  { file: 'run.js', has: '\'<option value="\' + esc(cid) + \'">\' + esc(cid)', why: 'a story\'s competing runs to choose among, at most the 50 a choice records, with how many more' },
+  { file: 'run.js', has: 'nmMe(p)', why: PERSON }, { file: 'run.js', has: '\'<option value="\' + esc(p.id) + \'">\' + esc(p.name || p.id)', why: PERSON }, { file: 'run.js', has: 'nmTo(p)', why: PERSON }, { file: 'run.js', has: 'nmRole(p)', why: PERSON },
   { file: 'setup.js', has: 'esc(k[1]) + \'</p>\' + list([p])', why: 'a fixed pair: the person being changed and the one just added, each drawn once' },
   { file: 'setup.js', has: 'nmBk(', why: PERSON }, { file: 'setup.js', has: 'nmTo(p)', why: PERSON }
 ];
@@ -855,6 +857,20 @@ const FILE = 'text written to a file (front matter, a step\'s lines), never draw
 const FIXED = 'a fixed set of parts, at most a handful';
 const GROUP = 'one group path (Group / Subgroup), as deep as its author wrote it';
 const D10_JOIN_OK = [
+  { file: 'run.js', has: 'i.planConflict.options.map(', why: 'a story\'s plans in conflict, every one, since each is a choice a person must be able to make (round 9); options of a select, not drawn as text, each naming at most 5 inputs' },
+  { file: 'run.js', has: 'last.items.slice(0, 50).map(', why: 'a held loop\'s last readable view, at most 50 stories named, with how many more' },
+  { file: 'run.js', has: 'S.skip.slice(0, 50).map(', why: 'the Start all preview\'s skipped stories, at most 50 named' },
+  { file: 'app.js', has: 'failed.slice(0, 5).join', why: 'the stories Start all couldn\'t start, at most 5 named' },
+  { file: 'app.js', has: 'done.slice(0, 20).join', why: 'the stories a start request started, at most 20 named, with how many more' },
+  { file: 'run.js', has: 'shown.map(function (q)', why: 'a loop\'s requests still to settle, and the latest 10 applied or refused (Show them for the rest, paged by the person), each naming at most 20 stories' },
+  { file: 'run.js', has: 'S.start.slice(0, 50).map(', why: 'the Start all preview, at most 50 started and 50 skipped named' },
+  { file: 'run.js', has: 'V.changes.slice(0, 50).map(esc).join', why: 'a loop\'s changes since its approval, at most 50 drawn, with how many more' },
+  { file: 'run.js', has: 'V.review.slice(0, 50).map(esc).join', why: 'why a loop\'s approval needs review, at most 50 drawn, with how many more' },
+  { file: 'app.js', has: 'c.errors.slice(0, 5).join', why: 'what is wrong with a loop change, at most 5' },
+  { file: 'app.js', has: 'got.missing.join', why: 'the inputs a loop\'s pass: line can\'t fill, at most PF.loop.LIMITS.inputs (40)' },
+  { file: 'builder.js', has: 'dt[n].options.join(\', \')', why: 'a choice detail\'s options, at most 20 (core/map.js OPTIONS_MAX), in a select of the checklist\'s choice details, at most 40' },
+  { file: 'app.js', has: 'builderField(\'ob-fld-\' + field, cur.join(\', \'), focus)', why: 'a step field\'s value written to the checklist, never drawn' },
+  { file: 'app.js', has: 'keep.concat(value ? [value + \'=result\'] : []).join(\', \')', why: 'a step field\'s value written to the checklist, never drawn' },
   { file: 'manage.js', has: 'list.join(\', \')', why: 'at most 3: afWaiting counts the rest' }, { file: 'manage.js', has: 'list.slice(0, 3).join(', why: 'at most 3: afWaiting counts the rest' },
   { file: 'manage.js', has: 'paths.slice(0, 3).join(', why: 'at most 3 old copies\' paths: afOld counts the rest' },
   { file: 'app.js', has: 'tg.updates.join(', why: 'a folder\'s parts, a fixed list in the code' }, { file: 'app.js', has: 'tg.updates.concat(v).join', why: 'one prompt per version folder holding this file, copied to the clipboard, never drawn' },

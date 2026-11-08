@@ -19,6 +19,13 @@ Prints JSON:
 
 It never reads staged/ (versions only test runs use) and never changes a file.
 
+    python3 <skills folder>/_flightdeck/check_folder.py [team-folder] --draft <file>   (3.0)
+
+checks one draft offline, for an assistant without the flightdeck command, and prints JSON: blockers (the Publish dialog's,
+in its words, for the checks that ran), tips (its design tips that need no other checklist), ran and notRun (which checks
+did and didn't run), complete (always false) and a note. A clean result is not "ready to publish": flightdeck draft check,
+or the draft's page in Flightdeck, has the whole verdict.
+
 It uses the same fingerprints as the app (FNV-1a over the text's UTF-16 code units, and over the raw bytes for
 screenshots), so "complete" here means the app will accept the version too.
 """
@@ -143,7 +150,8 @@ def js_json(v):
 PUBLICATION_FORMAT = "preflight-publication/1"
 TYPES_VERSION = 2
 NEWER = "This version uses checklist features this copy of Flightdeck doesn't understand. Update Flightdeck to run it."
-PINS = {"run.process": {"version": {"kind": "pin"}, "pass": {"kind": "pass"}}, "run.skill": {"skillVersion": {"kind": "pin"}}}
+PINS = {"run.process": {"version": {"kind": "pin"}, "pass": {"kind": "pass"}, "accepts": {"kind": "accepts"}},
+        "for.each": {"version": {"kind": "pin"}, "pass": {"kind": "pass"}, "accepts": {"kind": "accepts"}}, "run.skill": {"skillVersion": {"kind": "pin"}}}
 COMMON = {"link": {"kind": "url"}, "expect": {"kind": "duration"}, "deadline": {"kind": "deadline"}, "evidence": {"kind": "choice", "options": ["link", "note", "number", "yes-no", "date"]},
           "require": {"kind": "require"}, "at": {"kind": "time"}, "due": {"kind": "time"}, "after": {"kind": "duration"}, "sets": {"kind": "sets"}}
 BUILTIN = {
@@ -177,7 +185,23 @@ BUILTIN = {
     # 2.16: the Jira search step, frozen as type version 4.
     "jira.search": {"fields": {"query": {"kind": "jql"}, "filter": {"kind": "jira-filter"}, "results": {"kind": "results"}, "site": {"kind": "team-ref"}, "what": {"kind": "text"}},
                     "record": [{"name": "searchId"}, {"name": "count"}, {"name": "keys"}, {"name": "resultsLink"}, {"name": "ranAt"}]},
+    # 3.0: a loop, frozen as type version 5 (PF.types; items: is PF.loop.KINDS).
+    "for.each": {"fields": {"process": {"kind": "text"}, "from": {"kind": "text"}, "items": {"kind": "choice", "options": ["jira.issue", "item"]}, "max": {"kind": "text"},
+                            "source": {"kind": "text"}, "noun": {"kind": "text"}}, "record": []},
 }
+LOOP_MAX_ITEMS = 500
+# 3.0 (slice 3b): the kinds of item a loop takes (PF.loop.KINDS), a feed's stable id (source:) and a noun's two parts.
+LOOP_KINDS = ["jira.issue", "item"]
+LOOP_FEED = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,59}\Z")
+LOOP_NOUN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9 '-]{0,38}[A-Za-z0-9'])?\Z")
+
+
+def loop_noun_ok(v):
+    """Whether noun: is one / many in full (PF.loop.nounOf): empty is the kind's default."""
+    if js_trim(str(v)) == "":
+        return True
+    parts = [js_trim(x) for x in str(v).split("/")]
+    return len(parts) == 2 and all(LOOP_NOUN.match(x) for x in parts)
 
 # The checklist parser's rules (src/core/map.js), as far as the check needs them: its errors, and each step's text, type and fields.
 # JavaScript's \w is ASCII, so W spells it out.
@@ -202,6 +226,32 @@ def js_str(v):
 def take_id(s):
     m = ID_RE.search(s)
     return (m.group(1).lower(), s[:m.start()]) if m else ("", s)
+
+
+EXCERPT_MAX = 40
+
+
+def excerpt(text, n=EXCERPT_MAX):
+    """A step's text cut at a word, never mid-word, with … when cut; counted in code points, as PF.util.excerpt."""
+    t = text or ""
+    if len(t) <= n:
+        return t
+    head = t[:n]
+    sp = head.rfind(" ")
+    # A word longer than half the room is cut where the room ends.
+    if t[n] != " " and sp >= n // 2:
+        head = head[:sp]
+    return re.sub(r"[ .,;:!?-]+$", "", head) + "\u2026"
+
+
+def step_label(s, word="Step"):
+    """A step named in a message: its text excerpt and its ID, which tells apart two steps that start alike (PF.util.stepLabel)."""
+    return '%s "%s"%s' % (word, excerpt(s.get("text")), " {#%s}" % s["id"] if s.get("id") else "")
+
+
+def step_name(s):
+    """A step as the checks' words name it, which other apps read: its first 40 characters, as every copy since 1.x (PF.util.stepName)."""
+    return 'Step "%s"' % (s.get("text") or "")[:40]
 
 
 def tokens(s, ch):
@@ -421,7 +471,7 @@ def parse_map(md):
     lines = md.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     errors, steps, phases = [], [], []
     i, phase, step, gate, track, questions = 0, None, None, None, None, False
-    context, ctx_line, roles = "", -1, ""
+    context, ctx_line, roles, runs, result, proc = "", -1, "", "", None, ""
 
     def err(n, msg):
         errors.append({"line": n + 1, "msg": msg})
@@ -436,6 +486,12 @@ def parse_map(md):
                 context, ctx_line = js_trim(kv.group(2)), i
             elif kv and kv.group(1) == "roles":
                 roles = kv.group(2)
+            elif kv and kv.group(1) == "runs":
+                runs = kv.group(2).strip()
+            elif kv and kv.group(1) == "result":
+                result = kv.group(2).strip()
+            elif kv and kv.group(1) == "process":
+                proc = kv.group(2).strip()
             i += 1
         i += 1
     names, typed, ctx_errors = detail_types(context_entries(context))
@@ -452,7 +508,9 @@ def parse_map(md):
             if not phase or gate:
                 err(i, "A track must be inside a phase, before its gate.")
             else:
-                track = {"id": take_id(m.group(1))[0]}
+                th_id, th_rest = take_id(m.group(1))
+                track = {"id": th_id, "roles": tokens(th_rest, "@")[0]}
+                phase.setdefault("tracks", []).append(track)
             i += 1
             continue
         m = re.match(r"^##\s+(.+?)\s*$", line)
@@ -469,10 +527,14 @@ def parse_map(md):
                     elif phase["gate"]:
                         err(i, "Phase \"%s\" already has a gate." % phase["title"])
                     else:
+                        owner = None
                         for part in re.split(r"\s+·\s+", g.group(1))[1:]:
-                            if not re.match(r"^owner\s+@(%s|-)+$" % W, part.strip(), re.I):
+                            om = re.match(r"^owner\s+@((?:%s|-)+)$" % W, part.strip(), re.I)
+                            if not om:
                                 err(i, "Gate option not understood: \"%s\"." % part)
-                        gate = {"id": head_id, "kind": "gate", "note": "", "shots": []}
+                            else:
+                                owner = om.group(1)
+                        gate = {"id": head_id, "kind": "gate", "note": "", "shots": [], "owner": owner}
                         phase["gate"] = gate
                 else:
                     pm = re.match(r"^(.*?)\s+·\s+(READ-DO|DO-CONFIRM)$", head)
@@ -493,8 +555,10 @@ def parse_map(md):
                 tm = re.match(r"^\{([a-zA-Z](?:%s|[.-])*)\}\s+(.*)$" % W, t2)
                 if tm:
                     typ, t2 = tm.group(1), tm.group(2)
-                rest = tokens(tokens(t2, "@")[1], "^")[1]
-                step = {"id": take_id(m.group(2))[0], "type": typ, "text": rest, "fields": {}, "shots": [], "phase": len(phases) - 1}
+                step_roles, rest = tokens(t2, "@")
+                rest = tokens(rest, "^")[1]
+                step = {"id": take_id(m.group(2))[0], "type": typ, "text": rest, "fields": {}, "shots": [], "phase": len(phases) - 1,
+                        "roles": step_roles or (list(track["roles"]) if track else [])}
                 steps.append(step)
             i += 1
             continue
@@ -550,13 +614,13 @@ def parse_map(md):
         i += 1
     # Forward only: a condition may test a detail a step sets only when that step is in an earlier phase.
     for pi, p in enumerate(phases):
-        later = {f for s in steps if s["phase"] >= pi for f in js_list(s["fields"].get("sets", ""))}
+        later = {f for s in steps if s["phase"] >= pi for f in set_names(s["fields"].get("sets", ""))}
         for t in [p] + [s for s in steps if s["phase"] == pi]:
             for w in t.get("when", []):
                 if w["name"] in later:
                     err(w["line"] - 1, "^%s is set in this phase or a later one (sets:), so it can't decide whether this applies. Only a step in an earlier phase can set it." % w["name"])
     errors.sort(key=lambda e: e["line"])
-    return {"errors": errors, "steps": steps, "questions": questions, "phases": phases, "context": names, "detailTypes": typed, "roles": js_list(roles)}
+    return {"errors": errors, "steps": steps, "questions": questions, "phases": phases, "context": names, "detailTypes": typed, "roles": js_list(roles), "runs": runs, "result": result, "process": proc}
 
 
 NEW_KINDS = {"number", "yes-no", "date"}
@@ -612,8 +676,10 @@ def features(parsed, types):
     for s in parsed["steps"]:
         if js_trim(js_str(s["fields"].get("evidence", ""))).lower() in NEW_KINDS:
             has.add("typed-evidence")
-        if s["type"] == "run.process" and "version" in s["fields"]:
+        if s["type"] in ("run.process", "for.each") and "version" in s["fields"]:
             has.add("pinned-children")
+        if s["type"] == "for.each":
+            has.add("loops")
         if s["type"] == "run.skill" and "skillVersion" in s["fields"]:
             has.add("pinned-skills")
         if s["type"] == "jira.search":
@@ -622,6 +688,10 @@ def features(parsed, types):
             has.add("passed-details")
             if pass_teams(s["fields"]["pass"]):
                 has.add("team-values")
+        if any(b["from"] for b in sets_of(s["fields"].get("sets", ""))) or (s["type"] == "run.process" and "accepts" in s["fields"]):
+            has.add("module-results")
+    if parsed.get("result"):
+        has.add("module-results")
     for p in parsed["phases"]:
         if p["note"] or p.get("noted"):
             has.add("phase-notes")
@@ -646,6 +716,134 @@ def js_list(s):
     return [x.strip() for x in js_str(s).split(",") if x.strip()]
 
 
+def sets_of(v):
+    """A sets: line's entries (PF.map.setsOf): "tag" sets ^tag from its own box; "disposition=decision" binds the detail to the
+    step's decision and "story_result=result" to a linked run's result (module results, 3.0)."""
+    out = []
+    for e in js_list(v):
+        i = e.find("=")
+        out.append({"name": e, "from": ""} if i < 0 else {"name": e[:i].strip(), "from": e[i + 1:].strip()})
+    return out
+
+
+def set_names(v):
+    return [e["name"] for e in sets_of(v)]
+
+
+def bound_from(s, name):
+    e = [b for b in sets_of(s["fields"].get("sets", "")) if b["name"] == name]
+    return e[0]["from"] if e else ""
+
+
+def result_blockers(parsed):
+    """The checks of a checklist's own result and its bindings (PF.map.check's bindChecks and resultChecks), in its words."""
+    out, result, ctx, typed = [], parsed.get("result"), parsed["context"], parsed["detailTypes"]
+    for s in parsed["steps"]:
+        label = step_name(s)
+        for e in sets_of(s["fields"].get("sets", "")):
+            if not e["from"]:
+                continue
+            if e["from"] == "decision":
+                if s["type"] != "decide":
+                    out.append(label + " sets ^%s=decision, but only a {decide} step has a decision." % e["name"])
+                elif e["name"] != result:
+                    out.append(label + " binds ^%s to its decision, but only the checklist's result is set that way. " % e["name"] + ("Its result is ^%s." % result if result else "Add \"result: %s\" to the front matter." % e["name"]))
+            elif e["from"] == "result":
+                if s["type"] != "run.process":
+                    out.append(label + " sets ^%s=result, but only a {run.process} step has a linked run's result." % e["name"])
+                elif not js_list(s["fields"].get("accepts", "")):
+                    out.append(label + " imports a result into ^%s but says nothing it accepts. Add accepts: with the results that let this step count as done." % e["name"])
+            else:
+                out.append(label + ": \"sets: %s=%s\" isn't a binding Flightdeck knows. Use =decision on a {decide} step or =result on a {run.process} step." % (e["name"], e["from"][:40]))
+        if "accepts" in s["fields"] and s["type"] == "run.process":
+            acc = js_list(s["fields"]["accepts"])
+            if not acc:
+                out.append(label + ": accepts: names no result.")
+            for i, v in enumerate(acc):
+                if acc.index(v) < i:
+                    out.append(label + " accepts \"%s\" twice." % v[:40])
+    if result is None or result == "":
+        return out
+    if result not in ctx:
+        return out + ["\"result\" names ^%s, which isn't listed in context." % result[:60]]
+    d = typed.get(result)
+    if not d or d.get("kind") != "choice":
+        return out + ["The result ^%s must be a choice, like %s:choice(cleared|needs-work)." % (result, result)]
+    for s in parsed["steps"]:
+        if result in set_names(s["fields"].get("sets", "")) and bound_from(s, result) != "decision":
+            out.append(step_name(s) + " sets the result ^%s itself; only its decision sets it (sets: %s=decision on one {decide} step)." % (result, result))
+    by = [s for s in parsed["steps"] if bound_from(s, result) == "decision"]
+    if not by:
+        return out + ["Nothing sets the result ^%s. Add \"sets: %s=decision\" to the {decide} step that records it." % (result, result)]
+    if len(by) > 1:
+        return out + ["The result ^%s is set by %d steps (%s); exactly one decision sets it." % (result, len(by), ", ".join(s["id"] for s in by))]
+    st = by[0]
+    if st["type"] == "decide" and "|".join(js_list(st["fields"].get("options", ""))) != "|".join(d["options"]):
+        out.append(step_name(st) + ": its options must be the result's choices, in the same order: options: " + ", ".join(d["options"]))
+    return out
+
+
+def loop_blockers(parsed):
+    """The checks of a {for.each} step that need no other checklist (PF.map.check's loopChecks), in its words."""
+    out, ctx, ids = [], parsed["context"], {s["id"]: s for s in parsed["steps"] if s.get("id")}
+    for s in parsed["steps"]:
+        if s["type"] != "for.each":
+            continue
+        label, f = step_name(s), s["fields"]
+        acc = js_list(f.get("accepts", ""))
+        if f.get("process") and f["process"] == parsed.get("process"):
+            out.append(label + " can't start a run of its own process.")
+        kind = js_trim(str(f.get("items", "")))
+        known = kind in LOOP_KINDS
+        if kind and not known:
+            out.append(label + " takes items of kind \"%s\", which this copy of Flightdeck doesn't know. Use %s." % (kind[:40], " or ".join(LOOP_KINDS)))
+        if known and kind != "jira.issue" and f.get("from"):
+            out.append(label + ": from: is for Jira stories (items: jira.issue). A list of items is kept by hand, or fed by one tool named with source:.")
+        if known and kind == "jira.issue" and "source" in f:
+            out.append(label + ": source: is for items: item. A Jira loop takes its stories from a {jira.search} step with from:.")
+        if "source" in f and not LOOP_FEED.match(js_trim(str(f["source"]))):
+            out.append(label + ": \"source\" is the feed's stable id: lowercase letters, digits, dots, hyphens or underscores, like deploy-targets.")
+        if "noun" in f and not loop_noun_ok(f["noun"]):
+            out.append(label + ": \"noun\" is what one and many are called, like noun: environment / environments (letters, digits, spaces, hyphens, at most 40 each).")
+        if f.get("from") and (not known or kind == "jira.issue"):
+            fid = re.sub(r"^#", "", js_trim(f["from"]))
+            fx = ids.get(fid)
+            if fx is None:
+                out.append(label + ": from: names #%s, which isn't a step of this checklist. Name its {jira.search} step, or leave from: out for a list kept by hand." % fid[:60])
+            elif fx["type"] != "jira.search":
+                out.append(label + ": from: names #%s, which isn't a {jira.search} step. Name a search step, or leave from: out for a list kept by hand." % fid)
+        if "max" in f:
+            t = js_trim(f["max"])
+            if not re.match(r"^[1-9]\d{0,2}\Z", t) or int(t) > LOOP_MAX_ITEMS:
+                out.append(label + ": \"max\" should be a whole number from 1 to %d." % LOOP_MAX_ITEMS)
+        if f.get("carry"):
+            out.append(label + ": a loop passes details with pass:, not carry:.")
+        if any(e["from"] == "result" for e in sets_of(f.get("sets", ""))):
+            out.append(label + " imports a result into a run detail, but a loop's results stay per item. Remove the =result binding.")
+        if not acc:
+            out.append(label + " says nothing it accepts. Add accepts: with the results that clear an item, like accepts: cleared.")
+        for i, v in enumerate(acc):
+            if acc.index(v) < i:
+                out.append(label + " accepts \"%s\" twice." % v[:40])
+        for e in pass_entries(f.get("pass", "")):
+            if e.startswith("^") and e[1:] not in ctx:
+                out.append(label + " passes ^%s, which isn't listed in context." % e[1:])
+    return out
+
+
+def pass_entries(text):
+    """The sources of a pass: line's well-formed entries, in order (^name for a run detail)."""
+    out = []
+    for seg in js_str(text).split(","):
+        t = js_trim(seg)
+        eq = t.find("=")
+        if eq > 0:
+            m = PASS_DETAIL.match(js_trim(t[eq + 1:]))
+            if m and m.group(1) not in JS_PROTO:
+                out.append("^" + m.group(1))
+    return out
+
+
 def js_duration(s):
     m = re.match(r"^\s*(?:([0-9]+)h)?\s*(?:([0-9]+)m)?\s*(?:([0-9]+)s)?\s*$", js_str(s), re.I)
     return bool(m and (m.group(1) or m.group(2) or m.group(3)))
@@ -665,9 +863,9 @@ JS_PROTO = {"__proto__", "constructor", "hasOwnProperty", "isPrototypeOf", "prop
             "__defineGetter__", "__defineSetter__", "__lookupGetter__", "__lookupSetter__"}
 
 
-def pass_errors(text):
+def pass_errors(text, items=False):
     """The errors of the app's PF.links.parse: a pass: line on a linked step (2.8)."""
-    return parse_pass(text)[0]
+    return parse_pass(text, items)[0]
 
 
 def pass_teams(text):
@@ -675,8 +873,8 @@ def pass_teams(text):
     return parse_pass(text)[1]
 
 
-def parse_pass(text):
-    """PF.links.parse as (errors, team value names)."""
+def parse_pass(text, items=False):
+    """PF.links.parse as (errors, team value names). items: a {for.each} step's item:key and item:title (3.0)."""
     raw = js_str(text)
     teams = []
     if not js_trim(raw):
@@ -730,6 +928,11 @@ def parse_pass(text):
             elif tv not in teams:
                 teams.append(tv)
             continue
+        if items and right[:5].lower() == "item:":
+            iw = js_trim(right[5:])
+            if right[:5] != "item:" or iw not in ("key", "title"):
+                errors.append("\"%s=%s\": an item gives item:key or item:title." % (name, right))
+            continue
         if "^" in right:
             errors.append("\"%s=%s\": a fixed value can't hold ^. Use ^name alone to pass a run detail." % (name, right))
             continue
@@ -774,7 +977,7 @@ def field_errors(type_def, fields, context=None):
         if kind == "pin" and f == "skillVersion" and not re.match(r"^[\w.+-]{1,40}$", v.strip()):
             errors.append("\"skillVersion\" should be the skill's version, like 1.2.0.")
         if kind == "pass":
-            errors.extend(pass_errors(v))
+            errors.extend(pass_errors(v, tid == "for.each" and not (isinstance(type_def, dict) and type_def.get("custom"))))
         if kind == "list" and len(js_list(v)) < 2:
             errors.append("\"%s\" needs at least two choices, separated by commas." % f)
         if kind == "require":
@@ -1269,7 +1472,7 @@ def understood(d):
         return False
     v = d.get("version")
     # Version 3 (2.0): typed evidence, whose kinds and keys are read only there. Version 4 (2.16): the Jira search's kinds and keys.
-    if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or (v > TYPES_VERSION and v not in (3, 4))):
+    if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or (v > TYPES_VERSION and v not in (3, 4, 5))):
         return False
     four = isinstance(v, (int, float)) and not isinstance(v, bool) and v == 4
     fields = d.get("fields")
@@ -1308,7 +1511,7 @@ def unrunnable(md, types):
     if taken:
         return "It uses the name \"%s\" for a step, phase, gate, role or run detail, and Flightdeck keeps that name for itself. Publish the checklist again with another one." % taken[0]
     for s in parsed["steps"]:
-        label = "Step \"%s\"" % s["text"][:40]
+        label = step_name(s)
         if not s["type"]:
             return label + " has no step type, so it can't be run. Publish the checklist again."
         d = types.get(s["type"])
@@ -1354,10 +1557,10 @@ def read_text(path):
 # newer major, or with a must-understand feature this copy doesn't know, is refused and named with the version it needs.
 # test/checker.test.js fails if this disagrees with src/core/envelope.js.
 FAMILIES = {
-    "preflight-publication": {"majors": {1: [], 2: ["phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "typed-details", "typed-evidence", "conditions", "passed-details", "team-values", "jira-search", "detail-patterns", "staged"]}, "future": {2: "2.0"}, "unmarked": False},
+    "preflight-publication": {"majors": {1: [], 2: ["phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "typed-details", "typed-evidence", "conditions", "passed-details", "team-values", "jira-search", "detail-patterns", "module-results", "loops", "staged"]}, "future": {2: "2.0"}, "unmarked": False},
     "flightdeck-step-type": {"majors": {1: [], 2: ["typed-evidence"]}, "future": {2: "2.0"}, "unmarked": True},
-    "flightdeck-plan": {"majors": {1: [], 2: []}, "future": {}, "unmarked": False, "kinds": ["plan"]},
-    "flightdeck-plan-status": {"majors": {1: [], 2: []}, "future": {}, "unmarked": False, "kinds": ["status"]},
+    "flightdeck-plan": {"majors": {1: [], 2: [], 3: ["loops"]}, "future": {}, "unmarked": False, "kinds": ["plan"]},
+    "flightdeck-plan-status": {"majors": {1: [], 2: [], 3: ["loops"]}, "future": {}, "unmarked": False, "kinds": ["status"]},
     "flightdeck-skill": {"majors": {1: [], 2: []}, "future": {2: "2.0"}, "unmarked": True},
     "flightdeck-team-values": {"majors": {1: []}, "future": {1: "2.9"}, "unmarked": False},
 }
@@ -1367,9 +1570,9 @@ FAMILY_NAMES = ["flightdeck-checklist", "preflight-publication", "preflight-run"
                 "flightdeck-presence", "flightdeck-connection", "flightdeck-people", "flightdeck-team-values", "flightdeck-skill", "flightdeck-editor-history", "flightdeck-installed", "flightdeck-stage-decision",
                 "flightdeck-extension", "flightdeck-report", "flightdeck-report-decision"]
 FROZEN = ["typed-details", "typed-evidence", "phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "staged", "test-run", "extensions", "conditions", "passed-details", "team-values",
-          "jira-search", "detail-patterns"]
+          "jira-search", "detail-patterns", "module-results", "loops"]
 # The first release that reads a feature, where it isn't 2.0 (PF.envelope.SINCE).
-SINCE = {"conditions": "2.1", "staged": "2.1", "test-run": "2.1", "passed-details": "2.8", "team-values": "2.9", "jira-search": "2.16", "detail-patterns": "2.16"}
+SINCE = {"conditions": "2.1", "staged": "2.1", "test-run": "2.1", "passed-details": "2.8", "team-values": "2.9", "jira-search": "2.16", "detail-patterns": "2.16", "module-results": "3.0", "loops": "3.0"}
 
 
 def _minimum(features):
@@ -2142,7 +2345,145 @@ def team_files(root):
     return {"stepTypes": types, "jiraIssueTypes": workflows, "problems": problems}
 
 
+# 3.0: design tips (PF.library.lints), the ones that need no other checklist, in the same order and words. Advice only.
+_NAME = r"[A-Za-z0-9_-]"
+# JavaScript's \s and . (JS_S, JS_DOT), never Python's: re.A alone would leave out a no-break space.
+_READINESS = re.compile(r"\b(ready|readiness|no (?:open )?\w+|none|blockers?|blocking|clear|all\b.*\b(?:done|closed|merged|resolved)|green|passes|safe)\b".replace(".", JS_DOT, 1), re.I | re.A)
+_WHOLE_SET = re.compile(r"\b(?:each|every)\s+[a-z]|\ball\s+(?:of\s+)?(?:the\s+)?(?:[a-z-]+\s+){0,2}[a-z-]+s\b".replace(r"\s", JS_S), re.I | re.A)
+_VERDICT = re.compile(r"\bNOT READY\b|\bREADY\b|\bgo\s*/\s*no[- ]go\b|\bgo or no[- ]go\b".replace(r"\s", JS_S), re.A)
+_APPROVAL = re.compile(r"\b(?:approve|approves|approved|approval|verdict|sign[- ]?off|signs? off)\b", re.I | re.A)
+# Types where approving or signing off is the work itself, so the wording is no sign of a misplaced verdict.
+_APPROVES_BY_TYPE = ("review", "decide", "github.pr", "bitbucket.pr")
+# The built-in types' choice and yes/no record fields: required (require: names it, or all), a run records which way it went.
+_VERDICT_RECORDS = {"decide": ("decision",), "review": ("verdict",), "verify.health": ("result",), "github.pr": ("checks",)}
+
+
+def _records_verdict(s):
+    req = [x.strip() for x in (s["fields"].get("require") or "").split(",") if x.strip()]
+    if (s["fields"].get("evidence") or "").lower() == "yes-no":
+        return True
+    return any("all" in req or n in req for n in _VERDICT_RECORDS.get(s["type"], ()))
+
+
+def _quoted(rx, text):
+    m = rx.search(text)
+    return m.group(0) if m else ""
+
+
+def _words(v):
+    return [x for x in re.split(r"[,\s]+", js_str(v) if v is not None else "") if x]
+
+
+def design_tips(md):
+    """PF.library.lints(md) without a library: each tip's id, at, ref and text, as flightdeck draft check's design.tips."""
+    parsed, out = parse_map(md), []
+    text = md.replace("\r\n", "\n").replace("\r", "\n")
+    fm = re.match(r"^---\n[\s\S]*?\n---[ \t]*(?:\n|$)", text)
+    text = text[fm.end():] if fm else text
+
+    def add(i, at, ref, t):
+        out.append({"id": i, "at": at, "ref": ref, "text": t})
+    for s in parsed["steps"]:
+        f, label = s["fields"], step_label(s)
+        if s["type"] == "jira.search" and "results" in f:
+            rule = parse_results(f["results"])[0]
+            what = s["text"] + " " + (f.get("what") or "")
+            if rule is not None and rule["op"] == "any" and _READINESS.search(what):
+                add("results-any", "step", s["id"], label + ' has results: any, so it passes whatever the search finds, yet it reads like a readiness check ("' + _quoted(_READINESS, what) + '"). Say what must be true, like results: none or results: at least 1, or word it as collecting facts.')
+        if (s["type"] == "confirm" or not s["type"]) and _WHOLE_SET.search(s["text"]):
+            add("whole-set", "step", s["id"], label + ' confirms a whole set at once ("' + _quoted(_WHOLE_SET, s["text"]) + '…"). One check can\'t show which items were looked at. Give each item its own result: a {for.each} step that starts one run per item, or one step per item when the list is short and fixed.')
+        if s["type"] != "decide" and not _records_verdict(s):
+            v = _quoted(_VERDICT, s["text"]) or (_quoted(_APPROVAL, s["text"]) if s["type"] not in _APPROVES_BY_TYPE else "")
+            if v:
+                add("verdict", "step", s["id"], label + ' reads like a verdict ("' + v + '"), but as a {' + (s["type"] or "step") + '} step a run records only that it was checked, not which way it went. Make it a {decide} step with the choices, or a named gate when a person approves it.')
+    used = []
+    for pi, p in enumerate(parsed["phases"]):
+        for r in [r for s in parsed["steps"] if s["phase"] == pi for r in s["roles"]] + [r for t in p.get("tracks", []) for r in t["roles"]] + [(p["gate"] or {}).get("owner")]:
+            if r and r not in used:
+                used.append(r)
+    if parsed["runs"] == "solo" and len(used) > 1:
+        add("solo-roles", "checklist", None, "This checklist says runs: solo, but its steps and gates use %d roles (%s). If more than one person does the work, take out runs: solo. A solo run that hands a report to someone is fine." % (len(used), ", ".join("@" + r for r in used)))
+    for r in parsed["roles"]:
+        if r not in used and not re.search("@" + re.escape(r) + "(?!" + _NAME + ")", text):
+            add("unused-role", "checklist", None, "The role @" + r + " is declared but no step or gate uses it. Use it or take it out of roles.")
+    carried, asks_all = set(), False
+    for s in parsed["steps"]:
+        carried.update(e["name"] for e in sets_of(s["fields"].get("sets", "")))
+        if s["type"] == "run.process":
+            c = _words(s["fields"].get("carry"))
+            asks_all = asks_all or not c
+            carried.update(c)
+    # A linked step without carry: passes every detail its child also has, so none of them can be called unused.
+    if not asks_all:
+        for n in parsed["context"]:
+            if n not in carried and not re.search(r"\^" + re.escape(n) + "(?!" + _NAME + ")", text):
+                add("unused-detail", "checklist", None, "The run detail ^" + n + " is asked for at the start but no step, gate or condition uses it. Use it or take it out of context.")
+    return out
+
+
+DRAFT_RAN = [
+    "the checklist format, line by line",
+    "each step has a type, built-in or in step-types/",
+    "built-in step types' fields, Jira searches included",
+    "design tips that need no other checklist",
+    "a checklist's result and the steps that set, accept and import results (module results)",
+]
+DRAFT_NOT_RUN = [
+    "IDs, roles and run details declared",
+    "team step types' fields",
+    "people.json (owner and backup)",
+    "Jira workflows (transitions)",
+    "team values (the Jira address, team: values)",
+    "linked checklists and version: pins, and what a linked step accepts from its checklist's result",
+    "screenshots",
+    "web links in link fields",
+    "design tips that compare with other checklists",
+]
+
+
+def draft_check(md, team_types):
+    """Some of the Publish dialog's checks, offline, for an assistant without the flightdeck command. Every blocker here is
+    one the app gives in the same words; what it doesn't check is listed, so a clean result is never "ready to publish"."""
+    parsed, blockers = parse_map(md), []
+    blockers += ["Line %d: %s" % (e["line"], e["msg"]) for e in parsed["errors"]]
+    for s in parsed["steps"]:
+        label = step_name(s)
+        if not s["type"]:
+            blockers.append(label + " has no type. Every step needs one, like {confirm} or {ui.action}.")
+        elif s["type"] in team_types:
+            continue
+        elif s["type"] not in BUILTIN:
+            blockers.append(label + " has an unknown type {%s}." % s["type"])
+        else:
+            blockers += [label + " " + m for m in field_errors(dict(BUILTIN[s["type"]], id=s["type"]), s["fields"], parsed["context"])]
+    blockers += result_blockers(parsed) + loop_blockers(parsed)
+    return {"complete": False, "ran": DRAFT_RAN, "notRun": DRAFT_NOT_RUN, "blockers": blockers, "tips": design_tips(md),
+            "note": "Flightdeck checks partly run: only what ran is listed. Run flightdeck draft check, or open the draft in Flightdeck, for the Publish dialog's whole verdict."}
+
+
+def draft_main(args):
+    at = args.index("--draft")
+    if at + 1 >= len(args):
+        sys.stderr.write("usage: check_folder.py [team-folder] --draft <file>\n")
+        return 1
+    path, rest = args[at + 1], args[:at] + args[at + 2:]
+    root = os.path.abspath(rest[0] if rest else ".")
+    try:
+        with open(path, encoding="utf-8") as f:
+            md = f.read()
+    except (OSError, UnicodeDecodeError) as e:
+        json.dump({"draft": path, "error": "couldn't be read: %s" % e.__class__.__name__}, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+        return 1
+    out = dict({"draft": path, "folder": root}, **draft_check(md, team_files(root)["stepTypes"]))
+    json.dump(out, sys.stdout, indent=2, ensure_ascii=False)
+    sys.stdout.write("\n")
+    return 0
+
+
 def main():
+    if "--draft" in sys.argv[1:]:
+        sys.exit(draft_main(sys.argv[1:]))
     root = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else ".")
     out = {"folder": root, "publications": {}, "plans": [], "conflicts": [], "refused": []}
     pubs_dir = os.path.join(root, "publications")

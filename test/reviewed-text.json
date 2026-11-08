@@ -1,92 +1,92 @@
 {
   "texts": {
     "CHANGELOG.md": {
-      "sha256": "971f9544bbd2a42993597f45f875b4df46ba43437b6dbcb85102ae0da465d2f6",
-      "reviewed": "2.16.2 release note corrections; checked for direct writes and unconditional deletes"
+      "sha256": "e33f748fa9506981647758ed12a63165fb86b937c3d80366caa9349da0c62760",
+      "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1: a license text, shipped unchanged; no instruction."
     },
     "README.md": {
-      "sha256": "37d4bb56931de370de35aaf57319c90a64686ec4d1d1079f91c7c4959a976aea",
-      "reviewed": "2.16.2 release prep: notes, waiver, pins; checked for direct writes and unconditional deletes"
+      "sha256": "8688bd9f224d72e92aed8f7e3d58baa649ff7326e4b234dab78b2a935438231e",
+      "reviewed": "fold design tips and the library panel; own-key reads; checked for direct writes and unconditional deletes"
     },
     "bin/flightdeck.js": {
-      "sha256": "28ef85cd3aa050accea114e65ef44d6b8ec3b51f9219fa333dfd0641e95f3ff0",
-      "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
+      "sha256": "1c19f0abd8237f2122a6a4562c3632b66a0d029cb71a5ddffc43e7d211947755",
+      "reviewed": "CLI resolution says what is left; checked for direct writes and unconditional deletes"
     },
     "build.py": {
-      "sha256": "78f801096b5da6b7a511f91daf153aff9a8befda8de66a839d4ea2fd5bccd077",
-      "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. The generator of dist/flightdeck.html, dist/FONT-LICENSE.txt and CHANGELOG.md. Read: the parts that put words in shipped files (the KINDS labels New/Improved/Fixed, the CHANGELOG header, the build checks); not read line by line otherwise. No direct write or delete instruction."
+      "sha256": "21c5b257606a8aa3d24c956f518745372409b550008be4d06f5178081117708c",
+      "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "docs/apps.md": {
-      "sha256": "d01a06cfd9e631d5417d7f9c9074063c0c949d764ba6a6062c4141dd2cfe3fdb",
-      "reviewed": "2.16.2: one held, evenly spaced separator everywhere; checklist wording on screens and messages; the inspector place line wraps beside Previous and Next"
+      "sha256": "9636e15d67a0154337694c52976f819e3319fd23038cae27a576d8968cf9249e",
+      "reviewed": "loop guard builder for every loop parent and child write, undo on drop; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "e247c5b9cf673c96979f09dfe4f557626ba1c00ae6d6dff2e1daec8380b8b811",
-      "reviewed": "2.16.1 polish: Discard my changes moves to row 1's action slot; the header progress gives way visually so More stays on row 1"
+      "sha256": "d281dc6ffb08323942309d35830c13b48242d7026909dcd2bc49fd281f0cef42",
+      "reviewed": "§44: planStill on start paths, undo binding, slot-first pages; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 0 sentences here, each read by hand: none."
     },
     "docs/map-format.md": {
-      "sha256": "76c997818f7109f172927ed47c6b75871c5a39b227b6c3a7e8a053c3bbad35ce",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "9342f4f95f3122e2a3d6fbb62229401243f85ba52d31373b2c76282706561264",
+      "reviewed": "run screen and app: loop noun on every part of the box, raw keys and title/link for items, escaped http(s)-only link; writes only through repo.saveScope with the guard, checked for direct writes and unconditional deletes"
     },
     "docs/onedrive.md": {
       "sha256": "e11b0fc58b4abf3ba2057f922a35599951384be2c68674f55432c0bfaaf232c5",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 8 sentences here, each read by hand: a rule, a prohibition or a description of what a command writes, never a direct write for an assistant."
     },
     "docs/recovery.md": {
-      "sha256": "83c18f2a62000876f25d5cbe69a8d05c1ff3c1b34ee5271a6f3e59f3b4939283",
-      "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 1 sentence here, each read by hand: a rule, a prohibition or a description of what a command writes, never a direct write for an assistant."
+      "sha256": "2e0675de341740557ab0b86abb4d0c643375da1754bf94bbe476a2bc3ba922fa",
+      "reviewed": "health.js: the older-copies warning names results and loops (Flightdeck 3.0 features) for copies before 3.0; recovery.md says the same; checked for direct writes and unconditional deletes"
     },
     "docs/skills.md": {
       "sha256": "4a8f9e35440856b81563ecfe0a6941970f3d6c3b070121066729da165f1fa0a0",
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "docs/updating.md": {
-      "sha256": "62e7e194210aadf4d5c185d00d66cadde57491513d3b05c8d4800c36ca23d009",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "b7afa89b3756d82b7df5172d24f1542486f688ba6433c2bbde0440236128fff3",
+      "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "c52714f31711ad4e0087a0170b722cf870fc4725a3dadb25da2e7e684f7228a3",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "44d32f259593c1ce7d9d2b43ae657f3833896fdc7ea0c9119cd7320497f04c64",
+      "reviewed": "whole-set tip points to for.each; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
-      "sha256": "ab4dfea4d5e61c15525b881ca575e04dc7e16da674a12abc5ea895a388ef898a",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "49d0d083e46b366224edb2e93df3927ede63a2efebc57a2990810460bbe7d7b7",
+      "reviewed": "run screen and app: loop noun on every part of the box, raw keys and title/link for items, escaped http(s)-only link; writes only through repo.saveScope with the guard, checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/command-guide.md": {
-      "sha256": "0643b69e9714ee4e7d7f74b4bbfe660f52cf9cf552ed0882a5b47f744f6842f1",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "f53b4cd91cbf8ab4ebd6a211dfef36c1062925095760bd7782caaca7b1fe0e11",
+      "reviewed": "run screen and app: loop noun on every part of the box, raw keys and title/link for items, escaped http(s)-only link; writes only through repo.saveScope with the guard, checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/file-formats.md": {
       "sha256": "3e696299bc5971a578831ad4c25330bcb87a4036c10666469e39b794a9a1bba3",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed check g (every write to a protected path listed in DIRECT_WRITES as a prohibition or allowed with why) and the delete guard (no unconditional delete of AGENTS.md or a staged copy) as of f2888f5."
     },
     "example-folder/.flightdeck/skills/_flightdeck/good-checklists.md": {
-      "sha256": "79b0f8053e8a315cd17d7d79b26861325265a3e165e3d3229a60577d4734876e",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "31b2fd1da0a4f806962490ab2b43911772a1990565fe364145474b52d5423c1d",
+      "reviewed": "run screen and app: loop noun on every part of the box, raw keys and title/link for items, escaped http(s)-only link; writes only through repo.saveScope with the guard, checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/map-format.md": {
-      "sha256": "76c997818f7109f172927ed47c6b75871c5a39b227b6c3a7e8a053c3bbad35ce",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "9342f4f95f3122e2a3d6fbb62229401243f85ba52d31373b2c76282706561264",
+      "reviewed": "run screen and app: loop noun on every part of the box, raw keys and title/link for items, escaped http(s)-only link; writes only through repo.saveScope with the guard, checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/flightdeck-edit-checklist/SKILL.md": {
-      "sha256": "981ae1af10b4a519dff513c75539379658e422ba16b4221342cff1d1147a2a57",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "5559b74cc42be964c92384675c449efe7bfe2b855abc1891344f24bbc798b0ce",
+      "reviewed": "run screen and app: loop noun on every part of the box, raw keys and title/link for items, escaped http(s)-only link; writes only through repo.saveScope with the guard, checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/flightdeck-learn-from-runs/SKILL.md": {
       "sha256": "2a47e763da23c3bcc8d198fef351366f5e5383eecf4550e96eca0f32ecb946e2",
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "example-folder/.flightdeck/skills/flightdeck-new-checklist/SKILL.md": {
-      "sha256": "8a5e1b3601480954433458343d6278e08902c8291cedd64a4067dbfb03404f2c",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "0151cf5cc5653087588f111755db5b3a978f48523fcda5a1028f316958ed5c77",
+      "reviewed": "loop docs: every conflict holds approval, Jira query binding, fileWhy, for.each in the new-checklist brief; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/flightdeck-new-step-type/SKILL.md": {
       "sha256": "ebc4c1ec9435236eea4e59744940ab403cb9446fdaa90fce67b15915099a9c25",
@@ -109,8 +109,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed check g (every write to a protected path listed in DIRECT_WRITES as a prohibition or allowed with why) and the delete guard (no unconditional delete of AGENTS.md or a staged copy) as of f2888f5."
     },
     "example-folder/AGENTS.md": {
-      "sha256": "b8af42ac89bd48417e5f224460e8e020fa6534aed8070ec047b608017cf747bf",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "bd472ee1c07978fce4b9a14cabcfebec61ef1362fb79405a311e12cc4b5ffaac",
+      "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "example-folder/jira/workflows.json": {
       "sha256": "b5a29ccf5b1a5e5c9b0e464d1d3b380a4e4dac04eea81608e90d5ae142f9eb99",
@@ -173,8 +173,8 @@
       "reviewed": "Round 20, at 64e1c01: the file list npm packs (npm pack --dry-run on a mirror of the tree), read in full: CHANGELOG.md, LICENSE, README.md, bin/flightdeck.js, the two dist files, package.json. Each is pinned whole or checked by parity. No new text."
     },
     "package.json": {
-      "sha256": "85bba56be9fe812a89686679d7b23432064151d319f279e5d0f9f30da7d7c5e3",
-      "reviewed": "2.16.2 release prep: notes, waiver, pins; checked for direct writes and unconditional deletes"
+      "sha256": "b7078416ee1a6e3c542b8c6e28d5957eb920ec52edcc8e02d31cb7587d99d4f7",
+      "reviewed": "fold design tips and the library panel; own-key reads; checked for direct writes and unconditional deletes"
     },
     "rendered: the merge README, AGENTS.md held": {
       "sha256": "587c6fe0a4080614f1661c880aa058e9dd8180b5595d72bfaaf90b9f297f8d95",
@@ -193,12 +193,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "b26d761fdaae44b6c89539b16383aa9db3c03a1f5a48a205f451586686e566b4",
-      "reviewed": "2.16.2 release prep: notes, waiver, pins; checked for direct writes and unconditional deletes"
+      "sha256": "93ae9bb7e54a1f92f75ffba5cb38f2c30ab01b58e123aefd3cdc4141bdf9ce14",
+      "reviewed": "baselines for the whole-set tip in check_folder.py; checked for direct writes and unconditional deletes"
     },
     "src/core/appjson.js": {
-      "sha256": "86b915c32b324bbd05f1d35f96933a90cd79a10713ca84f4cf373dc78d63bc9f",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "4baa465110a534478bbeaf2d9d1cc6a8ce846ab9a911da62298ce1dce9fc4729",
+      "reviewed": "Review 06 of module results: a missing linked run is a nofile problem; awaiting settlement displaces only later work in next and mine, keeping a pause; checked for direct writes and unconditional deletes"
     },
     "src/core/attach.js": {
       "sha256": "0e75bc0c0d748fe10aaf5657662e4ce8679c27f9d10d85c1e34891b1c9d58df0",
@@ -221,56 +221,64 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/envelope.js": {
-      "sha256": "18bd1881537b90f72b7fbddbfaef847ed1761ad229fe4ab64d161d3befd1859c",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "36d8a7abaf43832d0d1705e2ea096b85c6b0571458ba74bd5c868074af062ca4",
+      "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "src/core/evidence.js": {
-      "sha256": "6c5e29ec868f0636c668d0842a85226314fa0e43c3d89f97370f74f94a3fb616",
-      "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
+      "sha256": "f3b2d1b62d72274f6169f873bae26689fb931b2dab4e2fae9a2335e5ec9b67e2",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/followups.js": {
       "sha256": "ee399703ee43c4408af48a9bbd816483f6c28039a4587815063ff0a175c8fea0",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/health.js": {
-      "sha256": "aa7e95a9f44e261af95c9def1b896c2345e84992f6d4f50eefbaaa465349abc7",
-      "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
+      "sha256": "2bb1adc137ae1bbc7d8f713162176794ba555c1d77eb05fffbbcaebc2ccf1ac5",
+      "reviewed": "health.js: the older-copies warning names results and loops (Flightdeck 3.0 features) for copies before 3.0; recovery.md says the same; checked for direct writes and unconditional deletes"
     },
     "src/core/insights.js": {
       "sha256": "8e5277d31c579dcb0a47fdf4a9dd15281d31bae4b75fe0d3cdcbd7c1fe3fe844",
       "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
     },
     "src/core/jira.js": {
-      "sha256": "f274a5deb8bbdbf62070b2d6ad2f691ba5dcc2659a04b6793aa1f4e9519a2709",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "4622510629eeafc4b8a393ddb6efbaf2b373d0b7e3a022329dd5e89eb51e04ae",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
+    },
+    "src/core/library.js": {
+      "sha256": "e16297822824ba6170ef5aaf3c73360ae7b3fb8b424870be38b87bab6f09cb20",
+      "reviewed": "whole-set tip points to for.each; checked for direct writes and unconditional deletes"
     },
     "src/core/links.js": {
-      "sha256": "3ceec1cb191551546f909245fed5dbd74d3f89eceb5ba727e448230fb0f5f867",
-      "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
+      "sha256": "1a64ba0b3c5c72bab9a8fee1ce0fba9d217cc378dacf879959e64e0bcc9168bb",
+      "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
+    },
+    "src/core/loop.js": {
+      "sha256": "3f136b27fdded0f766601ad5d9348bc7b46c335d3f415ca6b59a1527fa0d0179",
+      "reviewed": "seenFor puts the edited slot first; checked for direct writes and unconditional deletes"
     },
     "src/core/map.js": {
-      "sha256": "d203e1538db85076d1adcee5bf1b66ba0ce7ab0ae3ecb8cd06f3c38e013b9d98",
-      "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
+      "sha256": "f9eae33f6635cd1b3983fc1c71eb7a3b3c8dc1c70ca3ef8ce8807d5228165d2f",
+      "reviewed": "loops: items: item kind, feed binding, completeness fix, nouns, unknown-kind refusal in loop.js/map.js/publish.js/types.js and check_folder.py parity; pure checks only, checked for direct writes and unconditional deletes"
     },
     "src/core/nav.js": {
       "sha256": "58a621b0d76244c77a9988c3f2ec79b751fdeb8874190cf0ccfa6ab36295d9b1",
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "src/core/outline.js": {
-      "sha256": "f61716650821614f6ca89471892102f065f9779340718bb6f3d289ccabe1c5ea",
-      "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
+      "sha256": "4694f8cc17336cca98e79d3dee71b80a1c6612638d43beaff5a5c3a3dff093bb",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/people.js": {
       "sha256": "4fc89eb6e613f6deaf7d08cec22ce5a7ef7d75178bdebeced860ad09495e3ca3",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/pins.js": {
-      "sha256": "a0686db665951f954db940634f396b880cbe9fb2408176d735db1443e1a9f366",
-      "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
+      "sha256": "114bb73bd3776a180ad8845247da245ba40e15ac2b02483aad63754fd1fb31ea",
+      "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "src/core/plans.js": {
-      "sha256": "854a56e1e10753b87a475c2964a5c721b93690cddfde2d95c813eeb0b35f82b2",
-      "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
+      "sha256": "48c802da256f30e94625af34e3f2b89135ba8984b40a666be1e43cce636e6de2",
+      "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "src/core/practice.js": {
       "sha256": "1792de95518d3a1f8670fdec6514c4c1684ead06a62f0881bb7d9fb7500a9142",
@@ -281,32 +289,32 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/publish.js": {
-      "sha256": "ffcc8a8561bd4b4f533dfd144a7c6c55f0188d86a4d1a9abfe43aefb51d871e2",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "90bc167a3289a6394c3eb2b0ae8f6d8ee26114e822597f33bc49e6a60e02ca17",
+      "reviewed": "loops: items: item kind, feed binding, completeness fix, nouns, unknown-kind refusal in loop.js/map.js/publish.js/types.js and check_folder.py parity; pure checks only, checked for direct writes and unconditional deletes"
     },
     "src/core/refs.js": {
-      "sha256": "8ee15bbd8ef3bdeb6fc6c028e0c7ec0edfc444a3ff81679a46d385abc7395553",
-      "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
+      "sha256": "24b7d2b52fcd99673fcc427db286a7224af83342da19efcd561ac850d6baa441",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/reports.js": {
-      "sha256": "f80b52bda7596f9b2c7fa24757e9b199a048478258e62c2b58e19c83f4f93a31",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "2b73dd5843df8d85c8b6b5bfd4fade584423ee0c7986ae193f177a2a63b6d133",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/requests.js": {
       "sha256": "0ccd8fb703a3a16344d0357d00c6f9186bacc71ebcd8dcdb63d94247fb218468",
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "src/core/run.js": {
-      "sha256": "b527e96fc6ee123cb6be80519adb6b12a2ae7411d7308c6ffabd6c0e6cbff35d",
-      "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
+      "sha256": "b62b46976e2e4c7a336aa9d783ce388149596208c28725d12c98d68217f40eb9",
+      "reviewed": "Approve and send-back carry the request id; recognized before replay."
     },
     "src/core/save.js": {
       "sha256": "096b8282d8dd62623b608ad2a9ae6a8f78e5a8260615eaf74aa9c9fb9c3a3f26",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/search.js": {
-      "sha256": "14722c87877c2dfa9e741de970fb44a21b0a8a361b277d87dc1af4a859cc5618",
-      "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
+      "sha256": "f3a6d3546c2c09dfa171abcdb5cfa24130f42d284fceb18866a33981ec7ab106",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/setup.js": {
       "sha256": "e18f26a0e94bb8e9dcdaecee71e90278e149d7b3565d855eae87b4decec6d93a",
@@ -337,12 +345,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/types.js": {
-      "sha256": "bb0588b31853e8c06d4b3f12430d61c98fba76f34f86e378676128178bf6e690",
-      "reviewed": "2.16.2: one held, evenly spaced separator everywhere; checklist wording on screens and messages; the inspector place line wraps beside Previous and Next"
+      "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",
+      "reviewed": "loops: items: item kind, feed binding, completeness fix, nouns, unknown-kind refusal in loop.js/map.js/publish.js/types.js and check_folder.py parity; pure checks only, checked for direct writes and unconditional deletes"
     },
     "src/core/util.js": {
-      "sha256": "96a0aa3df269e4e53086e6c37b4908049c17cd313789f414eac4e2897d46423b",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "975353b47ca87ce0923e77b95f25cc6b1955feb1b31abba556239f603c8797e2",
+      "reviewed": "Checks keep their 1.x words; blockerSteps and suggestionSteps carry the step's ID and excerpt; checked for direct writes and unconditional deletes"
     },
     "src/core/values.js": {
       "sha256": "2248e7512586803ed3fc19a5a5944ca2df4e0ad5a2f8707092a4f55db1cda3fb",
@@ -373,24 +381,24 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1: an embedded font file, binary; no text."
     },
     "src/page.html": {
-      "sha256": "b56d146bcc4530e31a6e8e1c3cba998125680b02eecadd286889797b9a2ce1b0",
-      "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
+      "sha256": "bf7579d40bf5b73208ce389c6df00165e0308fce0a2cf15064e178f6bfd1a02a",
+      "reviewed": "release notes left to release time; checked for direct writes and unconditional deletes"
     },
     "src/releases.json": {
-      "sha256": "dfd8bc658a1bb07636ec9a0052e7482ec35af5d9231dcbdee8eef0179268b297",
-      "reviewed": "2.16.2 release note corrections; checked for direct writes and unconditional deletes"
+      "sha256": "08c69c574eccf180f7abe69563f4afbb342e9c2f4f2de6b69a37dac4a6235763",
+      "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "3a7c0c15d1c7a1611e0a933b8dcf0a7d646234d457ab4f7b530d239c6671f9e4",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "6587fdf8dda56936d593a39d3be93c5c769f2e1a8352f05313b4c4386c53d39c",
+      "reviewed": "loop saves carry the click's guard, rechecked before each further write; kept candidate on drop; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "c3a380b52e8096231a5fce84ed0c9c19f550e2e3c50b120cee2403d60c88d625",
-      "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
+      "sha256": "f16c16de44df8146c3650685056bd35fe379d5b5c1f0c83886809e7f0bfda411",
+      "reviewed": "undo bound to the captured run and generation; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
@@ -401,20 +409,20 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/ui/guide.js": {
-      "sha256": "f2d04fcf31b6984e9e5ad11cd67beb77e05ca64e24ed7ebdec429fb9afa81015",
-      "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
+      "sha256": "0537c3ec3977620754eb06f770ca68d8c1f9c38b9f82646ab22c442184f80383",
+      "reviewed": "run screen and app: loop noun on every part of the box, raw keys and title/link for items, escaped http(s)-only link; writes only through repo.saveScope with the guard, checked for direct writes and unconditional deletes"
     },
     "src/ui/icons.js": {
       "sha256": "17e33779f844401bb36b1418df1939062f48fac3a48197bb216aa486e74a0ba1",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/ui/views/builder.js": {
-      "sha256": "b9a7cef9b37b2cf99bf806f1cfc149a59c3d4be7a53be6911aadacf67736c38c",
-      "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
+      "sha256": "4664390cff145c28a9d9b0a82865774d7fa21891a0e63d89f0c257a04b47e322",
+      "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "src/ui/views/common.js": {
-      "sha256": "b7430124ae590c5f236c5499fbaec05edb4dc016e8f563f93783035015a1b709",
-      "reviewed": "2.16.2: option value check skips quoted attribute text; checked for direct writes and unconditional deletes"
+      "sha256": "e019b101c5cd2de3d50ba2553b5ca1d20fa56bfb18f20d0563b06efea7afa2a5",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/ui/views/detailbox.js": {
       "sha256": "480c1b6d1fe5867742bc6ac7ceffdf08f6cf6d8c378942974e6a8c8665b19744",
@@ -425,8 +433,8 @@
       "reviewed": "2.16.2: one held, evenly spaced separator everywhere; checklist wording on screens and messages; the inspector place line wraps beside Previous and Next"
     },
     "src/ui/views/flight.js": {
-      "sha256": "6c2b515bd14d864b65527ee93415d5d00f5ad18d75a0ecb22fdd5db7c51e7a63",
-      "reviewed": "2.16.1 screenshot fixes: status separators end a line, the status spans the left column, run-detail rows keep their buttons, a space before Not counted"
+      "sha256": "cc1b5337f8f73638b6920a64465d344d5c95d990deba8e5ced107e6d3505e2e9",
+      "reviewed": "Flight plan draws each gate once: the steps disclosure no longer repeats the gate line (fp-sgate removed from flight.js and page.html); design.md says so; release 3.0.0 entry and its baselines. Checked for direct writes and unconditional deletes: none."
     },
     "src/ui/views/health.js": {
       "sha256": "7be55cb50a01aa48426eb4c8f587df1528412b45b65a044e2c0cb29ff3e33b34",
@@ -441,8 +449,8 @@
       "reviewed": "2.16.2: one held, evenly spaced separator everywhere; checklist wording on screens and messages; the inspector place line wraps beside Previous and Next"
     },
     "src/ui/views/manage.js": {
-      "sha256": "0cfb7f59c07c9c3aeea5091b9104816e40726277044e12ad6b2e18c7830ed6b4",
-      "reviewed": "2.16.2: one held, evenly spaced separator everywhere; checklist wording on screens and messages; the inspector place line wraps beside Previous and Next"
+      "sha256": "8da3f15eaa9b9c4afd4744c6dd4ef3583a52a913592049b114f72d3225ea3d06",
+      "reviewed": "Used by and similar: paged lists, partial when any version can't be read, empty states say among how many were read, links open the version that matched; step types' checklists paged; checked for direct writes and unconditional deletes"
     },
     "src/ui/views/overlays.js": {
       "sha256": "c848c2d150a9828f6aaec7809f986d77a6c3f2b9c35a19d3d5fddeaf8e5fd681",
@@ -457,16 +465,16 @@
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "src/ui/views/process.js": {
-      "sha256": "924faa579f6ee5945cbf9c6a9a7d7cb379ddac1ecc9d0dcbfa07596180477722",
-      "reviewed": "header separators: bound dots and a clipped leading separator; role hints lose a leading dot; run list clears a card cut by Next up after a reveal; no direct writes, no deletes"
+      "sha256": "a0958d699bf9beafced53f0aff3330eb0128e32d2955cfe421e789c12548ac46",
+      "reviewed": "3.0.0 release notes, the 3.0.0 rehearsal waiver and its list line, and the Publish panel naming 2.16 as the last release that can't run a 3.0 version; checked for direct writes and unconditional deletes"
     },
     "src/ui/views/reports.js": {
       "sha256": "5b1f9581d45a53bcb915ce479f4bef70ecb0e3c9132ae498baba4835a955f875",
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "src/ui/views/run.js": {
-      "sha256": "72cd9acdbc20a26742fabf45fe423045a069e9e86152be48e0ec723d5db1abba",
-      "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
+      "sha256": "6a08ecfa554909eeebc8670e467bf0f308cc346f49ab20c90137156c7f39f701",
+      "reviewed": "planConflict keeps every conflicting plan, sorted; the picker lists them all; pure and view only, checked for direct writes and unconditional deletes"
     },
     "src/ui/views/setup.js": {
       "sha256": "2393b54abde45fa1ba4ac110f394984d29b04ca728c3f1a46e8c22fb2c60dd80",
@@ -489,8 +497,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. A maintainer tool, not shipped. Not read line by line."
     },
     "tools/readers.js": {
-      "sha256": "175e427e6ecc7e463887de36b06e6c20f9a47fac462b40b4191662e6edc47fe3",
-      "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. A maintainer tool, not shipped. Not read line by line."
+      "sha256": "09c4c17c489d1ba83800ead442306168a8f0c7a9415cc84a7fe521d900c63a7e",
+      "reviewed": "readers lint lists loopEdit's own copy; checked for direct writes and unconditional deletes"
     },
     "tools/scale-limits.js": {
       "sha256": "23e06ee46d6b4ff44216f92c530578f714aa05bcecd7a2b0458515287d554ec1",

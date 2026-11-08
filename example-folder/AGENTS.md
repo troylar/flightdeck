@@ -49,6 +49,7 @@ Earlier versions kept command how-to and the checklist syntax here; they now liv
 - `people.json`, unless a person asks: the folder owner and backup owner keep it in Flightdeck. Its format: *Team values and people* in the file formats. Edit it only when a person asks, never delete anyone (mark them `"inactive": true`), and never change or reuse an ID.
 - `team-values.json`, unless a person asks: the folder owner and backup owner keep it in Flightdeck (Settings › Team values). Its format: *Team values and people* in the file formats. Never put passwords or tokens in it.
 - `.flightdeck/installed.json` and `.flightdeck/updates/`: written by `flightdeck install` and the app's AI assistant files. Never write them; merge an update only when a person asks (see above).
+- Scope records (`proposals/` files with `"format": "flightdeck-plan/3"`): a loop's list, written only by `flightdeck loop`. Never write, edit or delete one.
 
 ## Skills for this folder
 
@@ -71,9 +72,11 @@ These are plain `SKILL.md` files in `.flightdeck/skills/` (or wherever the team 
 |---|---|---|
 | `flightdeck runs`, `run`, `next`, `followups`, `processes`, `process` | Reading runs, versions and follow-ups; they never change the folder | *Reading runs* in the command guide |
 | `flightdeck draft read`, `draft save`, `draft propose`, `draft check` | Reading, changing and checking a draft | *Editing drafts* in the command guide |
+| `flightdeck library inspect` | Reading every checklist at once, before designing or changing one | *Editing drafts* in the command guide |
 | `flightdeck type list`, `type read`, `type save` | Reading the team's step types, and saving one (only through `type save`) | `/flightdeck-new-step-type` |
 | `flightdeck report targets`, `report check`, `report write` | Reporting work a tool did on a step | *Reporting work* in the command guide |
 | `flightdeck skill register` | Registering a skill built from a 2.0 version | *Skills built from processes* in the command guide |
+| `flightdeck loop read`, `loop sync` and the other `loop` commands | A loop's stories and results, and asking for a change to its list; never starts a run | *Asking for a run* in the command guide |
 | `flightdeck plan request` | Another app (not an assistant planning in this folder) asking for a run; to plan one yourself, see *Planning a run* | *Asking for a run* in the command guide |
 | `flightdeck export` | An evidence pack, when a person asks | *Evidence packs* in the command guide |
 

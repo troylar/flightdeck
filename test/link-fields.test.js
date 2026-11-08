@@ -82,6 +82,22 @@ rule('publish: new versions can\'t use a refused form; the query hint is a sugge
     assert.ok(!check(f).blockers.some(b => /field "page"/.test(b)), f + ': ' + JSON.stringify(check(f).blockers)));
   assert.ok(check('https://jira.example.com/?jql=^tag').suggestions.some(s => /Use a Jira search step/.test(s)));
 });
+rule('a link field holding a plain name keeps its 2.x blocker, and a separate tip says it takes a web link and where the name goes', () => {
+  const chk = v => JSON.parse(JSON.stringify(M.check(M.parse(['---', 'process: rel', 'title: Release', '---', '', '## Ship · READ-DO {#ship}', '- [ ] {review} Read the report {#read}', '  document: ' + v, ''].join('\n')), {})));
+  const doc = v => chk(v).blockers;
+  const named = chk('Release readiness report Q4');
+  assert.deepStrictEqual(named.blockers, ['Step "Read the report", field "document", has a space, tab, line break or other control or invisible character in its text. Remove it (write a space as %20).'], 'the words other apps read, as 2.x gave them');
+  const tip = named.suggestions.indexOf('Step "Read the report": Document takes a web link. Put a name or file reference in a note.');
+  assert.ok(tip >= 0, JSON.stringify(named.suggestions));
+  assert.deepStrictEqual(named.suggestionSteps[tip], { id: 'read', excerpt: 'Read the report' });
+  assert.ok(chk('reports/release readiness.xlsx').suggestions.some(b => /Document takes a web link\. Put a name or file reference in a note\./.test(b)), 'a file reference with spaces too');
+  const url = chk('https://example.com/release report');
+  assert.ok(url.blockers.some(b => /field "document", has a space, tab, line break or other control or invisible character in its text\. Remove it \(write a space as %20\)\./.test(b)), JSON.stringify(url));
+  assert.ok(!url.suggestions.some(b => /takes a web link/.test(b)), 'a real link with a space gets no name tip');
+  const hidden = chk('Release​report');
+  assert.ok(hidden.blockers.some(b => /field "document", has a space, tab, line break or other control or invisible character/.test(b)) && !hidden.suggestions.concat(hidden.blockers).some(b => /takes a web link/.test(b)), JSON.stringify(hidden));
+  assert.strictEqual(doc('https://example.com/report').length, 0, 'a real link is fine');
+});
 rule('the link-building code carries the security note and never builds a RegExp from a value', () => {
   const src = require('fs').readFileSync(require('path').join(__dirname, '../src/core/jira.js'), 'utf8');
   assert.ok(src.indexOf('// SECURITY-REVIEW: generic link fields guarantee URL structure only; {jira.search} is the only dynamic-query path with an injection guarantee') >= 0);

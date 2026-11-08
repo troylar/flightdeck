@@ -304,9 +304,9 @@ Other JSON in `validations/` or `proposals/` that isn't a sign-off or a plan is 
 
 **What you see:** Folder health says "Teammates are using an older Flightdeck" and names the versions it saw in the last 7 days, from connection checks and draft editors.
 
-**What it means:** some computers still run an older copy. Copies from 1.11.1 on refuse files they can't read and show them by name. Copies older than 1.11.1 (1.10.0 and 1.11.0) can't tell: they may hide runs made with Flightdeck 2.0 and offer a 2.0 version as if they could run it.
+**What it means:** some computers still run an older copy. Copies from 1.11.1 on refuse files they can't read and show them by name. Copies older than 1.11.1 (1.10.0 and 1.11.0) can't tell: they may hide runs made with Flightdeck 2.0 and offer a 2.0 version as if they could run it. Copies before 3.0 show a version that uses results or loops, and its runs, by name only and can't run them.
 
-**What to do:** move every computer to the newest Flightdeck in the team folder before anyone records on a Flightdeck 2.0 version (see [Updating Flightdeck](updating.md)). If an older window said it couldn't save, re-enter that change (see [An older Flightdeck said it couldn't save](#an-older-flightdeck-said-it-couldnt-save)).
+**What to do:** move every computer to the newest Flightdeck in the team folder before anyone records on a Flightdeck 2.0 version or publishes one that uses results or loops (see [Updating Flightdeck](updating.md) and [Moving a team to Flightdeck 3.0](updating.md#moving-a-team-to-flightdeck-30)). If an older window said it couldn't save, re-enter that change (see [An older Flightdeck said it couldn't save](#an-older-flightdeck-said-it-couldnt-save)).
 
 ## A skill can't be matched
 

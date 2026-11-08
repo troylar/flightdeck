@@ -12,7 +12,9 @@ Flightdeck is a checklist tool for people: a monthly backup check, a quarterly a
 | **Ask for a run**: a planned run that a person reviews and starts in the app ([Asking for a run](#asking-for-a-run)) | `flightdeck plan request` | 1.20 | Writes one file in `proposals/` |
 | **Report** the work it did on a step: a person accepts it (the step is checked with its evidence) or declines it ([Reporting work](#reporting-work)) | `flightdeck report` | 2.0 | Writes one file in `reports/` |
 | **Read and save drafts** of checklists (AI assistants; contract `flightdeck-draft/1`, [at the end of this page](#writing-drafts-for-ai-assistants)) | `flightdeck draft` | 1.19 | Writes the draft or a proposal |
-| **Check a draft** as the Publish dialog does ([draft check](#draft-check)) | `flightdeck draft check` | 2.13 | Never |
+| **Check a draft** as the Publish dialog does ([draft check](#draft-check)), with design tips (3.0) | `flightdeck draft check` | 2.13 | Never |
+| **Look across the library**: every checklist normalized, what links to what, and what looks alike ([library inspect](#library-inspect)) | `flightdeck library inspect` | 3.0 | Never |
+| **Keep a loop's scope**: read a release's stories and their results, and ask for stories to be added, removed, restored, excused or reviewed ([Loops](#loops)) | `flightdeck loop` | 3.0 | Writes one file in `proposals/` (`read` never) |
 | **Register a skill** against the exact version it was built from (AI assistants, [Registering a skill](#registering-a-skill-for-ai-assistants)) | `flightdeck skill register` | 2.0 | Writes one file in `skill-registrations/`, and may turn `skills/<name>.json` into a pointer |
 | **Make an evidence pack** of one run, or of the runs started on some days ([Evidence packs](evidence.md)) | `flightdeck export` | 1.17 | Never: the pack goes outside the folder |
 
@@ -120,7 +122,7 @@ Each command reads only what its output depends on, and every problem it meets t
 |---|---|
 | `processes`, `process` | `publications/` (for `process`, that process's versions) |
 | `runs` | `runs/`, `proposals/`, `publications/` (whether a run's version can be used, and which version a plan starts on) and `people.json`; with `--process`, that process's runs and versions |
-| `run`, `next` | That run's folder, its version (checked on its own, so a version that can't be read or used is named), its follow-up decisions and `people.json` |
+| `run`, `next` | That run's folder, its version (checked on its own, so a version that can't be read or used is named), its follow-up decisions and `people.json`; with contract 2, also the run folder and version of each linked run a step that accepts results links to (3.0) |
 | `followups` | `followups/`, `runs/` and `people.json` (every follow-up lives in its run's `run.json`, so a run that can't be read may hide some); with `--process`, that process's part, plus its versions and the plans, to tell whether the process exists |
 
 ## The data
@@ -213,6 +215,13 @@ A plan made with Flightdeck 2.0 for one exact version (`flightdeck-plan/2`: `for
 - **`process`** adds `format`, `features` and `details` (each run detail's `name`, `type` and `options`, and from 2.16 `pattern` on a detail that must match one: the pattern as the checklist writes it, inside `pattern(...)`; other details have no `pattern` key), and each step's `evidence` entry adds `type`, `min`, `max` and `unit` (a number's limits, as text, or `null`).
 - **Conditions (`only when`).** From Flightdeck 2.1, in `process`, each phase and each step adds `when`: its `only when` tests in their canonical spelling (`^risk is high`), `[]` when it has none. In `run`, each step adds `applies` (`true`, `false` when it's Not needed in this run, `null` when it can't tell yet) and `held` (why it's waiting, while `applies` is `null`; else `null`), and each gate adds `applies` (`false` when its phase is Not needed). A gate whose phase is Not needed has `status` `skipped`: it needs no pass, and it's never permission for anything. `applies` is read from the run's details as they are now, so it can change when a detail does.
 - **Test runs.** From Flightdeck 2.1, a test run tries a staged version before it's the default, and is never counted as a real run. `runs` leaves test runs out unless you add `--tests`, and adds `testRunsLeftOut`: how many test runs matched but weren't listed. Each run in `runs` and `run` adds `test` (`true` for a test run) and `stage` (`{ "folder": "stage-..." }` for a test run, else `null`); a test run's `version` is the number its stage proposes, and its `folder` is the stage's. Each follow-up in `followups` and `run` adds `test`. `process <process> --stage stage-...` reads a staged version, with `stage` (`folder`, `proposed`, `stagedBy`, `stagedAt`; `null` for a version). `--tests` and `--stage` work with `--contract 2` only.
+
+- **Module results.** From Flightdeck 3.0, a checklist can return one result (its `result:` detail, set by one decision), and a linked step can accept some of its child's results ([Module results](map-format.md#module-results)). These keys appear only on a checklist, run or step that uses results; everything else reads exactly as before:
+  - `process` adds `result` (`name`, `options` and `step`, the decision that sets it); each linked step that accepts or imports a result adds `accepts` (the results it accepts) and `imports` (the detail it copies the result into, or `null`).
+  - `runs` and `run` add `result` (`name` and `value`, `""` until the decision is recorded) and `outcome` (how it ended in words, `"Completed · needs-work"`, or `null` while it runs) to a run of a checklist with a result.
+  - In `run`, each linked step that accepts or returned a result adds `accepts`, `result` (what its child returned, or `null`) and `heldBy` (`{ "process", "id", "result", "reason" }` while it's held because its child returned a result it doesn't accept, else `null`). `next` adds the same `heldBy` to its step.
+  - In `run` and `next`, those steps also add `awaiting` (`{ "process", "id", "result", "reason" }`, else `null`): the linked run ended, or was reopened or corrected after the step counted it, and only the parent run's recorder settles the step, in Flightdeck. The command reads the linked run and never writes, so the step still shows its last settled state; `awaiting` says what will change, and `next` (its `next` and `mine`) names that step instead of any work further on; a paused run stays `paused`, and unfinished work before that step keeps its place. A linked run that isn't in the folder is a `nofile` problem at its `run.json`, so the output is partial. An ended run is never settled again, so it has no `awaiting`: `run` adds `resultsChanged` instead to a run that uses results, one entry per step whose linked run changed after this run ended (`step`, `process`, `id`, `result`, `reason`, starting "A linked run's result changed after this run ended"), `[]` when none did.
+  A held step is `blocked` with that reason; it isn't a failed child, and a new run replaces it. `accepts` lists each value as written, split only at commas.
 
 Contract 1's output doesn't change: it names a test run `newer`, as Flightdeck 1.x did.
 
@@ -477,12 +486,41 @@ Exit codes: `0` complete, `4` partial, `1` usage or error, `5` the process has n
 |---|---|
 | `process` | The process asked for |
 | `from` | What was checked: `kind` `draft` (`ref` its path) or `file` (`ref` null), and `rev`, the SHA-256 of the text |
-| `checks` | `blockers` and `suggestions`, word for word and in order as the process page's checks show them |
+| `checks` | `blockers` and `suggestions`, word for word and in order as the process page's checks show them; and (3.0) `blockerSteps` and `suggestionSteps`, one entry per finding in the same order: the step it names in this checklist, `{ id, excerpt }` (`id` null for a step without one, `excerpt` its text cut at a word with … when cut), or null. A finding's words name a step by the first 40 characters of its text, as every copy since 1.x has; read the step from these fields, never from the words. `draft read` and `draft save` give the same `checks`. |
 | `publish` | `ok`, and `blockers`: what Publish would stop at, in its order (the checks' blockers, then `version:` pins that don't resolve, then screenshots not in the folder). Who publishes and the change note are left out: only a person gives them. |
 
 It reads what the app reads, through the app's own readers and checks (`PF.publish.checkOptions`, `checkContext` and `publishCheck`, which the app's screens share): `people.json`, `step-types/`, `jira/workflows.json`, every process's published versions (which processes are published, the children linked steps start, the published parents that start this one) and, for a text that passes one, `team-values.json`. A part that couldn't be read, or that a newer Flightdeck wrote, is named in `problems` (`complete` false, exit 4) and left unchecked: it never becomes an unknown type, a missing owner, an unpublished process or a false Jira suggestion. A linked step whose child has a version that can't be read isn't checked against an older one, a `version:` pin to it isn't checked, and a screenshot whose bytes can't be read is never called missing. Every problem the read meets decides this, whatever its kind (a failed read, a newer file, a link, a file that vanished while it was read, a file too big): a team step type whose file is one of them is never an unknown type and its fields aren't scanned for references. What a reader leaves out over its limit is named from that reader's own read (`skipped`) and left unchecked: each file past the first 100 in `step-types/`, and the issue types past the first 50 in `jira/workflows.json` (then no Jira step is checked). A version that can't be read leaves the others checked: an older one only leaves a `version:` pin to it unchecked, while one numbered at or above the latest that reads makes the latest unknown. Only what the text uses counts: a problem with `people.json` when it names no owner or backup, with `team-values.json` when it passes no `team:` value, with Jira workflows when it has no Jira step, or with a team step type it doesn't use leaves the answer complete. A draft that can't be read, or that was gone when it was opened, is never checked as empty text and never "no draft": `draft check` exits 1 naming it, and `draft read` gives empty `checks` with `complete` false. A failure that stops the whole read still names every problem met before it.
 
+**Changed message** (3.0). A draft whose `{jira.search}` steps have no Jira address in Team values gets one blocker per address, with how many searches need it and their step IDs (as in `7 Jira searches need the team's Jira address…`), where 2.x gave one blocker per step. A tool that counted those blockers, or matched the per-step words, needs the new words. Every other finding's words are as 2.x gave them.
+
+**Module results** (3.0). The checks add the result blockers listed in [What stops a checklist from publishing](map-format.md#what-stops-a-checklist-from-publishing) (a `result:` that isn't a choice, no decision or several setting it, options that don't match, `accepts:` the child can't return), and a suggestion for a linked step whose child returns a result but which has no `accepts:`.
+
+**Design tips** (3.0). `design` holds advice on the draft's shape (`tips`, and `library` on what was read for them), the list the checklist's page and the editor's Checks show under **Design tips**. A tip never stops publishing and never appears in `checks` or `publish`.
+
+| Field | Means |
+|---|---|
+| `design.tips` | Each tip: `id` (what kind, below), `at` (`step`, `gate` or `checklist`), `ref` (the step's or gate's ID, or null) and `text` (the app's words) |
+| `design.library` | `complete` (whether every published checklist was read for the tips that compare with them) and `note` (in words). When it's `false`, a `library-unread` tip says so: a search or gate shared with a checklist that couldn't be read isn't named. |
+
+The tips, by `id`: `results-any` (a search with an explicit `results: any` whose wording reads like a readiness check), `whole-set` (one `{confirm}` over a whole collection: "each …", "every …", "all stories …"; it suggests one result per item: a `{for.each}` step, or one step per item for a short, fixed list), `verdict` (READY, NOT READY, go/no-go or approval wording on a step that isn't a `{decide}`: a run would record only that it was checked), `solo-roles` (`runs: solo` with more than one role at work), `unused-role` and `unused-detail` (declared but never used), `duplicate` (a search or gate a published checklist already has, named with its step) and `library-unread`.
+
 Exit codes: `0` complete, `4` partial, `5` no draft (pass `--from`), `1` usage, or a draft that couldn't be read (named in `problems`). The schema is `SCHEMA2.draftCheck` in `src/core/appjson.js`.
+
+### library inspect
+
+`flightdeck library inspect <team folder> [--process <id>] --json` (3.0) reads every checklist in the folder into one shape, so an assistant designing or changing a checklist can see what already exists before it writes. It only reads, and prints contract `flightdeck-read/2`: the envelope above, with `data` built by `PF.library.inspect`, the same code as a checklist's **Used by and similar** panel and the **Which checklists** list on Step types.
+
+| Field | Means |
+|---|---|
+| `checklists` | Each process's latest usable version (`source` `publication`, with `version` and `folder`) and its draft when the draft differs (`source` `draft`, `version` and `folder` null). Each has `process`, `title`, `owner`, `runs` (`solo` or `team`), `context` (each `name` and `type`), `roles`, `steps` (`id`, `phase`, `type`, `text`, `must`, `roles`, `fields`), `searches` (`step`, `query`, `filter`, `normalized`, `results`, `site`), `gates` (`id`, `phase`, `title`, `implicit`, `owner`, `approves`, `pattern`), `sets` (`step`, `names`), `children` (each linked step's `step`, `process`, `version` pin or null for the latest, `pass` entries and `carry` names), `types` (built-in step types used), `teamTypes` (team step types used), `unknownTypes` (types neither built in nor read from `step-types/`, such as a file that can't be read or one past the first 100) and `skills` (`name`, `implements`, `steps` or null for the whole checklist, `status`) |
+| `usedBy` | Every link: `process` (the checklist linked to) and `by` (`process`, `source`, `step`, `version` pinned or null) |
+| `overlaps` | Candidates that look alike across two or more checklists: `kind` (`search`, `step` or `gate`), `reason` (`same normalized JQL`, `same saved filter`, `same type and fields`, `same gate approves pattern`), `key` (what matched) and `items` (`process`, `source`, `id`). A candidate is never a verdict: two searches can match and still differ in scope, owner or authority. A draft and its own publication are one checklist, never an overlap. |
+| `stepTypes` | Each type in use: `id`, `team` (a team type) and `usedBy` (`process`, `source`, `steps`) |
+| `completeness` | `complete`, `unread` (each part that couldn't be read: `process` when known, `path`, `why`) and `note`. When anything couldn't be read, a link to it or an overlap with it can't be ruled out: an empty `overlaps` then means only "none among what was read". |
+
+**Normalized.** `normalized` is the query as Jira reads it: words lower-cased, quoted values kept as written, every run detail one placeholder (`^version` and `^fix_version` are both `^?`), `ORDER BY` left out; null for a filter or a query that doesn't lex. `pattern` is a gate's `approves:` the same way (case, spacing and emphasis don't count). A step's fields are compared without the ones that say when or how strictly (`at`, `due`, `after`, `expect`, `deadline`, `require`, `evidence`, `sets`); a step with no other field is never a candidate.
+
+With `--process`, `checklists` holds only that process's, `usedBy` the links to and from it, `overlaps` those it's in and `stepTypes` the types it uses; `completeness` is the whole folder's. It reads `publications/`, `maps/drafts/`, `step-types/`, `skills/` and `skill-registrations/`, as the app does (a skill registered in `skill-registrations/` is listed under its checklist's `skills`). A draft with a line it doesn't understand is read as far as it goes and named in `problems` (`malformed`) and in `completeness.unread`, a skill registration that can't be read, a step-type file that can't be used, comes from a newer Flightdeck or is past the first 100 (`skipped`), and versions numbered alike at the top of a process (`conflict`, which leaves that checklist out) are named in `problems` too: each makes the answer partial. Exit codes: `0` complete, `4` partial (`problems` names each file), `5` no such process (with `--process`), `1` usage or a folder that couldn't be read. The schema is `SCHEMA2.library` in `src/core/appjson.js`.
 
 ### draft save and draft propose
 
@@ -515,6 +553,99 @@ Exit codes: `0` written or proposed; `1` usage, `missing-base`, `too-big` or `fa
 **What it may write:** only `maps/drafts/<process>.md` (a direct save), `proposed/<process>/<operation>.json`, `history/drafts/<process>/agent-<operation>.jsonl`, and, when a direct save continued from your own pending proposal, one decision `proposed/<process>/<that proposal>.<operation>.<rev>.json` with `status` `replaced`, so it isn't offered again, never through a link and never outside the folder. It never writes or deletes anything in `presence/`, and never changes a proposal, attempt or decision once written.
 
 **Known limits.** Who has a draft open is what this computer's copy of the folder shows: another computer's editor may arrive late (seconds to minutes over OneDrive), and a tab in the background may stop saying it's there. A shared folder has no atomic compare-and-swap, so a hand edit, an older copy of Flightdeck or a direct file write that lands between the final compare and the write can still be replaced, exactly as in 1.18. A proposal is never lost. Flightdeck 1.19 doesn't merge: a proposal applies only when it starts from the draft exactly as it is. "Within a few seconds" holds on one computer (the editor looks every 2 seconds); across computers it adds OneDrive's sync time, which has no bound. Two computers with the same draft open can each apply the same proposal once before their files sync (it then shows **Applied twice**); to take back an assistant's change in that case, use **Decline** on the process page rather than Undo in the editor.
+
+## Loops
+
+A `{for.each}` step (3.0) starts one linked run of a child checklist for each item in a list, such as every story in a release. The list lives in the folder as scope records in `proposals/`: requests (from a tool or a person) and decisions on them. `flightdeck loop` reads a loop and asks for changes to its list. It never starts a run and never writes `run.json`: the parent run's recorder sees each change the next time Flightdeck reads the folder, and people start the assessments themselves.
+
+```
+flightdeck loop read    <team folder> <process>/<run> <loop step> --json
+flightdeck loop sync    <team folder> <process>/<run> <loop step> --from <observation.json | -> --tool <name>@<version> --key <key> [--dry-run] [--json]
+flightdeck loop add     <team folder> <process>/<run> <loop step> --keys ABC-101,ABC-102 --tool <name>@<version> --key <key> [--dry-run] [--json]
+flightdeck loop add     <team folder> <process>/<run> <loop step> --keys staging [--title "Staging"] [--link https://...] --tool <name>@<version> --key <key>   (items: item)
+flightdeck loop exclude <same> --item ABC-107 --reason <why> --tool ... --key ...
+flightdeck loop restore <same> --item ABC-107 [--reason <why>] --tool ... --key ...
+flightdeck loop exception <same> --item ABC-104 --reason <why> --approver <person id> [--as <person id>] --tool ... --key ...
+flightdeck loop withdraw <same> --item ABC-104 --tool ... --key ...
+flightdeck loop owner   <same> --item ABC-104 --owner <person id, or ""> --tool ... --key ...
+flightdeck loop choose  <same> --item ABC-104 --run <run id> --tool ... --key ...   (which of its competing runs counts)
+flightdeck loop plan    <same> --item ABC-104 --record <request id> --tool ... --key ...   (which of two plans made at once stands)
+flightdeck loop review  <same> --accept ABC-103,ABC-107 | --keep ABC-103 --as <person id> [--reason <why>] --tool ... --key ...
+```
+
+Every command prints `flightdeck-read/2` (with `--json`) or plain words. `--dry-run` previews and writes nothing. The same `--tool` and `--key` always mean the same request: a retry writes nothing and says `already`; the same key with other content is refused (`key-taken`), naming the changed fields.
+
+### The CLI asks; the recorder applies
+
+`flightdeck` never writes `run.json`. Starting a story's run, approving the loop and sending the approval back change the run, so the CLI files them as requests in `proposals/`, and the recorder's window carries them out with the same checks as its buttons:
+
+```
+flightdeck loop start      <same> --item ABC-101 --as <person id> --tool ... --key ... [--dry-run]
+flightdeck loop start-all  <same> --as <person id> --tool ... --key ... [--dry-run]
+flightdeck loop approve    <same> --as <person id> --tool ... --key ... [--dry-run]
+flightdeck loop send-back  <same> --as <person id> [--reason <why>] --tool ... --key ... [--dry-run]
+flightdeck loop resolve    <same> --record <request id> --outcome applied|refused --as <person id> --tool ... --key ... [--dry-run]
+```
+
+`--dry-run` prints the plain-text preview: which story runs would start and which are skipped and why (already started, approved without a run, removed, waiting on a removal decision, a missing input), or the roll-up an approval would record. `start-all` lists exactly the runs the app's **Start all under my recording…** would start. Without `--dry-run` the request is filed (`requested`); no run starts and nothing is approved until the recorder's window applies it.
+
+The recorder's window applies each request once and writes `<request>.status-<writer>-<rev>.json` with `op` `applied` or `refused` and the reason in plain words (for example "It can't be approved yet: 2 in scope · 1 not started."). `loop read` lists them under `requests`, each `pending`, `applied` or `refused`, and the run screen shows the latest 10, waiting, applied or refused with why.
+
+A request asks for one kind of action. `--as` must be a person in `people.json`, not inactive, who is the run's recorder, holds one of the loop step's roles, or (to start a story) owns it; otherwise it is refused with why, here and in the recorder's window. A retry with the same `--tool` and `--key` is judged on what was first asked: the same request says `already`, even after it was carried out; another action, person, reason or story list under the key is `key-taken`. A start request is refused while the loop step can't start runs, as the buttons are. `loop choose` is bound to the story's attempt and the competing runs it saw: if another run arrives for that attempt, or two people chose different runs without seeing each other, approval waits and the run screen shows it as a change until someone chooses again. `loop start` refuses a story named twice in `--item` before anything is filed. A request that saw a scope record this computer can't read yet is listed as `held` and isn't carried out until that record arrives; an outcome recorded two ways at once is listed as `review` and isn't carried out again. `loop resolve --record <request id> --outcome applied|refused` asks the recorder to record what happened; it is refused unless the outcome was recorded both ways and the effect agrees (a run it started, or the approval or send-back naming it), and the action is never done again. `loop plan --item ABC-101 --record <request id>` keeps one of two plans made at once for a story's attempt (`loop read` lists them under `planConflict`).
+
+Every record names at most 50 records it saw. When more than 50 decisions on one story were made at once, `loop read` says so ("Settle these 50 first, then the rest") and the loop can't be approved; a correction (`owner`, `plan`, `choose`, `exclude`, `review`, `resolve` and the rest) then settles the first 50 and its output says how many are left ("Do it again to settle the rest."). Run it again until none are.
+
+An approval whose snapshot no longer matches the loop's roll-up doesn't count, in every window and in `flightdeck run` and `next`, before any save lands; the recorder's window then sends it back for review and saves that.
+
+### The observation
+
+`sync` takes what the tool read from the source, whole, never a summary:
+
+```json
+{ "source": { "system": "jira", "site": "https://jira.example.com" }, "generation": "2026-11-07-0942", "query": "fixVersion = 4.1",
+  "observedAt": "2026-11-07T09:42:00Z", "items": [{ "id": "10042", "key": "ABC-101", "title": "Checkout with saved cards" }],
+  "reported": 11, "fetched": 11, "complete": true, "errors": [] }
+```
+
+`id` is the issue's stable id and `key` its key. A sync from another site, or with another `query` than the loop's last one, is refused before anything is written. `complete` says every page was read; Flightdeck treats it as complete only when the number of `items`, `fetched` and `reported` are all equal and `errors` is empty.
+
+A loop of `items: item` takes observations only from the feed its step names (`source: deploy-targets`), shaped `{ "source": { "feed": "deploy-targets", "account": "team-a" }, ..., "items": [{ "key": "staging", "title": "Staging", "link": "https://staging.example.com/" }] }` (`site` and `account` when the feed has them; no `id`). A sync from another feed, or from another site, account or query than the loop's last one, is refused before anything is written. A complete one proposes removing only items the feed added; items added by hand are never proposed. Keys are 1 to 40 letters, digits, hyphens or underscores, case-sensitive, never changed; a link is http or https only. `loop read` adds `kind`, `noun` (`{ "one", "many" }`), `source` and each item's `link`, and the request file names its `kind` when it isn't `jira.issue`. A kind this copy doesn't know is refused, and its runs are read-only. "Complete" means the account's search read everything it reported, not that Jira holds nothing else. A complete observation that lacks an item in scope proposes its removal, for a person to review; an incomplete one only adds. Absence is never removal. An observation holds at most 500 items; more is refused, never cut.
+
+### What it writes
+
+`proposals/req-<tool>-<24 hex>.json`, `flightdeck-plan/3` with the `loops` feature: the loop it's for, the records it saw (`seen`), the observation, the changes, and one planned child per new story (the inputs the loop's `pass:` fills, and the attempt). `review` writes `proposals/<request>.status-<tool>-<8 hex>.json`, `flightdeck-plan-status/3`: a person's decision (`--as`, recorded on their behalf by the tool) to remove the stories (`accept`) or keep them. Each file is written once and read back. Every copy before 3.0 calls these files newer and never offers one as a plan.
+
+### The result
+
+`data.status` is `would-request` (a preview), `requested`, `already` or `held` (something it depends on couldn't be read; nothing was written). `data.preview` is the summary in plain words, the one an assistant can repeat:
+
+```text
+Release 4.1 — preview only; no files written.
+
+Would add 3 stories and request review of 2 removals.
+One proposed removal has an assessment in progress.
+2 new assessments are ready to start; 1 needs environment.
+No runs would start.
+The scope change would require approval review.
+
+Jira observation: 11 of 11 reported matches read; pagination complete.
+Team-folder read: complete.
+```
+
+With the stories below it. The JSON carries the same: `added`, `proposed` (with `open`, `recorder`, `answered` and `total` for an assessment in progress), `excluded`, `restored`, `children` (`inputs`, `missing`), `impact` (`review`, `reasons`), `observation`, `runsStarted` (always 0) and `membershipVisible` (always false: the table shows the change once Flightdeck reads the folder). Keep these apart: a preview, a request written, membership visible, a run started.
+
+`read` gives `summary` ("11 in scope · 9 cleared by validation · 1 approved without a run · 1 needs work"), `counts`, `ok`, `blockers` (each with `key`, `kind`, `run` and `text`), `items` (scope `state`, `status`, `result`, `run`, `recorder`, `owner`, `exception`, `review`, `mismatch`), `pending` removals, `held` records, the last `observation`, the `approval` and every change since it (`changes`, `review`), and, after the run ended, `late`.
+
+### Errors
+
+| Situation | What it says |
+|---|---|
+| The source is incomplete | The preview adds what it found and says missing stories can't be proposed for removal. Retry the search. |
+| A scope record this computer can't read yet | `held`: "This loop has a scope record this computer can't read yet. Nothing written. Check folder availability, then retry." |
+| The same key, the same request | `already`: "Already requested. Nothing written.", with the loop's state now. |
+| The same key, another request | `key-taken`: "This key already names a different request. Changed fields: …. Read that request before choosing a new key." |
+| A story's child is missing an input | The preview names it: "1 needs environment". Its scope change is valid; its assessment can't start yet. |
+| The write can't be confirmed | `failed`: "Could not confirm whether the request was saved. Retry with the same key." Never a new key: that could ask twice. |
 
 ## Writing step types (for AI assistants)
 
