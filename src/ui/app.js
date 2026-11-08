@@ -2,6 +2,13 @@
 (function () {
   'use strict';
   var U = PF.util, R = PF.run, M = PF.map, T = PF.types, V = PF.views, repo = PF.repo;
+  /* Round 10: keeping a conflict copy of a loop's parent or child first writes a backup of the version it replaces; that
+     backup asks the guard captured at the click (state.recoverCx) too, so nothing is written for another folder or person. */
+  repo = Object.assign(Object.create(PF.repo), { keepDisplaced: function (fs, run, session) {
+    var rc = state.recoverCx;
+    if (rc && rc.key === run.process + '/' + run.id && !guardOk(rc.cx)) return Promise.reject(Object.assign(new Error('the folder, the person or the run changed, so nothing was kept'), { dropped: true }));
+    return PF.repo.keepDisplaced(fs, run, session);
+  } });
   var EXAMPLES = /*@EXAMPLES@*/{};
   /* src/releases.json, checked and embedded by build.py, newest first. The app's version is the newest release; "dev" means
      this is the unbuilt source, not a copy people should use. */
@@ -2710,7 +2717,10 @@
     var fs = state.fs, g = gen, endBusy = busyStart(), rev = edits(r.id), pend = state.pendingSaves;
     pend[r.id] = (pend[r.id] || 0) + 1;
     function settled() { endBusy(); if (g === gen) { pend[r.id]--; if (pend[r.id] <= 0) delete pend[r.id]; } }
-    return queued(function () { return repo.saveRun(fs, r, SESSION, Object.assign({}, opts, { writer: WRITER, lock: LOCKS ? lock : null })); }).then(function (wrote) {
+    /* Round 10: a loop's parent or child saved without its own guard (any edit, a retry, a restore, a recovery) gets one here,
+       captured now (a recovery's at its click), so nothing lands in a folder that was left or for another person. */
+    var lgx = (opts && typeof opts.still === 'function') || !loopy(r) ? null : (opts && opts.recovery && state.recoverCx && state.recoverCx.key === r.process + '/' + r.id ? state.recoverCx.cx : loopGuard());
+    return queued(function () { return repo.saveRun(fs, r, SESSION, Object.assign({}, opts, { writer: WRITER, lock: LOCKS ? lock : null }, lgx ? { still: function () { return guardOk(lgx); } } : {})); }).then(function (wrote) {
       settled();
       if (g !== gen) return true;
       var key = r.process + '/' + r.id, done = edits(r.id) === rev;
@@ -2732,6 +2742,12 @@
     }, function (e) {
       settled();
       if (g !== gen) { lsSet(localKey(r.id, fs), r); return false; }
+      if (e && e.dropped) {
+        /* The guard dropped it: put back here (loopEdit), or kept as unsaved for Try again, which guards it afresh. */
+        if (opts && opts.dropUndone && opts.dropUndone()) { if (state.unsaved[r.id] === r && edits(r.id) === rev) delete state.unsaved[r.id]; }
+        else { var so = Object.assign({}, opts || {}); delete so.still; delete so.dropUndone; state.unsaved[r.id] = r; state.saveErr[r.id] = 'the folder, the person or the run changed before it was written'; state.saveOpts[r.id] = so; }
+        say('Nothing was saved: the folder, the person or the run changed before it was written.', 'warn'); render(); return false;
+      }
       if (e.disk) {
         if (state.unsaved[r.id] === r && edits(r.id) === rev) delete state.unsaved[r.id];
         if (!e.keptAs) lsSet(localKey(r.id), r);
@@ -2926,11 +2942,62 @@
     if (!m || m.g !== gen || m.fs !== state.fs) m = state.loopMem = { g: gen, fs: state.fs, last: Object.create(null), starting: Object.create(null), applying: Object.create(null), preview: Object.create(null), all: Object.create(null), open: Object.create(null), reqs: Object.create(null), ret: null, keepRow: null };
     return m;
   }
-  function loopGuard(extra) { return Object.assign({ fs: state.fs, g: gen, me: state.me }, extra || {}); }
-  function guardOk(cx) { return !!cx && cx.g === gen && cx.fs === state.fs && cx.me === state.me; }
-  /* The save options every write of a loop's parent carries: the guard captured at the click, asked by the save right before
-     each write (repo.saveRun's still). */
+  /* S2's one guard builder (round 10). It captures, at the click or when a request is taken up: the folder, its generation and
+     the person; with run, that run's identity and state (paused, ended, its recorder); with view, the loop's roll-up and the
+     run's revision as the click saw them; with q, the request, whose asker must still be allowed to ask. guardOk asks all of
+     it again, and every save of a loop's parent or child asks guardOk right before each write (repo.saveRun's still). */
+  function runSig(r) { return r ? JSON.stringify([r.id, !!r.paused, !!r.ended, r.recorder ? [r.recorder.person || '', r.recorder.session || ''] : null]) : ''; }
+  function viewSig(r, id) { var V = r && loopView(r, id); return V ? JSON.stringify([V.ledger.heads, V.rollup.ok, V.rollup.summary, r.rev || 0]) : ''; }
+  function loopGuard(o) {
+    o = o || {};
+    var cx = Object.assign({ fs: state.fs, g: gen, me: state.me }, o);
+    if (o.run) { var r = findRun(o.run); cx.sig = runSig(r); if (o.view) cx.vsig = viewSig(r, o.step); }
+    return cx;
+  }
+  function guardOk(cx) {
+    if (!cx || cx.g !== gen || cx.fs !== state.fs || cx.me !== state.me) return false;
+    if (!cx.run) return true;
+    var r = findRun(cx.run);
+    if (!r || runSig(r) !== cx.sig) return false;
+    if (cx.view && viewSig(r, cx.step) !== cx.vsig) return false;
+    return !(cx.q && cx.step && PF.loop.askerWhy(r, loopView(r, cx.step), cx.q, data.people));
+  }
+  /* Whether a run is a loop's parent (its checklist has a {for.each} step) or a loop's child. */
+  function loopy(r) {
+    if (!r) return false;
+    if (r.parent && r.parent.item) return true;
+    try { return M.steps(R.mapOf(r)).some(function (x) { return x.step.type === 'for.each'; }); } catch (e) { return false; }
+  }
+  /* The save options every write of a loop's parent or child carries: the guard, asked right before each write. */
   function loopStill(cx, opts) { return Object.assign({}, opts || {}, { still: function () { return guardOk(cx); } }); }
+  /* A change to a loop's parent through mutateRun, guarded: fn's change is kept aside (before and after), and when the guard
+     drops the save, what only this change touched is put back in this window, so a change made meanwhile (a pause) saves
+     alone and never carries it. Returns { fn, opts } for mutateRun. */
+  function loopEdit(cx, key, fn, opts) {
+    var before = null, after = null, undone = false;
+    var copy = function (r) { var c = {}; Object.keys(r).forEach(function (k) { if (k[0] !== '_') c[k] = r[k]; }); return JSON.parse(JSON.stringify(c)); };
+    var wrapped = function (r, m, me, now) { before = copy(r); var out = fn(r, m, me, now); after = copy(r); return out; };
+    var back = function (cur, b, a, deep) {
+      var keys = {}; Object.keys(b).concat(Object.keys(a)).forEach(function (k) { keys[k] = true; });
+      Object.keys(keys).forEach(function (k) {
+        var bj = JSON.stringify(b[k]), aj = JSON.stringify(a[k]);
+        if (bj === aj) return;
+        if (JSON.stringify(cur[k]) === aj) { if (k in b) cur[k] = JSON.parse(bj); else delete cur[k]; return; }
+        if (Array.isArray(a[k]) && Array.isArray(b[k]) && Array.isArray(cur[k])) {
+          var had = {}; b[k].forEach(function (e) { var j = JSON.stringify(e); had[j] = (had[j] || 0) + 1; });
+          a[k].forEach(function (e) { var j = JSON.stringify(e); if (had[j]) { had[j]--; return; } for (var i = cur[k].length - 1; i >= 0; i--) if (JSON.stringify(cur[k][i]) === j) { cur[k].splice(i, 1); break; } });
+          return;
+        }
+        if (!deep && b[k] && a[k] && cur[k] && typeof b[k] === 'object' && typeof a[k] === 'object' && typeof cur[k] === 'object') back(cur[k], b[k], a[k], true);
+      });
+    };
+    var undo = function () { if (undone || !after) return; undone = true; var r = findRun(key); if (r) { back(r, before, after, false); bump(r.id); } };
+    return { fn: wrapped, opts: Object.assign({}, opts || {}, { still: function () { if (guardOk(cx)) return true; undo(); return false; }, dropUndone: function () { return undone; } }) };
+  }
+  /* Keeping a copy of a loop's parent or child (recover, unchanged) is guarded from its click: the backup and the run's save
+     both ask this guard (the repo wrapper above, and save()). Only the folder and the person: the recovery itself may take
+     the run over. */
+  function loopRecoverCx() { var r = ctx.run(); state.recoverCx = loopy(r) ? { key: state.runKey, cx: loopGuard() } : null; }
   function loopSaved(p, words) {
     var endBusy = busyStart(), sg = gen;
     return p.then(function (res) {
@@ -3106,20 +3173,23 @@
     if (q.ops[0] === 'start') {
       /* Runs this request already started (their outcome wasn't written) count as started, and aren't started again. */
       var done = (data.runs || []).filter(function (c) { var it = c.parent && c.parent.item; return it && it.request === q.id && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === id; }).map(function (c) { return c.parent.item.key; }), why = [];
-      return loopBatch(r, id, q.items.filter(function (k, i) { return done.indexOf(k) < 0 && q.items.indexOf(k) === i; }), cx, q.id)
+      /* The starts ask the run's state and the asker's authority too; the outcome (cx) is recorded whatever they answer. */
+      return loopBatch(r, id, q.items.filter(function (k, i) { return done.indexOf(k) < 0 && q.items.indexOf(k) === i; }), loopGuard({ q: q, run: key, step: id }), q.id)
         .then(function (b) { if (b.stopped) throw new Error('The folder changed while this request was carried out.'); done = done.concat(b.started); why = b.failed.map(function (f) { return f.why; }); return { ok: done.length > 0, why: 'Started ' + (done.slice(0, 20).join(', ') || 'none') + (done.length > 20 ? ' and ' + (done.length - 20) + ' more' : '') + '.' + (why.length ? ' ' + why.slice(0, 5).join(' ') : '') }; });
     }
     if (q.ops[0] === 'approve') {
       if (!V.rollup.ok) return Promise.resolve({ ok: false, why: 'It can\'t be approved yet: ' + V.rollup.summary + '.' });
       var no = 'The run couldn\'t be changed here; ask again.', tool = typeof q.by === 'string' ? q.by : (q.by && (q.by.tool || q.by.name)) || '';
-      return mutateRun(key, cx.g, function (rr, m, me, now) {
+      var ea = loopEdit(loopGuard({ q: q, run: key, step: id, view: true }), key, function (rr, m, me, now) {
         var V2 = loopView(rr, id); if (!V2 || !V2.rollup.ok) { no = 'It can\'t be approved yet: ' + (V2 ? V2.rollup.summary : 'the loop isn\'t readable') + '.'; throw new Error(no); }
         R.done(rr, m, id, me, now, { _loop: { ok: true, snapshot: PF.loop.approval(V2.ledger, V2.rollup, { by: q.as, at: now, onBehalf: tool, request: q.id }) } });
-      }, loopStill(cx, { background: true })).then(function (ok) { return ok === false ? { ok: false, why: no } : { ok: true, why: 'Approved: ' + V.rollup.summary + '.' }; });
+      }, { background: true });
+      return mutateRun(key, cx.g, ea.fn, ea.opts).then(function (ok) { return ok === false ? { ok: false, why: no } : { ok: true, why: 'Approved: ' + V.rollup.summary + '.' }; });
     }
     if (!(a && a.s === 'done' && a.loop)) return Promise.resolve({ ok: false, why: 'The loop isn\'t approved, so there was nothing to send back.' });
     var reasons = V.changes.length ? V.changes : ['Sent back for review by ' + personName(q.as) + (q.reason ? ': ' + q.reason : '') + '.'];
-    return mutateRun(key, cx.g, function (rr, m, me, now) { R.unsettleLoop(rr, m, id, reasons, me, now, q.id); }, loopStill(cx, { background: true }))
+    var es = loopEdit(loopGuard({ q: q, run: key, step: id, view: true }), key, function (rr, m, me, now) { R.unsettleLoop(rr, m, id, reasons, me, now, q.id); }, { background: true });
+    return mutateRun(key, cx.g, es.fn, es.opts)
       .then(function (ok) { return ok === false ? { ok: false, why: 'The run changed meanwhile; ask again.' } : { ok: true, why: 'Sent back for review.' }; });
   }
   /* The recorder resolves an outcome recorded both ways by what the request left behind; the action is never done again.
@@ -3178,6 +3248,8 @@
     /* A pass: step's guard runs in the queued check and again after saveRun's reads, right before it writes (D4). */
     var saveOpts = { writer: WRITER, lock: LOCKS ? lock : null };
     if (prep.link2) saveOpts.still = function () { stale = childStale(prep) || teamStale(prep, data.teamValues); return !stale; };
+    /* A child whose own checklist has a loop is guarded like every loop write (round 10): the folder and person as clicked. */
+    if (loopy(child)) { var cxc = loopGuard(), inner = saveOpts.still; saveOpts.still = function () { if (!guardOk(cxc)) { stale = stale || 'The folder or the person changed, so nothing was started.'; return false; } return inner ? inner() : true; }; }
     /* A start that passes a team value reads team-values.json again right before it writes; a read another folder's or a
        value changed since the form was built writes nothing. */
     if ((prep.team || []).length) saveOpts.prewrite = function (fs) {
@@ -3235,7 +3307,8 @@
     var sfs = state.fs, sg = gen, key = state.runKey, endBusy = busyStart(), held = holdNav(false);
     state.continuing = true;
     var done = function () { endBusy(); state.continuing = false; };
-    queued(function () { n.recorder.session = SESSION; return repo.saveRun(sfs, n, SESSION, { writer: WRITER, lock: LOCKS ? lock : null }); }).then(function () {
+    var cxn = loopy(n) ? loopGuard() : null;
+    queued(function () { n.recorder.session = SESSION; return repo.saveRun(sfs, n, SESSION, Object.assign({ writer: WRITER, lock: LOCKS ? lock : null }, cxn ? { still: function () { return guardOk(cxn); } } : {})); }).then(function () {
       if (sg !== gen) { done(); releaseNav(held); return; }
       return mutateRun(key, sg, function (r, m, me, now) { R.continued(r, m, stepId, n, me, now); }).then(function (ok) {
         done(); if (sg !== gen) { releaseNav(held); return; }
@@ -3257,11 +3330,11 @@
         /* A loop (3.0) whose approval no longer matches its list or results goes back for review at once, every change listed. */
         if (x && x.step.type === 'for.each' && a && a.s === 'done' && a.loop && !r.ended) {
           var lv = loopView(r, sid);
-          var cxs = loopGuard();
-          if (lv && lv.changes.length) mutateRun(r.process + '/' + r.id, cxs.g, function (rr, m, me, now) {
+          var rk = r.process + '/' + r.id, es2 = loopEdit(loopGuard({ run: rk, step: sid, view: true }), rk, function (rr, m, me, now) {
             var a2 = rr.steps[sid], v2 = a2 && a2.s === 'done' && a2.loop && loopView(rr, sid);
             if (v2 && v2.changes.length) R.unsettleLoop(rr, m, sid, v2.changes, me, now);
-          }, loopStill(cxs, { background: true }));
+          }, { background: true });
+          if (lv && lv.changes.length) mutateRun(rk, gen, es2.fn, es2.opts);
           return;
         }
         /* Module results (3.0): a settled step whose run was reopened or corrected since goes back for a re-check, and is
@@ -7686,17 +7759,17 @@
     'loop-requests-more': function (id) { loopMem().reqs[id] = true; render(); },
     'loop-open': function (id) { var m = loopMem(); m.keepRow = null; m.open[id] = !m.open[id]; render(); },
     'loop-approve': function (id) {
-      var cxa = loopGuard();
-      mutate(function (r, map, me, now) {
+      var ka = state.runKey, ea = loopEdit(loopGuard({ run: ka, step: id, view: true }), ka, function (r, map, me, now) {
         var V = loopView(r, id);
         if (!V || !V.rollup.ok) throw new Error('Every ' + (V ? V.noun.one : 'item') + ' in scope needs an accepted result or an approval without a run first.');
         R.done(r, map, id, me, now, { _loop: { ok: true, snapshot: PF.loop.approval(V.ledger, V.rollup, { by: me, at: now }) } });
-      }, loopStill(cxa));
+      });
+      mutate(ea.fn, ea.opts);
     },
     'loop-unsettle': function (id) {
       /* With nothing changed, a person may still send it back, saying why (the Why box). */
-      var why = val('loop-why-' + id).trim(), cxu = loopGuard();
-      mutate(function (r, map, me, now) { var V = loopView(r, id); if (!V) throw new Error('That isn\'t an approved loop.'); var sb = PF.loop.sendBackWhy(V, why); if (sb) throw new Error(sb + ' Use the Why box.'); R.unsettleLoop(r, map, id, V.changes.length ? V.changes : ['Sent back for review by ' + personName(me) + ': ' + why.slice(0, 300)], me, now); }, loopStill(cxu));
+      var why = val('loop-why-' + id).trim(), ku = state.runKey, eu = loopEdit(loopGuard({ run: ku, step: id, view: true }), ku, function (r, map, me, now) { var V = loopView(r, id); if (!V) throw new Error('That isn\'t an approved loop.'); var sb = PF.loop.sendBackWhy(V, why); if (sb) throw new Error(sb + ' Use the Why box.'); R.unsettleLoop(r, map, id, V.changes.length ? V.changes : ['Sent back for review by ' + personName(me) + ': ' + why.slice(0, 300)], me, now); });
+      mutate(eu.fn, eu.opts);
     },
     /* A child run that was saved but whose link didn't land (the parent changed meanwhile): link it now, with the inputs it was started for. */
     'link-child': function (id, b) {
@@ -7816,7 +7889,7 @@
     /* Keep a conflict copy. Pending saves finish first, then the run is locked: the exact current contents are backed up, the
        copy replaces them only if nothing changed since, and other changes are refused until it's done. The save is checked
        against the backed-up version's fingerprint, so a change on disk becomes a conflict copy rather than being overwritten. */
-    'use-copy': function (name) { if (runBusy(ctx.run())) return; recover(function (fs, cur) { return repo.readCopy(fs, cur, name); }, 'The version it replaced is kept as ', function (fs, cur) { return repo.removeCopy(fs, Object.assign({}, cur, { _conflicts: null }), name); }); },
+    'use-copy': function (name) { if (runBusy(ctx.run())) return; loopRecoverCx(); recover(function (fs, cur) { return repo.readCopy(fs, cur, name); }, 'The version it replaced is kept as ', function (fs, cur) { return repo.removeCopy(fs, Object.assign({}, cur, { _conflicts: null }), name); }); },
     'delete-copy': function (name) {
       var r = ctx.run(); if (!r) return;
       if (!(state.pick && state.pick.kind === 'delete-copy' && state.pick.id === name)) { state.pick = { kind: 'delete-copy', id: name }; render(); return; }
@@ -7826,7 +7899,7 @@
     'restore-local': function () {
       var r = ctx.run(); if (!r || runBusy(r)) return;
       var lkey = localKey(r.id), local = lsGet(lkey, null); if (!local) return;
-      recover(function () { var own = {}; Object.keys(local).forEach(function (k) { if (k[0] !== '_') own[k] = local[k]; }); var c = R.sanitize(R.testLast(own)); if (c) c._overflow = R.mergeOverflow(local._overflow, c._overflow); return Promise.resolve(c); }, 'Restored the copy kept in this browser; the version it replaced is kept as ', function () { lsSet(lkey, null); return Promise.resolve(); });
+      loopRecoverCx(); recover(function () { var own = {}; Object.keys(local).forEach(function (k) { if (k[0] !== '_') own[k] = local[k]; }); var c = R.sanitize(R.testLast(own)); if (c) c._overflow = R.mergeOverflow(local._overflow, c._overflow); return Promise.resolve(c); }, 'Restored the copy kept in this browser; the version it replaced is kept as ', function () { lsSet(lkey, null); return Promise.resolve(); });
     },
     'discard-local': function () { var r = ctx.run(); if (r) { lsSet(localKey(r.id), null); say('The copy kept in this browser was discarded.'); render(); } },
     'load-history': function () {
@@ -8982,7 +9055,9 @@
     var formSha = e.target.dataset.planHash, startFolder = pub.info.folder, dec = null;
     queued(function () {
       r.recorder.session = SESSION;
-      var save = function (keep) { return repo.saveRun(sfs, r, SESSION, { writer: WRITER, lock: LOCKS ? lock : null, keep: keep }); };
+      /* A run of a checklist with a loop is guarded like every loop write (round 10). A planned start's run is saved once its
+         decision is written, whatever happens next (a plan marked started without its run can't be recovered). */
+      var save = function (keep) { return repo.saveRun(sfs, r, SESSION, Object.assign({ writer: WRITER, lock: LOCKS ? lock : null, keep: keep }, !plan && loopy(r) ? { still: still } : {})); };
       if (!plan) return save(false);
       /* Asked when its turn comes, once the plan's lock is held and right before the decision is written: a start whose folder
          or person changed meanwhile, even changed back, writes nothing. Once the decision is written, its run is saved as

@@ -21,12 +21,12 @@
       "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "docs/apps.md": {
-      "sha256": "ccada0379bffa75242e785e2a1093df429719c7fe6311c9ccd7207397c605cbe",
-      "reviewed": "whole-set tip points to for.each; checked for direct writes and unconditional deletes"
+      "sha256": "9636e15d67a0154337694c52976f819e3319fd23038cae27a576d8968cf9249e",
+      "reviewed": "loop guard builder for every loop parent and child write, undo on drop; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "cfc9d297f7d81ea86b7f2048f7b9f4736511f39d9d304c83ad003d3a82aba376",
-      "reviewed": "loop docs: every conflict holds approval, Jira query binding, fileWhy, for.each in the new-checklist brief; checked for direct writes and unconditional deletes"
+      "sha256": "fa29fcb90fe834ca8185ce1000e7c3d54f2ea4f44d581c5fba87bb52f05aa7b1",
+      "reviewed": "loop guard builder for every loop parent and child write, undo on drop; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -253,8 +253,8 @@
       "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "src/core/loop.js": {
-      "sha256": "7beafb8cccef8826e5c246e3398e33111576bd8f1984584bea628634717a78af",
-      "reviewed": "loop reduction linear with one participant set per slot; limit 50 shared by writers and readers; paged corrections; plan choices expand to their plans; checked for direct writes and unconditional deletes"
+      "sha256": "84e962986cb97e87031da6364412fe2cf1fb11fc5d2719f86fa0eee59317fcf5",
+      "reviewed": "loop guard builder for every loop parent and child write, undo on drop; checked for direct writes and unconditional deletes"
     },
     "src/core/map.js": {
       "sha256": "f9eae33f6635cd1b3983fc1c71eb7a3b3c8dc1c70ca3ef8ce8807d5228165d2f",
@@ -397,8 +397,8 @@
       "reviewed": "loop saves carry the click's guard, rechecked before each further write; kept candidate on drop; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "20a9aaca79fee6393072a144d683eb9ae5dcff7db99b20a39f82a3b6917e9f3c",
-      "reviewed": "loop reduction linear with one participant set per slot; limit 50 shared by writers and readers; paged corrections; plan choices expand to their plans; checked for direct writes and unconditional deletes"
+      "sha256": "8420f1f14d7a274b1c18c96d64b1f58d255085160176eeab189c6da7cec5d2b8",
+      "reviewed": "loop guard builder for every loop parent and child write, undo on drop; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

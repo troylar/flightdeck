@@ -918,4 +918,88 @@ rule('Round 9 (3): a child whose candidate was written before a folder switch wr
   assert.strictEqual(Object.keys(fs0.files).filter(p => /^runs\/validate-story\/.*candidate-/.test(p)).length, 1, 'the candidate is kept');
 });
 
+/* Round 10: one guard builder (loopGuard) for every write of a loop's parent or child, checked inside the save. */
+const PARENT_RE = /^runs\/release-readiness\/[^/]*\/run\.json$/;
+const parentPath = (app) => app.files('runs/release-readiness/').find(p => /run\.json$/.test(p));
+async function cleared(app) {
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(150);
+  await clear(app, kidPaths(app)[0]);
+}
+rule('Round 10 (2): a direct approval held at its last read writes nothing once the run is paused; the pause lands alone', async () => {
+  const app = await setup(); await cleared(app);
+  const fs0 = app.fs, p = parentPath(app), h = holdReads(fs0, PARENT_RE);
+  app.click('loop-approve', 'each'); await app.tick(60);
+  assert.ok(h.seen() > 0, 'the approval reached its read');
+  app.set('pick-input', 'Waiting'); app.click('pause', 'run'); await app.tick(40);
+  h.hold.open(); await app.tick(400);
+  const r = JSON.parse(fs0.files[p].t);
+  assert.ok(r.paused, 'the pause is saved');
+  assert.ok(!(r.steps.each && r.steps.each.s === 'done'), 'the approval is not saved while paused: ' + JSON.stringify(r.steps.each));
+});
+rule('Round 10 (2): a send-back held at its last read writes nothing once the run is paused', async () => {
+  const app = await setup(); await cleared(app);
+  app.click('loop-approve', 'each'); await app.tick(250);
+  const fs0 = app.fs, p = parentPath(app);
+  assert.strictEqual(JSON.parse(fs0.files[p].t).steps.each.s, 'done', 'set-up: approved');
+  const h = holdReads(fs0, PARENT_RE);
+  app.set('loop-why-each', 'Check it again'); app.click('loop-unsettle', 'each'); await app.tick(60);
+  assert.ok(h.seen() > 0, 'the send-back reached its read');
+  app.set('pick-input', 'Waiting'); app.click('pause', 'run'); await app.tick(40);
+  h.hold.open(); await app.tick(400);
+  const r = JSON.parse(fs0.files[p].t);
+  assert.ok(r.paused, 'the pause is saved');
+  assert.strictEqual(r.steps.each.s, 'done', 'not sent back while paused');
+});
+rule('Round 10 (1): any change to a loop\'s parent held at its last read writes nothing into the folder that was left', async () => {
+  const app = await setup(); await cleared(app);
+  const fs0 = app.fs, p = parentPath(app), before = fs0.files[p].t, h = holdReads(fs0, PARENT_RE);
+  app.set('pick-input', 'Waiting'); app.click('pause', 'run'); await app.tick(60);
+  assert.ok(h.seen() > 0, 'the save reached its read');
+  await switchAway(app); h.hold.open(); await app.tick(300);
+  assert.strictEqual(fs0.files[p].t, before, 'the old folder\'s parent is unchanged');
+});
+rule('Round 10 (1): keeping a conflict copy of a loop\'s parent writes nothing after a folder switch, its backup included', async () => {
+  const app = await setup(); await cleared(app);
+  const fs0 = app.fs, p = parentPath(app), copy = JSON.parse(fs0.files[p].t); copy.title = 'From the other computer';
+  await fs0.write(p.replace('run.json', 'run-OTHER.json'), JSON.stringify(copy));
+  app.click('refresh'); await app.tick(200);
+  assert.ok(/data-act="use-copy"/.test(app.html()), 'set-up: the copy is offered');
+  const before = fs0.files[p].t, h = holdReads(fs0, PARENT_RE);
+  app.click('use-copy', 'run-OTHER.json'); await app.tick(80);
+  await switchAway(app); h.hold.open(); await app.tick(300);
+  assert.strictEqual(fs0.files[p].t, before, 'the old folder\'s parent is unchanged');
+  const app2 = await setup(); await cleared(app2);
+  const f2 = app2.fs, p2 = parentPath(app2), c2 = JSON.parse(f2.files[p2].t); c2.title = 'From the other computer';
+  await f2.write(p2.replace('run.json', 'run-OTHER.json'), JSON.stringify(c2));
+  app2.click('refresh'); await app2.tick(200);
+  const hc = holdReads(f2, /run-OTHER\.json$/);
+  app2.click('use-copy', 'run-OTHER.json'); await app2.tick(60);
+  app2.choose('person-casey'); await app2.tick(); hc.hold.open(); await app2.tick(300);
+  assert.deepStrictEqual(app2.files('runs/release-readiness/').filter(x => /replaced-/.test(x)), [], 'no backup written for someone else');
+});
+rule('Round 10 (1): starting a run of a checklist with a loop, held at its last read, writes nothing after a folder switch', async () => {
+  const app = await setup();
+  const fs0 = app.fs, n0 = app.files('runs/release-readiness/').filter(x => /run\.json$/.test(x)).length, h = holdReads(fs0, PARENT_RE);
+  app.click('start', 'release-readiness'); await app.settle();
+  app.chooseApprovers().submitForm('start-form'); await app.tick(80);
+  assert.ok(h.seen() > 0, 'the start reached its read');
+  await switchAway(app); h.hold.open(); await app.tick(300);
+  assert.strictEqual(Object.keys(fs0.files).filter(x => PARENT_RE.test(x)).length, n0, 'no second run in the folder that was left');
+});
+rule('Round 10 (1, 2): every save, backup or archive of a run.json in the app goes through the loop guard: the save funnel, the recovery backup, a start\'s first save', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8'), bad = [];
+  const body = (name) => { const i = src.indexOf('function ' + name + '('); let j = src.indexOf('{', i), d = 1; j++; while (d) { const ch = src[j++]; if (ch === '{') d++; else if (ch === '}') d--; } return src.slice(i, j); };
+  assert.ok(/loopy\(/.test(body('save')) && /loopGuard\(/.test(body('save')), 'the save funnel guards a loop\'s parent or child');
+  const re = /\brepo\.(saveRun|keepDisplaced|archiveOverflow|archiveRun)\(/g; let m;
+  while ((m = re.exec(src))) {
+    let i = m.index + m[0].length, d = 1; while (i < src.length && d) { const ch = src[i++]; if (ch === '(') d++; else if (ch === ')') d--; }
+    const call = src.slice(m.index, i), line = src.slice(0, m.index).split('\n').length, around = src.slice(Math.max(0, m.index - 400), m.index);
+    if (m[1] === 'keepDisplaced') { if (!/keepDisplaced: function/.test(src) || !/state\.recoverCx/.test(src)) bad.push('app.js:' + line + ' backup without the guard'); continue; }
+    if (/function save\(r, opts\)/.test(around) || /still/.test(call)) continue;
+    if (/saveOpts\)$/.test(call) && /if \(loopy\(child\)\)[^\n]*saveOpts\.still/.test(src)) continue;
+    bad.push('app.js:' + line + ': ' + call.slice(0, 80));
+  }
+  assert.deepStrictEqual(bad, [], 'run.json writes without the loop guard');
+});
 run();

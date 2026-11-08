@@ -479,6 +479,12 @@ PF.loop = (function () {
     if (twice.length) return 'This request names ' + twice.slice(0, 5).join(', ') + ' twice; each story is started once per request.';
     var sb = sendBackWhy(V, q.reason, kinds[0]);
     if (sb) return sb;
+    return askerWhy(r, V, q, people, kinds[0]);
+  }
+  /* Whether the person a request names may still ask for it (round 10: checked again right before each write it makes):
+     in people.json, active, and the run's recorder, in the step's role, or (to start) the stories' owner. '' when so. */
+  function askerWhy(r, V, q, people, kind) {
+    kind = kind || (q.ops && q.ops[0]);
     var list = PF.people.listOf(people), p = null;
     for (var i = 0; i < list.length; i++) if (list[i] && list[i].id === q.as) { p = list[i]; break; }
     if (!q.as || !p) return (q.as || 'The person asking') + ' isn\'t in people.json, so the request can\'t be carried out.';
@@ -486,8 +492,8 @@ PF.loop = (function () {
     if (r.recorder && r.recorder.person === q.as) return '';
     var roles = (V.step && V.step.roles) || [];
     if (roles.some(function (ro) { return r.roles && own(r.roles, ro) && r.roles[ro] === q.as; })) return '';
-    if (kinds[0] === 'start' && q.items.length && q.items.every(function (k) { var x = V.ledger.items.filter(function (y) { return y.key === k; })[0]; return x && x.owner === q.as; })) return '';
-    return (p.name || q.as) + ' can\'t ask for this: only the run\'s recorder' + (roles.length ? ', someone in the step\'s role (' + roles.slice(0, 5).join(', ') + ')' : '') + (kinds[0] === 'start' ? ' or the story\'s owner' : '') + ' can.';
+    if (kind === 'start' && q.items.length && q.items.every(function (k) { var x = V.ledger.items.filter(function (y) { return y.key === k; })[0]; return x && x.owner === q.as; })) return '';
+    return (p.name || q.as) + ' can\'t ask for this: only the run\'s recorder' + (roles.length ? ', someone in the step\'s role (' + roles.slice(0, 5).join(', ') + ')' : '') + (kind === 'start' ? ' or the story\'s owner' : '') + ' can.';
   }
   /* The id of a story's row in a loop's table, so a return from its run lands on it. */
   function rowId(step, key) { var c = function (v) { return String(v || '').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80); }; return 'loop-row-' + c(step) + '-' + c(key); }
@@ -1027,7 +1033,7 @@ PF.loop = (function () {
   /* The records about one loop instance. */
   function recordsFor(records, loop) { return (records || []).filter(function (r) { return r.loop && r.loop.process === loop.process && r.loop.run === loop.run && r.loop.step === loop.step; }); }
 
-  return { seenFor: seenFor, pageWords: pageWords, fileWhy: fileWhy, KINDS: KINDS, kindOf: kindOf, nounOf: nounOf, count: count, feedWhy: feedWhy, httpLink: httpLink, cleanItem: cleanItem, cleanChanges: cleanChanges, FEED: FEED, NOUN: NOUN, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
+  return { askerWhy: askerWhy, seenFor: seenFor, pageWords: pageWords, fileWhy: fileWhy, KINDS: KINDS, kindOf: kindOf, nounOf: nounOf, count: count, feedWhy: feedWhy, httpLink: httpLink, cleanItem: cleanItem, cleanChanges: cleanChanges, FEED: FEED, NOUN: NOUN, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
     idFor: idFor, isScope: isScope, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
     rollup: rollup, view: view, markStale: markStale, rowId: rowId, choiceWhy: choiceWhy, resolveWhy: resolveWhy, resolvedBy: resolvedBy, planWhy: planWhy, sendBackWhy: sendBackWhy, again: again, appliedIn: appliedIn, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();
