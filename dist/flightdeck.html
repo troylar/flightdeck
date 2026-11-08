@@ -17283,7 +17283,14 @@ PF.loop = (function () {
      user name. Its own check: mailto:, javascript: and data: are never links here. */
   function httpLink(v) {
     if (typeof v !== 'string' || v.length > 2048 || CONTROL.test(v) || /\s/.test(v)) return false;
-    return /^https?:\/\/[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?(?::[0-9]{1,5})?(?:[/?#][\x21-\x7e]*)?$/.test(v) && !/[<>"'`\\]/.test(v);
+    var m = /^https?:\/\/([A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?)(?::([0-9]{1,5}))?(?:[/?#][\x21-\x7e]*)?$/.exec(v);
+    if (!m || /[<>"'`\\]/.test(v)) return false;
+    /* Then parsed: a port is 1 to 65535, and a host of digits and dots is a whole IPv4 address (four parts, 0 to 255, no
+       leading zeros), never one a browser would read some other way. */
+    if (m[2] != null && (+m[2] < 1 || +m[2] > 65535)) return false;
+    if (/^[0-9.]+$/.test(m[1]) && !/^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$/.test(m[1])) return false;
+    if (typeof URL === 'function') { try { var u = new URL(v); if ((u.protocol !== 'http:' && u.protocol !== 'https:') || !u.hostname) return false; } catch (e) { return false; } }
+    return true;
   }
   /* Why an observation can't be read into this loop ('' when it can). fields: the step's (items:, source:); last: the loop's
      last observation read ({ record, observation }), whose scope binds the feed's. */

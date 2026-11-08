@@ -722,6 +722,11 @@ rule('3b: nouns: noun: one / many, one formatter, no guessed plurals; item / ite
   same([LP.nounOf({ items: 'item' }).many, LP.nounOf({ items: 'jira.issue' }).many], ['items', 'stories']);
   for (const v of ['environments', 'a / ', ' / b', 'a/b/c', 'x'.repeat(41) + ' / y', '<b> / <b>s']) assert.strictEqual(LP.nounOf({ noun: v, items: 'item' }), null, v);
 });
+rule('Round 9 (8): a link is parsed after its characters are checked: no invalid IPv4 address, no port above 65535', () => {
+  for (const u of ['http://999.1.1.1/', 'http://1.2.3.256/', 'http://1.2.3/', 'http://01.2.3.4/', 'https://example.com:65536/', 'https://example.com:99999/', 'https://example.com:0x50/', 'http://1.2.3.4.5/'])
+    assert.ok(!LP.httpLink(u), 'refused: ' + u);
+  for (const u of ['http://10.0.0.1:8080/x', 'https://example.com:65535/', 'https://a-b.example.com/p?q=1#f', 'http://localhost/']) assert.ok(LP.httpLink(u), 'kept: ' + u);
+});
 rule('3b: the preview counts in the loop\'s noun and names its feed, never Jira, for a generic list', () => {
   const P = { loop: LOOPT, kind: 'item', noun: { one: 'environment', many: 'environments' }, feed: 'deploy-targets', added: [{ key: 'qa', title: 'QA' }, { key: 'dev', title: '' }], proposed: [], excluded: [{ key: 'old' }], restored: [], children: [], impact: { review: false }, overLimit: null,
     observation: iclean(iobs(['qa', 'dev'], { complete: false })).out };
