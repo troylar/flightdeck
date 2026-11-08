@@ -53,30 +53,53 @@ PF.loop = (function () {
       if (!r || typeof r.id !== 'string') return;
       if (!by[r.id]) by[r.id] = r; else if (body(by[r.id]) !== body(r)) split[r.id] = true;
     });
-    var ids = Object.keys(by).sort(cmpStr), state = Object.create(null);
-    function visit(id) {
-      if (state[id] === 2) return anc[id] !== null;
-      if (state[id] === 1) return false;
-      state[id] = 1;
-      var r = by[id], a = Object.create(null), ok = true, missing = [];
-      if (split[id]) { state[id] = 2; anc[id] = null; held.push({ record: id, missing: [], why: 'copies' }); return false; }
-      (r.seen || []).forEach(function (s) {
-        if (!by[s]) { ok = false; missing.push(s); return; }
-        if (!visit(s)) { ok = false; return; }
-        a[s] = true; Object.keys(anc[s]).forEach(function (x) { a[x] = true; });
+    /* Round 10: ancestors as one bit set per record (indexed in id order), visited without recursion, and ordered by Kahn's
+       rule with ties by id, so a long history or a wide frontier reduces in about linear time. */
+    var ids = Object.keys(by).sort(cmpStr), N = ids.length, W = (N + 31) >>> 5, idx = Object.create(null), state = new Array(N), anc = new Array(N);
+    ids.forEach(function (id, i) { idx[id] = i; });
+    function finish(i) {
+      var id = ids[i];
+      state[i] = 2;
+      if (split[id]) { anc[i] = null; held.push({ record: id, missing: [], why: 'copies' }); return; }
+      var a = new Uint32Array(W), ok = true, missing = [];
+      (by[id].seen || []).forEach(function (s) {
+        var j = idx[s];
+        if (j === undefined) { ok = false; missing.push(s); return; }
+        if (state[j] !== 2 || anc[j] === null) { ok = false; return; }
+        a[j >>> 5] |= 1 << (j & 31);
+        var aj = anc[j]; for (var k = 0; k < W; k++) a[k] |= aj[k];
       });
-      state[id] = 2;
-      if (!ok) { anc[id] = null; held.push({ record: id, missing: missing, why: missing.length ? 'missing' : 'after' }); return false; }
-      anc[id] = a; return true;
+      if (!ok) { anc[i] = null; held.push({ record: id, missing: missing, why: missing.length ? 'missing' : 'after' }); return; }
+      anc[i] = a;
     }
-    ids.forEach(visit);
+    function visit(root) {
+      var st = [[root, false]];
+      while (st.length) {
+        var top = st[st.length - 1], i = top[0];
+        if (top[1]) { st.pop(); finish(i); continue; }
+        if (state[i] !== undefined) { st.pop(); continue; }
+        state[i] = 1; top[1] = true;
+        if (split[ids[i]]) continue;
+        var sn = by[ids[i]].seen || [];
+        for (var k = sn.length - 1; k >= 0; k--) { var j = idx[sn[k]]; if (j !== undefined && state[j] === undefined) st.push([j, false]); }
+      }
+    }
+    for (var v = 0; v < N; v++) visit(v);
     /* Topological, ties by id: a record comes after everything it saw. */
-    var placed = Object.create(null), live = ids.filter(function (id) { return anc[id] !== null; });
-    while (order.length < live.length) {
-      var next = live.filter(function (id) { return !placed[id] && Object.keys(anc[id]).every(function (x) { return placed[x]; }); })[0];
-      placed[next] = true; order.push(by[next]);
+    var indeg = new Array(N), kids = new Array(N), heap = [], seenBy = new Array(N);
+    function push(x) { heap.push(x); var c = heap.length - 1; while (c) { var p = (c - 1) >> 1; if (heap[p] <= x) break; heap[c] = heap[p]; c = p; } heap[c] = x; }
+    function pop() { var top = heap[0], last = heap.pop(), n = heap.length; if (n) { var c = 0; for (;;) { var l = 2 * c + 1, r = l + 1, m = c, mv = last; if (l < n && heap[l] < mv) { m = l; mv = heap[l]; } if (r < n && heap[r] < mv) { m = r; mv = heap[r]; } if (m === c) break; heap[c] = heap[m]; c = m; } heap[c] = last; } return top; }
+    for (var i = 0; i < N; i++) {
+      if (anc[i] === null) continue;
+      var direct = Object.create(null); indeg[i] = 0;
+      (by[ids[i]].seen || []).forEach(function (s) { var j = idx[s]; if (direct[j]) return; direct[j] = true; indeg[i]++; (kids[j] = kids[j] || []).push(i); seenBy[j] = true; });
+      if (!indeg[i]) push(i);
     }
-    return { order: order, anc: anc, held: held };
+    while (heap.length) { var n = pop(); order.push(by[ids[n]]); (kids[n] || []).forEach(function (k) { if (--indeg[k] === 0) push(k); }); }
+    /* saw(a, b): whether record a had seen record b, directly or through what it saw. */
+    function saw(a, b) { var ia = idx[a], ib = idx[b]; return ia !== undefined && ib !== undefined && !!anc[ia] && ((anc[ia][ib >>> 5] >>> (ib & 31)) & 1) === 1; }
+    var heads = order.filter(function (r) { return !seenBy[idx[r.id]]; }).map(function (r) { return r.id; });
+    return { order: order, saw: saw, held: held, heads: heads };
   }
   /* The items of a loop from its records. o: { source ('jira'), max }. Returns { items, pending, held, duplicates, overLimit,
      heads, observation }. items keep every one ever in scope, in the order they first arrived. */
@@ -100,7 +123,7 @@ PF.loop = (function () {
         return x;
       }
       x = { uid: uidOf(source, it), id: it.id || '', key: it.key || '', title: String(it.title || ''), link: String(it.link || ''), state: 'in', since: rec.id, provenance: [], verdict: null,
-        review: [], mismatch: false, kept: false, owner: '', exception: null, attempt: 0, planned: null, proposal: null, inSource: true, choice: null, choiceReview: [], exc: null, excReview: [], own: null, ownReview: [], plan: null, planReview: [], planOpts: Object.create(null) };
+        review: [], mismatch: false, kept: false, owner: '', exception: null, attempt: 0, planned: null, proposal: null, inSource: true, choice: null, choiceReview: [], exc: null, excReview: [], own: null, ownReview: [], plan: null, planReview: [], planOpts: Object.create(null), planFrom: Object.create(null) };
       items.push(x); byUid[x.uid] = x; if (x.key) byKey[x.key] = x;
       return x;
     }
@@ -111,22 +134,31 @@ PF.loop = (function () {
        decision before it and disagrees makes them contrary (held, in rv); a later one settles it only once it has seen
        both. Returns 'contrary', 'held' or 'settled'. same(prev, val): whether they agree. why: { both(prev, val), again }. */
     function settle(x, slot, rv, rec, val, same, why) {
-      /* Every decision made in this slot, and the participants of its unresolved conflicts (x[rv]): a record settles them only
-         when it has seen every participant still outstanding, however many there are (S1, docs/design.md 44). */
-      var all = x[slot + 'All'] || (x[slot + 'All'] = []), saw = function (id) { return !!c.anc[rec.id][id]; }, out = [];
-      x[rv].forEach(function (r) { r.records.forEach(function (id) { if (out.indexOf(id) < 0) out.push(id); }); });
+      /* Round 10: one deduplicated set per slot. slot+'All' is every decision in the slot, slot+'Front' its frontier
+         (those no later one in the slot saw: what a record must see to have seen them all);
+         slot+'Out' the participants of its unresolved conflict still outstanding; slot+'Part' every participant since the
+         conflict began (the plans offered). A record settles the conflict only once it has seen every one outstanding (S1,
+         docs/design.md 44); one that saw only some takes their place, so a conflict wider than one record can name settles a
+         page at a time, and approval waits for the last page. */
+      var saw = function (id) { return c.saw(rec.id, id); }, all = x[slot + 'All'] || (x[slot + 'All'] = []), out = x[slot + 'Out'] || [], part = x[slot + 'Part'] || [];
       var against = all.filter(function (e) { return !saw(e.record) && !same(e.val, val); });
       all.push({ record: rec.id, val: val });
-      if (out.length && !out.every(saw)) {
-        x[rv].push({ records: out.concat([rec.id]), ops: [val.op], why: why.again });
+      x[slot + 'Front'] = (x[slot + 'Front'] || []).filter(function (id) { return !saw(id); }).concat([rec.id]);
+      var join = function (ids) { var have = Object.create(null); part.forEach(function (id) { have[id] = true; }); ids.forEach(function (id) { if (!have[id]) { have[id] = true; part.push(id); } }); x[slot + 'Part'] = part; };
+      var left = out.filter(function (id) { return !saw(id); });
+      if (out.length && left.length) {
+        x[slot + 'Out'] = left.concat([rec.id]); join([rec.id]);
+        x[rv].push({ records: [rec.id], ops: [val.op], why: why.again });
         return 'held';
       }
       if (against.length) {
         against.forEach(function (e) { x[rv].push({ records: [e.record, rec.id], ops: [e.val.op, val.op], why: why.both(Object.assign({}, e.val, { record: e.record }), val) }); });
+        var ids = against.map(function (e) { return e.record; }).concat([rec.id]);
+        x[slot + 'Out'] = ids; join(ids);
         x[slot] = Object.assign({}, val, { record: rec.id, contrary: against[0].record });
         return 'contrary';
       }
-      x[rv] = [];
+      x[rv] = []; x[slot + 'Out'] = []; x[slot + 'Part'] = [];
       x[slot] = Object.assign({}, val, { record: rec.id });
       return 'settled';
     }
@@ -145,6 +177,7 @@ PF.loop = (function () {
     function settlePlan(x, rec, attempt, inputs, owner, from) {
       var sp = settle(x, 'plan', 'planReview', rec, { op: 'plan', attempt: attempt, inputs: JSON.stringify(inputs), owner: owner }, function (p, v) { return p.attempt === v.attempt && p.inputs === v.inputs && p.owner === v.owner; },
         { both: function (p) { return 'Two plans for attempt ' + attempt + ' were made at once: ' + p.record + ' and ' + rec.id + '.'; }, again: 'Planned again without seeing both earlier plans.' });
+      x.planFrom[rec.id] = from;
       x.attempt = Math.max(x.attempt, attempt);
       x.planned = sp === 'settled' ? { record: from, attempt: attempt, inputs: inputs, owner: owner } : null;
     }
@@ -218,7 +251,7 @@ PF.loop = (function () {
           /* A plan that saw the first one for its attempt is a duplicate, unless the attempt's plans are in conflict: then it
              is a resolution, settled like any decision. */
           var resolving = (x.planReview || []).length && x.plan && x.plan.attempt === k.attempt;
-          if (intents[key] && intents[key] !== rec.id) { duplicates.push({ record: rec.id, op: 'plan', item: x.key, why: 'attempt ' + k.attempt + ' is already planned by ' + intents[key] }); if (c.anc[rec.id][intents[key]] && !resolving) return; }
+          if (intents[key] && intents[key] !== rec.id) { duplicates.push({ record: rec.id, op: 'plan', item: x.key, why: 'attempt ' + k.attempt + ' is already planned by ' + intents[key] }); if (c.saw(rec.id, intents[key]) && !resolving) return; }
           else if (intents[key]) return;
           else intents[key] = rec.id;
           if (k.attempt < x.attempt) return;
@@ -238,7 +271,7 @@ PF.loop = (function () {
         (rec.items || []).forEach(function (uid) {
           var x = byUid[uid] || byKey[uid];
           if (!x) return;
-          if (rec.op === 'accept' && !(x.state === 'proposed' && x.proposal === rec.proposal) && !(x.verdict && (x.verdict.contrary || !c.anc[rec.id][x.verdict.record]))) { note(x, rec, 'accept-stale'); return; }
+          if (rec.op === 'accept' && !(x.state === 'proposed' && x.proposal === rec.proposal) && !(x.verdict && (x.verdict.contrary || !c.saw(rec.id, x.verdict.record)))) { note(x, rec, 'accept-stale'); return; }
           verdict(x, rec, rec.op, rec.reason);
           note(x, rec, rec.op === 'accept' ? 'accept-removal' : 'keep', { reason: String(rec.reason || '') });
         });
@@ -250,7 +283,7 @@ PF.loop = (function () {
       x.owner = x.ownReview.length ? '' : x.own ? (x.own.contrary ? '' : x.own.owner) : x.planReview.length || !x.planned ? '' : String(x.planned.owner || '');
     });
     var inScope = items.filter(function (x) { return x.state !== 'removed'; }).length;
-    var heads = c.order.filter(function (r) { return !c.order.some(function (q) { return c.anc[q.id] && c.anc[q.id][r.id]; }); }).map(function (r) { return r.id; });
+    var heads = c.heads;
     return { items: items, held: c.held, duplicates: duplicates, heads: heads, requests: asks, observation: lastObs, applied: c.order.map(function (r) { return r.id; }),
       pending: items.filter(function (x) { return x.state === 'proposed'; }).map(function (x) { return { uid: x.uid, key: x.key, proposal: x.proposal }; }),
       overLimit: inScope > max ? { count: inScope, max: max } : null };
@@ -261,10 +294,33 @@ PF.loop = (function () {
      -> { value, conflict } (PF.run.resultOf), stands(run) -> '' or why its completion doesn't stand (PF.run.childCheck),
      who(person id) -> a name }. Scope, outcome and exception stay apart: an exception never makes a result "cleared". */
   function words(v) { return String(v || '').replace(/-/g, ' '); }
+  /* Round 10: the records a new scope record names as seen (LIMITS.seen at most, the one limit writers and readers share).
+     The heads when they fit, as before. Past the limit, a page: first the outstanding decisions of the slots it touches (an
+     item's uid, or a request id for its outcome), then other heads. left: how many outstanding decisions the page leaves for
+     the next one ("Settle these 50 first"). */
+  var SLOTS = [['verdict', 'its scope'], ['own', 'its owner'], ['plan', 'its plan'], ['choice', 'which run counts'], ['exc', 'its approval without a run']];
+  function seenFor(L, uids, reqs) {
+    var heads = (L && L.heads) || [];
+    if (heads.length <= LIMITS.seen) return { seen: heads.slice(), left: 0 };
+    var need = [], have = Object.create(null), add = function (id) { if (!have[id]) { have[id] = true; need.push(id); } };
+    (uids || []).forEach(function (u) { var x = L.items.filter(function (y) { return y.uid === u; })[0]; if (x) SLOTS.forEach(function (sl) { (x[sl[0] + 'Front'] || []).forEach(add); }); });
+    (reqs || []).forEach(function (q) { var A = L.requests && L.requests[q]; if (A) (A.statusFront || []).forEach(add); });
+    need.sort(cmpStr);
+    var seen = need.slice(0, LIMITS.seen), left = need.length - seen.length, in_ = Object.create(null);
+    seen.forEach(function (id) { in_[id] = true; });
+    for (var i = 0; i < heads.length && seen.length < LIMITS.seen; i++) if (!in_[heads[i]]) { in_[heads[i]] = true; seen.push(heads[i]); }
+    return { seen: seen.sort(cmpStr), left: left };
+  }
+  /* What a correction says when it settled only a page of a wider conflict. */
+  function pageWords(left) { return 'This settles the first ' + LIMITS.seen + ' decisions made at once; ' + left + (left === 1 ? ' is' : ' are') + ' left. Do it again to settle the rest.'; }
+  /* A slot whose conflict has more participants outstanding than one record can name: held, saying so (fail closed). */
+  function tooWide(n, what) { return n + ' decisions on ' + what + ' were made at once, more than one record can settle (' + LIMITS.seen + '). Settle these ' + LIMITS.seen + ' first, then the rest.'; }
   /* The plans for an attempt that are in conflict, to choose one: each record with the inputs it planned. */
   function planConflict(x) {
-    var ids = []; x.planReview.forEach(function (rv) { rv.records.forEach(function (id) { if (ids.indexOf(id) < 0 && x.planOpts[x.plan.attempt + '#' + id]) ids.push(id); }); });
-    /* Every plan in conflict, in record order: none is left out, so each can be chosen, whatever the files are named. */
+    /* Every plan that took part in the conflict, in record order, whatever the files are named; a choice counts as the plan it
+       kept (planFrom), so two choices made at once offer the plans they chose between, never the choice records. */
+    var ids = [], have = Object.create(null);
+    (x.planPart || []).forEach(function (id) { var o = x.planFrom[id] || id; if (!have[o] && x.planOpts[x.plan.attempt + '#' + o]) { have[o] = true; ids.push(o); } });
     ids.sort(cmpStr);
     return { attempt: x.plan.attempt, options: ids.map(function (id) { return { record: id, inputs: x.planOpts[x.plan.attempt + '#' + id].inputs }; }) };
   }
@@ -297,6 +353,9 @@ PF.loop = (function () {
         result: '', accepted: false, status: '', fp: '', planned: x.planned, attempt: Math.max(top, x.attempt) };
       /* S1, fail closed: any decision on this story still in conflict holds approval, whether or not it is in scope now. */
       var cname = x.key || x.uid, cflag = function (text) { counts.review++; blockers.push({ key: x.key, uid: x.uid, kind: 'review', run: row.run, text: cname + text }); };
+      var wide = SLOTS.filter(function (sl) { return (x[sl[0] + 'Out'] || []).length > LIMITS.seen; });
+      wide.forEach(function (sl) { cflag(': ' + tooWide(x[sl[0] + 'Out'].length, sl[1])); });
+      row.wide = wide.map(function (sl) { return { slot: sl[0], count: x[sl[0] + 'Out'].length }; });
       if (row.review) cflag(' needs a scope decision: two were made at once.');
       if (row.excReview) cflag('\'s approval without a run was decided two ways at once; approve it without a run or withdraw it again, having seen both.');
       if (row.ownerWhy) cflag(': two people assigned it at once; assign it again.');
@@ -329,7 +388,7 @@ PF.loop = (function () {
       rows.push(row);
     });
     /* A request's outcome recorded both ways holds approval too, until it is resolved. */
-    Object.keys(L.requests || {}).forEach(function (id) { if (L.requests[id].statusReview.length) { counts.review++; blockers.push({ key: '', kind: 'review', record: id, text: 'Request ' + id + ' was recorded both applied and refused at once; resolve it.' }); } });
+    Object.keys(L.requests || {}).forEach(function (id) { var A = L.requests[id]; if (A.statusReview.length) { counts.review++; blockers.push({ key: '', kind: 'review', record: id, text: (A.statusOut || []).length > LIMITS.seen ? 'Request ' + id + ': ' + tooWide(A.statusOut.length, 'its outcome') : 'Request ' + id + ' was recorded both applied and refused at once; resolve it.' }); } });
     var parts = [counts.inScope + ' in scope', counts.cleared + ' cleared by validation'];
     if (counts.exception) parts.push(counts.exception + ' approved without a run');
     Object.keys(counts.results).sort().forEach(function (v) { parts.push(counts.results[v] + ' ' + (v === 'none' ? 'returned no result' : words(v))); });
@@ -562,7 +621,9 @@ PF.loop = (function () {
   }
   function project(r, V, intent, o) {
     o = o || {};
-    var heads = V.ledger.heads.slice(), rec = { id: '~new', type: 'request', seen: heads, by: intent.producer ? { tool: intent.producer.name, version: intent.producer.version } : { person: o.by || '' },
+    /* What it names as seen: the heads, or, past the limit, a page that puts the touched items' outstanding decisions first. */
+    var touched = (intent.changes || []).map(function (ch) { var it = ch.item || {}, x = V.ledger.items.filter(function (y) { return (it.id && y.id === it.id) || (it.key && y.key === it.key); })[0]; return x ? x.uid : ''; }).filter(Boolean);
+    var page = seenFor(V.ledger, touched), heads = page.seen, rec = { id: '~new', type: 'request', seen: heads, by: intent.producer ? { tool: intent.producer.name, version: intent.producer.version } : { person: o.by || '' },
       observation: intent.observation, changes: intent.changes, children: [], kind: V.kind };
     var max = limitOf({ fields: V.fields }), A = reduce(V.records.concat([rec]), { max: max, kind: V.kind, feed: V.fields.source }), was = Object.create(null), who = o.who || function (p) { return p || ''; };
     V.ledger.items.forEach(function (x) { was[x.uid] = x; });
@@ -586,7 +647,7 @@ PF.loop = (function () {
     });
     rec.children = children.map(function (k) { return { item: k.item, attempt: k.attempt, inputs: k.inputs, owner: k.owner }; });
     var AR = rollup(A, V.runs, V.ropts), impact = V.approved ? changes(V.approved, A, AR) : [];
-    return { loop: V.loop, record: rec, seen: heads, added: added, proposed: proposed, excluded: excluded, restored: restored, children: children,
+    return { loop: V.loop, record: rec, seen: heads, left: page.left, added: added, proposed: proposed, excluded: excluded, restored: restored, children: children,
       impact: { review: impact.length > 0, reasons: impact }, observation: intent.observation, held: V.ledger.held, overLimit: A.overLimit, summary: AR.summary, kind: V.kind, noun: V.noun, feed: V.fields.source || '' };
   }
   function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
@@ -610,6 +671,7 @@ PF.loop = (function () {
     lines.push(o.dryRun ? 'No runs would start.' : 'No runs started.');
     if (P.impact.review) lines.push(o.dryRun ? 'The scope change would require approval review.' : 'The scope change requires approval review.');
     if (P.overLimit) lines.push(count(P.overLimit.count, N) + ' would be in scope; this loop takes at most ' + P.overLimit.max + '. Nothing is cut.');
+    if (P.left) lines.push(pageWords(P.left));
     lines.push('');
     var ob = P.observation;
     if (ob) lines.push((jira ? 'Jira observation: ' : 'Observation from ' + P.feed + ': ') + ob.fetched + ' of ' + ob.reported + ' reported matches read; ' + (ob.complete ? 'pagination complete.' : 'not complete (' + ob.why + '). Missing ' + N.many + ' can\'t be proposed for removal. Retry the ' + (jira ? 'search' : 'sync') + '.'));
@@ -686,7 +748,7 @@ PF.loop = (function () {
   var OPS = ['add', 'exclude', 'restore', 'owner', 'exception', 'withdraw', 'choose', 'plan', 'start', 'approve', 'send-back', 'resolve'], DOPS = ['accept', 'keep', 'applied', 'refused'];
   /* What a tool asks the recorder to do (the CLI asks; the recorder applies): never a change to the list. */
   var ACTIONS = ['start', 'approve', 'send-back', 'resolve'];
-  var LIMITS = { bytes: 262144, title: 200, reason: 300, query: 500, generation: 80, errors: 20, error: 200, changes: 500, inputs: 40, input: 240, seen: 2000, candidates: 50 };
+  var LIMITS = { bytes: 262144, title: 200, reason: 300, query: 500, generation: 80, errors: 20, error: 200, changes: 500, inputs: 40, input: 240, seen: 50, candidates: 50 };
   var CONTROL = /[\u0000-\u001f\u007f\u2028\u2029]/;
   function isMap(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
   function reserved(k) { return k === '__proto__' || k === 'constructor' || k === 'prototype' || k in Object.prototype; }
@@ -965,7 +1027,7 @@ PF.loop = (function () {
   /* The records about one loop instance. */
   function recordsFor(records, loop) { return (records || []).filter(function (r) { return r.loop && r.loop.process === loop.process && r.loop.run === loop.run && r.loop.step === loop.step; }); }
 
-  return { fileWhy: fileWhy, KINDS: KINDS, kindOf: kindOf, nounOf: nounOf, count: count, feedWhy: feedWhy, httpLink: httpLink, cleanItem: cleanItem, cleanChanges: cleanChanges, FEED: FEED, NOUN: NOUN, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
+  return { seenFor: seenFor, pageWords: pageWords, fileWhy: fileWhy, KINDS: KINDS, kindOf: kindOf, nounOf: nounOf, count: count, feedWhy: feedWhy, httpLink: httpLink, cleanItem: cleanItem, cleanChanges: cleanChanges, FEED: FEED, NOUN: NOUN, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
     idFor: idFor, isScope: isScope, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
     rollup: rollup, view: view, markStale: markStale, rowId: rowId, choiceWhy: choiceWhy, resolveWhy: resolveWhy, resolvedBy: resolvedBy, planWhy: planWhy, sendBackWhy: sendBackWhy, again: again, appliedIn: appliedIn, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();

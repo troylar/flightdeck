@@ -2872,7 +2872,7 @@ async function loopMain(argv) {
     }
     if (problems().length) return held('Part of the team folder this depends on couldn\'t be read, so nothing was written. Check folder availability, then retry with the same key.');
     if (act) {
-      const fa = LP.buildRequest(c.intent, { seen: V.ledger.heads, children: [], now: new Date().toISOString(), app: eng.version });
+      const fa = LP.buildRequest(c.intent, { seen: LP.seenFor(V.ledger, [], c.intent.changes.filter((ch) => ch.op === 'resolve').map((ch) => ch.record)).seen, children: [], now: new Date().toISOString(), app: eng.version });
       const faw = LP.fileWhy(id + '.json', fa); if (faw) return failOut('invalid', faw + ' Nothing was written.', problems());
       const dataA = (status) => ({ loop: V.loop, status, request: { id, file }, preview: title + (status === 'would-request' ? ' — preview only; no files written.' : ' — requested.') + '\n\n' + act.lines.join('\n'),
         start: act.start || [], skip: act.skip || [], approve: act.approve || null, sendBack: act.sendBack || null, resolve: act.resolve || null, runsStarted: 0, appliedBy: 'the recorder' });
@@ -2935,10 +2935,11 @@ async function loopReview(eng, o) {
   const by = Object.create(null);
   items.forEach((x) => { const p = x.proposal || x.proposedBy || ''; (by[p] = by[p] || []).push(x.uid); });
   if (by['']) return o.failOut('invalid', 'Some of these items were decided two ways at once by exclusions or restorations, not proposed removals. Use flightdeck loop exclude or restore to decide them. Nothing was written.', o.problems());
-  const files = Object.keys(by).sort().map((p) => LP.buildDecision({ proposal: p, loop: V.loop, op, items: by[p], seen: V.ledger.heads, reason: val['--reason'] || '', by: val['--as'], onBehalf: o.tool.name,
+  const pageOf = (uids) => LP.seenFor(V.ledger, uids), pageLeft = pageOf(items.map((x) => x.uid)).left;
+  const files = Object.keys(by).sort().map((p) => LP.buildDecision({ proposal: p, loop: V.loop, op, items: by[p], seen: pageOf(by[p]).seen, reason: val['--reason'] || '', by: val['--as'], onBehalf: o.tool.name,
     writer: o.tool.name, rev: revOf(p), now: new Date().toISOString(), app: eng.version }));
   const fdw = files.map((f) => LP.fileWhy(f.name, f.file)).filter(Boolean)[0]; if (fdw) return o.failOut('invalid', fdw + ' Nothing was written.', o.problems());
-  const preview = (o.dryRun ? 'Would record' : 'Recorded') + ' ' + val['--as'] + '\'s decision to ' + (op === 'accept' ? 'remove ' : 'keep ') + keys.join(', ') + (op === 'accept' ? ' from scope. Their assessment runs remain available.' : ' in scope.') + (o.dryRun ? ' Nothing was written.' : '');
+  const preview = (o.dryRun ? 'Would record' : 'Recorded') + ' ' + val['--as'] + '\'s decision to ' + (op === 'accept' ? 'remove ' : 'keep ') + keys.join(', ') + (op === 'accept' ? ' from scope. Their assessment runs remain available.' : ' in scope.') + (pageLeft ? ' ' + LP.pageWords(pageLeft) : '') + (o.dryRun ? ' Nothing was written.' : '');
   const data = (status) => ({ loop: V.loop, status, decisions: files.map((f) => ({ file: 'proposals/' + f.name, items: f.file.items })), preview, runsStarted: 0 });
   if (o.dryRun) return o.done(data('would-request'));
   let all = 'written';

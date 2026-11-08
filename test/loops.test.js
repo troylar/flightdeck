@@ -748,15 +748,19 @@ rule('Round 9 (1): a conflict that arrives after approval (owner, plan or a requ
     same(R.gateStatus(r, map, 0), 'review', k + ': its gate is held, as in flightdeck run and next');
   });
 });
-rule('Round 9 (6): a request that saw 51 concurrent heads reads back; writer and reader share one frontier limit, and every writer checks its file before filing', () => {
+rule('Round 9 (6), round 10: a request names at most 50 heads, a page of a wider frontier, and reads back; writer and reader share one frontier limit, and every writer checks its file before filing', () => {
   const base = req('s0', [], { observation: obs([101, 102]) });
   const heads = Array.from({ length: 51 }, (_, i) => 'req-release-helper-' + PF.sha256.hex('h' + i).slice(0, 24));
   const L = LP.reduce([base].concat(heads.map((id, i) => req(id, ['s0'], { changes: [on102('owner', { owner: i % 2 ? 'person-morgan' : 'person-avery' })] }))));
   same(L.heads.length, 51);
-  const f = reqFile('resolve-51', { loop: LOOPT, changes: [on102('owner', { owner: 'person-avery' })], seen: L.heads });
+  /* Round 10: writers and readers share one limit of 50 (LIMITS.seen); a wider frontier is named a page at a time (seenFor). */
+  same(LP.LIMITS.seen, 50, 'the one limit');
+  const page = LP.seenFor(L, ['jira:10102']);
+  same([page.seen.length, page.left], [50, 1], 'a page of 50, one left');
+  const f = reqFile('resolve-51', { loop: LOOPT, changes: [on102('owner', { owner: 'person-avery' })], seen: page.seen });
   const back = LP.cleanRequest(JSON.parse(LP.text(f)), f.id + '.json');
   assert.ok(back.ok, back.why);
-  same(back.record.seen.length, 51, 'no participant dropped');
+  same(back.record.seen.length, 50, 'the page reads back whole');
   same(LP.fileWhy(f.id + '.json', f), '', 'a file the reader takes passes');
   const tooMany = Object.assign({}, f, { seen: Array.from({ length: LP.LIMITS.seen + 1 }, (_, i) => 'req-release-helper-' + PF.sha256.hex('x' + i).slice(0, 24)).sort() });
   assert.ok(/seen/.test(LP.fileWhy(f.id + '.json', tooMany)), 'one it would refuse is refused before filing');
@@ -780,6 +784,43 @@ rule('Round 9 (7): every conflicting plan is an option, however many and whateve
   same(o2, renamed.slice().sort(), 'names change nothing about which are offered');
   const run = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'views', 'run.js'), 'utf8');
   assert.ok(!/planConflict\.options\.slice\(/.test(run), 'the picker lists every option');
+});
+rule('Round 10 (4): two people keeping different plans at once, each having seen both, leave both original plans to choose from', () => {
+  const kid = (inputs) => [{ item: { id: '10102', key: 'ABC-102' }, attempt: 1, inputs, owner: '' }];
+  const pick = (record) => [{ op: 'plan', item: { id: '10102', key: 'ABC-102' }, attempt: 1, record }];
+  const recs = [b8(), req('p1', ['s0'], { children: kid({ issue: 'a' }) }), req('p2', ['s0'], { children: kid({ issue: 'b' }) }),
+    req('c1', ['s0', 'p1', 'p2'], { changes: pick('p1') }), req('c2', ['s0', 'p1', 'p2'], { changes: pick('p2') })];
+  const R0 = RO(LP.reduce(recs), runs8()), row = R0.items.filter(i => i.key === 'ABC-102')[0];
+  assert.ok(row.planConflict, 'the two choices conflict');
+  same(row.planConflict.options.map(o => o.record + '=' + o.inputs.issue), ['p1=a', 'p2=b'], 'the real plans, not the choice records');
+  same(LP.planWhy({ rollup: R0 }, 'ABC-102', 'p1'), '', 'loop plan takes p1');
+  same(LP.planWhy({ rollup: R0 }, 'ABC-102', 'p2'), '', 'and p2');
+  const R1 = RO(LP.reduce(recs.concat([req('c3', ['c1', 'c2'], { changes: pick('p2') })])), runs8());
+  same(R1.items.filter(i => i.key === 'ABC-102')[0].planConflict, null, 'a choice that saw both choices settles it');
+});
+rule('Round 10 (6): a conflict wider than one record can name settles in pages: each correction settles what it saw, and approval waits for the last page', () => {
+  const N = LP.LIMITS.seen + 1, ids = Array.from({ length: N }, (_, i) => 'req-release-helper-' + PF.sha256.hex('pg' + i).slice(0, 24));
+  const recs = [b8()].concat(ids.map((id, i) => req(id, ['s0'], { changes: [on102('owner', { owner: i % 2 ? 'person-morgan' : 'person-avery' })] })));
+  const L = LP.reduce(recs);
+  same(L.heads.length, N, 'set-up: wider than a record can name');
+  const s1 = LP.seenFor(L, ['jira:10102']);
+  same(s1.seen.length, LP.LIMITS.seen, 'one page');
+  same(s1.left, 1, 'and how many are left for the next one');
+  const f1 = reqFile('page-1', { loop: LOOPT, changes: [on102('owner', { owner: 'person-avery' })], seen: s1.seen });
+  same(LP.fileWhy(f1.id + '.json', f1), '', 'the page is a record every reader takes');
+  const r1 = LP.cleanRequest(JSON.parse(LP.text(f1)), f1.id + '.json').record, L1 = LP.reduce(recs.concat([r1]));
+  const R1 = RO(L1, runs8());
+  same(R1.ok, false, 'approval waits while a page is left');
+  assert.ok(R1.items.filter(i => i.key === 'ABC-102')[0].ownerWhy, 'the owner is still in conflict');
+  const s2 = LP.seenFor(L1, ['jira:10102']);
+  same(s2.left, 0, 'the rest fits');
+  const f2 = reqFile('page-2', { loop: LOOPT, changes: [on102('owner', { owner: 'person-avery' })], seen: s2.seen });
+  const L2 = LP.reduce(recs.concat([r1, LP.cleanRequest(JSON.parse(LP.text(f2)), f2.id + '.json').record])), R2 = RO(L2, runs8());
+  same(R2.items.filter(i => i.key === 'ABC-102')[0].owner, 'person-avery', 'the last page settles it');
+  same(R2.ok, true, 'and approval may go ahead');
+  assert.ok(RO(L, runs8()).blockers.some(b => /ABC-102: 51 decisions on its owner were made at once, more than one record can settle \(50\)\. Settle these 50 first, then the rest\./.test(b.text)), 'held, saying why in plain words');
+  const small = LP.seenFor(LP.reduce(recs.slice(0, 4)), ['jira:10102']);
+  same(small.left, 0); same(small.seen, LP.reduce(recs.slice(0, 4)).heads, 'under the limit, a record names the heads as before');
 });
 rule('Round 9 (5): a Jira observation of another query is refused like another scope of a feed: it proposes nothing', () => {
   const L = LP.reduce([req('q1', [], { observation: obs([101, 102]) }), req('q2', ['q1'], { observation: obs([], { query: 'project = OTHER' }) })]);

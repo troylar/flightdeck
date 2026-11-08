@@ -323,6 +323,24 @@ budget('Review\'s comparison is capped: thousands of identical lines with a few 
 
 /* The heading reader reads a team's own files (2.15.0's content rule): a long line costs its length, never its square. Before
    round 8 one 100,000-space heading line took 11.8 s. */
+/* Round 10 (5): a slot's conflict keeps one deduplicated set of its participants, so reduction stays about linear. At the
+   limit (50 decisions made at once on one story) and a little over it (60, held with a reason), and over a history of
+   2,000 records each seeing the last, every reduction is quick. */
+budget('Loops: 50 and 60 decisions made at once, and a 2,000-record history, each reduce within a tight budget, with one participant set per slot', () => {
+  const LP = load().loop, item = { id: '10102', key: 'ABC-102' };
+  const req = (id, seen, o) => Object.assign({ id, type: 'request', seen, by: { tool: 'release-helper', version: '1.0' }, observation: null, changes: [], children: [] }, o);
+  const base = req('s0', [], { changes: [{ op: 'add', item }] }), id = (i) => 'r' + String(i).padStart(5, '0'), who = (i) => i % 2 ? 'person-morgan' : 'person-avery';
+  const wide = (n) => [base].concat(Array.from({ length: n }, (_, i) => req(id(i), ['s0'], { changes: [{ op: 'owner', item, owner: who(i) }] })));
+  const deep = [base].concat(Array.from({ length: 2000 }, (_, i) => req(id(i), [i ? id(i - 1) : 's0'], { changes: [{ op: 'owner', item, owner: who(i) }] })));
+  [['50 at once', wide(50), 20, 50], ['60 at once', wide(60), 20, 60], ['2,000-record history', deep, 300, 1]].forEach(([name, recs, budgetMs, heads]) => {
+    const t = Date.now(), L = LP.reduce(recs), ms = Date.now() - t, x = L.items[0];
+    const kept = x.ownReview.reduce((n, r) => n + r.records.length, 0);
+    console.log('  loop reduce, ' + name + ': ' + recs.length + ' records in ' + ms + ' ms; ' + kept + ' participant entries kept');
+    assert.strictEqual(L.heads.length, heads, name + ': heads');
+    assert.ok(kept <= 2 * recs.length, name + ': the participants are kept once each, not once per later record (' + kept + ')');
+    assert.ok(ms < budgetMs, name + ': ' + ms + ' ms');
+  });
+});
 budget('The heading reader is linear: a 1 MB heading line takes under 100 ms in sections()', () => {
   const C = load().contract, sp = ' '.repeat(1 << 20);
   [['## a' + sp + 'b', ['a' + sp + 'b']], ['## a' + sp + '#b', ['a' + sp + '#b']], ['## a' + sp + '##' + sp, ['a']], ['##' + sp, ['']], ['## a' + '\t'.repeat(1 << 20) + '#', ['a']]].forEach(([line, want], n) => {
