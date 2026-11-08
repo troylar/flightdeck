@@ -112,4 +112,15 @@ rule('App: a long accepted list is cut with how many more', async () => {
   assert.ok(/v48 or v49 or 30 more\./.test(html), String(html.match(/checked when it completes[^<]*/)).slice(-200));
 });
 
+rule('The publish panel says a draft with a result needs Flightdeck 3.0, and that teammates on 2.16 or earlier can\'t run it', async () => {
+  const app = await setup();
+  const md = KID(['cleared', 'needs-work']).replace('title: Validate a story', 'title: Validate a story again');
+  await app.fs.write('maps/drafts/validate-story.md', md);
+  app.click('refresh'); await app.tick(80);
+  app.click('open-process', 'validate-story'); await app.tick();
+  const h = app.html(), at = h.indexOf('pub-needs');
+  assert.ok(at > 0 && /<b>Needs Flightdeck 3\.0:<\/b>/.test(h), 'set-up: the notice is drawn');
+  assert.ok(/Teammates on Flightdeck 2\.16 or earlier see this version but can(&#39;|')t run it/.test(h), h.slice(at, at + 400));
+});
+
 run();
