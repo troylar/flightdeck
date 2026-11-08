@@ -683,7 +683,7 @@ PF.loop = (function () {
   var OPS = ['add', 'exclude', 'restore', 'owner', 'exception', 'withdraw', 'choose', 'plan', 'start', 'approve', 'send-back', 'resolve'], DOPS = ['accept', 'keep', 'applied', 'refused'];
   /* What a tool asks the recorder to do (the CLI asks; the recorder applies): never a change to the list. */
   var ACTIONS = ['start', 'approve', 'send-back', 'resolve'];
-  var LIMITS = { bytes: 262144, title: 200, reason: 300, query: 500, generation: 80, errors: 20, error: 200, changes: 500, inputs: 40, input: 240, seen: 50, candidates: 50 };
+  var LIMITS = { bytes: 262144, title: 200, reason: 300, query: 500, generation: 80, errors: 20, error: 200, changes: 500, inputs: 40, input: 240, seen: 2000, candidates: 50 };
   var CONTROL = /[\u0000-\u001f\u007f\u2028\u2029]/;
   function isMap(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
   function reserved(k) { return k === '__proto__' || k === 'constructor' || k === 'prototype' || k in Object.prototype; }
@@ -942,18 +942,27 @@ PF.loop = (function () {
     var loop = cleanLoop(o.loop, errors);
     if (DOPS.indexOf(o.op) < 0) return mal('is a scope decision that isn\'t accept, keep, applied or refused');
     if (!Array.isArray(o.items) || (!o.items.length && (o.op === 'accept' || o.op === 'keep')) || o.items.length > MAX_ITEMS || !o.items.every(function (x) { return typeof x === 'string' && x.length <= 80; })) return mal('is a scope decision without its items');
-    if (!Array.isArray(o.seen) || !o.seen.every(function (x) { return typeof x === 'string'; })) return mal('is a scope decision without what it saw');
+    if (!Array.isArray(o.seen) || o.seen.length > LIMITS.seen || !o.seen.every(function (x) { return typeof x === 'string'; })) return mal('is a scope decision without what it saw (its seen is at most ' + LIMITS.seen + ' records)');
     if (typeof o.by !== 'string' || !PERSON.test(o.by)) return mal('is a scope decision without who made it');
     if (o.resolver != null && (typeof o.resolver !== 'string' || !REQ.test(o.resolver))) errors.push('its resolver isn\'t a request id');
     if (errors.length) return mal('is a scope decision that isn\'t in its format: ' + errors[0]);
     return { ok: true, record: { resolver: typeof o.resolver === 'string' ? o.resolver : '', id: name.slice(0, -5), type: 'decision', loop: loop, proposal: o.proposal, op: o.op, items: o.items.slice(), seen: o.seen.slice(), reason: typeof o.reason === 'string' ? o.reason.slice(0, LIMITS.reason) : '', by: { person: o.by }, onBehalf: typeof o.onBehalf === 'string' ? o.onBehalf : '' } };
+  }
+  /* Why a scope record just built can't be filed ('' when it can): the reader's own check, on the bytes as they'd be
+     written, so no writer files what every reader would refuse (one frontier limit, LIMITS.seen, for both). */
+  function fileWhy(name, f) {
+    var t = text(f);
+    if (t.length > LIMITS.bytes) return 'It would be ' + t.length + ' bytes; a scope record is at most ' + LIMITS.bytes + '.';
+    if (Array.isArray(f.seen) && f.seen.length > LIMITS.seen) return 'It would name ' + f.seen.length + ' records it saw (seen); a scope record names at most ' + LIMITS.seen + '. Resolve some of the loop\'s open decisions first.';
+    var v = cleanFile(JSON.parse(t), name);
+    return v.ok ? '' : 'It wouldn\'t read back: it ' + v.why + '.';
   }
   /* A file of either kind, as the folder reader dispatches it before the plan reader. */
   function cleanFile(o, name) { return o.format === STATUS ? cleanDecision(o, name) : cleanRequest(o, name); }
   /* The records about one loop instance. */
   function recordsFor(records, loop) { return (records || []).filter(function (r) { return r.loop && r.loop.process === loop.process && r.loop.run === loop.run && r.loop.step === loop.step; }); }
 
-  return { KINDS: KINDS, kindOf: kindOf, nounOf: nounOf, count: count, feedWhy: feedWhy, httpLink: httpLink, cleanItem: cleanItem, cleanChanges: cleanChanges, FEED: FEED, NOUN: NOUN, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
+  return { fileWhy: fileWhy, KINDS: KINDS, kindOf: kindOf, nounOf: nounOf, count: count, feedWhy: feedWhy, httpLink: httpLink, cleanItem: cleanItem, cleanChanges: cleanChanges, FEED: FEED, NOUN: NOUN, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
     idFor: idFor, isScope: isScope, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
     rollup: rollup, view: view, markStale: markStale, rowId: rowId, choiceWhy: choiceWhy, resolveWhy: resolveWhy, resolvedBy: resolvedBy, planWhy: planWhy, sendBackWhy: sendBackWhy, again: again, appliedIn: appliedIn, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();

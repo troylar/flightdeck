@@ -13,8 +13,8 @@
       "reviewed": "fold design tips and the library panel; own-key reads; checked for direct writes and unconditional deletes"
     },
     "bin/flightdeck.js": {
-      "sha256": "8840f700fe5382ce78e7f3b7221cb2f7168a50483bb2a8198bffb78539171fa4",
-      "reviewed": "flightdeck loop: kind-aware keys, --title/--link for one item, feed check before filing, nouns in messages, kind/noun/source/link in read output, unknown kind refused; writes only through writeOnce, checked for direct writes and unconditional deletes"
+      "sha256": "aa8491630cd950150d5b9928c1e0fad2906122e4841b35f874d39aaae03017d7",
+      "reviewed": "one frontier limit (seen, 2000) for requests and decisions; fileWhy rechecks every built scope record with the reader before any write; refusals write nothing, checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "21c5b257606a8aa3d24c956f518745372409b550008be4d06f5178081117708c",
@@ -253,8 +253,8 @@
       "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "src/core/loop.js": {
-      "sha256": "35cabec9dd07195b9d3c5d5b9dc19d8c1b411717938feca032cf6033d4adfa81",
-      "reviewed": "planConflict keeps every conflicting plan, sorted; the picker lists them all; pure and view only, checked for direct writes and unconditional deletes"
+      "sha256": "be4f7c600db303dcae04bbf3489ea89b081bc2e51d916bc9d1fb646d91e9e5a8",
+      "reviewed": "one frontier limit (seen, 2000) for requests and decisions; fileWhy rechecks every built scope record with the reader before any write; refusals write nothing, checked for direct writes and unconditional deletes"
     },
     "src/core/map.js": {
       "sha256": "f9eae33f6635cd1b3983fc1c71eb7a3b3c8dc1c70ca3ef8ce8807d5228165d2f",
@@ -397,8 +397,8 @@
       "reviewed": "S2: one write-time guard (folder, generation, person, run and inputs) checked in the save's still hook for every loop write; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "96e2a7f79f1dfafabd94e717cd0e0eeb2f592dc065da60680929c167efe04e7b",
-      "reviewed": "run screen and app: loop noun on every part of the box, raw keys and title/link for items, escaped http(s)-only link; writes only through repo.saveScope with the guard, checked for direct writes and unconditional deletes"
+      "sha256": "6e715f53f9b80ef20b5cf11221742c0a8363c3594b70b3c8f63efa26c150e826",
+      "reviewed": "one frontier limit (seen, 2000) for requests and decisions; fileWhy rechecks every built scope record with the reader before any write; refusals write nothing, checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

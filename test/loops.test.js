@@ -722,6 +722,27 @@ rule('3b: nouns: noun: one / many, one formatter, no guessed plurals; item / ite
   same([LP.nounOf({ items: 'item' }).many, LP.nounOf({ items: 'jira.issue' }).many], ['items', 'stories']);
   for (const v of ['environments', 'a / ', ' / b', 'a/b/c', 'x'.repeat(41) + ' / y', '<b> / <b>s']) assert.strictEqual(LP.nounOf({ noun: v, items: 'item' }), null, v);
 });
+rule('Round 9 (6): a request that saw 51 concurrent heads reads back; writer and reader share one frontier limit, and every writer checks its file before filing', () => {
+  const base = req('s0', [], { observation: obs([101, 102]) });
+  const heads = Array.from({ length: 51 }, (_, i) => 'req-release-helper-' + PF.sha256.hex('h' + i).slice(0, 24));
+  const L = LP.reduce([base].concat(heads.map((id, i) => req(id, ['s0'], { changes: [on102('owner', { owner: i % 2 ? 'person-morgan' : 'person-avery' })] }))));
+  same(L.heads.length, 51);
+  const f = reqFile('resolve-51', { loop: LOOPT, changes: [on102('owner', { owner: 'person-avery' })], seen: L.heads });
+  const back = LP.cleanRequest(JSON.parse(LP.text(f)), f.id + '.json');
+  assert.ok(back.ok, back.why);
+  same(back.record.seen.length, 51, 'no participant dropped');
+  same(LP.fileWhy(f.id + '.json', f), '', 'a file the reader takes passes');
+  const tooMany = Object.assign({}, f, { seen: Array.from({ length: LP.LIMITS.seen + 1 }, (_, i) => 'req-release-helper-' + PF.sha256.hex('x' + i).slice(0, 24)).sort() });
+  assert.ok(/seen/.test(LP.fileWhy(f.id + '.json', tooMany)), 'one it would refuse is refused before filing');
+  const d = LP.buildDecision({ proposal: f.id, loop: LOOPT, op: 'keep', items: ['jira:10102'], seen: tooMany.seen, by: 'person-avery', writer: 'w1', rev: 'abcdef01', now: AT, app: '3.0.0' });
+  assert.ok(/seen/.test(LP.fileWhy(d.name, d.file)), 'decisions share the limit');
+  /* Every place that builds a scope record checks it with fileWhy before it is written. */
+  const fs0 = require('fs'), path0 = require('path');
+  for (const rel of ['src/ui/app.js', 'bin/flightdeck.js']) {
+    const lines = fs0.readFileSync(path0.join(__dirname, '..', rel), 'utf8').split('\n');
+    lines.forEach((ln, i) => { if (/\bbuild(Request|Decision)\(/.test(ln) && !/function build/.test(ln)) assert.ok(lines.slice(i, i + 4).some(x => /fileWhy\(/.test(x)), rel + ':' + (i + 1) + ' files a scope record without fileWhy'); });
+  }
+});
 rule('Round 9 (7): every conflicting plan is an option, however many and whatever their names; the picker and loop plan accept each', () => {
   const plans = (names) => [b8()].concat(names.map((n, i) => req(n, ['s0'], { children: [{ item: { id: '10102', key: 'ABC-102' }, attempt: 1, inputs: { issue: 'v' + i }, owner: '' }] })));
   const names = Array.from({ length: 21 }, (_, i) => 'p' + String(i).padStart(2, '0'));

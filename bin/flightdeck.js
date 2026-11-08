@@ -2873,6 +2873,7 @@ async function loopMain(argv) {
     if (problems().length) return held('Part of the team folder this depends on couldn\'t be read, so nothing was written. Check folder availability, then retry with the same key.');
     if (act) {
       const fa = LP.buildRequest(c.intent, { seen: V.ledger.heads, children: [], now: new Date().toISOString(), app: eng.version });
+      const faw = LP.fileWhy(id + '.json', fa); if (faw) return failOut('invalid', faw + ' Nothing was written.', problems());
       const dataA = (status) => ({ loop: V.loop, status, request: { id, file }, preview: title + (status === 'would-request' ? ' — preview only; no files written.' : ' — requested.') + '\n\n' + act.lines.join('\n'),
         start: act.start || [], skip: act.skip || [], approve: act.approve || null, sendBack: act.sendBack || null, resolve: act.resolve || null, runsStarted: 0, appliedBy: 'the recorder' });
       if (dryRun) return done(dataA('would-request'));
@@ -2891,6 +2892,7 @@ async function loopMain(argv) {
     const P = LP.project(r, V, c.intent, { who });
     if (P.overLimit) return failOut('invalid', 'This would put ' + LP.count(P.overLimit.count, N) + ' in scope; the loop takes at most ' + P.overLimit.max + '. Nothing is cut and nothing was written.', problems());
     const f = LP.buildRequest(c.intent, { seen: P.seen, children: P.record.children, now: new Date().toISOString(), app: eng.version });
+    const fw = LP.fileWhy(id + '.json', f); if (fw) return failOut('invalid', fw + ' Nothing was written.', problems());
     const data = (status) => ({ loop: V.loop, status, request: { id, file }, preview: LP.previewText(P, { title, dryRun: status === 'would-request', problems: problems() }),
       added: P.added, proposed: P.proposed.map((p) => ({ uid: p.uid, key: p.key, title: p.title, run: p.run || null, recorder: p.recorder ? nameOf(p.recorder) : null, open: !!p.open, answered: p.answered || 0, total: p.total || 0 })),
       excluded: P.excluded, restored: P.restored, children: P.children, impact: P.impact, observation: P.observation, runsStarted: 0, membershipVisible: false });
@@ -2935,6 +2937,7 @@ async function loopReview(eng, o) {
   if (by['']) return o.failOut('invalid', 'Some of these items were decided two ways at once by exclusions or restorations, not proposed removals. Use flightdeck loop exclude or restore to decide them. Nothing was written.', o.problems());
   const files = Object.keys(by).sort().map((p) => LP.buildDecision({ proposal: p, loop: V.loop, op, items: by[p], seen: V.ledger.heads, reason: val['--reason'] || '', by: val['--as'], onBehalf: o.tool.name,
     writer: o.tool.name, rev: revOf(p), now: new Date().toISOString(), app: eng.version }));
+  const fdw = files.map((f) => LP.fileWhy(f.name, f.file)).filter(Boolean)[0]; if (fdw) return o.failOut('invalid', fdw + ' Nothing was written.', o.problems());
   const preview = (o.dryRun ? 'Would record' : 'Recorded') + ' ' + val['--as'] + '\'s decision to ' + (op === 'accept' ? 'remove ' : 'keep ') + keys.join(', ') + (op === 'accept' ? ' from scope. Their assessment runs remain available.' : ' in scope.') + (o.dryRun ? ' Nothing was written.' : '');
   const data = (status) => ({ loop: V.loop, status, decisions: files.map((f) => ({ file: 'proposals/' + f.name, items: f.file.items })), preview, runsStarted: 0 });
   if (o.dryRun) return o.done(data('would-request'));

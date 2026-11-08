@@ -2946,6 +2946,7 @@
     var P = PF.loop.project(r, V, c.intent, { who: personName, by: state.me });
     if (P.overLimit) { say('This would put ' + PF.loop.count(P.overLimit.count, V.noun) + ' in scope; the loop takes at most ' + P.overLimit.max + '. Nothing was changed.', 'warn'); render(); return; }
     var now = new Date().toISOString(), f = PF.loop.buildRequest(c.intent, { seen: P.seen, children: P.record.children, now: now, app: APP_VERSION, by: state.me, id: 'req-flightdeck-' + loopHex(24) });
+    var fw = PF.loop.fileWhy(f.id + '.json', f); if (fw) { say(fw + ' Nothing was changed.', 'warn'); render(); return; }
     var cx = loopGuard();
     loopSaved(repo.saveScope(cx.fs, f.id + '.json', f, { still: function () { return guardOk(cx); } }), P.summary || 'Saved.');
   }
@@ -2955,6 +2956,7 @@
     var p = x.proposal || x.proposedBy;
     if (!p) { say(key + ' was decided two ways at once. Remove or restore it instead.', 'warn'); render(); return; }
     var d = PF.loop.buildDecision({ proposal: p, loop: V.loop, op: op, items: [x.uid], seen: V.ledger.heads, reason: val('loop-why-' + id).trim(), by: state.me, writer: 'w' + loopHex(10), rev: loopHex(8), now: new Date().toISOString(), app: APP_VERSION });
+    var dw = PF.loop.fileWhy(d.name, d.file); if (dw) { say(dw + ' Nothing was changed.', 'warn'); render(); return; }
     var cxd = loopGuard();
     loopSaved(repo.saveScope(cxd.fs, d.name, d.file, { still: function () { return guardOk(cxd); } }), op === 'accept' ? key + ' is removed from scope. Its run stays available.' : key + ' stays in scope.');
   }
@@ -3126,6 +3128,7 @@
   function loopOutcome(V, q, op, why, cx, resolver) {
     if (!guardOk(cx)) return Promise.resolve(false);
     var d = PF.loop.buildDecision({ proposal: q.id, loop: V.loop, op: op, items: [], seen: V.ledger.heads, reason: String(why || '').slice(0, 300), by: cx.me, resolver: resolver || '', writer: 'w' + loopHex(10), rev: loopHex(8), now: new Date().toISOString(), app: APP_VERSION });
+    var ow = PF.loop.fileWhy(d.name, d.file); if (ow) return Promise.reject(new Error(ow));
     return repo.saveScope(cx.fs, d.name, d.file, { still: function () { return guardOk(cx); } }).then(function (res) { return res && res.dropped ? false : res; });
   }
   /* Counts what the person did since a start was submitted: every click on a control but Refresh, every key, navigation and
