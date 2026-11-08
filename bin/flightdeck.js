@@ -2872,7 +2872,10 @@ async function loopMain(argv) {
     }
     if (problems().length) return held('Part of the team folder this depends on couldn\'t be read, so nothing was written. Check folder availability, then retry with the same key.');
     if (act) {
-      const fa = LP.buildRequest(c.intent, { seen: LP.seenFor(V.ledger, [], c.intent.changes.filter((ch) => ch.op === 'resolve').map((ch) => ch.record)).seen, children: [], now: new Date().toISOString(), app: eng.version });
+      const pgA = LP.seenFor(V.ledger, [], c.intent.changes.filter((ch) => ch.op === 'resolve').map((ch) => ch.record));
+      /* A resolution of more outcomes than one record names settles a page; it says how many are left (docs/design.md 44). */
+      if (pgA.left && act.lines.indexOf(LP.pageWords(pgA.left)) < 0) act.lines.push(LP.pageWords(pgA.left));
+      const fa = LP.buildRequest(c.intent, { seen: pgA.seen, children: [], now: new Date().toISOString(), app: eng.version });
       const faw = LP.fileWhy(id + '.json', fa); if (faw) return failOut('invalid', faw + ' Nothing was written.', problems());
       const dataA = (status) => ({ loop: V.loop, status, request: { id, file }, preview: title + (status === 'would-request' ? ' — preview only; no files written.' : ' — requested.') + '\n\n' + act.lines.join('\n'),
         start: act.start || [], skip: act.skip || [], approve: act.approve || null, sendBack: act.sendBack || null, resolve: act.resolve || null, runsStarted: 0, appliedBy: 'the recorder' });

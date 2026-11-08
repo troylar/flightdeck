@@ -13,8 +13,8 @@
       "reviewed": "fold design tips and the library panel; own-key reads; checked for direct writes and unconditional deletes"
     },
     "bin/flightdeck.js": {
-      "sha256": "6df0fc932fb60ea41b995bde716019ffc72d3851193275b8a7f9e9b333a493a1",
-      "reviewed": "seenFor puts the edited slot first; checked for direct writes and unconditional deletes"
+      "sha256": "1c19f0abd8237f2122a6a4562c3632b66a0d029cb71a5ddffc43e7d211947755",
+      "reviewed": "CLI resolution says what is left; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "21c5b257606a8aa3d24c956f518745372409b550008be4d06f5178081117708c",

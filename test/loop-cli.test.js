@@ -343,4 +343,22 @@ rule('3b: a run whose loop takes a kind this copy doesn\'t know is read-only, na
   assert.deepStrictEqual([ls(root), fs.readFileSync(rf, 'utf8') === before], [[], true]);
 });
 
+rule('Round 11 (3): resolving a request recorded more ways than one record can name says what is left, in the preview and the output', async () => {
+  const { root, d } = await folder(), f = path.join(root, '..', path.basename(root) + '-obs.json');
+  fs.writeFileSync(f, JSON.stringify(obs([101])));
+  json('loop', 'sync', root, 'release-readiness/r-41', 'each', '--from', f, '--json', '--tool', 'release-helper@1.0', '--key', 'a');
+  const LP = PF.loop, all = await PF.repo.loadAll(d, {}), r = all.runs.filter(x => x.id === 'r-41')[0], V = LP.view(r, 'each', { records: all.scopes, runs: all.runs });
+  const c = LP.cleanIntent({ loop: V.loop, changes: [{ op: 'start', item: { key: 'ABC-101' }, as: 'person-morgan' }] }, 'st', { name: 'release-helper', version: '1.0' });
+  const q = LP.buildRequest(c.intent, { seen: V.ledger.heads, children: [], now: AT, app: '3.0.0' });
+  await d.write('proposals/' + q.id + '.json', LP.text(q));
+  for (let i = 0; i < 51; i++) {
+    const dd = LP.buildDecision({ proposal: q.id, loop: V.loop, op: i % 2 ? 'refused' : 'applied', items: [], seen: [q.id], reason: 'x', by: 'person-morgan', writer: 'w' + String(i).padStart(3, '0'), rev: PF.sha256.hex('o' + i).slice(0, 8), now: AT, app: '3.0.0' });
+    await d.write('proposals/' + dd.name, LP.text(dd.file));
+  }
+  const T = ['--record', q.id, '--outcome', 'refused', '--as', 'person-morgan', '--tool', 'release-helper@1.0', '--key', 'res-1'];
+  const pre = cli('loop', 'resolve', root, 'release-readiness/r-41', 'each', ...T, '--dry-run');
+  assert.ok(/This settles the first 50 decisions made at once; 1 is left\. Do it again to settle the rest\./.test(pre.out), pre.out);
+  const out = cli('loop', 'resolve', root, 'release-readiness/r-41', 'each', ...T);
+  assert.ok(/This settles the first 50 decisions made at once; 1 is left\./.test(out.out), out.out);
+});
 run();
