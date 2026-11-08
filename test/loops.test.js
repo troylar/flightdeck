@@ -574,4 +574,38 @@ rule('Review round 6 (2): a request held for a record this computer can\'t read 
   }
 });
 
+const plan7 = (v, owner) => [{ item: { id: '10101', key: 'ABC-101' }, attempt: 1, inputs: { story: v }, owner: owner || '' }];
+rule('Review round 7 (3): a plan\'s suggested owner never settles an owner conflict or replaces an owner someone chose', () => {
+  const recs = [base6(), req('o-a', ['b0'], { changes: [ch6('owner', { owner: 'person-avery' })] }), req('o-b', ['b0'], { changes: [ch6('owner', { owner: 'person-morgan' })] }),
+    req('p-1', ['o-a', 'o-b'], { children: plan7('ABC-101', 'person-blake') })];
+  same(LP.reduce(recs).items[0].owner, '', 'still unassigned: the conflict stands');
+  const chosen = [base6(), req('o-c', ['b0'], { changes: [ch6('owner', { owner: 'person-avery' })] }), req('p-2', ['o-c'], { children: plan7('ABC-101', 'person-blake') })];
+  same(LP.reduce(chosen).items[0].owner, 'person-avery', 'an owner someone chose stands');
+  same(LP.reduce([base6(), req('p-3', ['b0'], { children: plan7('ABC-101', 'person-blake') })]).items[0].owner, 'person-blake', 'with no owner decision, the plan suggests one');
+});
+rule('Review round 7 (4): two plans in conflict are settled by a third that saw both, or by choosing one of them; the row lists both', () => {
+  const two = [base6(), req('p-a', ['b0'], { children: plan7('ABC-101') }), req('p-b', ['b0'], { children: plan7('ABC-101 again') })];
+  const row = RO(LP.reduce(two), []).items[0];
+  same(row.planConflict && row.planConflict.options.map(o => o.record).sort(), ['p-a', 'p-b']);
+  const third = LP.reduce(two.concat([req('p-c', ['p-a', 'p-b'], { children: plan7('ABC-101 decided') })]));
+  same(third.items[0].planned && third.items[0].planned.inputs, { story: 'ABC-101 decided' }, 'a third plan that saw both settles it');
+  const pick = LP.reduce(two.concat([req('p-d', ['p-a', 'p-b'], { changes: [ch6('plan', { attempt: 1, record: 'p-b' })] })]));
+  same(pick.items[0].planned && pick.items[0].planned.inputs, { story: 'ABC-101 again' }, 'choosing one of them settles it');
+  same(RO(pick, []).items[0].planConflict, null);
+});
+rule('Review round 7 (5): an outcome recorded both ways is resolved by the effect it left: a resolve request names the request and what happened', () => {
+  const c = LP.cleanIntent({ loop: LOOPT, changes: [{ op: 'resolve', record: 'req-release-helper-0123456789abcdef01234567', outcome: 'applied', as: 'person-morgan' }] }, 'rs', { name: 'release-helper', version: '1.0' });
+  same(c.errors, []);
+  const rq = req('q-r', ['b0'], { changes: c.intent.changes }), Q = LP.actionsOf({ records: [base6(), rq], ledger: LP.reduce([base6(), rq]) })[0];
+  same([Q.ops[0], Q.record, Q.outcome, Q.status], ['resolve', 'req-release-helper-0123456789abcdef01234567', 'applied', 'pending']);
+  const { r } = release();
+  const target = { id: 'req-x', ops: ['approve'], items: [], status: 'review' };
+  assert.ok(/no approval|wasn't carried out|nothing/i.test(LP.resolveWhy(r, 'each', target, 'applied', [])), 'applied, but no effect: refused');
+  same(LP.resolveWhy(r, 'each', target, 'refused', []), '', 'refused, and no effect: it may be recorded');
+  const start = { id: 'req-y', ops: ['start'], items: ['ABC-101'], status: 'review' }, kidY = { parent: { process: r.process, id: r.id, step: 'each', item: { key: 'ABC-101', request: 'req-y' } } };
+  same(LP.resolveWhy(r, 'each', start, 'applied', [kidY]), '');
+  assert.ok(LP.resolveWhy(r, 'each', start, 'refused', [kidY]).length > 0, 'refused, but a run it started exists: refused');
+  assert.ok(LP.resolveWhy(r, 'each', Object.assign({}, start, { status: 'applied' }), 'applied', [kidY]).length > 0, 'only an outcome recorded both ways is resolved');
+});
+
 run();

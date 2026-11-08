@@ -14,7 +14,7 @@
     },
     "bin/flightdeck.js": {
       "sha256": "cc5a623a91654e941f371ef75e5d78d4e34960b6b17095cedd912cf75d6714c1",
-      "reviewed": "loop start refuses a story named twice before anything is filed; checked for direct writes and unconditional deletes"
+      "reviewed": "loop core: plan choice and resolving plans, plan owner only a default, resolve rule; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "21c5b257606a8aa3d24c956f518745372409b550008be4d06f5178081117708c",
@@ -22,11 +22,11 @@
     },
     "docs/apps.md": {
       "sha256": "f15d4158214ca0fa406c244370ff5d09499a08ad52e1804c750aaf5c3d787948",
-      "reviewed": "docs: round 6 settle sweep, held requests, one start rule, duplicate items; checked for direct writes and unconditional deletes"
+      "reviewed": "loop core: plan choice and resolving plans, plan owner only a default, resolve rule; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
       "sha256": "f7f7db41e8d9bc68c6bf17d7102ac6568c76323204ddab2aa8333e632ba6891c",
-      "reviewed": "docs: round 6 settle sweep, held requests, one start rule, duplicate items; checked for direct writes and unconditional deletes"
+      "reviewed": "loop core: plan choice and resolving plans, plan owner only a default, resolve rule; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -253,8 +253,8 @@
       "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "src/core/loop.js": {
-      "sha256": "9dfc0f9563af846cfdc81c666aac33701cdbd2d0d858906afa5835b37c849bf2",
-      "reviewed": "loop reducer: exceptions, owners, plans and request outcomes settle causally; held requests are not carried out; checked for direct writes and unconditional deletes"
+      "sha256": "a29743cb9a169ec94e5a6dbe94dc095dd3026c145404c686fcef4235afd425e2",
+      "reviewed": "round 7: required folder on every start, child built in the queue, plan owner default, plan choice, resolve; checked for direct writes and unconditional deletes"
     },
     "src/core/map.js": {
       "sha256": "671a810abb29087bed638e0fc39ecc5a52b70146abd303742d5d017c9083db7c",
@@ -398,7 +398,7 @@
     },
     "src/ui/app.js": {
       "sha256": "1e9bb820f1d96f6d94c5c67b3f8ed5bc60d6b8f74200d08af960aebd8c65f783",
-      "reviewed": "every loop start asks launchable, rechecked in the write queue on the run as it is then; row buttons follow it; checked for direct writes and unconditional deletes"
+      "reviewed": "loop core: plan choice and resolving plans, plan owner only a default, resolve rule; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
@@ -474,7 +474,7 @@
     },
     "src/ui/views/run.js": {
       "sha256": "ede2bb438e66986281fce2d9c165fe29b84d5055143b86bd57a105ddddd43f99",
-      "reviewed": "every loop start asks launchable, rechecked in the write queue on the run as it is then; row buttons follow it; checked for direct writes and unconditional deletes"
+      "reviewed": "loop core: plan choice and resolving plans, plan owner only a default, resolve rule; checked for direct writes and unconditional deletes"
     },
     "src/ui/views/setup.js": {
       "sha256": "2393b54abde45fa1ba4ac110f394984d29b04ca728c3f1a46e8c22fb2c60dd80",

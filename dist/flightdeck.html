@@ -16631,7 +16631,7 @@ PF.loop = (function () {
   function reduce(records, o) {
     o = o || {};
     var source = o.source || 'jira', max = o.max || DEFAULT_MAX, c = causal(records || []), items = [], byUid = Object.create(null), byKey = Object.create(null);
-    var duplicates = [], lastObs = null, intents = Object.create(null), asks = Object.create(null);
+    var duplicates = [], lastObs = null, intents = Object.create(null), asks = Object.create(null), plans = Object.create(null);
     function find(it) {
       var x = it.id ? byUid[uidOf(source, it)] : null;
       if (!x && it.key && byKey[it.key]) x = byKey[it.key];
@@ -16647,7 +16647,7 @@ PF.loop = (function () {
         return x;
       }
       x = { uid: uidOf(source, it), id: it.id || '', key: it.key || '', title: String(it.title || ''), state: 'in', since: rec.id, provenance: [], verdict: null,
-        review: [], mismatch: false, kept: false, owner: '', exception: null, attempt: 0, planned: null, proposal: null, inSource: true, choice: null, choiceReview: [], exc: null, excReview: [], own: null, ownReview: [], plan: null, planReview: [] };
+        review: [], mismatch: false, kept: false, owner: '', exception: null, attempt: 0, planned: null, proposal: null, inSource: true, choice: null, choiceReview: [], exc: null, excReview: [], own: null, ownReview: [], plan: null, planReview: [], planOpts: Object.create(null) };
       items.push(x); byUid[x.uid] = x; if (x.key) byKey[x.key] = x;
       return x;
     }
@@ -16682,6 +16682,15 @@ PF.loop = (function () {
       x.state = to; x.proposal = null;
       if (to === 'removed') x.removed = { record: rec.id, reason: String(reason || ''), by: rec.by || null };
       else { delete x.removed; if (op === 'keep') x.kept = true; }
+    }
+    /* A plan for an attempt (a planned child, or the choice of one): settled causally. Its suggested owner is only a default,
+       used when no one has decided the story's owner: an owner decision, or a conflict between two, always stands. */
+    function settlePlan(x, rec, attempt, inputs, owner, from) {
+      var sp = settle(x, 'plan', 'planReview', rec, { op: 'plan', attempt: attempt, inputs: JSON.stringify(inputs), owner: owner }, function (p, v) { return p.attempt === v.attempt && p.inputs === v.inputs && p.owner === v.owner; },
+        { both: function (p) { return 'Two plans for attempt ' + attempt + ' were made at once: ' + p.record + ' and ' + rec.id + '.'; }, again: 'Planned again without seeing both earlier plans.' });
+      x.attempt = Math.max(x.attempt, attempt);
+      x.planned = sp === 'settled' ? { record: from, attempt: attempt, inputs: inputs, owner: owner } : null;
+      if (sp === 'settled' && owner && !x.owner && !x.own && !(x.ownReview || []).length) x.owner = String(owner);
     }
     c.order.forEach(function (rec) {
       if (rec.type === 'request') {
@@ -16723,6 +16732,12 @@ PF.loop = (function () {
             settle(x, 'choice', 'choiceReview', rec, { op: 'choose', run: String(ch.run || ''), attempt: +ch.attempt || 1, candidates: (ch.candidates || []).slice().sort() }, function (p, v) { return p.run === v.run; },
               { both: function (p, v) { return 'Two people chose different runs at once: ' + p.run + ' and ' + v.run + '.'; }, again: 'Chosen again without seeing both earlier choices.' });
           }
+          else if (ch.op === 'plan') {
+            /* Choosing one of the plans for an attempt: settles like a third plan with that one's inputs. */
+            var po = x.planOpts[(+ch.attempt || 1) + '#' + ch.record];
+            if (!po) { duplicates.push({ record: rec.id, op: 'plan', item: x.key, why: 'names ' + ch.record + ', which isn\'t a plan for attempt ' + ch.attempt }); return; }
+            settlePlan(x, rec, +ch.attempt || 1, po.inputs, po.owner, ch.record);
+          }
           else if (ch.op === 'exception' || ch.op === 'withdraw') {
             if (ch.op === 'exception') note(x, rec, 'exception', { reason: String(ch.reason || '') }); else if (x.exception) note(x, rec, 'withdraw', { was: x.exception.record });
             /* Approving without a run and withdrawing it are decisions like any other: made at once, they hold the story. */
@@ -16737,15 +16752,15 @@ PF.loop = (function () {
           var x = find(k.item || {});
           if (!x) return;
           var key = x.uid + '#' + k.attempt;
-          if (intents[key] && intents[key] !== rec.id) { duplicates.push({ record: rec.id, op: 'plan', item: x.key, why: 'attempt ' + k.attempt + ' is already planned by ' + intents[key] }); if (c.anc[rec.id][intents[key]]) return; }
+          x.planOpts[k.attempt + '#' + rec.id] = { inputs: k.inputs || {}, owner: k.owner || '' };
+          /* A plan that saw the first one for its attempt is a duplicate, unless the attempt's plans are in conflict: then it
+             is a resolution, settled like any decision. */
+          var resolving = (x.planReview || []).length && x.plan && x.plan.attempt === k.attempt;
+          if (intents[key] && intents[key] !== rec.id) { duplicates.push({ record: rec.id, op: 'plan', item: x.key, why: 'attempt ' + k.attempt + ' is already planned by ' + intents[key] }); if (c.anc[rec.id][intents[key]] && !resolving) return; }
           else if (intents[key]) return;
           else intents[key] = rec.id;
           if (k.attempt < x.attempt) return;
-          var sp = settle(x, 'plan', 'planReview', rec, { op: 'plan', attempt: k.attempt, inputs: JSON.stringify(k.inputs || {}), owner: k.owner || '' }, function (p, v) { return p.attempt === v.attempt && p.inputs === v.inputs && p.owner === v.owner; },
-            { both: function () { return 'Two plans for attempt ' + k.attempt + ' were made at once.'; }, again: 'Planned again without seeing both earlier plans.' });
-          x.attempt = k.attempt;
-          x.planned = sp === 'settled' ? { record: rec.id, attempt: k.attempt, inputs: k.inputs || {}, owner: k.owner || '' } : null;
-          if (sp === 'settled' && k.owner && !x.owner) x.owner = String(k.owner);
+          settlePlan(x, rec, k.attempt, k.inputs || {}, k.owner || '', rec.id);
         });
         /* A request for the recorder (start, approve, send-back) admitted in causal order; its outcome settles below. */
         if ((rec.changes || []).some(function (ch) { return ACTIONS.indexOf(ch.op) >= 0; })) asks[rec.id] = { status: null, statusReview: [] };
@@ -16779,6 +16794,11 @@ PF.loop = (function () {
      -> { value, conflict } (PF.run.resultOf), stands(run) -> '' or why its completion doesn't stand (PF.run.childCheck),
      who(person id) -> a name }. Scope, outcome and exception stay apart: an exception never makes a result "cleared". */
   function words(v) { return String(v || '').replace(/-/g, ' '); }
+  /* The plans for an attempt that are in conflict, to choose one: each record with the inputs it planned. */
+  function planConflict(x) {
+    var ids = []; x.planReview.forEach(function (rv) { rv.records.forEach(function (id) { if (ids.indexOf(id) < 0 && x.planOpts[x.plan.attempt + '#' + id]) ids.push(id); }); });
+    return { attempt: x.plan.attempt, options: ids.slice(0, 20).map(function (id) { return { record: id, inputs: x.planOpts[x.plan.attempt + '#' + id].inputs }; }) };
+  }
   function rollup(L, runs, o) {
     o = o || {};
     var acc = o.accepts || [], who = o.who || function (p) { return p || ''; }, byItem = Object.create(null), keyed = Object.create(null);
@@ -16803,6 +16823,7 @@ PF.loop = (function () {
       var choWhy = latest.length > 1 && (x.choiceReview || []).length ? 'two people chose different runs at once; choose again, having seen both' : latest.length > 1 && cho && cho.attempt === top && !seenAll ? 'has another run since ' + cho.run + ' was chosen; choose again' : '';
       var row = { uid: x.uid, key: x.key, title: x.title, state: x.state, required: x.state !== 'removed', owner: x.owner, exception: x.exception, review: x.review.length > 0, mismatch: x.mismatch,
         ownerWhy: (x.ownReview || []).length ? 'two people assigned it at once; assign it again' : '', excReview: (x.excReview || []).length > 0,
+        planConflict: (x.planReview || []).length && x.plan ? planConflict(x) : null,
         runs: mine.map(function (c) { return c.id; }), run: latest.length === 1 ? latest[0].id : '', competing: latest.length > 1, candidates: candidates, chosen: cho && seenAll ? cho.run : '', recorder: latest.length === 1 && latest[0].recorder ? latest[0].recorder.person || '' : '',
         result: '', accepted: false, status: '', fp: '', planned: x.planned, attempt: Math.max(top, x.attempt) };
       if (!row.required) { row.status = 'removed'; counts.removed++; rows.push(row); return; }
@@ -16896,6 +16917,14 @@ PF.loop = (function () {
      '' when it may, else why, in words. people: people.json as read. */
   /* A send-back with nothing changed since the approval needs a reason; the button, a request and the CLI ask the same. */
   /* Whether run may be chosen as the one that counts for story key: '' or why. The button and loop choose ask the same. */
+  /* Whether record may be chosen as the plan for key's attempt: '' or why. The row and loop plan ask the same. */
+  function planWhy(V, key, record) {
+    var i = V.rollup.items.filter(function (y) { return y.key === key; })[0];
+    if (!i) return key + ' isn\'t in this loop.';
+    if (!i.planConflict) return key + '\'s plans aren\'t in conflict, so there is nothing to choose.';
+    if (!i.planConflict.options.some(function (o) { return o.record === record; })) return record + ' isn\'t one of ' + key + '\'s plans in conflict: ' + i.planConflict.options.map(function (o) { return o.record; }).join(', ') + '.';
+    return '';
+  }
   function choiceWhy(V, key, run) {
     var i = V.rollup.items.filter(function (y) { return y.key === key; })[0];
     if (!i) return key + ' isn\'t in this loop.';
@@ -16959,7 +16988,7 @@ PF.loop = (function () {
       var d = A && A.status && st !== 'review' ? recs.filter(function (x) { return x.id === A.status.record; })[0] : null;
       var ch = q.changes.filter(function (c) { return ACTIONS.indexOf(c.op) >= 0; });
       var actors = []; ch.forEach(function (c) { var a = c.as || ''; if (actors.indexOf(a) < 0) actors.push(a); });
-      return { id: q.id, actors: actors, all: ch.some(function (c) { return c.all === true; }), ops: ch.map(function (c) { return c.op; }), items: ch.filter(function (c) { return c.item; }).map(function (c) { return c.item.key || c.item.id; }), as: ch[0].as || '', reason: ch[0].reason || '',
+      return { id: q.id, actors: actors, record: ch[0].record || '', outcome: ch[0].outcome || '', all: ch.some(function (c) { return c.all === true; }), ops: ch.map(function (c) { return c.op; }), items: ch.filter(function (c) { return c.item; }).map(function (c) { return c.item.key || c.item.id; }), as: ch[0].as || '', reason: ch[0].reason || '',
         by: q.by, status: st, why: d ? d.reason || '' : st === 'held' ? 'It refers to a scope record this computer can\'t read yet.' : st === 'review' ? A.statusReview[0].why : '', decision: d ? d.id : '' };
     });
   }
@@ -17043,6 +17072,7 @@ PF.loop = (function () {
       if (o.reason != null && o.reason !== '') c.reason = o.reason;
       if (op === 'exception') { c.approver = o.approver; if (o.onBehalf) c.onBehalf = true; }
       if (op === 'owner') c.owner = o.owner || '';
+      if (op === 'plan') { var rp = V.rollup.items.filter(function (i) { return i.key === k; })[0]; c.record = o.record || ''; c.attempt = rp && rp.planConflict ? rp.planConflict.attempt : 1; }
       if (op === 'choose') { var row = V.rollup.items.filter(function (i) { return i.key === k; })[0]; c.run = o.run || ''; c.attempt = row ? Math.max(1, row.attempt || 1) : 1; c.candidates = row ? row.candidates.slice(0, LIMITS.candidates).sort() : []; }
       return c;
     }) };
@@ -17138,6 +17168,18 @@ PF.loop = (function () {
   var REQ_ID = /^req-[A-Za-z0-9_.-]{1,120}$/;
   /* Whether the recorder already carried out request id on loop step stepId of run r: the approval or the send-back it made
      names it, now or in the step's history. An outcome that couldn't be written is recognized here, never carried out twice. */
+  /* Whether a request whose outcome was recorded both ways (status review) may be recorded as outcome, by the effect it left:
+     a run it started (runs: the folder's runs), or an approval or send-back that names it. '' or why. The action is never
+     carried out again. */
+  function resolveWhy(r, stepId, q, outcome, runs) {
+    if (!q || q.status !== 'review') return 'Only a request whose outcome was recorded both ways is resolved; this one is ' + (q ? q.status : 'not in this loop') + '.';
+    if (outcome !== 'applied' && outcome !== 'refused') return 'Say whether it was applied or refused.';
+    var did = q.ops[0] === 'start' ? (runs || []).some(function (c) { var it = c && c.parent && c.parent.item; return !!it && it.request === q.id && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === stepId; }) : appliedIn(r, stepId, q.id);
+    var what = q.ops[0] === 'start' ? 'a run it started' : q.ops[0] === 'approve' ? 'the approval it asked for' : 'the send-back it asked for';
+    if (outcome === 'applied' && !did) return 'It wasn\'t carried out: there is no ' + what + ' here. Resolve it as refused.';
+    if (outcome === 'refused' && did) return 'It was carried out: ' + what + ' is here. Resolve it as applied.';
+    return '';
+  }
   function appliedIn(r, stepId, id) {
     var a = r && isMap(r.steps) && own(r.steps, stepId) ? r.steps[stepId] : null;
     if (!a || !id) return false;
@@ -17153,9 +17195,9 @@ PF.loop = (function () {
   var ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
   var PROC = /^[a-z0-9][a-z0-9-]{0,59}$/, RUN = /^[a-z0-9-]{1,40}$/i, STEP = /^[a-z0-9][a-z0-9-]{0,59}$/i, PERSON = /^[A-Za-z0-9_.-]{1,80}$/;
   var REQ = /^req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24}$/, WRITER = /^[a-z0-9][a-z0-9-]{0,39}$/, REV = /^[0-9a-f]{8}$/, DNAME = /^(req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})\.status-([a-z0-9][a-z0-9-]{0,39})-([0-9a-f]{8})\.json$/;
-  var OPS = ['add', 'exclude', 'restore', 'owner', 'exception', 'withdraw', 'choose', 'start', 'approve', 'send-back'], DOPS = ['accept', 'keep', 'applied', 'refused'];
+  var OPS = ['add', 'exclude', 'restore', 'owner', 'exception', 'withdraw', 'choose', 'plan', 'start', 'approve', 'send-back', 'resolve'], DOPS = ['accept', 'keep', 'applied', 'refused'];
   /* What a tool asks the recorder to do (the CLI asks; the recorder applies): never a change to the list. */
-  var ACTIONS = ['start', 'approve', 'send-back'];
+  var ACTIONS = ['start', 'approve', 'send-back', 'resolve'];
   var LIMITS = { bytes: 262144, title: 200, reason: 300, query: 500, generation: 80, errors: 20, error: 200, changes: 500, inputs: 40, input: 240, seen: 50, candidates: 50 };
   var CONTROL = /[\u0000-\u001f\u007f\u2028\u2029]/;
   function isMap(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
@@ -17242,11 +17284,15 @@ PF.loop = (function () {
     list.forEach(function (ch, i) {
       var where = 'Change ' + (i + 1);
       if (!isMap(ch) || OPS.indexOf(ch.op) < 0) { errors.push(where + ' is {"op": ' + OPS.map(q).join(' | ') + ', "item": {...}}.'); return; }
-      Object.keys(ch).forEach(function (k) { if (['op', 'item', 'reason', 'owner', 'approver', 'onBehalf', 'as', 'all', 'run', 'attempt', 'candidates'].indexOf(k) < 0 || (k === 'all' && !(ch.op === 'start' && ch.all === true)) || ((k === 'run' || k === 'attempt' || k === 'candidates') && ch.op !== 'choose')) errors.push(where + ' has ' + q(k) + '.'); });
+      Object.keys(ch).forEach(function (k) { if (['op', 'item', 'reason', 'owner', 'approver', 'onBehalf', 'as', 'all', 'run', 'attempt', 'candidates', 'record', 'outcome'].indexOf(k) < 0 || (k === 'all' && !(ch.op === 'start' && ch.all === true)) || ((k === 'run' || k === 'candidates') && ch.op !== 'choose') || (k === 'attempt' && ch.op !== 'choose' && ch.op !== 'plan') || (k === 'record' && ch.op !== 'plan' && ch.op !== 'resolve') || (k === 'outcome' && ch.op !== 'resolve')) errors.push(where + ' has ' + q(k) + '.'); });
       if (ACTIONS.indexOf(ch.op) >= 0) {
         var ca = { op: ch.op };
         if (ch.op === 'start') { ca.item = cleanItem(ch.item, errors, where + ' item'); if (!ca.item) return; if (ch.all === true) ca.all = true; }
         else if (ch.item != null) errors.push(where + ': ' + q(ch.op) + ' names no item.');
+        if (ch.op === 'resolve') {
+          if (typeof ch.record !== 'string' || !REQ.test(ch.record)) errors.push(where + ': "record" is the id of the request whose outcome was recorded two ways.'); else ca.record = ch.record;
+          if (ch.outcome !== 'applied' && ch.outcome !== 'refused') errors.push(where + ': "outcome" is "applied" or "refused": what happened.'); else ca.outcome = ch.outcome;
+        }
         if (typeof ch.as !== 'string' || !PERSON.test(ch.as)) errors.push(where + ': "as" is the ID from people.json of the person who asks.'); else ca.as = ch.as;
         if (ch.reason != null) { var ra = line(ch.reason, LIMITS.reason, where + ' "reason"', errors, true); if (ra) ca.reason = ra; }
         out.push(ca); return;
@@ -17255,6 +17301,10 @@ PF.loop = (function () {
       if (!it) return;
       if (ch.op === 'exclude' || ch.op === 'exception') { var r = line(ch.reason, LIMITS.reason, where + ' "reason"', errors); if (r) c.reason = r; }
       else if (ch.reason != null) { var r2 = line(ch.reason, LIMITS.reason, where + ' "reason"', errors, true); if (r2) c.reason = r2; }
+      if (ch.op === 'plan') {
+        if (!whole(ch.attempt) || ch.attempt < 1 || ch.attempt > 999) errors.push(where + ': "attempt" is the attempt the plans are for.'); else c.attempt = ch.attempt;
+        if (typeof ch.record !== 'string' || !REQ.test(ch.record)) errors.push(where + ': "record" is the id of the plan chosen.'); else c.record = ch.record;
+      }
       if (ch.op === 'choose') {
         if (typeof ch.run !== 'string' || !/^[a-z0-9-]{1,40}$/i.test(ch.run)) errors.push(where + ': "run" is the id of the story\'s run that counts.'); else c.run = ch.run;
         if (!whole(ch.attempt) || ch.attempt < 1 || ch.attempt > 999) errors.push(where + ': "attempt" is the attempt the runs were started for.'); else c.attempt = ch.attempt;
@@ -17364,7 +17414,7 @@ PF.loop = (function () {
 
   return { KINDS: KINDS, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
     idFor: idFor, isScope: isScope, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
-    rollup: rollup, view: view, markStale: markStale, rowId: rowId, choiceWhy: choiceWhy, sendBackWhy: sendBackWhy, again: again, appliedIn: appliedIn, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
+    rollup: rollup, view: view, markStale: markStale, rowId: rowId, choiceWhy: choiceWhy, resolveWhy: resolveWhy, planWhy: planWhy, sendBackWhy: sendBackWhy, again: again, appliedIn: appliedIn, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();
 
 /* Reports from other apps (docs/apps.md, docs/design.md section 26): a tool that did a step's work says so in a report, a file
