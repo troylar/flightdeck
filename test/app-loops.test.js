@@ -683,4 +683,30 @@ rule('S2 (resolution): a resolution held at its last read writes nothing after a
   assert.strictEqual(Object.keys(fs0.files).filter(p => p.indexOf(id + '.status-') >= 0).length, n0, 'nothing written into the folder that was left');
 });
 
+/* S3, caches keyed by folder: what this window remembers about loops (the last readable view, starts in flight, requests
+   being applied, previews) belongs to the folder and generation it was read in, and never shows or blocks in another. */
+rule('S3 (last readable view): a folder opened next never shows the loop as another folder read it', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(200);
+  const was = app.fs; app.click('reset-examples'); await app.tick(60);
+  Object.keys(was.files).forEach(p => { if (!(p in app.fs.files)) app.fs.files[p] = was.files[p]; });
+  scopes(app).forEach(p => { app.fs.files[p] = { t: '{"format": "flightdeck-plan/3", "id": ', m: Date.now() }; });
+  app.choose('person-avery'); await app.tick(); app.click('refresh'); await app.tick(200);
+  app.click('open-run', 'release-readiness/' + parentRun(app).id); await app.tick(200);
+  assert.ok(/data-act="loop-add"|can.t be read/.test(app.html()), 'the run screen is open');
+  assert.ok(!/Last readable view/.test(txt(app)), 'no view carried over from the folder that was left');
+});
+rule('S3 (starts in flight): a start held in one folder never blocks the same start in the folder opened next', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  const was = app.fs, write = was.write.bind(was), hold = gate();
+  was.write = (p, t, o) => /^runs\/validate-story\//.test(p) ? hold.p.then(() => write(p, t, o)) : write(p, t, o);
+  app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(40);
+  await switchAway(app);
+  app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(60);
+  hold.open(); await app.tick(400);
+  assert.strictEqual(kidPaths(app).length, 1, 'started in the folder opened next, once the held write is dropped');
+  assert.ok(was, 'the held start in the folder that was left was dropped: one run in all');
+});
+
 run();

@@ -155,6 +155,7 @@
     /* Unsaved edits to a draft that was removed from this folder, so they stay findable. */
     lostDrafts: function () { var k = fsKey() + '\n', ids = processes().map(function (x) { return x.id; }); return Object.keys(state.editors || {}).filter(function (e) { var ed = state.editors[e]; return e.indexOf(k) === 0 && ed.text != null && ids.indexOf(ed.pid) < 0; }).map(function (e) { return state.editors[e].pid; }); },
     findRun: function (key) { return findRun(key); },
+    loopMem: function () { return loopMem(); },
     runOrigin: function (r) { return runOrigin(r); },
     /* A form's (Start a run, Plan a run, Start a test run, Review the plan): whichever screen opened it, else its checklist's page. */
     formOrigin: function (pid) { return originOf(function (loc) { return loc.view !== 'plan' && !loc.sub; }, procFind(pid) ? { view: 'process', process: pid } : { view: 'processes' }); },
@@ -2907,16 +2908,23 @@
   function loopKey(k) { var m = /([A-Z][A-Z0-9_]{0,29}-[1-9][0-9]{0,8})\/?$/.exec(String(k).trim()); return m ? m[1] : String(k).trim(); }
   /* The last view of each loop read with no scope record held, kept for this window only (never saved), drawn beside a hold. */
   function loopLast(r, id, V) {
-    if (!state.loopLast) state.loopLast = Object.create(null);
     var k = r.process + '/' + r.id + '/' + id;
-    if (!V.ledger.held.length) { state.loopLast[k] = { summary: V.rollup.summary, items: V.rollup.items.slice(0, 500), at: new Date().toISOString() }; return null; }
-    return state.loopLast[k] || null;
+    if (!V.ledger.held.length) { loopMem().last[k] = { summary: V.rollup.summary, items: V.rollup.items.slice(0, 500), at: new Date().toISOString() }; return null; }
+    return loopMem().last[k] || null;
   }
   function loopView(r, id) { return PF.loop.view(r, id, { records: data.scopes || [], unread: data.scopesUnread || [], runs: data.runs || [], procOf: ctx.procOf, who: personName }); }
   function loopHex(n) { return PF.sha256.hex(WRITER + ':' + Date.now() + ':' + Math.random()).slice(0, n); }
   /* S2, one write-time guard (docs/design.md 44): made at the click or when a request is taken up, it names the folder, its
      generation and the person acting; every loop write passes it to the save's still hook, so it is checked right before the
      bytes are written, after the save's last read and lock. A launch adds its own recheck of the run and its inputs. */
+  /* S3: everything this window remembers about loops (the last readable view, starts in flight, requests being applied, the
+     Start all preview, paging, filters, the row to return to) belongs to one folder and generation, and starts empty in the
+     next: nothing read, started or chosen in one folder shows in, or blocks, another. */
+  function loopMem() {
+    var m = state.loopMem;
+    if (!m || m.g !== gen || m.fs !== state.fs) m = state.loopMem = { g: gen, fs: state.fs, last: Object.create(null), starting: Object.create(null), applying: Object.create(null), preview: Object.create(null), all: Object.create(null), open: Object.create(null), ret: null, keepRow: null };
+    return m;
+  }
   function loopGuard(extra) { return Object.assign({ fs: state.fs, g: gen, me: state.me }, extra || {}); }
   function guardOk(cx) { return !!cx && cx.g === gen && cx.fs === state.fs && cx.me === state.me; }
   function loopSaved(p, words) {
@@ -2964,9 +2972,9 @@
     var first = loopChild(r, id, key, request);
     if (first.err) return Promise.reject(first.err);
     var attempt = first.attempt, rkey = r.process + '/' + r.id, flight = r.id + '/' + id + '/' + first.uid, child = null;
-    if (!state.loopStarting) state.loopStarting = Object.create(null);
-    if (state.loopStarting[flight]) return Promise.reject(Object.assign(new Error('already starting'), { quiet: true }));
-    state.loopStarting[flight] = true;
+    var mem = loopMem();
+    if (mem.starting[flight]) return Promise.reject(Object.assign(new Error('already starting'), { quiet: true }));
+    mem.starting[flight] = true;
     return queued(function () {
       if (moved()) throw stopped();
       var cur = findRun(rkey), now = cur ? loopChild(cur, id, key, request) : { err: new Error(key + ': the run can\'t be read. Nothing was started.') };
@@ -2987,8 +2995,8 @@
         return !(cx.q && PF.loop.requestCheck(c2, loopView(c2, id), cx.q, data.people));
       };
       return repo.saveRun(cx.fs, child, SESSION, { writer: WRITER, lock: LOCKS ? lock : null, still: still });
-    }).then(function () { delete state.loopStarting[flight]; return child; }, function (err) {
-      delete state.loopStarting[flight];
+    }).then(function () { delete mem.starting[flight]; return child; }, function (err) {
+      delete mem.starting[flight];
       if (err && err.dropped) throw moved() ? stopped() : new Error(key + ' changed while it waited to start. Nothing was started.');
       throw err;
     });
@@ -3021,7 +3029,7 @@
   function loopStartAll(id) {
     var r = ctx.run(), V = r && loopView(r, id); if (!V) return;
     var S = PF.loop.launchable(r, V, null, ctx.procOf), endBusy = busyStart(), cx = loopGuard();
-    if (state.loopPreview) delete state.loopPreview[id];
+    delete loopMem().preview[id];
     loopBatch(r, id, S.start.map(function (k) { return k.key; }), cx, null).then(function (b) {
       endBusy(); if (b.stopped || cx.g !== gen) return;
       var failed = b.failed.map(function (f) { return f.key + ' (' + f.why + ')'; });
@@ -3046,7 +3054,7 @@
      request on its loops with the same checks as the buttons, then records applied or refused beside the request. */
   function loopApply() {
     if (!state.me || !(data.scopes || []).length) return;
-    if (!state.loopApplying) state.loopApplying = Object.create(null);
+    var applying = loopMem().applying;
     data.runs.forEach(function (r) {
       if (!ctx.recording(r) || r.paused || r.ended || state.unsaved[r.id]) return;
       var map; try { map = R.mapOf(r); } catch (e) { return; }
@@ -3057,13 +3065,13 @@
           /* One at a time per folder generation; released however it ends, so a request cut short by a folder switch is
              carried out when its folder is read again. */
           var gk = gen + ':' + q.id;
-          if (q.status !== 'pending' || state.loopApplying[gk]) return;
-          state.loopApplying[gk] = true;
+          if (q.status !== 'pending' || applying[gk]) return;
+          applying[gk] = true;
           /* Bound to the folder, its generation and the person it started in: after a switch nothing more is done or
              written, and the request stays pending for the recorder's window in its own folder. */
           var cx = loopGuard({ q: q });
           loopCarry(r, sx.step.id, V, q, cx).then(function (out) { return loopOutcome(V, q, out.ok ? 'applied' : 'refused', out.why, cx); }, function (err) { return loopOutcome(V, q, 'refused', err && err.message || String(err), cx); })
-            .then(function (wrote) { delete state.loopApplying[gk]; if (wrote !== false && cx.g === gen) return load(true); }, function () { delete state.loopApplying[gk]; });
+            .then(function (wrote) { delete applying[gk]; if (wrote !== false && cx.g === gen) return load(true); }, function () { delete applying[gk]; });
         });
       });
     });
@@ -5961,13 +5969,13 @@
     var r = ctx.run();
     if (r) { var nx = R.nextUp(r, R.mapOf(r), state.me); state.sel = nx.step ? nx.step.id : null; }
     /* Back from a story's run opened from a loop's table: land on the loop with its page and filter as left, focus on that story's row. */
-    var back = state.loopReturn;
-    if (back && back.runKey === key) state.loopReturn = null; else { if (!back || key !== back.child) state.loopReturn = null; back = null; }
+    var lm = loopMem(), back = lm.ret;
+    if (back && back.runKey === key) lm.ret = null; else { if (!back || key !== back.child) lm.ret = null; back = null; }
     if (back && back.runKey === key && r && M.steps(R.mapOf(r)).some(function (x) { return x.step.id === back.step; })) state.sel = back.step; else back = null;
     arriveAtStep(state.sel);
     state.refOpen = window.innerWidth > 800; state.revealSel = true;
     /* The row stays in the table for this return even when the filter would now hide it (the story was completed there). */
-    state.loopKeepRow = back ? { run: key, step: back.step, key: back.item } : null;
+    lm.keepRow = back ? { run: key, step: back.step, key: back.item } : null;
     if (back) { state.focus = PF.loop.rowId(back.step, back.item); state.focusWins = true; return true; }
     window.scrollTo(0, 0);
     return false;
@@ -7396,7 +7404,7 @@
       render();
     },
     /* From a loop's table (data-loop): come back to that row. From a story's run to its loop (data-parent-loop): land on its row. */
-    'open-run': function (id, b) { var ds = b && b.dataset; state.loopReturn = ds && ds.loop && state.runKey ? { runKey: state.runKey, step: ds.loop, item: ds.item || '', child: id } : ds && ds.parentLoop ? { runKey: id, step: ds.parentLoop, item: ds.item || '', child: null } : null; openRun(id); render(); },
+    'open-run': function (id, b) { var ds = b && b.dataset; loopMem().ret = ds && ds.loop && state.runKey ? { runKey: state.runKey, step: ds.loop, item: ds.item || '', child: id } : ds && ds.parentLoop ? { runKey: id, step: ds.parentLoop, item: ds.item || '', child: null } : null; openRun(id); render(); },
     'review-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0]; if (!p) return; setView('start'); state.processId = p.process; state.planId = id; state.planning = null; state.testStage = null; state.planDiff = false; if (!state.planPick || state.planPick.plan !== id) state.planPick = null; state.fieldErr = null; render(); window.scrollTo(0, 0); },
     start: function (id) { setView('start'); state.processId = id; state.planId = null; state.planning = null; state.fieldErr = null; state.testStage = null; render(); window.scrollTo(0, 0); },
     /* A test run (2.1), from a stage's line under All versions on the open process. */
@@ -7642,8 +7650,8 @@
     'loop-accept': function (id, b) { loopDecide(id, 'accept', b.dataset.item); },
     'loop-keep': function (id, b) { loopDecide(id, 'keep', b.dataset.item); },
     'loop-start': function (id, b) { loopStart(id, b.dataset.item); },
-    'loop-start-all': function (id) { if (!state.loopPreview) state.loopPreview = Object.create(null); state.loopPreview[id] = true; render(); },
-    'loop-start-all-cancel': function (id) { if (state.loopPreview) delete state.loopPreview[id]; render(); },
+    'loop-start-all': function (id) { loopMem().preview[id] = true; render(); },
+    'loop-start-all-cancel': function (id) { delete loopMem().preview[id]; render(); },
     'loop-start-all-confirm': function (id) { loopStartAll(id); },
     'loop-owner': function (id, b) { loopChange(id, 'owner', [b.dataset.item], { owner: state.me }); },
     'loop-assign': function (id, b) { var who = val('loop-who-' + id); if (!who) { say('Choose who owns it first.', 'warn'); render(); return; } loopChange(id, 'owner', [b.dataset.item], { owner: who }); },
@@ -7651,8 +7659,8 @@
     'loop-resolve': function (id, b) { loopResolve(id, b.dataset.request, b.dataset.outcome); },
     'loop-choose': function (id, b) { var run = b.dataset.run || (b.dataset.pick ? val(b.dataset.pick) : ''), r = ctx.run(), V = r && loopView(r, id), w = V ? PF.loop.choiceWhy(V, b.dataset.item, run) : 'The loop can\'t be read.'; if (w) { say(w, 'warn'); render(); return; } loopChange(id, 'choose', [b.dataset.item], { run: run }); },
     'loop-unassign': function (id, b) { loopChange(id, 'owner', [b.dataset.item], { owner: '' }); },
-    'loop-more': function (id) { if (!state.loopAll) state.loopAll = Object.create(null); state.loopAll[id] = true; render(); },
-    'loop-open': function (id) { state.loopKeepRow = null; if (!state.loopOpen) state.loopOpen = Object.create(null); state.loopOpen[id] = !state.loopOpen[id]; render(); },
+    'loop-more': function (id) { loopMem().all[id] = true; render(); },
+    'loop-open': function (id) { var m = loopMem(); m.keepRow = null; m.open[id] = !m.open[id]; render(); },
     'loop-approve': function (id) {
       mutate(function (r, map, me, now) {
         var V = loopView(r, id);

@@ -199,8 +199,9 @@
     if (V.ledger.held.length) h += '<div class="notice warn"><span><b>Held:</b> a scope record of this loop can\'t be read yet, so nothing here can be approved until it can.' +
       (last ? ' Last readable view, from ' + esc(String(last.at).slice(0, 16).replace('T', ' ')) + ': <b>' + esc(last.summary) + '</b>. ' + last.items.slice(0, 50).map(function (i) { return esc((i.key || i.uid) + ' ' + (LOOP_STATUS[i.status] || i.status)); }).join(' · ') + (last.items.length > 50 ? ' · and ' + (last.items.length - 50) + ' more' : '') : '') + '</span></div>';
     if (RU.blockers.length) h += '<ul class="small">' + RU.blockers.slice(0, 12).map(function (b) { return '<li>' + esc(b.text) + '</li>'; }).join('') + (RU.blockers.length > 12 ? '<li>and ' + (RU.blockers.length - 12) + ' more</li>' : '') + '</ul>';
-    var me = ctx.state && ctx.state.me, all = !!(ctx.state && ctx.state.loopAll && ctx.state.loopAll[s.id]), open = !!(ctx.state && ctx.state.loopOpen && ctx.state.loopOpen[s.id]);
-    var keepRow = ctx.state && ctx.state.loopKeepRow, kept = keepRow && keepRow.run === r.process + '/' + r.id && keepRow.step === s.id ? keepRow.key : null;
+    var mem = ctx.loopMem ? ctx.loopMem() : { all: {}, open: {}, preview: {}, keepRow: null };
+    var me = ctx.state && ctx.state.me, all = !!mem.all[s.id], open = !!mem.open[s.id];
+    var keepRow = mem.keepRow, kept = keepRow && keepRow.run === r.process + '/' + r.id && keepRow.step === s.id ? keepRow.key : null;
     var rows = open ? RU.items.filter(function (i) { return (i.required && i.status !== 'cleared' && i.status !== 'exception') || (kept && i.key === kept); }) : RU.items, PAGE = 50;
     if (RU.items.length > 10) h += '<div class="row"><button class="mini" data-act="loop-open" data-id="' + sid + '" aria-pressed="' + open + '">' + (open ? 'Show every story' : 'Show only stories still open') + '</button></div>';
     if (RU.items.length) {
@@ -241,7 +242,7 @@
       (q.status === 'review' && work && ctx.recording && ctx.recording(r) ? ' <button class="mini" data-act="loop-resolve" data-id="' + sid + '" data-request="' + esc(q.id) + '" data-outcome="applied">Resolve: it was applied</button><button class="mini" data-act="loop-resolve" data-id="' + sid + '" data-request="' + esc(q.id) + '" data-outcome="refused">Resolve: it was refused</button>' : '') + '</li>'; }).join('') + '</ul>';
     if (work) {
       var S = PF.loop.launchable(r, V, null, ctx.procOf);
-      if (ctx.state && ctx.state.loopPreview && ctx.state.loopPreview[s.id]) h += '<div class="notice"><span><b>Start ' + S.start.length + (S.start.length === 1 ? ' run' : ' runs') + ':</b> ' + (S.start.length ? S.start.slice(0, 50).map(function (k) { return esc(k.key); }).join(', ') : 'none') +
+      if (mem.preview[s.id]) h += '<div class="notice"><span><b>Start ' + S.start.length + (S.start.length === 1 ? ' run' : ' runs') + ':</b> ' + (S.start.length ? S.start.slice(0, 50).map(function (k) { return esc(k.key); }).join(', ') : 'none') +
         (S.skip.length ? '. Skipped: ' + S.skip.slice(0, 50).map(function (k) { return esc(k.key) + ' (' + esc(k.why) + ')'; }).join(', ') : '') + '</span>' +
         (S.start.length ? '<button class="btn go" data-act="loop-start-all-confirm" data-id="' + sid + '">Start ' + S.start.length + '</button>' : '') + '<button class="btn" data-act="loop-start-all-cancel" data-id="' + sid + '">Cancel</button></div>';
       else if (S.start.length) h += '<button class="btn" data-act="loop-start-all" data-id="' + sid + '">Start all under my recording…</button>';
