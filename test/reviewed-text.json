@@ -13,8 +13,8 @@
       "reviewed": "fold design tips and the library panel; own-key reads; checked for direct writes and unconditional deletes"
     },
     "bin/flightdeck.js": {
-      "sha256": "df6510cab882593a091d80d3e98e5cfd363e85f9ef7535ad31f32b9c367e9631",
-      "reviewed": "a resolution's outcome names the resolver, recognized before the target's status; checked for direct writes and unconditional deletes"
+      "sha256": "8840f700fe5382ce78e7f3b7221cb2f7168a50483bb2a8198bffb78539171fa4",
+      "reviewed": "flightdeck loop: kind-aware keys, --title/--link for one item, feed check before filing, nouns in messages, kind/noun/source/link in read output, unknown kind refused; writes only through writeOnce, checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "21c5b257606a8aa3d24c956f518745372409b550008be4d06f5178081117708c",
@@ -253,8 +253,8 @@
       "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "src/core/loop.js": {
-      "sha256": "b294ec163227814832921e64f9e8aadc6dbe467b232b90131943e9d579f0560e",
-      "reviewed": "loops: items: item kind, feed binding, completeness fix, nouns, unknown-kind refusal in loop.js/map.js/publish.js/types.js and check_folder.py parity; pure checks only, checked for direct writes and unconditional deletes"
+      "sha256": "614eeb7e6f5f59359de82d5faa4806c5a1feb550807466d23a401d29606de9c5",
+      "reviewed": "flightdeck loop: kind-aware keys, --title/--link for one item, feed check before filing, nouns in messages, kind/noun/source/link in read output, unknown kind refused; writes only through writeOnce, checked for direct writes and unconditional deletes"
     },
     "src/core/map.js": {
       "sha256": "f9eae33f6635cd1b3983fc1c71eb7a3b3c8dc1c70ca3ef8ce8807d5228165d2f",

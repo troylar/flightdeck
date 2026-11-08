@@ -2624,10 +2624,11 @@ const HELP = `flightdeck: team process checklists, in one HTML file
                                       for AI assistants: every checklist, normalized, what links to what, the step
                                       types each uses, and what looks alike across checklists, with why. Only reads
   flightdeck loop read <team folder> <process>/<run> <loop step> --json
-                                      for AI assistants: one loop of a run: its stories, the exact counts, what
+                                      for AI assistants: one loop of a run: its items, the exact counts, what
                                       holds its gate and the approval. Only reads
   flightdeck loop sync <team folder> <process>/<run> <loop step> --from <file|-> --tool <name>@<version> --key <key> [--dry-run] [--json]
-                                      for AI assistants: ask for a change to a loop's list (also loop add, exclude,
+                                      for AI assistants: ask for a change to a loop's list (also loop add --keys,
+                                      with --title and --link for one item of items: item; exclude,
                                       restore, exception, withdraw, owner, choose, plan, review), or ask the recorder
                                       to start, start-all, approve, send-back or resolve. Writes one file in proposals/, once;
                                       --dry-run previews; the recorder's window applies; never writes a run
@@ -2685,13 +2686,14 @@ default goes to .flightdeck/updates/<version>/, with a README.md to hand to your
    recorder sees the change when Flightdeck reads the folder. --dry-run previews and writes nothing. The same --tool and --key
    always mean the same request: a retry writes nothing; the key with other content is refused. */
 const LOOP_SUBS = ['read', 'sync', 'add', 'exclude', 'restore', 'exception', 'withdraw', 'owner', 'choose', 'plan', 'review', 'start', 'start-all', 'approve', 'send-back', 'resolve'];
-const LOOP_VAL = ['--from', '--key', '--tool', '--keys', '--item', '--reason', '--approver', '--owner', '--as', '--accept', '--keep', '--run', '--record', '--outcome'];
+const LOOP_VAL = ['--from', '--key', '--tool', '--keys', '--title', '--link', '--item', '--reason', '--approver', '--owner', '--as', '--accept', '--keep', '--run', '--record', '--outcome'];
 const UNCERTAIN = 'Could not confirm whether the request was saved. Retry with the same key; a new key could ask twice.';
 function loopWords(json, sub) {
   if (json.error) return 'flightdeck: ' + json.error.why + json.problems.map((x) => '\n  ' + x.path + ': ' + x.why).join('');
   const d = json.data, lines = [];
   if (sub === 'read') {
     lines.push(d.title + ' · ' + d.summary);
+    if (d.noun) lines.push(d.items.length + ' ' + (d.items.length === 1 ? d.noun.one : d.noun.many) + ' listed' + (d.source ? ', fed by ' + d.source : ''));
     if (d.observation) lines.push('Last observed ' + d.observation.observedAt + (d.observation.complete ? '' : ' (not complete: ' + d.observation.why + ')'));
     if (d.approval) lines.push('Approved by ' + d.approval.by + ': ' + d.approval.summary);
     if (d.review.length || d.changes.length) lines.push('Approval needs review:', ...d.review.concat(d.changes).map((x) => '  ' + x));
@@ -2739,6 +2741,8 @@ async function loopMain(argv) {
     let map; try { map = R.mapOf(r); } catch (e) { return failOut('failed', 'The run\'s checklist can\'t be read here.', problems()); }
     const x = PF.map.findStep(map, stepId);
     if (!x || x.step.type !== 'for.each') return failOut('not-found', 'Step ' + stepId + ' of ' + proc + '/' + runId + ' isn\'t a loop ({for.each}).' + (writes ? ' Nothing was written.' : ''), problems());
+    /* A kind of item this copy doesn't know: the run is read-only here, named by its kind; no other kind stands in. */
+    if (!LP.kindOf(String(R.fieldsOf(r, x.step).items || '').trim())) return failOut('failed', (r._unrunnable || 'Step ' + stepId + ' takes a kind of item this copy of Flightdeck doesn\'t know.') + (writes ? ' Nothing was written.' : ''), problems());
     childProc = String(R.fieldsOf(r, x.step).process || '');
     const bad = [], got = await repo.readPlans(L.fs, bad, null, true);
     bad.forEach((b) => L.note(b.path, b.kind || 'malformed', fileWhy(b.why)));
@@ -2747,11 +2751,13 @@ async function loopMain(argv) {
     const nameOf = A.names(one.people), who = (p) => { const n = nameOf(p); return n ? n.name || n.id : ''; };
     const unread = (got.scopesUnread || []).concat(bad.filter((b) => /^proposals\/req-/.test(String(b.path || ''))).map((b) => ({ file: String(b.path).slice(10), why: b.why, loop: null })));
     const V = LP.view(r, stepId, { records: got.scopes, unread, runs: d.runs || [], procOf, who }), title = String(r.title || r.process);
+    /* What this loop's rows are called (noun:, or the kind's own), and an example key of its kind, for every message here. */
+    const N = V.noun, jira = V.kind === 'jira.issue', EX = jira ? ['ABC-101', 'ABC-102'] : ['staging', 'prod'];
     if (sub === 'read') {
       const R0 = V.rollup;
-      return done({ loop: V.loop, title, step: { id: stepId, text: x.step.text, state: (r.steps[stepId] || {}).s || 'open' }, process: childProc, pin: V.pin, accepts: V.accepts,
+      return done({ loop: V.loop, title, kind: V.kind, noun: { one: N.one, many: N.many }, source: V.fields.source || null, step: { id: stepId, text: x.step.text, state: (r.steps[stepId] || {}).s || 'open' }, process: childProc, pin: V.pin, accepts: V.accepts,
         summary: R0.summary, counts: R0.counts, ok: R0.ok, blockers: R0.blockers,
-        items: R0.items.map((i) => ({ uid: i.uid, key: i.key, title: i.title, state: i.state, status: i.status, result: i.result || null, run: i.run || null, runs: i.runs, competing: i.competing,
+        items: R0.items.map((i) => ({ uid: i.uid, key: i.key, title: i.title, link: (V.ledger.items.filter((y) => y.uid === i.uid)[0] || {}).link || null, state: i.state, status: i.status, result: i.result || null, run: i.run || null, runs: i.runs, competing: i.competing,
           recorder: i.recorder ? nameOf(i.recorder) : null, owner: i.owner ? nameOf(i.owner) : null, exception: i.exception ? { reason: i.exception.reason, approver: nameOf(i.exception.approver), onBehalf: i.exception.onBehalf } : null,
           review: i.review, mismatch: i.mismatch, attempt: i.attempt, planned: i.planned ? { inputs: i.planned.inputs, attempt: i.planned.attempt } : null,
           planConflict: i.planConflict, ownerConflict: i.ownerWhy || null, exceptionConflict: !!i.excReview })),
@@ -2771,7 +2777,7 @@ async function loopMain(argv) {
       /* A story named twice is refused before anything else, so a first try and its retry get the same answer. */
       const named = String(val['--item'] || '').split(/[\s,]+/).filter(Boolean), twice = named.filter((k, i) => named.indexOf(k) !== i);
       if (sub === 'resolve' && (!val['--record'] || ['applied', 'refused'].indexOf(val['--outcome']) < 0)) return usage('say which request with --record <request id> and what happened with --outcome applied or --outcome refused.');
-      if (sub === 'start' && twice.length) return usage('--item names ' + twice.filter((k, i) => twice.indexOf(k) === i).slice(0, 5).join(', ') + ' more than once. Name each story once. Nothing was written.');
+      if (sub === 'start' && twice.length) return usage('--item names ' + twice.filter((k, i) => twice.indexOf(k) === i).slice(0, 5).join(', ') + ' more than once. Name each ' + N.one + ' once. Nothing was written.');
       const a = r.steps && r.steps[stepId], lines = [];
       /* A retry under the same key is judged on what was first asked, before the loop's state now: an identical one says
          already (even once carried out), anything else under the key is refused, naming what changed. */
@@ -2793,7 +2799,7 @@ async function loopMain(argv) {
       if (V.ended) return failOut('invalid', 'This run has ended, so its loop takes no more requests. Nothing was written.', problems());
       if (sub === 'start' || sub === 'start-all') {
         const keys = sub === 'start' ? String(val['--item'] || '').split(/[\s,]+/).filter(Boolean) : null;
-        if (sub === 'start' && !keys.length) return usage('say which story with --item ABC-101.');
+        if (sub === 'start' && !keys.length) return usage('say which ' + N.one + ' with --item ' + EX[0] + '.');
         const S = LP.launchable(r, V, keys, procOf);
         if (!S.start.length) return failOut('invalid', 'Nothing to start' + (S.skip.length ? ': ' + S.skip.map((k) => k.key + ' (' + k.why + ')').join(', ') : '') + '. Nothing was written.', problems());
         act = { start: S.start, skip: S.skip };
@@ -2831,13 +2837,18 @@ async function loopMain(argv) {
       if (input.err) return usage('couldn\'t read the observation: ' + input.err.message);
       if (input.tooBig) return failOut('invalid', 'An observation is at most ' + (LP.LIMITS.bytes / 1024) + ' KB; this one is more. Nothing is cut: narrow the search. Nothing was written.');
       let obs; try { obs = JSON.parse(input.buf.toString('utf8').replace(/^﻿/, '')); } catch (e) { return failOut('invalid', 'The observation isn\'t complete JSON: ' + e.message + ' Nothing was written.'); }
+      /* An observation from another feed, or another scope of this one, is refused before anything is filed. */
+      const fw = LP.feedWhy(obs && typeof obs === 'object' ? obs : {}, V.fields, V.ledger.observation);
+      if (fw) return failOut('invalid', 'This ' + fw + '. Nothing was written.', problems());
       value = { loop: V.loop, observation: obs };
     } else {
-      const items = (sub === 'add' ? String(val['--keys'] || '') : String(val['--item'] || '')).split(/[\s,]+/).filter(Boolean).map((k) => { const km = /([A-Z][A-Z0-9_]{0,29}-[1-9][0-9]{0,8})\/?$/.exec(k); return km ? km[1] : k; });
-      if (!items.length) return usage(sub === 'add' ? 'say which stories with --keys ABC-101,ABC-102 (keys or links).' : 'say which story with --item ABC-101.');
+      /* A Jira key may come as its link; any other kind's key is taken exactly as typed (case and all). */
+      const items = (sub === 'add' ? String(val['--keys'] || '') : String(val['--item'] || '')).split(/[\s,]+/).filter(Boolean).map((k) => { const km = jira ? /([A-Z][A-Z0-9_]{0,29}-[1-9][0-9]{0,8})\/?$/.exec(k) : null; return km ? km[1] : k; });
+      if (!items.length) return usage(sub === 'add' ? 'say which ' + N.many + ' with --keys ' + EX.join(',') + (jira ? ' (keys or links).' : '.') : 'say which ' + N.one + ' with --item ' + EX[0] + '.');
+      if ((val['--title'] != null || val['--link'] != null) && (sub !== 'add' || items.length !== 1 || jira)) return usage('--title and --link go with adding one ' + (jira ? 'item of a list (items: item); a Jira story brings its own' : N.one + ' (--keys ' + EX[0] + ')') + '.');
       const find = (k) => V.ledger.items.filter((i) => i.key === k)[0];
       value = { loop: V.loop, changes: items.map((k) => {
-        const it = sub === 'add' ? { key: k } : (find(k) ? { id: find(k).id || undefined, key: k } : { key: k }), c = { op: sub, item: it };
+        const it = sub === 'add' ? Object.assign({ key: k }, val['--title'] != null ? { title: val['--title'] } : {}, val['--link'] != null ? { link: val['--link'] } : {}) : (find(k) && find(k).id ? { id: find(k).id, key: k } : { key: k }), c = { op: sub, item: it };
         if (val['--reason'] != null) c.reason = val['--reason'];
         if (sub === 'exception') { c.approver = val['--approver']; if (val['--as']) c.onBehalf = true; }
         if (sub === 'owner') c.owner = val['--owner'] || '';
@@ -2846,10 +2857,10 @@ async function loopMain(argv) {
         return c;
       }) };
       if (sub !== 'add') { const miss = items.filter((k) => !find(k)); if (miss.length) return failOut('invalid', miss.join(', ') + (miss.length === 1 ? ' isn\'t' : ' aren\'t') + ' in this loop. Nothing was written.', problems()); }
-      if (sub === 'plan') { if (items.length !== 1 || !val['--record']) return usage('say which story with --item ABC-101 and which of its plans to keep with --record <request id>.'); const pw = LP.planWhy(V, items[0], val['--record']); if (pw) return failOut('invalid', pw + ' Nothing was written.', problems()); }
-      if (sub === 'choose') { if (items.length !== 1 || !val['--run']) return usage('say which story with --item ABC-101 and which of its runs counts with --run <run id>.'); const cw = LP.choiceWhy(V, items[0], val['--run']); if (cw) return failOut('invalid', cw + ' Nothing was written.', problems()); }
+      if (sub === 'plan') { if (items.length !== 1 || !val['--record']) return usage('say which ' + N.one + ' with --item ' + EX[0] + ' and which of its plans to keep with --record <request id>.'); const pw = LP.planWhy(V, items[0], val['--record']); if (pw) return failOut('invalid', pw + ' Nothing was written.', problems()); }
+      if (sub === 'choose') { if (items.length !== 1 || !val['--run']) return usage('say which ' + N.one + ' with --item ' + EX[0] + ' and which of its runs counts with --run <run id>.'); const cw = LP.choiceWhy(V, items[0], val['--run']); if (cw) return failOut('invalid', cw + ' Nothing was written.', problems()); }
     }
-    const c = LP.cleanIntent(value, val['--key'], tool);
+    const c = LP.cleanIntent(value, val['--key'], tool, V.kind);
     if (c.errors.length) return failOut('invalid', c.errors.join(' ') + ' Nothing was written.', problems());
     const id = LP.idFor(tool.name, val['--key']), file = 'proposals/' + id + '.json';
     const mine = got.scopes.filter((s) => s.id === id);
@@ -2878,7 +2889,7 @@ async function loopMain(argv) {
     }
     if (V.ledger.held.length) return held('This loop has a scope record this computer can\'t read yet (' + V.ledger.held.map((h) => h.record).join(', ') + '). Nothing written. Check folder availability, then retry.');
     const P = LP.project(r, V, c.intent, { who });
-    if (P.overLimit) return failOut('invalid', 'This would put ' + P.overLimit.count + ' stories in scope; the loop takes at most ' + P.overLimit.max + '. Nothing is cut and nothing was written.', problems());
+    if (P.overLimit) return failOut('invalid', 'This would put ' + LP.count(P.overLimit.count, N) + ' in scope; the loop takes at most ' + P.overLimit.max + '. Nothing is cut and nothing was written.', problems());
     const f = LP.buildRequest(c.intent, { seen: P.seen, children: P.record.children, now: new Date().toISOString(), app: eng.version });
     const data = (status) => ({ loop: V.loop, status, request: { id, file }, preview: LP.previewText(P, { title, dryRun: status === 'would-request', problems: problems() }),
       added: P.added, proposed: P.proposed.map((p) => ({ uid: p.uid, key: p.key, title: p.title, run: p.run || null, recorder: p.recorder ? nameOf(p.recorder) : null, open: !!p.open, answered: p.answered || 0, total: p.total || 0 })),
@@ -2897,7 +2908,7 @@ async function loopMain(argv) {
 async function loopReview(eng, o) {
   const PF = eng.PF, LP = PF.loop, V = o.V, val = o.val;
   const acc = val['--accept'], keep = val['--keep'];
-  if ((acc == null) === (keep == null)) return o.usage('say --accept ABC-103,ABC-107 to remove them, or --keep ... to keep them in scope.');
+  if ((acc == null) === (keep == null)) return o.usage('say --accept ' + (V.kind === 'jira.issue' ? 'ABC-103,ABC-107' : 'staging,prod') + ' to remove them, or --keep ... to keep them in scope.');
   if (!val['--as'] || !/^[A-Za-z0-9_.-]{1,80}$/.test(val['--as'])) return o.usage('say whose decision this is with --as <person id from people.json>. It is recorded as theirs, on their behalf.');
   const keys = String(acc != null ? acc : keep).split(/[\s,]+/).filter(Boolean), op = acc != null ? 'accept' : 'keep';
   const items = keys.map((k) => V.ledger.items.filter((i) => i.key === k)[0]);

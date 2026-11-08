@@ -492,6 +492,8 @@ PF.loop = (function () {
     o = o || {};
     var map = PF.run.mapOf(r), x = PF.map.findStep(map, stepId);
     if (!x || x.step.type !== 'for.each') return null;
+    /* A kind this copy doesn't know has no view: never read as another kind (its run is read-only, PF.publish.unrunnable). */
+    if (!kindOf(String(PF.run.fieldsOf(r, x.step).items || '').trim())) return null;
     var f = PF.run.fieldsOf(r, x.step), loop = { process: r.process, run: r.id, step: stepId };
     var L = reduce(recordsFor(o.records, loop), { max: limitOf({ fields: f }), kind: f.items, feed: f.source });
     (o.unread || []).forEach(function (u) {
@@ -730,6 +732,7 @@ PF.loop = (function () {
     var K = kindOf(kind || 'jira.issue'), out = { id: '', key: '', title: '' };
     if (!K) { errors.push(where + ' is an item of kind ' + String(kind).slice(0, 40) + ', which this copy of Flightdeck doesn\'t know.'); return null; }
     if (!K.id) {
+      out = { key: '', title: '' };
       if (!isMap(it)) { errors.push(where + ' is {"key": "staging", "title": "...", "link": "https://..."}.'); return null; }
       Object.keys(it).forEach(function (k) { if (['key', 'title', 'link'].indexOf(k) < 0) errors.push(where + ' has ' + q(k) + '; an item has key, title and link.'); });
       if (typeof it.key !== 'string' || !K.key.test(it.key)) errors.push(where + ': "key" is 1 to 40 letters, digits, hyphens or underscores, starting with a letter or digit, like staging.');

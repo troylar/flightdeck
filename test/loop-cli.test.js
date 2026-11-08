@@ -28,12 +28,12 @@ const PARENT = ['---', 'process: release-readiness', 'title: Release 4.1', 'cont
 const people = [{ id: 'person-morgan', name: 'Morgan' }, { id: 'person-avery', name: 'Avery' }];
 const obs = (ns, o) => Object.assign({ source: { system: 'jira' }, generation: 'g1', query: 'fixVersion = 4.1', observedAt: '2026-11-07T09:42:00Z',
   items: ns.map(n => ({ id: String(10000 + n), key: 'ABC-' + n, title: 'Story ' + n })), reported: ns.length, fetched: ns.length, complete: true, errors: [] }, o || {});
-async function folder() {
+async function folder(md) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-loop-')), d = new DiskFS(root);
   await d.write('people.json', JSON.stringify(people));
   await PF.repo.publish(d, CHILD, { people, by: 'person-morgan', changes: 'First', existing: [], now: AT, app: '3.0.0' });
   let all = await PF.repo.loadAll(d, {});
-  const pr = await PF.repo.publish(d, PARENT, { people, by: 'person-morgan', changes: 'First', existing: [], now: AT, app: '3.0.0', processes: all.processes }); if (pr.blockers) throw new Error(JSON.stringify(pr.blockers));
+  const pr = await PF.repo.publish(d, md || PARENT, { people, by: 'person-morgan', changes: 'First', existing: [], now: AT, app: '3.0.0', processes: all.processes }); if (pr.blockers) throw new Error(JSON.stringify(pr.blockers));
   all = await PF.repo.loadAll(d, {});
   const procOf = (id) => { const x = all.processes.filter(p => p.process === id)[0]; return x ? { latest: x.index.latest, all: x.index.all, clashes: x.index.clashes, broken: [] } : null; }, pp = procOf('release-readiness').latest;
   const r = R.create(pp, { id: 'r-41', by: 'person-morgan', session: 'w', now: AT, app: '3.0.0', details: { fix_version: '4.1' }, pins: PF.pins.atStart(pp.map, pp.info.payload ? pp.info.payload.pins : null, procOf) });
@@ -284,6 +284,63 @@ rule('Review round 7 (5): loop resolve files a request to record an outcome reco
   assert.strictEqual(json(...R7, '--key', 'r2').data.status, 'already');
   const other = json('loop', 'resolve', root, 'release-readiness/r-41', 'each', '--record', id, '--outcome', 'applied', '--key', 'r2', '--json', ...T);
   assert.deepStrictEqual([other.code, other.error && other.error.kind], [1, 'key-taken']);
+});
+
+/* Slice 3b: a loop over any list (items: item), kept by hand or fed by one declared tool. */
+const GPARENT = PARENT.replace('title: Release 4.1', 'title: Deploy everywhere').replace('Validate every release story', 'Deploy to every environment')
+  .replace('  items: jira.issue', '  items: item\n  source: deploy-targets\n  noun: environment / environments').replace('issue=item:key, fix_version=^fix_version', 'issue=item:key');
+const gobs = (keys, o) => Object.assign({ source: { feed: 'deploy-targets', account: 'team-a' }, generation: 'g1', query: '', observedAt: '2026-11-08T09:42:00Z',
+  items: keys.map(k => ({ key: k })), reported: keys.length, fetched: keys.length, complete: true, errors: [] }, o || {});
+rule('3b: a generic loop: keys exactly as typed, a title and a safe link for one, its noun in every message, and only its own feed syncs', async () => {
+  const { root } = await folder(GPARENT), at = (...a) => ['loop', ...a.slice(0, 1), root, 'release-readiness/r-41', 'each', ...a.slice(1)], T = (k) => ['--tool', 'deploy-helper@1.0', '--key', k];
+  const f = path.join(root, '..', path.basename(root) + '-g.json');
+  const pre = cli(...at('add', '--keys', 'staging,Prod', '--dry-run', ...T('a1')));
+  assert.ok(/Would add 2 environments\./.test(pre.out) && !/stor(y|ies)|Jira/.test(pre.out), pre.out);
+  const bad = json(...at('add', '--keys', 'qa', '--title', 'QA', '--link', 'javascript:alert(1)', '--json', ...T('a2')));
+  assert.ok(bad.code !== 0 && /"link" is an http or https address/.test(bad.error.why), JSON.stringify(bad.error));
+  for (const [k, re] of [['__proto__', /"key" is 1 to 40/], ['constructor', /keeps for itself/], ['toString', /keeps for itself/], ['-lead', /"key" is 1 to 40/]]) { const rk = json(...at('add', '--keys', k, '--json', ...T('r' + k.replace(/[^a-z]/gi, '').toLowerCase()))); assert.ok(rk.code !== 0 && re.test(rk.error.why), k + ' ' + JSON.stringify(rk.error)); }
+  const two = json(...at('add', '--keys', 'qa,dev', '--title', 'QA', '--json', ...T('a3')));
+  assert.ok(two.code !== 0 && /one environment/.test(two.error.why), JSON.stringify(two.error));
+  assert.deepStrictEqual(ls(root), [], 'nothing refused was written');
+  const a4 = json(...at('add', '--keys', 'staging,Prod', '--json', ...T('a4'))); assert.strictEqual(a4.code, 0, JSON.stringify(a4.problems || a4.error));
+  const a5 = json(...at('add', '--keys', 'qa', '--title', 'QA', '--link', 'https://qa.example.com/', '--json', ...T('a5'))); assert.strictEqual(a5.code, 0, JSON.stringify(a5.problems || a5.error));
+  fs.writeFileSync(f, JSON.stringify(gobs(['qa', 'dev'], { source: { feed: 'other-feed' } })));
+  const other = json(...at('sync', '--from', f, '--json', ...T('s0')));
+  assert.ok(other.code !== 0 && /other-feed, but this loop is fed by deploy-targets/.test(other.error.why), JSON.stringify(other.error));
+  fs.writeFileSync(f, JSON.stringify(Object.assign(obs([101]))));
+  assert.ok(json(...at('sync', '--from', f, '--json', ...T('s1'))).code !== 0, 'a Jira observation is not this feed');
+  const n0 = ls(root).length;
+  fs.writeFileSync(f, JSON.stringify(gobs(['qa', 'dev'])));
+  const s2 = json(...at('sync', '--from', f, '--json', ...T('s2'))); assert.strictEqual(s2.code, 0, JSON.stringify(s2.problems || s2.error));
+  fs.writeFileSync(f, JSON.stringify(gobs(['qa'], { source: { feed: 'deploy-targets', account: 'team-b' } })));
+  const scope = json(...at('sync', '--from', f, '--json', ...T('s3')));
+  assert.ok(scope.code !== 0 && /another scope of the feed deploy-targets \(its account differ/.test(scope.error.why), JSON.stringify(scope.error));
+  fs.writeFileSync(f, JSON.stringify(gobs(['qa'])));
+  const sy = json(...at('sync', '--from', f, '--json', ...T('s4')));
+  assert.ok(/request review of 1 removal/.test(sy.data.preview) && /Observation from deploy-targets/.test(sy.data.preview), sy.data.preview);
+  assert.strictEqual(ls(root).length, n0 + 2, 'only the two good syncs were filed');
+  const rd = json(...at('read', '--json'));
+  assert.deepStrictEqual([rd.data.kind, rd.data.noun, rd.data.source], ['item', { one: 'environment', many: 'environments' }, 'deploy-targets']);
+  assert.deepStrictEqual(rd.data.items.map(i => [i.key, i.state, i.link]), [['staging', 'in', null], ['Prod', 'in', null], ['qa', 'in', 'https://qa.example.com/'], ['dev', 'proposed', null]], 'case kept; only dev, which the feed enrolled, is proposed');
+  assert.deepStrictEqual(rd.data.pending.map(p => p.key), ['dev']);
+  assert.ok(/^Deploy everywhere · .*\n4 environments listed, fed by deploy-targets/.test(cli(...at('read')).out));
+  const st = json(...at('start', '--item', 'staging,staging', '--as', 'person-morgan', '--json', ...T('t1')));
+  assert.ok(/Name each environment once/.test(st.error.why), st.error.why);
+});
+rule('3b: --title and --link are for a list of items; a Jira loop refuses them and keeps its Jira wording', async () => {
+  const { root } = await folder(), u = json('loop', 'add', root, 'release-readiness/r-41', 'each', '--keys', 'ABC-101', '--title', 'x', '--json', '--tool', 'h@1.0', '--key', 'j1');
+  assert.ok(u.code !== 0 && /--title and --link go with adding one item of a list/.test(u.error.why), JSON.stringify(u.error));
+  const e = json('loop', 'add', root, 'release-readiness/r-41', 'each', '--json', '--tool', 'h@1.0', '--key', 'j2');
+  assert.ok(/say which stories with --keys ABC-101,ABC-102 \(keys or links\)\./.test(e.error.why), e.error.why);
+  assert.deepStrictEqual(ls(root), []);
+});
+rule('3b: a run whose loop takes a kind this copy doesn\'t know is read-only, naming the kind, and nothing is written', async () => {
+  const { root } = await folder(GPARENT), rf = path.join(root, 'runs/release-readiness/r-41/run.json');
+  fs.writeFileSync(rf, fs.readFileSync(rf, 'utf8').split('items: item').join('items: widget'));
+  const before = fs.readFileSync(rf, 'utf8');
+  const a = json('loop', 'add', root, 'release-readiness/r-41', 'each', '--keys', 'qa', '--json', '--tool', 'h@1.0', '--key', 'w1');
+  assert.ok(a.code !== 0 && /widget/.test(a.error.why) && /doesn't know/.test(a.error.why) && /Nothing was written/.test(a.error.why), JSON.stringify(a.error));
+  assert.deepStrictEqual([ls(root), fs.readFileSync(rf, 'utf8') === before], [[], true]);
 });
 
 run();
