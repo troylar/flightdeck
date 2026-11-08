@@ -93,18 +93,22 @@ PF.loop = (function () {
        decision before it and disagrees makes them contrary (held, in rv); a later one settles it only once it has seen
        both. Returns 'contrary', 'held' or 'settled'. same(prev, val): whether they agree. why: { both(prev, val), again }. */
     function settle(x, slot, rv, rec, val, same, why) {
-      var prev = x[slot];
-      if (prev && !same(prev, val) && !c.anc[rec.id][prev.record]) {
-        x[rv].push({ records: [prev.record, rec.id], ops: [prev.op, val.op], why: why.both(prev, val) });
-        x[slot] = Object.assign({}, val, { record: rec.id, contrary: prev.record });
-        return 'contrary';
-      }
-      if (prev && prev.contrary && !(c.anc[rec.id][prev.record] && c.anc[rec.id][prev.contrary])) {
-        /* Still contrary: this record hasn't seen both. */
-        x[rv].push({ records: [prev.contrary, prev.record, rec.id], ops: [val.op], why: why.again });
+      /* Every decision made in this slot, and the participants of its unresolved conflicts (x[rv]): a record settles them only
+         when it has seen every participant still outstanding, however many there are (S1, docs/design.md 44). */
+      var all = x[slot + 'All'] || (x[slot + 'All'] = []), saw = function (id) { return !!c.anc[rec.id][id]; }, out = [];
+      x[rv].forEach(function (r) { r.records.forEach(function (id) { if (out.indexOf(id) < 0) out.push(id); }); });
+      var against = all.filter(function (e) { return !saw(e.record) && !same(e.val, val); });
+      all.push({ record: rec.id, val: val });
+      if (out.length && !out.every(saw)) {
+        x[rv].push({ records: out.concat([rec.id]), ops: [val.op], why: why.again });
         return 'held';
       }
-      x[rv] = x[rv].filter(function (r) { return !r.records.every(function (id) { return c.anc[rec.id][id]; }); });
+      if (against.length) {
+        against.forEach(function (e) { x[rv].push({ records: [e.record, rec.id], ops: [e.val.op, val.op], why: why.both(Object.assign({}, e.val, { record: e.record }), val) }); });
+        x[slot] = Object.assign({}, val, { record: rec.id, contrary: against[0].record });
+        return 'contrary';
+      }
+      x[rv] = [];
       x[slot] = Object.assign({}, val, { record: rec.id });
       return 'settled';
     }
@@ -125,7 +129,6 @@ PF.loop = (function () {
         { both: function (p) { return 'Two plans for attempt ' + attempt + ' were made at once: ' + p.record + ' and ' + rec.id + '.'; }, again: 'Planned again without seeing both earlier plans.' });
       x.attempt = Math.max(x.attempt, attempt);
       x.planned = sp === 'settled' ? { record: from, attempt: attempt, inputs: inputs, owner: owner } : null;
-      if (sp === 'settled' && owner && !x.owner && !x.own && !(x.ownReview || []).length) x.owner = String(owner);
     }
     c.order.forEach(function (rec) {
       if (rec.type === 'request') {
@@ -217,6 +220,11 @@ PF.loop = (function () {
         });
       }
     });
+    /* The owner comes only from settled decisions: an owner decision when there is one (none while two conflict), else the
+       settled plan's suggestion (none while plans conflict). Never from whichever record sorted first. */
+    items.forEach(function (x) {
+      x.owner = x.ownReview.length ? '' : x.own ? (x.own.contrary ? '' : x.own.owner) : x.planReview.length || !x.planned ? '' : String(x.planned.owner || '');
+    });
     var inScope = items.filter(function (x) { return x.state !== 'removed'; }).length;
     var heads = c.order.filter(function (r) { return !c.order.some(function (q) { return c.anc[q.id] && c.anc[q.id][r.id]; }); }).map(function (r) { return r.id; });
     return { items: items, held: c.held, duplicates: duplicates, heads: heads, requests: asks, observation: lastObs, applied: c.order.map(function (r) { return r.id; }),
@@ -261,6 +269,13 @@ PF.loop = (function () {
         planConflict: (x.planReview || []).length && x.plan ? planConflict(x) : null,
         runs: mine.map(function (c) { return c.id; }), run: latest.length === 1 ? latest[0].id : '', competing: latest.length > 1, candidates: candidates, chosen: cho && seenAll ? cho.run : '', recorder: latest.length === 1 && latest[0].recorder ? latest[0].recorder.person || '' : '',
         result: '', accepted: false, status: '', fp: '', planned: x.planned, attempt: Math.max(top, x.attempt) };
+      /* S1, fail closed: any decision on this story still in conflict holds approval, whether or not it is in scope now. */
+      var cname = x.key || x.uid, cflag = function (text) { counts.review++; blockers.push({ key: x.key, uid: x.uid, kind: 'review', run: row.run, text: cname + text }); };
+      if (row.review) cflag(' needs a scope decision: two were made at once.');
+      if (row.excReview) cflag('\'s approval without a run was decided two ways at once; approve it without a run or withdraw it again, having seen both.');
+      if (row.ownerWhy) cflag(': two people assigned it at once; assign it again.');
+      if ((x.planReview || []).length) cflag(': two plans for attempt ' + (x.plan ? x.plan.attempt : 1) + ' were made at once; keep one.');
+      if ((x.choiceReview || []).length && !(latest.length > 1)) cflag(': two people chose different runs at once; choose again, having seen both.');
       if (!row.required) { row.status = 'removed'; counts.removed++; rows.push(row); return; }
       counts.inScope++;
       if (x.state === 'proposed') counts.proposed++;
@@ -284,11 +299,11 @@ PF.loop = (function () {
       else if (why === 'stopped') { row.status = 'stopped'; b = { kind: 'stopped', text: name + '\'s run ended ' + String(c.ended.outcome).toLowerCase() + ' · ' + who(row.recorder) }; }
       else if (why === 'unread') { row.status = 'unread'; b = { kind: 'unread', text: row.unqualified ? name + '\'s run ' + row.unqualified + '. Start a new run for it.' : name + '\'s result can\'t be counted as read. Open its run.' }; }
       else { row.status = 'result'; counts.results[row.result || 'none'] = (counts.results[row.result || 'none'] || 0) + 1; b = { kind: 'result', text: name + ' ' + (row.result ? (row.result === 'needs-work' ? 'needs work' : 'returned ' + words(row.result)) : 'returned no result') + ' · ' + who(row.recorder) }; }
-      if (row.review) { counts.review++; blockers.push({ key: x.key, uid: x.uid, kind: 'review', run: row.run, text: name + ' needs a scope decision: two were made at once.' }); }
-      if (row.excReview) { counts.review++; blockers.push({ key: x.key, uid: x.uid, kind: 'review', run: row.run, text: name + '\'s approval without a run was decided two ways at once; approve it without a run or withdraw it again, having seen both.' }); }
       if (b) { b.key = x.key; b.uid = x.uid; b.run = row.run || (row.runs[0] || ''); blockers.push(b); }
       rows.push(row);
     });
+    /* A request's outcome recorded both ways holds approval too, until it is resolved. */
+    Object.keys(L.requests || {}).forEach(function (id) { if (L.requests[id].statusReview.length) { counts.review++; blockers.push({ key: '', kind: 'review', record: id, text: 'Request ' + id + ' was recorded both applied and refused at once; resolve it.' }); } });
     var parts = [counts.inScope + ' in scope', counts.cleared + ' cleared by validation'];
     if (counts.exception) parts.push(counts.exception + ' approved without a run');
     Object.keys(counts.results).sort().forEach(function (v) { parts.push(counts.results[v] + ' ' + (v === 'none' ? 'returned no result' : words(v))); });

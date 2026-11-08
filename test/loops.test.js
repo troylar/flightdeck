@@ -608,4 +608,50 @@ rule('Review round 7 (5): an outcome recorded both ways is resolved by the effec
   assert.ok(LP.resolveWhy(r, 'each', Object.assign({}, start, { status: 'applied' }), 'applied', [kidY]).length > 0, 'only an outcome recorded both ways is resolved');
 });
 
+/* S1, fail closed: no loop record in an unresolved conflict lets the roll-up say ok, whatever the record names, on a removed
+   row too; settling needs a record that saw every participant still outstanding. One case per kind of record. */
+const b8 = () => req('s0', [], { observation: obs([101, 102]) });
+const runs8 = () => [ended(101, 'cleared'), ended(102, 'cleared')];
+const on102 = (op, extra) => Object.assign({ op, item: { id: '10102', key: 'ABC-102' } }, extra || {});
+const perms = (a) => a.length < 2 ? [a] : [].concat(...a.map((x, i) => perms(a.slice(0, i).concat(a.slice(i + 1))).map(p => [x].concat(p))));
+rule('S1 (scope): three decisions at once, and one that saw only some of them, hold approval until one saw every participant', () => {
+  same(RO(LP.reduce([b8()]), runs8()).ok, true, 'baseline');
+  for (const [na, nb, nc] of perms(['s-a', 's-m', 's-z'])) {
+    const recs = [b8(), req(na, ['s0'], { changes: [on102('exclude', { reason: 'Moved' })] }), req(nb, ['s0'], { changes: [on102('restore')] }), req(nc, ['s0'], { changes: [on102('exclude', { reason: 'Moved' })] }),
+      req('s-d', [nb, nc], { changes: [on102('exclude', { reason: 'Moved' })] })];
+    same(RO(LP.reduce(recs), runs8()).ok, false, [na, nb, nc].join(' '));
+    const all = LP.reduce(recs.concat([req('s-e', ['s-d', na], { changes: [on102('exclude', { reason: 'Moved' })] })]));
+    same([RO(all, runs8()).ok, all.items[1].state], [true, 'removed'], 'settled by one that saw every participant');
+  }
+});
+rule('S1 (every kind): an exception, owner, plan, choice or request outcome in conflict holds approval, on a removed row too', () => {
+  const gone = req('s-x', ['s0'], { changes: [on102('exclude', { reason: 'Moved' })] });
+  const plan = (v, o) => [{ item: { id: '10102', key: 'ABC-102' }, attempt: 1, inputs: { story: v }, owner: o || '' }];
+  const ask = req('s-q', ['s0'], { changes: [{ op: 'start', item: { key: 'ABC-102' }, as: 'person-avery' }] });
+  const cases = {
+    exception: [req('s-e1', ['s-x'], { changes: [on102('exception', { reason: 'Docs', approver: 'person-morgan' })] }), req('s-e2', ['s-x'], { changes: [on102('withdraw')] })],
+    owner: [req('s-o1', ['s-x'], { changes: [on102('owner', { owner: 'person-avery' })] }), req('s-o2', ['s-x'], { changes: [on102('owner', { owner: 'person-morgan' })] })],
+    plan: [req('s-p1', ['s-x'], { children: plan('a') }), req('s-p2', ['s-x'], { children: plan('b') })],
+    choice: [req('s-c1', ['s-x'], { changes: [on102('choose', { run: 'c102', attempt: 1, candidates: ['c102', 'c102b'] })] }), req('s-c2', ['s-x'], { changes: [on102('choose', { run: 'c102b', attempt: 1, candidates: ['c102', 'c102b'] })] })],
+    outcome: [ask, dec('s-d1', ['s-q'], 's-q', 'applied', []), dec('s-d2', ['s-q'], 's-q', 'refused', [])]
+  };
+  for (const k of Object.keys(cases)) {
+    for (const removed of [false, true]) {
+      const recs = [b8()].concat(removed ? [gone] : []).concat(cases[k].map(r => Object.assign({}, r, { seen: r.seen.map(x => (x === 's-x' && !removed) ? 's0' : x) })));
+      const R0 = RO(LP.reduce(recs), runs8());
+      same(R0.ok, false, k + (removed ? ' on a removed row' : ''));
+      assert.ok(R0.blockers.some(b => /at once|both ways/.test(b.text)), k + ': ' + R0.blockers.map(b => b.text).join(' | '));
+    }
+  }
+});
+rule('Review round 8 (4): the suggested owner comes only from the settled plan, whatever the record names', () => {
+  const plan = (o) => [{ item: { id: '10102', key: 'ABC-102' }, attempt: 1, inputs: { story: o }, owner: o }];
+  for (const [na, nb] of [['p-a', 'p-z'], ['p-z', 'p-a']]) {
+    const two = [b8(), req(na, ['s0'], { children: plan('person-avery') }), req(nb, ['s0'], { children: plan('person-morgan') })];
+    same(LP.reduce(two).items[1].owner, '', na + ' first: no owner while the plans conflict');
+    const pick = LP.reduce(two.concat([req('p-k', [na, nb], { changes: [on102('plan', { attempt: 1, record: nb })] })]));
+    same(pick.items[1].owner, nb === 'p-z' ? 'person-morgan' : 'person-morgan', 'the chosen plan\'s owner');
+  }
+});
+
 run();

@@ -253,8 +253,8 @@
       "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "src/core/loop.js": {
-      "sha256": "a29743cb9a169ec94e5a6dbe94dc095dd3026c145404c686fcef4235afd425e2",
-      "reviewed": "round 7: required folder on every start, child built in the queue, plan owner default, plan choice, resolve; checked for direct writes and unconditional deletes"
+      "sha256": "701f7ef3e0bbce4d5934eb4fc6fabf746cd7ec3da82be91d90cc56455fc7bd2f",
+      "reviewed": "S1: settlement needs every outstanding participant; any conflict holds the roll-up, removed rows too; owner only from settled decisions; checked for direct writes and unconditional deletes"
     },
     "src/core/map.js": {
       "sha256": "671a810abb29087bed638e0fc39ecc5a52b70146abd303742d5d017c9083db7c",
