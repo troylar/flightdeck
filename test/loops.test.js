@@ -722,6 +722,32 @@ rule('3b: nouns: noun: one / many, one formatter, no guessed plurals; item / ite
   same([LP.nounOf({ items: 'item' }).many, LP.nounOf({ items: 'jira.issue' }).many], ['items', 'stories']);
   for (const v of ['environments', 'a / ', ' / b', 'a/b/c', 'x'.repeat(41) + ' / y', '<b> / <b>s']) assert.strictEqual(LP.nounOf({ noun: v, items: 'item' }), null, v);
 });
+rule('Round 9 (1): a conflict that arrives after approval (owner, plan or a request outcome) holds the approval that is already effective', () => {
+  const on = (op, x) => Object.assign({ op, item: { id: '10101', key: 'ABC-101' } }, x || {});
+  const qid = 'req-release-helper-' + PF.sha256.hex('st').slice(0, 24);
+  const probes = {
+    owner: [req('o1', ['d1'], { changes: [on('owner', { owner: 'person-avery' })] }), req('o2', ['d1'], { changes: [on('owner', { owner: 'person-morgan' })] })],
+    plan: [req('p1', ['d1'], { children: [{ item: { id: '10101', key: 'ABC-101' }, attempt: 2, inputs: { issue: 'a' }, owner: '' }] }), req('p2', ['d1'], { children: [{ item: { id: '10101', key: 'ABC-101' }, attempt: 2, inputs: { issue: 'b' }, owner: '' }] })],
+    outcome: [req(qid, ['d1'], { changes: [{ op: 'start', item: { key: 'ABC-101' }, as: 'person-morgan' }] }),
+      { id: qid + '.status-wa-00000001', type: 'decision', proposal: qid, op: 'applied', items: [], seen: [qid], by: { person: 'person-morgan' }, reason: '' },
+      { id: qid + '.status-wb-00000002', type: 'decision', proposal: qid, op: 'refused', items: [], seen: [qid], by: { person: 'person-avery' }, reason: '' }]
+  };
+  Object.keys(probes).forEach((k) => {
+    const { r, kid2 } = release(), map = R.mapOf(r), loop = (x) => Object.assign(x, { loop: LOOPT });
+    const recs = [LP.cleanRequest(JSON.parse(LP.text(reqFile('d1', { loop: LOOPT, observation: obs([101]) }))), reqFile('d1').id + '.json').record];
+    recs[0].id = 'd1';
+    const runs = [kid2(101, 'cleared')];
+    const V = LP.view(r, 'each', { records: recs, runs });
+    same(V.rollup.ok, true, k + ': set-up');
+    R.done(r, map, 'each', 'person-morgan', AT, { _loop: { ok: true, snapshot: LP.approval(V.ledger, V.rollup, { by: 'person-morgan', at: AT }) } });
+    R.pass(r, map, 0, 'person-morgan', AT);
+    const all = recs.concat(probes[k].map(loop)), V2 = LP.view(r, 'each', { records: all, runs });
+    same(V2.rollup.ok, false, k + ': the conflict holds the roll-up');
+    assert.ok(V2.changes.length > 0, k + ': and it is a reason the approval no longer stands');
+    LP.markStale([r].concat(runs), { records: all });
+    same(R.gateStatus(r, map, 0), 'review', k + ': its gate is held, as in flightdeck run and next');
+  });
+});
 rule('Round 9 (6): a request that saw 51 concurrent heads reads back; writer and reader share one frontier limit, and every writer checks its file before filing', () => {
   const base = req('s0', [], { observation: obs([101, 102]) });
   const heads = Array.from({ length: 51 }, (_, i) => 'req-release-helper-' + PF.sha256.hex('h' + i).slice(0, 24));

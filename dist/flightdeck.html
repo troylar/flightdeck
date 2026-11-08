@@ -17099,7 +17099,10 @@ PF.loop = (function () {
     var approved = a && a.s === 'done' && a.loop ? a.loop : null;
     var review = a && a.s === 'recheck' && a.values && typeof a.values.changes === 'string' ? a.values.changes.split('\n').filter(Boolean) : [];
     return { loop: loop, kind: kindOf(f.items) ? f.items : 'jira.issue', noun: nounOf(f) || nounOf({ items: f.items }), step: x.step, fields: f, accepts: acc, pin: pin, records: recordsFor(o.records, loop), ropts: ropts, ledger: L, rollup: R, runs: kids, approved: approved,
-      changes: approved ? changes(approved, L, R) : [], review: review, ended: !!r.ended,
+      /* S1 for an approval already in effect: every unresolved conflict (scope, owner, plan, approval without a run, choice,
+         a request's outcome) is a reason it no longer stands, so the run screen, flightdeck run and next (markStale) and the
+         recorder's automatic send-back all hold it the same way. */
+      changes: approved ? (function () { var out = changes(approved, L, R); R.blockers.forEach(function (b) { if (b.kind === 'review' && out.indexOf(b.text) < 0) out.push(b.text); }); return out; })() : [], review: review, ended: !!r.ended,
       previous: a && a.history ? a.history.filter(function (h) { return h.loop; }).map(function (h) { return h.loop; }) : [] };
   }
   /* The inputs a new item's child starts with, from the loop's pass: line (item:key, item:title, ^detail, a fixed value), and

@@ -253,8 +253,8 @@
       "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "src/core/loop.js": {
-      "sha256": "be4f7c600db303dcae04bbf3489ea89b081bc2e51d916bc9d1fb646d91e9e5a8",
-      "reviewed": "one frontier limit (seen, 2000) for requests and decisions; fileWhy rechecks every built scope record with the reader before any write; refusals write nothing, checked for direct writes and unconditional deletes"
+      "sha256": "d808f3656f3b6c8be735501a421df23724b59b65489930f324f2324842cc717c",
+      "reviewed": "S1 for approvals in effect: unresolved conflicts join the view's changes, the shared staleness reasons; pure, checked for direct writes and unconditional deletes"
     },
     "src/core/map.js": {
       "sha256": "f9eae33f6635cd1b3983fc1c71eb7a3b3c8dc1c70ca3ef8ce8807d5228165d2f",

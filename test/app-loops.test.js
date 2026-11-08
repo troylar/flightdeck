@@ -817,4 +817,24 @@ rule('3b App: a run whose loop takes a kind this copy doesn\'t know is read-only
   assert.ok(/data-act="loop-add"/.test(app.html()) || /start-form/.test(app.html()), 'a new run of the published version starts as usual');
 });
 
+rule('Round 9 (1): two owners assigned at once after the approval send it back at once in the recorder\'s window, with the conflict as the reason', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(150);
+  await clear(app, kidPaths(app)[0]);
+  app.click('loop-approve', 'each'); await app.tick(150);
+  assert.strictEqual(parentRun(app).steps.each.s, 'done', 'set-up: approved');
+  const PF = app.PF, LP = PF.loop, r = parentRun(app), loop = { process: 'release-readiness', run: r.id, step: 'each' };
+  const d = await PF.repo.loadAll(app.fs, {}), heads = LP.view(r, 'each', { records: d.scopes, runs: d.runs }).ledger.heads;
+  for (const [owner, key] of [['person-avery', 'o1'], ['person-morgan', 'o2']]) {
+    const c = LP.cleanIntent({ loop, changes: [{ op: 'owner', item: { key: 'ABC-101' }, owner }] }, key, { name: 'release-helper', version: '1.0' });
+    const f = LP.buildRequest(c.intent, { seen: heads, children: [], now: new Date().toISOString(), app: '3.0.0' });
+    await app.fs.write('proposals/' + f.id + '.json', LP.text(f));
+  }
+  app.click('refresh'); await app.tick(300);
+  const r2 = parentRun(app);
+  assert.strictEqual(r2.steps.each.s, 'recheck', 'sent back for review');
+  assert.ok(/two people assigned it at once/.test(r2.steps.each.values.changes), r2.steps.each.values.changes);
+});
+
 run();
