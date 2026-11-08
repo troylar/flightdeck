@@ -13,8 +13,8 @@
       "reviewed": "fold design tips and the library panel; own-key reads; checked for direct writes and unconditional deletes"
     },
     "bin/flightdeck.js": {
-      "sha256": "cc8f3049ded1576fffe188bac6e591c6c52157ea70d8485b3362d082e2c3d639",
-      "reviewed": "loop reduction linear with one participant set per slot; limit 50 shared by writers and readers; paged corrections; plan choices expand to their plans; checked for direct writes and unconditional deletes"
+      "sha256": "6df0fc932fb60ea41b995bde716019ffc72d3851193275b8a7f9e9b333a493a1",
+      "reviewed": "seenFor puts the edited slot first; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "21c5b257606a8aa3d24c956f518745372409b550008be4d06f5178081117708c",
@@ -253,8 +253,8 @@
       "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "src/core/loop.js": {
-      "sha256": "84e962986cb97e87031da6364412fe2cf1fb11fc5d2719f86fa0eee59317fcf5",
-      "reviewed": "loop guard builder for every loop parent and child write, undo on drop; checked for direct writes and unconditional deletes"
+      "sha256": "3f136b27fdded0f766601ad5d9348bc7b46c335d3f415ca6b59a1527fa0d0179",
+      "reviewed": "seenFor puts the edited slot first; checked for direct writes and unconditional deletes"
     },
     "src/core/map.js": {
       "sha256": "f9eae33f6635cd1b3983fc1c71eb7a3b3c8dc1c70ca3ef8ce8807d5228165d2f",
@@ -397,8 +397,8 @@
       "reviewed": "loop saves carry the click's guard, rechecked before each further write; kept candidate on drop; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "fab261fe640d3c8e40c87cc3324c090e40f58474181f181b00f406eddd003633",
-      "reviewed": "loopEdit uses null-prototype maps; checked for direct writes and unconditional deletes"
+      "sha256": "9c61fe695d065839b98c0817b80bf1ce1873164c38f916b5229482c15184fc42",
+      "reviewed": "seenFor puts the edited slot first; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

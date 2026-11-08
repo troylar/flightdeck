@@ -3025,7 +3025,7 @@
     if (!x || !(x.state === 'proposed' || x.review.length)) { say(key + ' isn\'t waiting for a removal decision.', 'warn'); render(); return; }
     var p = x.proposal || x.proposedBy;
     if (!p) { say(key + ' was decided two ways at once. Remove or restore it instead.', 'warn'); render(); return; }
-    var pg = PF.loop.seenFor(V.ledger, [x.uid]);
+    var pg = PF.loop.seenFor(V.ledger, [x.uid], [], ['verdict']);
     var d = PF.loop.buildDecision({ proposal: p, loop: V.loop, op: op, items: [x.uid], seen: pg.seen, reason: val('loop-why-' + id).trim(), by: state.me, writer: 'w' + loopHex(10), rev: loopHex(8), now: new Date().toISOString(), app: APP_VERSION });
     var dw = PF.loop.fileWhy(d.name, d.file); if (dw) { say(dw + ' Nothing was changed.', 'warn'); render(); return; }
     var cxd = loopGuard();

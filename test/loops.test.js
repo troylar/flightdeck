@@ -822,6 +822,24 @@ rule('Round 10 (6): a conflict wider than one record can name settles in pages: 
   const small = LP.seenFor(LP.reduce(recs.slice(0, 4)), ['jira:10102']);
   same(small.left, 0); same(small.seen, LP.reduce(recs.slice(0, 4)).heads, 'under the limit, a record names the heads as before');
 });
+rule('Round 11 (2): a page puts the edited slot first: 50 agreeing owners never crowd out 51 conflicting exception decisions', () => {
+  const recs = [b8()];
+  for (let i = 0; i < 50; i++) recs.push(req('req-release-helper-' + PF.sha256.hex('ow' + i).slice(0, 24), ['s0'], { changes: [on102('owner', { owner: 'person-avery' })] }));
+  for (let i = 0; i < 51; i++) recs.push(req('req-release-helper-' + PF.sha256.hex('ex' + i).slice(0, 24), ['s0'], { changes: [on102(i % 2 ? 'withdraw' : 'exception', i % 2 ? {} : { reason: 'Docs', approver: 'person-morgan' })] }));
+  const exOut = (L) => (L.items.filter(x => x.key === 'ABC-102')[0].excOut || []).length;
+  recs.forEach(x => { x.loop = LOOPT; });
+  let all = recs.slice(), L = LP.reduce(all), n = 0;
+  assert.ok(exOut(L) > 50, 'set-up: the exception conflict is wider than a page');
+  const r = release().r, V0 = () => LP.view(r, 'each', { records: all, runs: [] });
+  while (exOut(L) && n < 4) {
+    const V = V0(), intent = { loop: LOOPT, changes: [on102('exception', { reason: 'Docs', approver: 'person-morgan' })] };
+    const c = LP.cleanIntent(intentOf(intent), 'pg-' + n, { name: 'release-helper', version: '1.0' }), P = LP.project(r, V, c.intent, {});
+    const f = LP.buildRequest(c.intent, { seen: P.seen, children: [], now: AT, app: '3.0.0' });
+    all = all.concat([LP.cleanRequest(JSON.parse(LP.text(f)), f.id + '.json').record]); L = LP.reduce(all); n++;
+  }
+  same(exOut(L), 0, 'the exception conflict settles, page by page (' + n + ' corrections)');
+  assert.ok(n <= 2, 'in two pages: ' + n);
+});
 rule('Round 9 (5): a Jira observation of another query is refused like another scope of a feed: it proposes nothing', () => {
   const L = LP.reduce([req('q1', [], { observation: obs([101, 102]) }), req('q2', ['q1'], { observation: obs([], { query: 'project = OTHER' }) })]);
   same(L.items.map(x => x.key + ':' + x.state), ['ABC-101:in', 'ABC-102:in'], 'nothing proposed');

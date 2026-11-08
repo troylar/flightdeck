@@ -2935,7 +2935,7 @@ async function loopReview(eng, o) {
   const by = Object.create(null);
   items.forEach((x) => { const p = x.proposal || x.proposedBy || ''; (by[p] = by[p] || []).push(x.uid); });
   if (by['']) return o.failOut('invalid', 'Some of these items were decided two ways at once by exclusions or restorations, not proposed removals. Use flightdeck loop exclude or restore to decide them. Nothing was written.', o.problems());
-  const pageOf = (uids) => LP.seenFor(V.ledger, uids), pageLeft = pageOf(items.map((x) => x.uid)).left;
+  const pageOf = (uids) => LP.seenFor(V.ledger, uids, [], ['verdict']), pageLeft = pageOf(items.map((x) => x.uid)).left;
   const files = Object.keys(by).sort().map((p) => LP.buildDecision({ proposal: p, loop: V.loop, op, items: by[p], seen: pageOf(by[p]).seen, reason: val['--reason'] || '', by: val['--as'], onBehalf: o.tool.name,
     writer: o.tool.name, rev: revOf(p), now: new Date().toISOString(), app: eng.version }));
   const fdw = files.map((f) => LP.fileWhy(f.name, f.file)).filter(Boolean)[0]; if (fdw) return o.failOut('invalid', fdw + ' Nothing was written.', o.problems());

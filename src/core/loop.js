@@ -299,14 +299,20 @@ PF.loop = (function () {
      item's uid, or a request id for its outcome), then other heads. left: how many outstanding decisions the page leaves for
      the next one ("Settle these 50 first"). */
   var SLOTS = [['verdict', 'its scope'], ['own', 'its owner'], ['plan', 'its plan'], ['choice', 'which run counts'], ['exc', 'its approval without a run']];
-  function seenFor(L, uids, reqs) {
+  /* slots (round 11): the slots being edited ('own', 'exc', ...); theirs come first, so other slots' agreeing decisions never
+     crowd them out of the page. */
+  var SLOT_OF = { owner: 'own', exclude: 'verdict', restore: 'verdict', accept: 'verdict', keep: 'verdict', exception: 'exc', withdraw: 'exc', choose: 'choice', plan: 'plan' };
+  function seenFor(L, uids, reqs, slots) {
     var heads = (L && L.heads) || [];
     if (heads.length <= LIMITS.seen) return { seen: heads.slice(), left: 0 };
     var need = [], have = Object.create(null), add = function (id) { if (!have[id]) { have[id] = true; need.push(id); } };
-    (uids || []).forEach(function (u) { var x = L.items.filter(function (y) { return y.uid === u; })[0]; if (x) SLOTS.forEach(function (sl) { (x[sl[0] + 'Front'] || []).forEach(add); }); });
+    var xs = (uids || []).map(function (u) { return L.items.filter(function (y) { return y.uid === u; })[0]; }).filter(Boolean), first = [];
     (reqs || []).forEach(function (q) { var A = L.requests && L.requests[q]; if (A) (A.statusFront || []).forEach(add); });
-    need.sort(cmpStr);
-    var seen = need.slice(0, LIMITS.seen), left = need.length - seen.length, in_ = Object.create(null);
+    (slots || []).forEach(function (sl) { xs.forEach(function (x) { (x[sl + 'Front'] || []).forEach(add); }); });
+    first = need.sort(cmpStr).slice(); need = []; have = Object.create(null); first.forEach(function (id) { have[id] = true; });
+    xs.forEach(function (x) { SLOTS.forEach(function (sl) { (x[sl[0] + 'Front'] || []).forEach(add); }); });
+    need = first.concat(need.sort(cmpStr));
+    var seen = need.slice(0, LIMITS.seen), left = Math.max(0, first.length - LIMITS.seen) || (first.length ? 0 : need.length - seen.length), in_ = Object.create(null);
     seen.forEach(function (id) { in_[id] = true; });
     for (var i = 0; i < heads.length && seen.length < LIMITS.seen; i++) if (!in_[heads[i]]) { in_[heads[i]] = true; seen.push(heads[i]); }
     return { seen: seen.sort(cmpStr), left: left };
@@ -629,7 +635,7 @@ PF.loop = (function () {
     o = o || {};
     /* What it names as seen: the heads, or, past the limit, a page that puts the touched items' outstanding decisions first. */
     var touched = (intent.changes || []).map(function (ch) { var it = ch.item || {}, x = V.ledger.items.filter(function (y) { return (it.id && y.id === it.id) || (it.key && y.key === it.key); })[0]; return x ? x.uid : ''; }).filter(Boolean);
-    var page = seenFor(V.ledger, touched), heads = page.seen, rec = { id: '~new', type: 'request', seen: heads, by: intent.producer ? { tool: intent.producer.name, version: intent.producer.version } : { person: o.by || '' },
+    var page = seenFor(V.ledger, touched, [], (intent.changes || []).map(function (ch) { return SLOT_OF[ch.op]; }).filter(Boolean)), heads = page.seen, rec = { id: '~new', type: 'request', seen: heads, by: intent.producer ? { tool: intent.producer.name, version: intent.producer.version } : { person: o.by || '' },
       observation: intent.observation, changes: intent.changes, children: [], kind: V.kind };
     var max = limitOf({ fields: V.fields }), A = reduce(V.records.concat([rec]), { max: max, kind: V.kind, feed: V.fields.source }), was = Object.create(null), who = o.who || function (p) { return p || ''; };
     V.ledger.items.forEach(function (x) { was[x.uid] = x; });
