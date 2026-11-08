@@ -2391,7 +2391,7 @@ def design_tips(md):
             if rule is not None and rule["op"] == "any" and _READINESS.search(what):
                 add("results-any", "step", s["id"], label + ' has results: any, so it passes whatever the search finds, yet it reads like a readiness check ("' + _quoted(_READINESS, what) + '"). Say what must be true, like results: none or results: at least 1, or word it as collecting facts.')
         if (s["type"] == "confirm" or not s["type"]) and _WHOLE_SET.search(s["text"]):
-            add("whole-set", "step", s["id"], label + ' confirms a whole set at once ("' + _quoted(_WHOLE_SET, s["text"]) + '…"). One check can\'t show which items were looked at. Give each item its own result: one step per item, or a list with one line per item in a note or report. Flightdeck can\'t repeat a step for each item yet.')
+            add("whole-set", "step", s["id"], label + ' confirms a whole set at once ("' + _quoted(_WHOLE_SET, s["text"]) + '…"). One check can\'t show which items were looked at. Give each item its own result: a {for.each} step that starts one run per item, or one step per item when the list is short and fixed.')
         if s["type"] != "decide" and not _records_verdict(s):
             v = _quoted(_VERDICT, s["text"]) or (_quoted(_APPROVAL, s["text"]) if s["type"] not in _APPROVES_BY_TYPE else "")
             if v:

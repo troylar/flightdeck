@@ -207,7 +207,7 @@ PF.library = (function () {
         var r = S.parseResults(s.fields.results), what = s.text + ' ' + String(s.fields.what || '');
         if (r.ok && r.op === 'any' && READINESS.test(what)) add('results-any', 'step', s.id, label(s) + ' has results: any, so it passes whatever the search finds, yet it reads like a readiness check ("' + quoted(READINESS, what) + '"). Say what must be true, like results: none or results: at least 1, or word it as collecting facts.');
       }
-      if ((s.type === 'confirm' || !s.type) && WHOLE_SET.test(s.text)) add('whole-set', 'step', s.id, label(s) + ' confirms a whole set at once ("' + quoted(WHOLE_SET, s.text) + '…"). One check can\'t show which items were looked at. Give each item its own result: one step per item, or a list with one line per item in a note or report. Flightdeck can\'t repeat a step for each item yet.');
+      if ((s.type === 'confirm' || !s.type) && WHOLE_SET.test(s.text)) add('whole-set', 'step', s.id, label(s) + ' confirms a whole set at once ("' + quoted(WHOLE_SET, s.text) + '…"). One check can\'t show which items were looked at. Give each item its own result: a {for.each} step that starts one run per item, or one step per item when the list is short and fixed.');
       if (s.type !== 'decide' && !recordsVerdict(s)) {
         var v = quoted(VERDICT, s.text) || (!APPROVES_BY_TYPE[s.type] ? quoted(APPROVAL, s.text) : '');
         if (v) add('verdict', 'step', s.id, label(s) + ' reads like a verdict ("' + v + '"), but as a {' + (s.type || 'step') + '} step a run records only that it was checked, not which way it went. Make it a {decide} step with the choices, or a named gate when a person approves it.');

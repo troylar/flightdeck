@@ -86,10 +86,10 @@ rule('Tip: a search with an explicit results: any that reads like a readiness ch
   assert.strictEqual(tip(t, 'results-any')[0], 'Step "No open blockers" {#b} has results: any, so it passes whatever the search finds, yet it reads like a readiness check ("No open blockers"). Say what must be true, like results: none or results: at least 1, or word it as collecting facts.');
 });
 
-rule('Tip: one confirm over a whole collection suggests one result per item, and says Flightdeck can\'t repeat a step yet', () => {
+rule('Tip: one confirm over a whole collection suggests one result per item, and points to {for.each}', () => {
   const t = md(['process: x', 'title: X'], ['## S {#s}', '- [ ] {confirm} Each blocker is grouped by owner {#g}', '- [ ] {confirm} All stories are done {#a}', '- [ ] {confirm} Tag the release {#t}', '- [ ] {jira.issue} Every ticket linked {#j}', '']);
   same(ids(t).filter(x => /^whole-set/.test(x)), ['whole-set#g', 'whole-set#a']);
-  assert.ok(/^Step "All stories are done" \{#a\} confirms a whole set at once \("All stories…"\)\. One check can't show which items were looked at\. .*Flightdeck can't repeat a step for each item yet\.$/.test(tip(t, 'whole-set')[1]), tip(t, 'whole-set')[1]);
+  assert.ok(/^Step "All stories are done" \{#a\} confirms a whole set at once \("All stories…"\)\. One check can't show which items were looked at\. Give each item its own result: a \{for\.each\} step that starts one run per item, or one step per item when the list is short and fixed\.$/.test(tip(t, 'whole-set')[1]), tip(t, 'whole-set')[1]);
 });
 
 rule('Tip: a verdict not on a decide step or a gate', () => {
