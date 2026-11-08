@@ -2922,7 +2922,7 @@
      next: nothing read, started or chosen in one folder shows in, or blocks, another. */
   function loopMem() {
     var m = state.loopMem;
-    if (!m || m.g !== gen || m.fs !== state.fs) m = state.loopMem = { g: gen, fs: state.fs, last: Object.create(null), starting: Object.create(null), applying: Object.create(null), preview: Object.create(null), all: Object.create(null), open: Object.create(null), ret: null, keepRow: null };
+    if (!m || m.g !== gen || m.fs !== state.fs) m = state.loopMem = { g: gen, fs: state.fs, last: Object.create(null), starting: Object.create(null), applying: Object.create(null), preview: Object.create(null), all: Object.create(null), open: Object.create(null), reqs: Object.create(null), ret: null, keepRow: null };
     return m;
   }
   function loopGuard(extra) { return Object.assign({ fs: state.fs, g: gen, me: state.me }, extra || {}); }
@@ -7662,6 +7662,7 @@
     'loop-choose': function (id, b) { var run = b.dataset.run || (b.dataset.pick ? val(b.dataset.pick) : ''), r = ctx.run(), V = r && loopView(r, id), w = V ? PF.loop.choiceWhy(V, b.dataset.item, run) : 'The loop can\'t be read.'; if (w) { say(w, 'warn'); render(); return; } loopChange(id, 'choose', [b.dataset.item], { run: run }); },
     'loop-unassign': function (id, b) { loopChange(id, 'owner', [b.dataset.item], { owner: '' }); },
     'loop-more': function (id) { loopMem().all[id] = true; render(); },
+    'loop-requests-more': function (id) { loopMem().reqs[id] = true; render(); },
     'loop-open': function (id) { var m = loopMem(); m.keepRow = null; m.open[id] = !m.open[id]; render(); },
     'loop-approve': function (id) {
       mutate(function (r, map, me, now) {

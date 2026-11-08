@@ -725,4 +725,18 @@ rule('Review round 8 (5): a resolution whose own outcome couldn\'t be written is
   assert.strictEqual((outcome(app, rs) || {}).op, 'applied', 'recorded applied, never refused');
 });
 
+rule('Review round 8 (7): a request still to resolve is always on the run screen, however many came after it; the rest page', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  const id = await ask(app, [{ op: 'approve', as: 'person-avery' }], 'old-1');
+  await app.tick(300);
+  app.files('proposals/').filter(p => p.indexOf(id + '.status-') >= 0).forEach(p => { delete app.fs.files[p]; });
+  await twoWays(app, id);
+  for (let n = 0; n < 11; n++) { await ask(app, [{ op: 'approve', as: 'person-avery' }], 'later-' + n); await app.tick(200); }
+  assert.ok(new RegExp('data-act="loop-resolve"[^>]*data-request="' + id + '"').test(app.html()), 'its Resolve buttons are still there');
+  assert.ok(/data-act="loop-requests-more"/.test(app.html()), 'earlier applied and refused requests page');
+  app.click('loop-requests-more', 'each'); await app.tick(60);
+  assert.ok(!/data-act="loop-requests-more"/.test(app.html()), 'all shown');
+});
+
 run();

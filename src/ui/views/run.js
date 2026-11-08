@@ -199,7 +199,7 @@
     if (V.ledger.held.length) h += '<div class="notice warn"><span><b>Held:</b> a scope record of this loop can\'t be read yet, so nothing here can be approved until it can.' +
       (last ? ' Last readable view, from ' + esc(String(last.at).slice(0, 16).replace('T', ' ')) + ': <b>' + esc(last.summary) + '</b>. ' + last.items.slice(0, 50).map(function (i) { return esc((i.key || i.uid) + ' ' + (LOOP_STATUS[i.status] || i.status)); }).join(' · ') + (last.items.length > 50 ? ' · and ' + (last.items.length - 50) + ' more' : '') : '') + '</span></div>';
     if (RU.blockers.length) h += '<ul class="small">' + RU.blockers.slice(0, 12).map(function (b) { return '<li>' + esc(b.text) + '</li>'; }).join('') + (RU.blockers.length > 12 ? '<li>and ' + (RU.blockers.length - 12) + ' more</li>' : '') + '</ul>';
-    var mem = ctx.loopMem ? ctx.loopMem() : { all: {}, open: {}, preview: {}, keepRow: null };
+    var mem = ctx.loopMem ? ctx.loopMem() : { all: {}, open: {}, preview: {}, reqs: {}, keepRow: null };
     var me = ctx.state && ctx.state.me, all = !!mem.all[s.id], open = !!mem.open[s.id];
     var keepRow = mem.keepRow, kept = keepRow && keepRow.run === r.process + '/' + r.id && keepRow.step === s.id ? keepRow.key : null;
     var rows = open ? RU.items.filter(function (i) { return (i.required && i.status !== 'cleared' && i.status !== 'exception') || (kept && i.key === kept); }) : RU.items, PAGE = 50;
@@ -236,8 +236,12 @@
       if (!all && rows.length > PAGE) h += '<button class="mini" data-act="loop-more" data-id="' + sid + '">Show all ' + rows.length + ' stories</button>';
     } else h += '<p class="small">No stories in scope yet.</p>';
     /* Requests to the recorder, the latest 10: waiting, applied or refused, with why. */
-    var pend = PF.loop.actionsOf(V), shown = pend.slice(-10);
-    if (pend.length) h += '<ul class="small">' + (pend.length > 10 ? '<li>' + (pend.length - 10) + ' earlier requests (flightdeck loop read lists them)</li>' : '') + shown.map(function (q) { return '<li>' + esc(who(q.as)) + ' asked to ' + esc(q.ops[0] === 'start' ? (q.all ? 'start all: ' : 'start ') + q.items.slice(0, 20).join(', ') : q.ops[0]) + ' · ' + (q.status === 'pending' ? 'waiting for the recorder' : esc(q.status === 'review' ? 'recorded both applied and refused' : q.status) + (q.why ? ': ' + esc(q.why) : '')) +
+    /* Every request still to settle (waiting, held, recorded both ways) is always listed, whatever came after it; of those
+       applied or refused, the latest 10, and Show them for the rest. */
+    var pend = PF.loop.actionsOf(V), unsettled = function (q) { return q.status === 'pending' || q.status === 'held' || q.status === 'review'; };
+    var settled = pend.filter(function (q) { return !unsettled(q); }), cut = mem.reqs && mem.reqs[s.id] ? 0 : Math.max(0, settled.length - 10), hidden = settled.slice(0, cut);
+    var shown = pend.filter(function (q) { return hidden.indexOf(q) < 0; });
+    if (pend.length) h += '<ul class="small">' + (cut ? '<li>' + cut + ' earlier requests applied or refused <button class="mini" data-act="loop-requests-more" data-id="' + sid + '">Show them</button></li>' : '') + shown.map(function (q) { return '<li>' + esc(who(q.as)) + ' asked to ' + esc(q.ops[0] === 'start' ? (q.all ? 'start all: ' : 'start ') + q.items.slice(0, 20).join(', ') : q.ops[0]) + ' · ' + (q.status === 'pending' ? 'waiting for the recorder' : esc(q.status === 'review' ? 'recorded both applied and refused' : q.status) + (q.why ? ': ' + esc(q.why) : '')) +
       /* Resolved by what it left behind (PF.loop.resolveWhy), never by doing it again; loop resolve in the CLI asks the same. */
       (q.status === 'review' && work && ctx.recording && ctx.recording(r) ? ' <button class="mini" data-act="loop-resolve" data-id="' + sid + '" data-request="' + esc(q.id) + '" data-outcome="applied">Resolve: it was applied</button><button class="mini" data-act="loop-resolve" data-id="' + sid + '" data-request="' + esc(q.id) + '" data-outcome="refused">Resolve: it was refused</button>' : '') + '</li>'; }).join('') + '</ul>';
     if (work) {
