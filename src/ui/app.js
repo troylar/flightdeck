@@ -2975,16 +2975,16 @@
      alone and never carries it. Returns { fn, opts } for mutateRun. */
   function loopEdit(cx, key, fn, opts) {
     var before = null, after = null, undone = false;
-    var copy = function (r) { var c = {}; Object.keys(r).forEach(function (k) { if (k[0] !== '_') c[k] = r[k]; }); return JSON.parse(JSON.stringify(c)); };
+    var copy = function (r) { var c = Object.create(null); Object.keys(r).forEach(function (k) { if (k[0] !== '_') c[k] = r[k]; }); return JSON.parse(JSON.stringify(c)); };
     var wrapped = function (r, m, me, now) { before = copy(r); var out = fn(r, m, me, now); after = copy(r); return out; };
     var back = function (cur, b, a, deep) {
-      var keys = {}; Object.keys(b).concat(Object.keys(a)).forEach(function (k) { keys[k] = true; });
+      var keys = Object.create(null); Object.keys(b).concat(Object.keys(a)).forEach(function (k) { keys[k] = true; });
       Object.keys(keys).forEach(function (k) {
         var bj = JSON.stringify(b[k]), aj = JSON.stringify(a[k]);
         if (bj === aj) return;
         if (JSON.stringify(cur[k]) === aj) { if (k in b) cur[k] = JSON.parse(bj); else delete cur[k]; return; }
         if (Array.isArray(a[k]) && Array.isArray(b[k]) && Array.isArray(cur[k])) {
-          var had = {}; b[k].forEach(function (e) { var j = JSON.stringify(e); had[j] = (had[j] || 0) + 1; });
+          var had = Object.create(null); b[k].forEach(function (e) { var j = JSON.stringify(e); had[j] = (had[j] || 0) + 1; });
           a[k].forEach(function (e) { var j = JSON.stringify(e); if (had[j]) { had[j]--; return; } for (var i = cur[k].length - 1; i >= 0; i--) if (JSON.stringify(cur[k][i]) === j) { cur[k].splice(i, 1); break; } });
           return;
         }
