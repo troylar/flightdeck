@@ -6,7 +6,7 @@
 
 One person does this for each team folder, so two updates never cross.
 
-**On this page:** [1. Learn about new releases](updating.md#1-learn-about-new-releases) · [2. Read What's new](updating.md#2-read-whats-new) · [3. Pick a time](updating.md#3-pick-a-time) · [4. Back up](updating.md#4-back-up) · [5. Install](updating.md#5-install) · [6. Verify](updating.md#6-verify) · [7. Tell the team](updating.md#7-tell-the-team) · [When computers run different versions](updating.md#when-computers-run-different-versions) · [Moving to 2.0](updating.md#moving-a-team-to-flightdeck-20) · [2.1](updating.md#what-to-know-when-moving-to-21) · [2.2](updating.md#what-to-know-when-moving-to-22) · [2.3](updating.md#what-to-know-when-moving-to-23) · [2.4](updating.md#what-to-know-when-moving-to-24) · [2.5](updating.md#what-to-know-when-moving-to-25) · [2.6](updating.md#what-to-know-when-moving-to-26) · [2.6.1](updating.md#what-to-know-when-moving-to-261) · [Rolling back](updating.md#rolling-back)
+**On this page:** [1. Learn about new releases](updating.md#1-learn-about-new-releases) · [2. Read What's new](updating.md#2-read-whats-new) · [3. Pick a time](updating.md#3-pick-a-time) · [4. Back up](updating.md#4-back-up) · [5. Install](updating.md#5-install) · [6. Verify](updating.md#6-verify) · [7. Tell the team](updating.md#7-tell-the-team) · [When computers run different versions](updating.md#when-computers-run-different-versions) · [Moving to 2.0](updating.md#moving-a-team-to-flightdeck-20) · [2.1](updating.md#what-to-know-when-moving-to-21) · [2.2](updating.md#what-to-know-when-moving-to-22) · [2.3](updating.md#what-to-know-when-moving-to-23) · [2.4](updating.md#what-to-know-when-moving-to-24) · [2.5](updating.md#what-to-know-when-moving-to-25) · [2.6](updating.md#what-to-know-when-moving-to-26) · [2.6.1](updating.md#what-to-know-when-moving-to-261) · [3.0](updating.md#moving-a-team-to-flightdeck-30) · [Rolling back](updating.md#rolling-back)
 
 An update has two parts. `flightdeck.html` is the app everyone opens. `AGENTS.md` and the skills in `.flightdeck/skills/` are the contract your team's AI assistants follow. `flightdeck install` updates both, and never replaces a file your team changed without asking.
 
@@ -31,6 +31,7 @@ Read the release's notes (`CHANGELOG.md`, or What's new in the app once installe
 | 2.1 (minor) | A version that uses `only when` runs only on 2.1 and later. Staged versions and test runs are for 2.1 copies; 2.0 shows a test run by name only and counts it as a run. | Before anyone publishes a checklist with `only when` or stages a version. |
 | 2.1.1 (patch) | Nothing new to read. | Yes: a planned run starts once only when every computer has 2.1.1. |
 | 2.2 to 2.6.1 | Nothing new to read: no checklist feature and no file format changed. | No. Computers can update one at a time. |
+| 3.0 (major) | Copies before 3.0 show a version that uses results or loops (`result:`, `accepts:`, `sets: <detail>=decision` or `=result`, `{for.each}`) by name, with its runs, and never change them; they never offer a loop's records in `proposals/` as plans. A checklist that uses neither publishes as on 2.16. | Yes, before anyone publishes a version that uses results or loops ([Moving a team to Flightdeck 3.0](updating.md#moving-a-team-to-flightdeck-30)). |
 
 ## 3. Pick a time
 
@@ -230,6 +231,19 @@ It keeps its record in `.flightdeck-installed.json` and puts new defaults to mer
 - **On a run, Finish the run is in the header** for whoever records it, muted until the run is complete. **End run…** left More; the Finish page still offers Stopped early and Canceled.
 - **Plan a run has its own link,** `#/process/<checklist>/plan`. Older `#/practice`, `/start`, `/start/<stage>` and `/edit` links keep working.
 
+### Moving a team to Flightdeck 3.0
+
+1. Put Flightdeck 3.0 in the team folder and have everyone reopen it from there. A team still on 1.x moves to 1.21 first, as for 2.0 (above). Check Folder health: "Teammates are using an older Flightdeck" should be gone once every computer has answered a connection check or opened a draft with 3.0.
+2. Only then publish a version that uses results or loops: a checklist's `result:` (with `sets: <detail>=decision`), `accepts:` or `sets: <detail>=result` on a linked step, or a `{for.each}` step. The Publish panel names them under **Needs Flightdeck 3.0**. A checklist that uses none of them publishes as it does on 2.16, and every teammate runs it.
+
+What an older copy does with them:
+
+- **It refuses them by name and writes nothing.** A version that uses results or loops shows as needing Flightdeck 3.0 and won't start; its runs, and each item's run in a loop, show by name only and are never changed. A loop's requests and decisions in `proposals/` are never offered as plans.
+- **A loop's requests wait for 3.0.** A change asked for with `flightdeck loop` is carried out only by the run's recorder in a 3.0 window. Until then it waits in `proposals/`, and nothing applies it.
+- **Changed message.** `flightdeck draft check` gives one missing-Jira-address blocker per address, with how many searches need it and their step IDs, where 2.x gave one per step. A tool that counted those blockers needs the new words (docs/apps.md, draft check).
+
+**Rolling back.** Until someone publishes a version that uses results or loops, nothing in the folder needs 3.0, and rolling back follows the steps below. After that, never below 3.0: on an older copy those versions, their runs and the loop's records turn read-only, by name only. They aren't lost; they work again once you update.
+
 ## Rolling back
 
 If an update goes wrong, install the older version over it. For example, from 2.6.1 back to 2.6.0:
@@ -247,5 +261,6 @@ Don't roll back past what the folder already uses:
 - never below 1.21 once the folder has files from Flightdeck 2.0 (see [Moving a team to Flightdeck 2.0](updating.md#moving-a-team-to-flightdeck-20) and [Two limits to know](updating.md#two-limits-to-know));
 - never below 2.1 once anyone published `only when` or staged a version;
 - never below 2.1.1 while plans are being started, since its planned-start protection works only when every computer has it.
+- never below 3.0 once anyone published a version that uses results or loops (see [Moving a team to Flightdeck 3.0](updating.md#moving-a-team-to-flightdeck-30)).
 
 If you need the folder exactly as it was, restore your backup instead (see [When something goes wrong](recovery.md#restoring-from-a-backup)).
