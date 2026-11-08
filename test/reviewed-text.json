@@ -393,12 +393,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "3912ac3b00f26e62b62d1164e255c171607d73008be8cab4ee1556775698ad87",
-      "reviewed": "loops review round 1: qualification, answer fingerprints, unreadable holds, auto send-back, start guard; checked for direct writes and unconditional deletes: none added"
+      "sha256": "3f85fbf583a45414d88307520720d0c9940dcca238c8ea17eb0cf7061e3f85b6",
+      "reviewed": "S2: one write-time guard (folder, generation, person, run and inputs) checked in the save's still hook for every loop write; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "d6909f42872b66a86bbe8ffb789907e730ca1481bd380bb4ad34a307a8c2ce14",
-      "reviewed": "app: every start needs its folder, child built in the queue; plan choice and resolve on the run screen; checked for direct writes and unconditional deletes"
+      "sha256": "3989be4244cfa02eeeb903492e5978f58151904c4520b5130c92dc35883a46c8",
+      "reviewed": "S2: one write-time guard (folder, generation, person, run and inputs) checked in the save's still hook for every loop write; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

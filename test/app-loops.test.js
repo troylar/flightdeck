@@ -629,4 +629,58 @@ rule('Review round 7 (44): an exception approved and withdrawn at once is resolv
   assert.ok(!/decided two ways at once/.test(txt(app)), 'resolved');
 });
 
+/* S2, one write-time guard: every loop write (a child run, a request's outcome, a resolution) is checked right before its
+   bytes are written, after its last read: a folder switch or another person since the click writes nothing. */
+const holdReads = (fs0, re) => { const read = fs0.read.bind(fs0), hold = gate(); let n = 0; fs0.read = (p, o) => re.test(p) ? (n++, hold.p.then(() => read(p, o))) : read(p, o); return { hold, seen: () => n }; };
+async function switchAway(app) {
+  const was = app.fs; app.click('reset-examples'); await app.tick(60);
+  Object.keys(was.files).forEach(p => { if (!(p in app.fs.files)) app.fs.files[p] = was.files[p]; });
+  app.choose('person-avery'); await app.tick(); app.click('refresh'); await app.tick(150);
+  return was;
+}
+rule('S2 (child run): a start held at its last read writes nothing after a folder switch', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  const fs0 = app.fs, before = Object.keys(fs0.files).filter(p => /^runs\/validate-story\//.test(p)).length, h = holdReads(fs0, /^runs\/validate-story\/.*run\.json$/);
+  app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(60);
+  assert.ok(h.seen() > 0, 'the save reached its read');
+  await switchAway(app); h.hold.open(); await app.tick(300);
+  assert.strictEqual(Object.keys(fs0.files).filter(p => /^runs\/validate-story\//.test(p)).length, before, 'nothing written into the folder that was left');
+});
+rule('S2 (person): a start waiting its turn is dropped when someone else says who they are; the batch stops', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101, ABC-102'); app.click('loop-add', 'each'); await app.tick(150);
+  const fs0 = app.fs, write = fs0.write.bind(fs0), hold = gate();
+  fs0.write = (p, t, o) => /^runs\/validate-story\//.test(p) ? hold.p.then(() => write(p, t, o)) : write(p, t, o);
+  app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(30);
+  app.click('loop-start', 'each', { item: 'ABC-102' }); await app.tick(30);
+  app.choose('person-casey'); await app.tick(40);
+  hold.open(); await app.tick(400);
+  const keys = kidPaths(app).map(p => JSON.parse(app.fs.files[p].t).parent.item.key);
+  assert.ok(keys.indexOf('ABC-102') < 0, 'not started under someone else: ' + keys.join(','));
+});
+rule('S2 (outcome): a request\'s outcome held at its last read writes nothing after a folder switch', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  const fs0 = app.fs, h = holdReads(fs0, /\.status-/);
+  const id = await ask(app, [{ op: 'approve', as: 'person-avery' }], 'g-1');
+  await app.tick(100);
+  assert.ok(h.seen() > 0, 'the outcome reached its read');
+  await switchAway(app); h.hold.open(); await app.tick(300);
+  assert.ok(!Object.keys(fs0.files).some(p => p.indexOf(id + '.status-') >= 0), 'no outcome written into the folder that was left');
+});
+rule('S2 (resolution): a resolution held at its last read writes nothing after a folder switch', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  const id = await ask(app, [{ op: 'approve', as: 'person-avery' }], 'g-2');
+  await app.tick(300);
+  app.files('proposals/').filter(p => p.indexOf(id + '.status-') >= 0).forEach(p => { delete app.fs.files[p]; });
+  await twoWays(app, id);
+  const fs0 = app.fs, n0 = Object.keys(fs0.files).filter(p => p.indexOf(id + '.status-') >= 0).length, h = holdReads(fs0, /\.status-/);
+  app.click('loop-resolve', 'each', { request: id, outcome: 'refused' }); await app.tick(60);
+  assert.ok(h.seen() > 0, 'the resolution reached its read');
+  await switchAway(app); h.hold.open(); await app.tick(300);
+  assert.strictEqual(Object.keys(fs0.files).filter(p => p.indexOf(id + '.status-') >= 0).length, n0, 'nothing written into the folder that was left');
+});
+
 run();

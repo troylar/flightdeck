@@ -1746,6 +1746,8 @@ PF.repo = (function () {
       return fs.read(path, rd).then(function (f) {
         var now = f ? U.hash(f.text) : null;
         if (now !== expect || (exact && (f ? f.text : null) !== opts.expectText)) return { conflict: true, theirs: f ? f.text : null, theirsHash: now };
+        /* opts.still: asked after the read, right before the write; false writes nothing ({ dropped: true }). */
+        if (opts && typeof opts.still === 'function' && !opts.still()) return { dropped: true };
         /* A folder can't check and write in one step, so read it back: if anything else is there now, say so rather than
            report a save that didn't stick. (Across computers, OneDrive keeps both copies of a file changed on two.) */
         return fs.write(path, text).then(function () { return fs.read(path, rd); }).then(function (back) {
