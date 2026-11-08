@@ -497,8 +497,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. A maintainer tool, not shipped. Not read line by line."
     },
     "tools/readers.js": {
-      "sha256": "27b65a9efe3889a8ef30418849f8dac2b58aecc8951dbe4fd2e4bc9c1d3a4b20",
-      "reviewed": "started list capped with capJoin; fileWhy listed as a raw consumer; checked for direct writes and unconditional deletes"
+      "sha256": "09c4c17c489d1ba83800ead442306168a8f0c7a9415cc84a7fe521d900c63a7e",
+      "reviewed": "readers lint lists loopEdit's own copy; checked for direct writes and unconditional deletes"
     },
     "tools/scale-limits.js": {
       "sha256": "23e06ee46d6b4ff44216f92c530578f714aa05bcecd7a2b0458515287d554ec1",
