@@ -3083,9 +3083,11 @@
     var may = PF.loop.requestCheck(r, V, q, data.people);
     if (may) return Promise.resolve({ ok: false, why: may });
     if (q.ops[0] === 'resolve') {
-      var t = PF.loop.actionsOf(V).filter(function (y) { return y.id === q.record; })[0], rw = PF.loop.resolveWhy(r, id, t, q.outcome, data.runs);
+      /* Its own effect first: an outcome it wrote names it, so a retry after its receipt was lost is recorded applied. */
+      if (PF.loop.resolvedBy(V, q.id)) return Promise.resolve({ ok: true, why: 'Resolved before; its outcome is recorded now.' });
+      var t = PF.loop.actionsOf(V).filter(function (y) { return y.id === q.record; })[0], rw = PF.loop.resolveWhy(r, id, t, q.outcome, data.runs, V.records);
       if (rw) return Promise.resolve({ ok: false, why: rw });
-      return loopOutcome(V, t, q.outcome, 'Resolved at ' + personName(q.as) + '\'s request: it was ' + q.outcome + '.', cx).then(function (wrote) {
+      return loopOutcome(V, t, q.outcome, 'Resolved at ' + personName(q.as) + '\'s request: it was ' + q.outcome + '.', cx, q.id).then(function (wrote) {
         if (wrote === false) throw new Error('The folder changed while this request was carried out.');
         return { ok: true, why: q.record + ' is recorded as ' + q.outcome + '.' };
       });
@@ -3114,15 +3116,15 @@
   function loopResolve(id, qid, outcome) {
     var r = ctx.run(), V = r && loopView(r, id); if (!V) return;
     if (!ctx.recording(r)) { say('Only the recorder\'s window resolves a request\'s outcome.', 'warn'); render(); return; }
-    var q = PF.loop.actionsOf(V).filter(function (y) { return y.id === qid; })[0], w = PF.loop.resolveWhy(r, id, q, outcome, data.runs);
+    var q = PF.loop.actionsOf(V).filter(function (y) { return y.id === qid; })[0], w = PF.loop.resolveWhy(r, id, q, outcome, data.runs, V.records);
     if (w) { say(w, 'warn'); render(); return; }
     var cx = loopGuard();
     loopOutcome(V, q, outcome, 'Resolved by ' + personName(state.me) + ': it was ' + outcome + '.', cx).then(function (wrote) { if (wrote === false) return; say('Recorded: it was ' + outcome + '.', 'good'); return load(true); },
       function (err) { say('Couldn\'t record it: ' + (err && err.message || err), 'bad'); render(); });
   }
-  function loopOutcome(V, q, op, why, cx) {
+  function loopOutcome(V, q, op, why, cx, resolver) {
     if (!guardOk(cx)) return Promise.resolve(false);
-    var d = PF.loop.buildDecision({ proposal: q.id, loop: V.loop, op: op, items: [], seen: V.ledger.heads, reason: String(why || '').slice(0, 300), by: cx.me, writer: 'w' + loopHex(10), rev: loopHex(8), now: new Date().toISOString(), app: APP_VERSION });
+    var d = PF.loop.buildDecision({ proposal: q.id, loop: V.loop, op: op, items: [], seen: V.ledger.heads, reason: String(why || '').slice(0, 300), by: cx.me, resolver: resolver || '', writer: 'w' + loopHex(10), rev: loopHex(8), now: new Date().toISOString(), app: APP_VERSION });
     return repo.saveScope(cx.fs, d.name, d.file, { still: function () { return guardOk(cx); } }).then(function (res) { return res && res.dropped ? false : res; });
   }
   /* Counts what the person did since a start was submitted: every click on a control but Refresh, every key, navigation and

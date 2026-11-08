@@ -709,4 +709,20 @@ rule('S3 (starts in flight): a start held in one folder never blocks the same st
   assert.ok(was, 'the held start in the folder that was left was dropped: one run in all');
 });
 
+rule('Review round 8 (5): a resolution whose own outcome couldn\'t be written is recorded applied when retried, from what it left', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  const id = await ask(app, [{ op: 'approve', as: 'person-avery' }], 'rv-8');
+  await app.tick(300);
+  app.files('proposals/').filter(p => p.indexOf(id + '.status-') >= 0).forEach(p => { delete app.fs.files[p]; });
+  await twoWays(app, id);
+  const rs = app.PF.loop.idFor('release-helper', 'rv-9'), fs0 = app.fs, write = fs0.write.bind(fs0); let failed = 0;
+  fs0.write = (p, t, o) => p.indexOf(rs + '.status-') >= 0 && !failed++ ? Promise.reject(new Error('disk full')) : write(p, t, o);
+  await ask(app, [{ op: 'resolve', record: id, outcome: 'refused', as: 'person-avery' }], 'rv-9');
+  await app.tick(300);
+  assert.ok(failed > 0, 'the resolution\'s own outcome failed once');
+  app.click('refresh'); await app.tick(400);
+  assert.strictEqual((outcome(app, rs) || {}).op, 'applied', 'recorded applied, never refused');
+});
+
 run();

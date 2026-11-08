@@ -654,4 +654,15 @@ rule('Review round 8 (4): the suggested owner comes only from the settled plan, 
   }
 });
 
+rule('Review round 8 (5): the outcome a resolution writes names the resolution, so the resolution is recognized by its effect', () => {
+  const d = LP.buildDecision({ proposal: 'req-release-helper-0123456789abcdef01234567', loop: LOOPT, op: 'refused', items: [], seen: ['req-release-helper-0123456789abcdef01234567'], reason: 'r', by: 'person-morgan', writer: 'wa', rev: '0000000a', now: AT, app: '3.0.0', resolver: 'req-release-helper-fedcba9876543210fedcba98' });
+  same(d.file.resolver, 'req-release-helper-fedcba9876543210fedcba98');
+  const rec = LP.cleanDecision(JSON.parse(JSON.stringify(d.file)), d.name).record;
+  same(rec.resolver, 'req-release-helper-fedcba9876543210fedcba98');
+  same(LP.resolvedBy({ records: [rec] }, 'req-release-helper-fedcba9876543210fedcba98'), rec.id);
+  const { r } = release(), rs = { id: 'req-release-helper-fedcba9876543210fedcba98', ops: ['resolve'], items: [], status: 'review' };
+  same(LP.resolveWhy(r, 'each', rs, 'applied', [], [rec]), '', 'a resolution recorded both ways: applied, since its effect is here');
+  assert.ok(LP.resolveWhy(r, 'each', rs, 'refused', [], [rec]).length > 0);
+});
+
 run();

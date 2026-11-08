@@ -621,11 +621,16 @@ PF.loop = (function () {
   /* Whether a request whose outcome was recorded both ways (status review) may be recorded as outcome, by the effect it left:
      a run it started (runs: the folder's runs), or an approval or send-back that names it. '' or why. The action is never
      carried out again. */
-  function resolveWhy(r, stepId, q, outcome, runs) {
+  /* The outcome a resolve request wrote (it names the resolver): the resolution's own durable effect, or ''. */
+  function resolvedBy(V, id) {
+    var d = (V.records || []).filter(function (x) { return x.type === 'decision' && x.resolver === id; })[0];
+    return d ? d.id : '';
+  }
+  function resolveWhy(r, stepId, q, outcome, runs, records) {
     if (!q || q.status !== 'review') return 'Only a request whose outcome was recorded both ways is resolved; this one is ' + (q ? q.status : 'not in this loop') + '.';
     if (outcome !== 'applied' && outcome !== 'refused') return 'Say whether it was applied or refused.';
-    var did = q.ops[0] === 'start' ? (runs || []).some(function (c) { var it = c && c.parent && c.parent.item; return !!it && it.request === q.id && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === stepId; }) : appliedIn(r, stepId, q.id);
-    var what = q.ops[0] === 'start' ? 'a run it started' : q.ops[0] === 'approve' ? 'the approval it asked for' : 'the send-back it asked for';
+    var did = q.ops[0] === 'resolve' ? !!resolvedBy({ records: records }, q.id) : q.ops[0] === 'start' ? (runs || []).some(function (c) { var it = c && c.parent && c.parent.item; return !!it && it.request === q.id && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === stepId; }) : appliedIn(r, stepId, q.id);
+    var what = q.ops[0] === 'resolve' ? 'the outcome it recorded' : q.ops[0] === 'start' ? 'a run it started' : q.ops[0] === 'approve' ? 'the approval it asked for' : 'the send-back it asked for';
     if (outcome === 'applied' && !did) return 'It wasn\'t carried out: there is no ' + what + ' here. Resolve it as refused.';
     if (outcome === 'refused' && did) return 'It was carried out: ' + what + ' is here. Resolve it as applied.';
     return '';
@@ -841,7 +846,7 @@ PF.loop = (function () {
     var name = d.proposal + '.status-' + d.writer + '-' + d.rev + '.json', f = { format: STATUS, features: FEATURES.slice() };
     if (PF.envelope.semver(d.app)) f.app = d.app;
     f.proposal = d.proposal; f.loop = d.loop; f.op = d.op; f.items = d.items.slice(); f.seen = d.seen.slice().sort(); if (d.reason) f.reason = d.reason;
-    f.by = d.by; if (d.onBehalf) f.onBehalf = d.onBehalf; f.at = d.now;
+    f.by = d.by; if (d.onBehalf) f.onBehalf = d.onBehalf; if (d.resolver) f.resolver = d.resolver; f.at = d.now;
     return { name: name, file: f };
   }
   function cleanDecision(o, name) {
@@ -854,8 +859,9 @@ PF.loop = (function () {
     if (!Array.isArray(o.items) || (!o.items.length && (o.op === 'accept' || o.op === 'keep')) || o.items.length > MAX_ITEMS || !o.items.every(function (x) { return typeof x === 'string' && x.length <= 80; })) return mal('is a scope decision without its items');
     if (!Array.isArray(o.seen) || !o.seen.every(function (x) { return typeof x === 'string'; })) return mal('is a scope decision without what it saw');
     if (typeof o.by !== 'string' || !PERSON.test(o.by)) return mal('is a scope decision without who made it');
+    if (o.resolver != null && (typeof o.resolver !== 'string' || !REQ.test(o.resolver))) errors.push('its resolver isn\'t a request id');
     if (errors.length) return mal('is a scope decision that isn\'t in its format: ' + errors[0]);
-    return { ok: true, record: { id: name.slice(0, -5), type: 'decision', loop: loop, proposal: o.proposal, op: o.op, items: o.items.slice(), seen: o.seen.slice(), reason: typeof o.reason === 'string' ? o.reason.slice(0, LIMITS.reason) : '', by: { person: o.by }, onBehalf: typeof o.onBehalf === 'string' ? o.onBehalf : '' } };
+    return { ok: true, record: { resolver: typeof o.resolver === 'string' ? o.resolver : '', id: name.slice(0, -5), type: 'decision', loop: loop, proposal: o.proposal, op: o.op, items: o.items.slice(), seen: o.seen.slice(), reason: typeof o.reason === 'string' ? o.reason.slice(0, LIMITS.reason) : '', by: { person: o.by }, onBehalf: typeof o.onBehalf === 'string' ? o.onBehalf : '' } };
   }
   /* A file of either kind, as the folder reader dispatches it before the plan reader. */
   function cleanFile(o, name) { return o.format === STATUS ? cleanDecision(o, name) : cleanRequest(o, name); }
@@ -864,5 +870,5 @@ PF.loop = (function () {
 
   return { KINDS: KINDS, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
     idFor: idFor, isScope: isScope, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
-    rollup: rollup, view: view, markStale: markStale, rowId: rowId, choiceWhy: choiceWhy, resolveWhy: resolveWhy, planWhy: planWhy, sendBackWhy: sendBackWhy, again: again, appliedIn: appliedIn, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
+    rollup: rollup, view: view, markStale: markStale, rowId: rowId, choiceWhy: choiceWhy, resolveWhy: resolveWhy, resolvedBy: resolvedBy, planWhy: planWhy, sendBackWhy: sendBackWhy, again: again, appliedIn: appliedIn, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();

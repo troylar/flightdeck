@@ -2804,7 +2804,7 @@ async function loopMain(argv) {
         /* Resolved by what the request left behind (LP.resolveWhy), never by doing it again: the recorder's window checks again. */
         const tq = LP.actionsOf(V).filter((y) => y.id === val['--record'])[0];
         if (!tq || tq.status !== 'review') return failOut('invalid', (tq ? val['--record'] + ' is ' + tq.status + ', not recorded both ways' : val['--record'] + ' isn\'t a request on this loop') + '; only an outcome recorded both ways is resolved. Nothing was written.', problems());
-        const rw = LP.resolveWhy(r, stepId, tq, val['--outcome'], d.runs || []);
+        const rw = LP.resolveWhy(r, stepId, tq, val['--outcome'], d.runs || [], V.records);
         if (rw) return failOut('invalid', rw + ' Nothing was written.', problems());
         act = { resolve: { request: tq.id, outcome: val['--outcome'] } };
         value = { loop: V.loop, changes: [{ op: 'resolve', record: tq.id, outcome: val['--outcome'], as: val['--as'] }] };

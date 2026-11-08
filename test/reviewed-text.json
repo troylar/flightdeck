@@ -13,8 +13,8 @@
       "reviewed": "fold design tips and the library panel; own-key reads; checked for direct writes and unconditional deletes"
     },
     "bin/flightdeck.js": {
-      "sha256": "63e58ed996826784905db3dc9cc90f6ac09709c485bf1feddc8c3054d8ec9633",
-      "reviewed": "cli: loop plan and loop resolve; checked for direct writes and unconditional deletes"
+      "sha256": "df6510cab882593a091d80d3e98e5cfd363e85f9ef7535ad31f32b9c367e9631",
+      "reviewed": "a resolution's outcome names the resolver, recognized before the target's status; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "21c5b257606a8aa3d24c956f518745372409b550008be4d06f5178081117708c",
@@ -253,8 +253,8 @@
       "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "src/core/loop.js": {
-      "sha256": "701f7ef3e0bbce4d5934eb4fc6fabf746cd7ec3da82be91d90cc56455fc7bd2f",
-      "reviewed": "S1: settlement needs every outstanding participant; any conflict holds the roll-up, removed rows too; owner only from settled decisions; checked for direct writes and unconditional deletes"
+      "sha256": "782eb57694aaf8cb8cbedb5a285ddf1760384475969c50cc4475ed9ca95d53f6",
+      "reviewed": "a resolution's outcome names the resolver, recognized before the target's status; checked for direct writes and unconditional deletes"
     },
     "src/core/map.js": {
       "sha256": "671a810abb29087bed638e0fc39ecc5a52b70146abd303742d5d017c9083db7c",
@@ -397,8 +397,8 @@
       "reviewed": "S2: one write-time guard (folder, generation, person, run and inputs) checked in the save's still hook for every loop write; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "99691bba7f788ae1bfa0129bd30dfefcd3aeb74d9a25bae7439ed41626dd97cd",
-      "reviewed": "S3: every loop cache kept per folder and generation; checked for direct writes and unconditional deletes"
+      "sha256": "16c357390f686d0f33bba099e254873083788c17636b340c5ffd3212ee419c59",
+      "reviewed": "a resolution's outcome names the resolver, recognized before the target's status; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
