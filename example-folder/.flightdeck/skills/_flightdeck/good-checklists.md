@@ -40,12 +40,12 @@ A skill or script says how a tool does the work. A checklist says what people mu
 
 ## Work repeated per item
 
-Some work repeats for each item in a set: each story in a release, each server in a fleet.
+Some work repeats for each item in a set: each environment to deploy to, each document to review, each person in an onboarding cohort, each service to health-check, each story in a release.
 
 - **A fixed, short set** (three environments): one step per item.
-- **A set that changes each run** (Flightdeck 3.0): a `{for.each}` step over a checklist that returns a result, with `from:` naming the `{jira.search}` that finds the set. Each item gets its own run, and the step is approved only when every item is cleared or approved without a run. See map-format.md, Loops.
+- **A set that changes each run** (Flightdeck 3.0): a `{for.each}` step over a checklist that returns a result, with `items: item` for a list kept by hand or synced by one tool (`source:`), or `from:` naming the `{jira.search}` that finds a set of Jira stories. Each item gets its own run, and the step is approved only when every item is cleared or approved without a run. See map-format.md, Loops.
 
-Never write "every story is ready" as one `{confirm}`: nobody can tell which items were looked at.
+Never write "every environment is ready" as one `{confirm}`: nobody can tell which items were looked at.
 
 ## What makes a good checklist
 

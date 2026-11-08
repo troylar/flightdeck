@@ -224,7 +224,7 @@ During a run, the recorder can **Fill in** any step's checklist fields and evide
 | `github.pr` | Open, review, approve or merge a GitHub pull request. | **`action`** (`open`, `review`, `approve`, `merge`), **`repo`**, `pull` (unless open), `from`, `to` | `pr`, `checks`, `mergeCommit` (for merge) |
 | `measure` | Record a number with its unit, like velocity or points carried over. | **`metric`**, `unit`, `where` | `value`, `unit` |
 | `jira.search` | Search Jira with a query or a saved filter, and record what it found. | `query`, `filter`, `results`, `site`, `what` | `searchId`, `count`, `keys`, `resultsLink`, `ranAt` |
-| `for.each` | Start a linked run of another checklist for each item in a list; done when every item is cleared or excused. | **`process`**, `from`, **`items`** (`jira.issue`), `max` | nothing (use `evidence:`) |
+| `for.each` | Start a linked run of another checklist for each item in a list; done when every item is cleared or excused. | **`process`**, `from`, **`items`** (`jira.issue`, `item`), `max`, `source`, `noun` | nothing (use `evidence:`) |
 <!-- types:end -->
 
 `version` on `{run.process}` and `skillVersion` on `{run.skill}` aren't in the table: they're pins (Needs Flightdeck 2.0), described under [Nested processes](#nested-processes) and [Skill versions](#skill-versions). No other type takes them.
@@ -333,7 +333,23 @@ Publishing reads the child (the pinned version, or the latest) and stops when `r
 
 ## Loops
 
-A `{for.each}` step starts one run of another checklist for each item in a list, such as every story in a release (Needs Flightdeck 3.0). The child returns a result, and the step says which results clear an item:
+A `{for.each}` step starts one run of another checklist for each item in a list: a list of things that each need the same checklist, like the environments to deploy to, the documents to review, the people in an onboarding cohort, the services to health-check, or the stories in a release (Needs Flightdeck 3.0). The child returns a result, and the step says which results clear an item.
+
+Any list is `items: item`. Each item has a key (1 to 40 letters, digits, hyphens or underscores, like `staging`; kept exactly as written, case and all), and may have a title and an http or https link:
+
+```markdown
+- [!] {for.each} Deploy to every environment @release-lead {#deploy}
+  process: deploy-one
+  items: item
+  source: deploy-targets
+  noun: environment / environments
+  pass: environment=item:key
+  accepts: healthy
+```
+
+Items are added by hand from the list, or synced by the one tool named in `source:`. The step's rows, buttons and counts say "environment" and "environments"; without `noun:` they say "item" and "items".
+
+Stories in a release come from a Jira search instead:
 
 ```markdown
 - [!] {jira.search} Find the release's stories {#find}
@@ -349,13 +365,16 @@ A `{for.each}` step starts one run of another checklist for each item in a list,
 ```
 
 - `process:` names the child checklist; it must give a `result:` (see Module results). `version:` pins it, as on `{run.process}`.
-- `items: jira.issue` is the kind of item. `from: #<step>` names the `{jira.search}` step whose results fill the list; leave it out for a list kept by hand.
+- `items:` is the kind of item: `item` (any list) or `jira.issue` (Jira stories). A kind this copy of Flightdeck doesn't know is refused at publish and at start, and a run that has one is read-only, naming the kind.
+- `from: #<step>` (Jira only) names the `{jira.search}` step whose results fill the list. `source: <feed id>` (items only, like `deploy-targets`) names the one tool feed that syncs the list; a sync from another feed, or from another site, account or query of this one, is refused. Leave both out for a list kept by hand.
+- Only a complete sync (every reported item read and listed, no errors, `complete: true`) can propose removing an item, and only one that sync's feed added: an item added by hand is never proposed for removal.
+- `noun: <one> / <many>` names the rows, both words in full (at most 40 characters each). Left out, it's item / items, or story / stories for Jira.
 - `pass:` gives each item's run its details: `item:key` and `item:title` are the item's own, `^detail` and fixed values work as on `{run.process}`. `carry:` and `sets: <detail>=result` aren't allowed: results stay per item.
 - `accepts:` lists the child results that clear an item. `max:` (1 to 500, 200 when left out) is the most items the list may hold; more is refused, never cut.
 - The step is approved from its item list, never checked by hand: every item in scope needs an accepted result or an approval without a run, given by a person with a reason. The approval records the list and every result as they were. A change after it (an item added, removed or restored, a result changed) sends it back for review, listing each change; it never quietly returns.
 - The list is kept as scope records in `proposals/`, written by Flightdeck and by `flightdeck loop` (a tool's search results, items added by hand, removals, approvals without a run). A search that no longer finds an item only proposes its removal; a person decides. Each item's run is started by a person, from the list.
 
-Publishing stops when the child is the checklist itself, `from:` doesn't name a `{jira.search}` step, `accepts:` is missing or names a result the child doesn't return, or `pass:` names a detail the child doesn't have.
+Publishing stops when the child is the checklist itself, the kind isn't one Flightdeck knows, `from:` is on a list of items or doesn't name a `{jira.search}` step, `source:` is on a Jira loop or isn't a feed id, `noun:` isn't one / many, `accepts:` is missing or names a result the child doesn't return, or `pass:` names a detail the child doesn't have.
 
 ## Skill versions
 
