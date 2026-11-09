@@ -106,6 +106,17 @@ rule('A revoke blocks what its grant hasn\'t applied; what landed stays applied'
   const late = prop('c3', add('Made at the same time as the revoke', { phase: 'draft' }), [g.id, a1.id]);
   same(V(r, [g, p1, p2, a1, x, late]).requests[late.id].status, 'waiting', 'a revoke made at once with a request still blocks it');
 });
+rule('A delegation to a person covers nothing once that person is inactive or not in people.json', () => {
+  const { r } = newRun();
+  ['person-drew', 'person-zed'].forEach((who, i) => {
+    const g = clean(T.buildGrant({ kind: 'grant', id: T.idFor('flightdeck', 'kg' + i), run: RUN, seen: [], by: 'person-avery', at: AT, subject: { person: who }, ops: ['add'], targets: [{ phase: 'draft' }], limits: { adds: 5 } }));
+    const p = prop('kp' + i, add('One', { phase: 'draft' }), [g.id], who), q = V(r, [g, p]).requests[p.id];
+    same(q.status, 'waiting', who);
+  });
+  const g = clean(T.buildGrant({ kind: 'grant', id: T.idFor('flightdeck', 'kg9'), run: RUN, seen: [], by: 'person-avery', at: AT, subject: { person: 'person-casey' }, ops: ['add'], targets: [{ phase: 'draft' }], limits: { adds: 5 } }));
+  const p = prop('kp9', add('One', { phase: 'draft' }), [g.id], 'person-casey');
+  same(V(r, [g, p]).requests[p.id].status, 'queued', 'an active person in people.json');
+});
 rule('A grant from someone who may not give one covers nothing', () => {
   const { r } = newRun(), g = grant('g4', ['add'], [{ phase: 'draft' }], 5, 'person-casey'), p1 = prop('d1', add('One', { phase: 'draft' }), [g.id]);
   const q = V(r, [g, p1]).requests[p1.id];

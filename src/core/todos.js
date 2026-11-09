@@ -511,6 +511,13 @@ PF.todos = (function () {
     if (r.roles && Object.keys(r.roles).some(function (k) { return r.roles[k] === person; })) return '';
     return (p.name || person) + ' neither records this run nor holds one of its roles';
   }
+  /* '' when a person is in people.json and active, else why not. */
+  function activeWhy(person, people) {
+    var list = PF.people.listOf(people), p = null;
+    for (var i = 0; i < list.length; i++) if (list[i] && list[i].id === person) { p = list[i]; break; }
+    if (!p) return person + ' isn\'t in people.json';
+    return p.inactive ? (p.name || person) + ' is marked inactive in people.json' : '';
+  }
   function mayFor(r, people) {
     return function (rec) { var person = rec.kind === 'compound' ? rec.decision && rec.decision.by : rec.by && rec.by.person; return personWhy(r, person, people); };
   }
@@ -549,6 +556,9 @@ PF.todos = (function () {
       var wordsWhy = C.releases ? 'It releases work, so a person approves it.' : C.reopens.length ? 'It reopens an approval, so a person approves it.' : 'It waits for a person\'s approval or a delegation that covers it.';
       if (human) return { ok: false, why: wordsWhy };
       var x = q.todo ? T.byTodo[q.todo] : null, tk = targetKey(q.op === 'add' ? q.target : x ? x.target : null), sub = q.by || {};
+      /* A delegate who is a person must be in people.json and active now for a delegation to cover what they ask. */
+      var gone = sub.person ? activeWhy(sub.person, people) : '';
+      if (gone) return { ok: false, why: gone + ', so no delegation covers what they ask; it waits for a person\'s approval.' };
       var gs = Object.keys(T.grants).map(function (id) { return T.grants[id]; }).filter(function (g) {
         return (g.subject.tool ? g.subject.tool === sub.tool : g.subject.person === sub.person) && g.ops.indexOf(q.op) >= 0 && g.targets.some(function (t) { return targetKey(t) === tk; });
       });
