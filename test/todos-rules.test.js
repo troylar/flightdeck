@@ -459,6 +459,18 @@ rule('Landing names the application, stamps the feature, makes a run/2 a run/3 a
   assert.throws(() => R.todoLand(r2, map, b, { who: 'person-avery', now: AT }), /changed since/);
 });
 
+rule('A compound with another application prepared at once is settled before it lands, never landed as it is', () => {
+  const { r } = newRun(), c = compound('af1', add('Compound work', { phase: 'draft' }), 'person-avery', r), x = prop('af0', add('Other', { phase: 'draft' }), [], 'person-avery');
+  same(T.applyPlan(r, V(r, [c]), V(r, [c]).requests[c.id]).adopt.id, c.id, 'set-up: alone, it lands as it is');
+  const y = prop('af2', add('Third', { phase: 'draft' }), [], 'person-avery');
+  const other = applied(c, x.id, { compound: c.id }, [c.id]), another = applied(c, y.id, { compound: c.id }, [c.id]), recs = [x, y, c, other, another], W = V(r, recs), plan = T.applyPlan(r, W, W.requests[c.id]);
+  same(W.requests[c.id].status, 'disputed', 'set-up: disputed ' + JSON.stringify([W.requests[c.id].status, W.requests[c.id].why, W.requests[c.id].appOut, W.requests[c.id].ignored]));
+  assert.ok(!plan.adopt, 'not landed while disputed: ' + JSON.stringify(plan));
+  assert.ok(plan.write && plan.write.seen.indexOf(other.id) >= 0 && plan.write.seen.indexOf(another.id) >= 0, 'a settling application that saw both: ' + JSON.stringify(plan));
+  const st1 = T.buildStatus(Object.assign({}, plan.write, { by: 'person-avery', at: AT, writer: 'rec', rev: rev() })), settler = clean(st1.file, st1.name);
+  const W2 = V(r, recs.concat([settler])), p2 = T.applyPlan(r, W2, W2.requests[c.id]);
+  same(p2.adopt && p2.adopt.id, settler.id, 'the application that settled them lands, once: ' + JSON.stringify(p2));
+});
 rule('A dispute among more than 50 prepared applications settles a page at a time and then lands once', () => {
   const { r } = newRun(), map = R.mapOf(r), p = prop('dd1', add('Wide', { phase: 'draft' }), [], 'person-avery');
   const C = T.consequenceOf(r, map, p, V(r, [p])).fingerprint, d = decide(p, 'accept', 'person-avery', C);

@@ -18458,7 +18458,9 @@ PF.todos = (function () {
     var p = byId[q.id];
     if (!p) return { skip: 'Its request can\'t be read in order yet.' };
     var eff = effectOf(p), f = fp(eff);
-    if (p.kind === 'compound' && q.via && q.via.compound === p.id && (p.application.previous || '') === head && p.application.fingerprint === f) return { adopt: p };
+    /* A compound lands as it is only as a separate application would: no other application of it outstanding (that is settled
+       first, a page at a time, like any other), and none settling it that isn't the compound itself. */
+    if (p.kind === 'compound' && !appOnly && (!q.app || q.app.record === p.id) && q.via && q.via.compound === p.id && (p.application.previous || '') === head && p.application.fingerprint === f) return { adopt: p };
     /* The candidate that settled them, when there is one, else the first by id: the same one in every window. Only one replay
        would read in order: it saw its request and the head it was prepared on; any other is seen by a fresh one. */
     var fit = q.candidates.map(function (id) { return byId[id]; }).filter(function (a) { return a && (a.previous || '') === head && a.fingerprint === f && sameVia(a.authority, q.via) && T.saw(a.id, q.id) && (!head || T.saw(a.id, head)); }).sort(function (a, b) { return cmpStr(a.id, b.id); });
