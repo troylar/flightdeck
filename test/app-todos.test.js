@@ -260,6 +260,17 @@ rule('Keeping a copy whose head names an application this run never landed asks 
   ok.click('use-copy', 'run-OTHER.json'); await ok.tick(400);
   assert.strictEqual(theRun(ok).living.head, c.head, 'still authorized: kept');
 });
+rule('Keeping a living copy over a run/2 writes no backup once the person changed', async () => {
+  const app = await setup();
+  await conflictCopy(app, 'person-blake');
+  await blake(app, true); await refresh(app, 300);
+  assert.strictEqual(theRun(app).format, 'preflight-run/2', 'set-up: the current run is a run/2');
+  const fs = app.fs, read = fs.read.bind(fs), hold = gate();
+  fs.read = (p, o) => /run-OTHER\.json$/.test(p) ? hold.p.then(() => read(p, o)) : read(p, o);
+  app.click('use-copy', 'run-OTHER.json'); await app.tick(60);
+  app.choose('person-casey'); await app.tick(); hold.open(); await app.tick(300);
+  assert.deepStrictEqual(app.files('runs/release-notes/').filter(x => /replaced-/.test(x)), [], 'no backup written for someone else');
+});
 rule('Every save, backup and retry of a living run goes through the run guard: loopy() counts a living run', () => {
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
   const i = src.indexOf('function loopy('), body = src.slice(i, src.indexOf('\n  }', i));

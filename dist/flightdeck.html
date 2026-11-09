@@ -34553,7 +34553,9 @@ PF.examples = (function () {
   /* Keeping a copy of a loop's parent or child (recover, unchanged) is guarded from its click: the backup and the run's save
      both ask this guard (the repo wrapper above, and save()). Only the folder and the person: the recovery itself may take
      the run over. */
-  function loopRecoverCx() { var r = ctx.run(); state.recoverCx = loopy(r) ? { key: state.runKey, cx: loopGuard() } : null; }
+  /* Captured for every run, not only one that is loopy now: a copy can make the run loopy (a living copy kept over a run/2),
+     and the backup is written before that is known. */
+  function loopRecoverCx() { state.recoverCx = ctx.run() ? { key: state.runKey, cx: loopGuard() } : null; }
   function loopSaved(p, words) {
     var endBusy = busyStart(), sg = gen;
     return p.then(function (res) {
