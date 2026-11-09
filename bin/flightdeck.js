@@ -3196,7 +3196,9 @@ async function todoMain(argv) {
       const it = FX.itemOfTodo(r, x), FV = it ? FX.view(it.run, deps) : null, fr = FV ? FV.byId[val['--fact']] : null;
       if (fr && fr.loopStep === it.loopStep && fr.uid === it.uid && fr.attempt === it.attempt) {
         const sid = FX.suggestionId(x.id, FX.incarnationOf(x), fr.source, fr.domain, fr.content), sfile = 'proposals/' + sid + '.json';
-        if ((got.todos || []).some((y) => y.id === sid)) {
+        const taken = (got.todos || []).filter((y) => y.id === sid)[0];
+        if (taken && !(taken.run && taken.run.process === proc && taken.run.id === runId && taken.op === 'done' && taken.todo === x.id)) return failOut('key-taken', 'A different record is already filed under this suggestion\'s name (' + sfile + ').' + nothing, problems());
+        if (taken) {
           const q0 = T.requestsOf(V).filter((q) => q.id === sid)[0];
           return done(Object.assign(sid0, { status: 'already', request: { id: sid, file: sfile }, preview: 'Already suggested on this evidence (' + (q0 ? T.WORDS[q0.status] || q0.status : 'not read in order yet') + '). Nothing written.' }));
         }

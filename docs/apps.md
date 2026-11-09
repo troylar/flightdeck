@@ -750,7 +750,7 @@ The run is the one that has the loop. `--from` is a JSON file (or `-` for standa
   "entries": [ { "id": "17", "text": "Fix the login", "state": "merged", "link": "https://git.example.com/pr/17" } ] }
 ```
 
-- `key`: the tool's own name for this observation. The same `--tool` name and key always mean the same observation: filed again it is `already`; the same key with any other observation is refused (`key-taken`). Use a new key for each new observation (a key with the time in it works).
+- `key`: the tool's own name for this observation. The same `--tool` name and key always mean the same observation: filed again on the same run it is `already`; the same key with any other observation, or on another run, is refused (`key-taken`). Use a new key for each new observation (a key with the time in it works).
 - `item`: the item's key or uid; `attempt` (optional) defaults to its current one. An item that isn't in the loop, or an attempt it hasn't reached, is refused.
 - `domain` and its entries: `prs` (`state`: open, draft, merged or closed), `commits` (no state), `status` (one entry; `category`: todo, doing or done) or `blockers` (`state`: open or resolved). Each entry has an `id` (at most 120 characters), `text` (at most 200) and an optional https `link`; at most 100 entries.
 - `complete`: true only when you read the whole list: `reported` (how many the source says there are, or null when it doesn't say) equals the entries given, and there are no `errors` (at most 20, 300 characters each). A partial list is fine; say so. `fetched` defaults to the number of entries.

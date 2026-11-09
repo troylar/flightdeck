@@ -55,7 +55,15 @@ async function folder() {
   const c = LP.cleanIntent({ loop: { process: 'release-readiness', run: 'r-41', step: 'each' }, observation: obs([101, 102, 103]), changes: [] }, 's1', { name: 'release-helper', version: '1.0' });
   const f = LP.buildRequest(c.intent, { seen: [], children: [], now: AT, app: '4.0.0' });
   await d.write('proposals/' + f.id + '.json', LP.text(f));
-  return { root, d };
+  /* Another release's run of the same checklist, with the same stories in its loop. */
+  const other = async () => {
+    const r2 = R.create(pp, { id: 'r-42', by: 'person-morgan', session: 'w', now: AT, app: '4.0.0', details: { fix_version: '4.2' }, pins: PF.pins.atStart(pp.map, pp.info.payload ? pp.info.payload.pins : null, procOf) });
+    await d.write('runs/release-readiness/r-42/run.json', JSON.stringify(r2, null, 2));
+    const c2 = LP.cleanIntent({ loop: { process: 'release-readiness', run: 'r-42', step: 'each' }, observation: obs([101, 102, 103]), changes: [] }, 's1-42', { name: 'release-helper', version: '1.0' });
+    const f2 = LP.buildRequest(c2.intent, { seen: [], children: [], now: AT, app: '4.0.0' });
+    await d.write('proposals/' + f2.id + '.json', LP.text(f2));
+  };
+  return { root, d, other };
 }
 const ls = (root) => fs.existsSync(path.join(root, 'proposals')) ? fs.readdirSync(path.join(root, 'proposals')).filter(n => n[0] !== '.').sort() : [];
 const snap = (root) => { const out = {}; const walk = (x) => fs.readdirSync(x, { withFileTypes: true }).forEach(e => { const p = path.join(x, e.name); if (e.isDirectory()) walk(p); else out[path.relative(root, p)] = fs.readFileSync(p, 'utf8'); }); walk(root); return out; };
@@ -125,6 +133,20 @@ rule('sync --dry-run and list write nothing; sync files one record per observati
   assert.deepStrictEqual([other.code, other.error.kind, ls(root).length], [1, 'key-taken', n], JSON.stringify(other));
   assert.ok(/fact 2 \(prs-102-a\)/.test(other.error.why) && /Nothing was written/.test(other.error.why), other.error.why);
   assert.strictEqual(fs.readFileSync(runFile(root, PR), 'utf8'), before['runs/release-readiness/r-41/run.json'], 'the CLI never writes run.json');
+});
+
+rule('A key that names an observation on another run is taken there: the same observation on another run is refused, never already, and nothing is written', async () => {
+  const { root, other } = await folder();
+  await other();
+  assert.strictEqual(json('fact', 'sync', root, PR, '--from', input({ facts: [prs()] }), '--json', ...TOOL).code, 0);
+  const before = snap(root);
+  const r = json('fact', 'sync', root, 'release-readiness/r-42', '--from', input({ facts: [prs()] }), '--json', ...TOOL);
+  assert.deepStrictEqual([r.code, r.error && r.error.kind], [1, 'key-taken'], JSON.stringify(r));
+  assert.ok(/another run \(release-readiness\/r-41, /.test(r.error.why), r.error.why);
+  assert.deepStrictEqual(snap(root), before, 'nothing written');
+  assert.deepStrictEqual(json('fact', 'list', root, 'release-readiness/r-42', '--json').data.items, [], 'r-42 has no fact');
+  const n = json('fact', 'sync', root, 'release-readiness/r-42', '--from', input({ facts: [prs({ key: 'prs-102-r42' })] }), '--json', ...TOOL);
+  assert.deepStrictEqual([n.code, n.data.facts.map(f => f.status)], [0, ['filed']], 'a key of its own files on r-42');
 });
 
 rule('list says each item\'s facts by source, with completeness and freshness; a domain not checked reads as not checked, never as none', async () => {

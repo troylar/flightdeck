@@ -361,6 +361,14 @@ rule('A delegation that covers done applies a suggestion without a person, still
   W.land(NOW);
   same(W.view().byTodo[x.id].state, 'done');
 });
+rule('A retry is already only on the run it was filed on: the same tool, key and observation on another run is taken', () => {
+  const W = world(), Pp = W.fact('global-key');
+  const r2 = Object.assign(JSON.parse(JSON.stringify(W.r)), { id: 'r-42' });
+  const again = F.prepare(r2, { obs: { key: 'global-key', loopStep: 'each', item: 'ABC-101', source: BB, domain: 'prs', observedAt: AT, complete: true, reported: 1, entries: [pr(1)] }, by: { tool: 'git-bot', version: '1.0' }, records: W.recs, unread: W.unread, items: W.items(), at: AT, app: '4.0.0' });
+  same([again.status, again.taken, /another run \(release-readiness\/r-41/.test(again.why || '')], [undefined, true, true], JSON.stringify(again));
+  same(F.prepare(W.r, { obs: { key: 'global-key', loopStep: 'each', item: 'ABC-101', source: BB, domain: 'prs', observedAt: AT, complete: true, reported: 1, entries: [pr(1)] }, by: { tool: 'git-bot', version: '1.0' }, records: W.recs, unread: W.unread, items: W.items(), at: AT, app: '4.0.0' }).status, 'already', 'on its own run: already');
+  assert.ok(Pp.id);
+});
 rule('At 10,000 fact records a run takes no more, with a message that says what to do; the ones there are kept', () => {
   const W = world(), base = W.fact('base');
   const many = Array.from({ length: F.LIMITS.records - 1 }, (_, i) => Object.assign({}, base.record, { id: F.idFor('git-bot', 'n' + i) }));

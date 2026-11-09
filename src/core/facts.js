@@ -395,6 +395,8 @@ PF.facts = (function () {
     var prior = FV.byId[id] || (o.records || []).filter(function (x) { return x && x.id === id; })[0];
     if (prior) {
       if (prior.kind !== 'fact') return { why: 'This key already names another record (' + id + ').', taken: true };
+      /* A key is the tool's for one observation anywhere in the folder: on another run it is taken, never already. */
+      if (!prior.run || prior.run.process !== r.process || prior.run.id !== r.id) return { why: 'This key already names an observation on another run (' + (prior.run ? prior.run.process + '/' + prior.run.id : 'unknown') + ', proposals/' + id + '.json). Use a new key for this run.', taken: true };
       var a = JSON.stringify(canon(observationOf(prior))), c = JSON.stringify(canon(observationOf(clean)));
       return a === c ? { id: id, name: id + '.json', status: 'already', record: prior, words: 'Already filed.' } : { why: 'This key already names a different observation (proposals/' + id + '.json). Use a new key for a new observation.', taken: true };
     }

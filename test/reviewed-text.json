@@ -13,20 +13,20 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "3754a3afdd563b64ff7dc81087368ccab939bd24b4a86a4922a3feaa21be5fb9",
-      "reviewed": "4.0 slice 4: facts read fields by name (no computed keys), suggest-done reads back through PF.todos.cleanFile, fact sync input listed as a raw consumer, fcMemo cleared per draw; checked for direct writes and unconditional deletes"
+      "sha256": "e5423f764e7239746609b0ccad8b37a55c9d80e8c0c99dca2e79dd211f356518",
+      "reviewed": "FB: a fact retry is already only on its own run; suggest-done's already checks the record's run and to-do; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "cf0a7c0289f08fc6d138b4feaddbdc118b45af451a7732e5ee68c9480c752b38",
       "reviewed": "slice 4 commit 3: facts core (facts.js: records, reduction, freshness, support, de-duplication), todos hooks (fact dispatch, done support, now), Python checker parity; pure code, no direct writes or unconditional deletes"
     },
     "docs/apps.md": {
-      "sha256": "386b1a3de8131ea076a13bdb33d310eacdc4652bbbb4e1601df085b1c480b33e",
-      "reviewed": "4.0 slice 4 commit 4: fact sync/list and todo suggest-done (writes only through writeOnce, created once; no deletes), now threaded into every to-do view and guard, application save re-asks its plan, loop fact lines and evidence/ack in the to-do row, docs and skills; checked for direct writes and unconditional deletes"
+      "sha256": "4cae975aed94c54e26880833c863bc690cc37b0ffedd5e9d9dd7d4292b837941",
+      "reviewed": "FB: a fact retry is already only on its own run; suggest-done's already checks the record's run and to-do; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "85eca3296714e655467ed08e66af13c0f836f89ad199a4ba59f4327e5762db3a",
-      "reviewed": "FA: contrary sibling facts asked again for an existing suggestion (contraryWhy shared by supportFor and supportWhy); checked for direct writes and unconditional deletes"
+      "sha256": "9fc21bb7505dd1782c1d92f37e485f719bda5dbbee6454f14da1904303f81a2e",
+      "reviewed": "FB: a fact retry is already only on its own run; suggest-done's already checks the record's run and to-do; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -233,8 +233,8 @@
       "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/facts.js": {
-      "sha256": "138a55f2bf89d862f79fee812e186eb6748bdac799ba185c06de6e702751ad16",
-      "reviewed": "FA: contrary sibling facts asked again for an existing suggestion (contraryWhy shared by supportFor and supportWhy); checked for direct writes and unconditional deletes"
+      "sha256": "d2b9608f0b7dd77facfc1cb8848ce46aff896d1845c614ae04e6a428de0f9767",
+      "reviewed": "FB: a fact retry is already only on its own run; suggest-done's already checks the record's run and to-do; checked for direct writes and unconditional deletes"
     },
     "src/core/followups.js": {
       "sha256": "ee399703ee43c4408af48a9bbd816483f6c28039a4587815063ff0a175c8fea0",
