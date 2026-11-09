@@ -349,8 +349,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "a7f0596417f3cd2a043b0c9a4ee1e5cc8f5910fd4771f5d45d6c9026889af3b9",
-      "reviewed": "4.0 slice 2 commit 6: flightdeck todo (list, add, done, wont, move, reopen) asks through PF.todos.prepare and writes one request in proposals/ once; run/next/runs add to-do fields only on a living run; the checker reads to-do records as the app does; docs, AGENTS.md rows, command guide To-dos, status skill and the new living-run skill. Checked for direct writes and unconditional deletes: the skill and guide forbid writing proposals/ and run.json by hand; the CLI creates one file exclusively and never deletes"
+      "sha256": "477b6d28c7b463c2466918ac1b82f28a5d68ac05db04d1d7bc5bcdd94210bc12",
+      "reviewed": "AH: an applied request decided two ways at once says so and stays in the inbox until settled; settling records a decision only, checked for direct writes and unconditional deletes (none)"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",

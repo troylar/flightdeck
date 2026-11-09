@@ -479,7 +479,9 @@ PF.todos = (function () {
      now), then anything that holds it, then a dispute, a decline, authority (Queued), and otherwise Waiting. */
   function statusOf(T, q, o, map, heldIds) {
     var set = function (s, why) { q.status = s; q.why = why || ''; };
-    if (q.landed) return set('applied');
+    /* Applied stays Applied whatever is decided after; decisions made two ways on it still hold the work until a person who
+       may decide settles them, which records a decision and never applies it again. */
+    if (q.landed) return set('applied', landedWhy(q));
     if (T.broken) return set('held', T.broken.why);
     if (heldIds[q.id]) return set('held', 'It refers to a record this computer can\'t read yet.');
     if (o.ended) return set('held', 'The run has ended; this is kept as a notice and changes nothing.');
@@ -504,6 +506,12 @@ PF.todos = (function () {
     var auth = o.authority ? o.authority(q, T) : { ok: false, why: '' };
     if (auth.ok) { q.via = auth.via; return set('queued', auth.why); }
     return set('waiting', auth.why);
+  }
+  function landedWhy(q) {
+    var n = (q.decOut || []).length;
+    if (!n) return '';
+    return (n > LIMITS.seen ? n + ' decisions on it were made at once, more than one record can settle (' + LIMITS.seen + ').' : q.decReview.length ? q.decReview[0].why : 'Decided two ways at once.') +
+      ' It stays applied; a person who may decide settles this in Flightdeck, and it isn\'t applied again.';
   }
   /* The records a new record names as seen: its required ones (the request, its decision, the application before it), then
      the outstanding participants of the slots it touches, then the other heads, at most LIMITS.seen (PF.loop.page). left: how
@@ -883,14 +891,16 @@ PF.todos = (function () {
       var T = view(r, { records: mine, unread: unreadFor(o, r), people: people });
       if (!T.map || T.unread.length || T.held.length || T.broken) return;
       requestsOf(T).forEach(function (q) {
-        if (q.landed || q.unordered) return;
-        var dispute = q.status === 'disputed' && (q.decOut || []).length > 0;
-        if (q.status !== 'waiting' && !dispute) return;
+        if (q.unordered) return;
+        /* A decision dispute is listed whether or not the request landed: settling one that landed is a decision only. */
+        var dispute = (q.status === 'disputed' || q.landed) && (q.decOut || []).length > 0;
+        if (q.landed ? !dispute : q.status !== 'waiting' && !dispute) return;
         var k = r.process + '/' + r.id + '\n' + q.id;
         if (had[k]) return; had[k] = true;
         var x = q.todo ? T.byTodo[q.todo] : null, C = consequenceOf(r, T.map, q, T);
         out.push({ run: { process: r.process, id: r.id }, title: String(r.title || r.process), id: q.id, kind: q.kind, op: q.op, todo: q.todo || '', text: q.op === 'add' ? q.text : x ? x.text : '', by: q.by, at: q.at, reason: q.reason || '', to: q.to || null,
-          status: q.status, why: q.why || '', dispute: dispute, consequence: { reopens: C.reopens.slice(), releases: C.releases, fingerprint: C.fingerprint }, words: whatWords(T.map, q, x, C) });
+          status: q.status, why: q.why || '', dispute: dispute, landed: !!q.landed, consequence: { reopens: C.reopens.slice(), releases: C.releases, fingerprint: C.fingerprint },
+          words: q.landed ? whatWords(T.map, q, x, { reopens: [], releases: false }).replace(/\.$/, '') + ': already applied. Your decision settles the disagreement; nothing is applied again.' : whatWords(T.map, q, x, C) });
       });
     });
     return out;

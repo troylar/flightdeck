@@ -84,6 +84,30 @@ rule('"N need you" on Home opens exactly those N decisions, once each, an older 
   assert.ok(got.some(x => x.id === q.id) && /Decided two ways at once/.test(ov(app)), 'the older dispute is among them');
   assert.ok(ps.every(p => got.some(x => x.id === p.id)), 'and the waiting ones');
 });
+rule('A decision dispute on a request that already landed is in the inbox; settling it writes one decision and applies nothing again', async () => {
+  const app = await setup();
+  const p = await request(app, { op: 'add', text: 'Landed one', target: { phase: 'draft' } }, { by: 'person-casey' });
+  await refresh(app, 400);
+  assert.strictEqual(apps(app, p.id).length, 1, 'set-up: the recorder applied it');
+  const T = app.PF.todos, r = app.PF.run.sanitize(theRun(app)), RUN = { process: r.process, id: r.id }, at = new Date().toISOString();
+  const d = await app.PF.repo.loadAll(app.fs, {}), V = T.view(r, { records: d.todos, people: JSON.parse(app.fs.files['people.json'].t) });
+  const no = T.buildStatus({ kind: 'decision', proposal: p.id, run: RUN, seen: [p.id], by: 'person-blake', at, op: 'decline', consequence: T.consequenceOf(r, V.map, V.requests[p.id], V).fingerprint, writer: 'wb', rev: hex(8), app: '4.0.0' });
+  await app.fs.write('proposals/' + no.name, T.text(no.file));
+  await refresh(app, 400);
+  app.click('go', '', { view: 'home' }); await app.tick(40);
+  assert.ok(/1 to-do request needs your decision/.test(app.html()), 'Home counts it');
+  app.click('td-inbox', ''); await app.tick(20);
+  const got = accepts(ov(app));
+  assert.deepStrictEqual(got.map(x => x.id), [p.id], 'listed though it landed');
+  assert.ok(/already applied/i.test(ov(app)) && /Decided two ways at once/.test(ov(app)), 'says it landed and is disputed');
+  const before = recs(app);
+  app.click('td-accept', got[0].id, { run: got[0].run, fp: got[0].fp }); await app.tick(60);
+  const w = fresh(app, before);
+  assert.deepStrictEqual(w.map(x => [x.kind, x.op, x.proposal]), [['decision', 'accept', p.id]], 'one decision, nothing applied');
+  await refresh(app, 400);
+  assert.strictEqual(apps(app, p.id).length, 1, 'never applied again');
+  assert.strictEqual(accepts(ov(app) || '').length, 0, 'settled, it leaves the inbox');
+});
 rule('More than ten wait: ten at a time, and Show more brings the rest', async () => {
   const app = await setup();
   await asked(app, 12);

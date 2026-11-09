@@ -704,6 +704,33 @@ rule('A decision made two ways is settled by one that saw both', () => {
   assert.ok(d.seen.indexOf(a.id) >= 0 && d.seen.indexOf(b.id) >= 0, JSON.stringify(d.seen));
   same(V(r, recs.concat([d])).requests[q.id].status, 'queued');
 });
+rule('A decision dispute on a request that already landed stays in the inbox; settling it is a decision only, never applied again, and the approval stays in review', () => {
+  const { r } = newRun(), map = R.mapOf(r);
+  const p = prop('ah0', add('Late finding', { phase: 'draft' }), [], 'person-avery'), a0 = applied(p, '', { decision: p.id + '.status-w1-00000000' }); land(r, a0);
+  const q = prop('ah1', { op: 'done', todo: p.todo }, [a0.id], 'person-casey'), C = T.consequenceOf(r, map, q, V(r, [p, a0, q])).fingerprint;
+  const yes = decide(q, 'accept', 'person-avery', C), no = decide(q, 'decline', 'person-blake', C);
+  const a = applied(q, a0.id, { decision: yes.id }, [q.id, a0.id, yes.id]); land(r, a);
+  R.done(r, map, 'write', 'person-avery', AT); mark(r, [p, a0, q, yes, a]); R.pass(r, map, 0, 'person-avery', AT);
+  const recs = [p, a0, q, yes, a, no], W = V(r, recs);
+  same([W.requests[q.id].status, W.byTodo[q.todo].disputed], ['applied', true], 'set-up: landed and disputed');
+  assert.ok(/Decided two ways|decided this request at once/.test(W.requests[q.id].why) && /settles/.test(W.requests[q.id].why), 'an applied request says it is disputed: ' + W.requests[q.id].why);
+  mark(r, recs);
+  same([R.gateStatus(r, map, 0), R.canPass(r, map, 0)], ['review', false]);
+  const box = inboxOf([r], recs, 'person-avery');
+  same(box.map(x => [x.id, x.dispute, x.status, x.landed]), [[q.id, true, 'applied', true]], 'listed though it landed');
+  assert.ok(/already applied/i.test(box[0].words), box[0].words);
+  same(inboxOf([r], recs, 'person-blake').map(x => x.id), [q.id], 'every person who may decide is asked');
+  ['accept', 'decline'].forEach((op) => {
+    const s = decideNow(r, recs, q.id, op, 'person-avery', box[0].consequence.fingerprint);
+    assert.ok(!s.why, op + ': ' + s.why);
+    const d = clean(s.file, s.name), after = recs.concat([d]), W2 = V(r, after);
+    assert.ok(d.seen.indexOf(no.id) >= 0 && d.seen.indexOf(a.id) >= 0, 'it saw both sides (the application saw the acceptance): ' + JSON.stringify(d.seen));
+    same([W2.requests[q.id].status, W2.byTodo[q.todo].disputed, W2.chain, W2.todos[0].state, T.nextQueued(W2)], ['applied', false, [a0.id, a.id], 'done', null], op + ' settles it without applying it again');
+    same(inboxOf([r], after, 'person-avery'), [], op + ': settled, it leaves the inbox');
+    const r2 = JSON.parse(JSON.stringify(r)); mark(r2, after);
+    same([R.gateStatus(r2, map, 0), R.canPass(r2, map, 0)], ['review', true], op + ': the approval made before stays in review');
+  });
+});
 rule('Revoking a delegation while its request is queued sends the request back to waiting; only a person who may revokes', () => {
   const { r } = newRun();
   const g = grant('n1', ['add'], [{ phase: 'draft' }], 5), q = prop('n2', add('By the bot', { phase: 'draft' }), [g.id]);

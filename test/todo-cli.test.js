@@ -105,6 +105,24 @@ rule('done, wont, move and reopen ask for an existing to-do; wont needs a reason
   const l2 = json('todo', 'list', root, 'release-notes/r-1', '--json');
   assert.deepStrictEqual(l2.data.requests.map(x => [x.op, x.status]), [['add', 'applied'], ['move', 'waiting']]);
 });
+rule('list says when an applied request was decided two ways and that a person settles it in the app', async () => {
+  const { root, d } = await folder();
+  const r = JSON.parse(fs.readFileSync(path.join(root, 'runs/release-notes/r-1/run.json'), 'utf8'));
+  const todo = await seed(d, r), RUN = { process: 'release-notes', id: 'r-1' }, head = r.living.head;
+  const clean = (f, name) => T.cleanFile(JSON.parse(T.text(f)), name).record;
+  const q = T.buildProposal({ run: RUN, id: T.idFor('flightdeck', 'ah-1'), by: 'person-casey', seen: [head], at: AT, body: { op: 'done', todo }, app: '4.0.0' });
+  await d.write('proposals/' + q.id + '.json', T.text(q));
+  const all = await PF.repo.loadAll(d, {}), V = T.view(R.sanitize(r), { records: all.todos, people: { people } }), C = T.consequenceOf(R.sanitize(r), V.map, V.requests[q.id], V).fingerprint;
+  const st = (o) => { const s = T.buildStatus(Object.assign({ run: RUN, at: AT, app: '4.0.0' }, o)); return d.write('proposals/' + s.name, T.text(s.file)).then(() => clean(s.file, s.name)); };
+  const yes = await st({ kind: 'decision', proposal: q.id, seen: [q.id], by: 'person-avery', op: 'accept', consequence: C, writer: 'wa', rev: '00000001' });
+  await st({ kind: 'decision', proposal: q.id, seen: [q.id], by: 'person-blake', op: 'decline', consequence: C, writer: 'wb', rev: '00000002' });
+  const ql = clean(q, q.id + '.json'), a = await st({ kind: 'application', proposal: q.id, seen: [q.id, head, yes.id], by: 'person-avery', authority: { decision: yes.id }, previous: head, effect: T.effectOf(ql), writer: 'rec', rev: '00000003' });
+  r.living = { head: a.id }; await d.write('runs/release-notes/r-1/run.json', JSON.stringify(r, null, 2));
+  const l = json('todo', 'list', root, 'release-notes/r-1', '--json'), x = l.data.requests.filter(y => y.id === q.id)[0];
+  assert.deepStrictEqual([l.code, x.status], [0, 'applied'], JSON.stringify(l.data.requests));
+  assert.ok(/at once/.test(x.why) && /settles/.test(x.why), x.why);
+  assert.ok(new RegExp(q.id + ' · done · Applied: .*settles').test(cli('todo', 'list', root, 'release-notes/r-1').out));
+});
 rule('run, next and runs (contract 2) list a living run\'s to-dos and say what holds its gate, as every window does', async () => {
   const { root, d } = await folder();
   const r = JSON.parse(fs.readFileSync(path.join(root, 'runs/release-notes/r-1/run.json'), 'utf8')), todo = await seed(d, r);
