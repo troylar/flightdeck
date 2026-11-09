@@ -767,7 +767,7 @@ PF.repo = (function () {
         if (x.kind === 'cached') { var e = x.entry; x.sig = sigOf(e.fileHash, e.notesSig, e.conflicts, e.unrunnable || badFor(cache, e), e.recheckAt); delete x.entry; }
       });
       var out = { people: r[0], drafts: r[1], processes: r[2], reads: reads, runsComplete: complete, legacy: r[4], skills: r[5], validations: r[9], valUnread: valUnread, corrDecisions: r[10].filter(function (d) { return !d._unread; }), corrUnread: r[10].filter(function (d) { return d._unread; }),
-        fuDecisions: r[11].filter(function (d) { return !d._unread; }), fuUnread: r[11].filter(function (d) { return d._unread; }), plans: plans, scopes: r[6].scopes || [], scopesUnread: r[6].scopesUnread || [], stepTypes: r[7], jira: r[8],
+        fuDecisions: r[11].filter(function (d) { return !d._unread; }), fuUnread: r[11].filter(function (d) { return d._unread; }), plans: plans, scopes: r[6].scopes || [], scopesUnread: r[6].scopesUnread || [], todos: r[6].todos || [], todosUnread: r[6].todosUnread || [], stepTypes: r[7], jira: r[8],
         unreadable: unreadable, failed: failed, planUnread: planUnread, skillsSkipped: r[5].skipped || 0, readAt: new Date().toISOString(), proposed: r[12], presence: r[13],
         reports: r[14], repDecisions: r[15].filter(function (d) { return !d._unread; }), repUnread: r[15].filter(function (d) { return d._unread; }), stages: r[16], teamValues: r[17],
         /* Files from a newer Flightdeck this copy refused, by path, with the version each needs: shown by Folder health and
@@ -2576,8 +2576,16 @@ PF.repo = (function () {
   function readPlans(fs, bad, only, two) {
     var refused = [], torn = [];
     return loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status' || typeof o.format === 'string'; }, bad, only, torn).then(function (props) {
-      var plans = [], statuses = [], scopes = [], scopesUnread = [];
+      var plans = [], statuses = [], scopes = [], scopesUnread = [], todos = [], todosUnread = [];
       props.forEach(function (p) {
+        /* A to-do record (4.0, PF.todos) goes to its own reader first; one that can't be read holds its run (or, when which run
+           it is for can't be told, every living run). */
+        if (PF.todos.isTodo(p)) {
+          var raw = {}; Object.keys(p).forEach(function (k) { if (k !== '_file') raw[k] = p[k]; });
+          var tv = PF.todos.cleanFile(raw, p._file), tp = 'proposals/' + p._file, tf = p.format === PF.todos.STATUS ? 'flightdeck-plan-status' : 'flightdeck-plan';
+          if (!tv.ok) { if (bad) bad.push({ path: tp, kind: tv.kind, why: tv.why }); refused.push(PF.envelope.refusal(tp, tf, tv)); todosUnread.push({ file: p._file, why: tv.why, run: PF.todos.runOf(p) }); return; }
+          tv.record._file = p._file; todos.push(tv.record); return;
+        }
         /* A scope request or decision (3.0, PF.loop) goes to its own reader first and never reaches the plan reader. */
         if (PF.loop.isScope(p)) {
           var sv = PF.loop.cleanFile(p, p._file), sp = 'proposals/' + p._file, sf = p.format === PF.loop.STATUS ? 'flightdeck-plan-status' : 'flightdeck-plan';
@@ -2597,8 +2605,8 @@ PF.repo = (function () {
         else if (typeof p.id === 'string' && typeof p.process === 'string') plans.push(p);
       });
       /* A scope record that can't be read (cut short, still syncing) holds every loop, since which loop it is for can't be known. */
-      (torn || []).forEach(function (t) { if (/^req-/.test(String(t._file || ''))) scopesUnread.push({ file: t._file, why: t.why, loop: null }); });
-      return { plans: plans, statuses: statuses, scopes: scopes, scopesUnread: scopesUnread, refused: refused, torn: torn || [] };
+      (torn || []).forEach(function (t) { if (/^req-/.test(String(t._file || ''))) { scopesUnread.push({ file: t._file, why: t.why, loop: null }); todosUnread.push({ file: t._file, why: t.why, run: null }); } });
+      return { plans: plans, statuses: statuses, scopes: scopes, scopesUnread: scopesUnread, todos: todos, todosUnread: todosUnread, refused: refused, torn: torn || [] };
     });
   }
   /* Reading for other apps: a view of a folder that writes down, by path, every list, read, stat or blob that failed (as

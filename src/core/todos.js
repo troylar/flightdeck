@@ -308,12 +308,14 @@ PF.todos = (function () {
     errors.push('"authority" is {"decision": <id>}, {"grant": <id>} or {"compound": <id>}.'); return null;
   }
   /* Why a record just built can't be filed ('' when it can): the reader's own check, on the bytes as they'd be written. */
-  function fileWhy(name, f) {
+  function fileWhy(name, f) { return filed(name, f).why; }
+  /* A record this copy built, as every reader will read it once it is filed: { why: '' , record } or { why }. */
+  function filed(name, f) {
     var t = text(f);
-    if (t.length > LIMITS.bytes) return 'It would be ' + t.length + ' bytes; a to-do record is at most ' + LIMITS.bytes + '.';
-    if (Array.isArray(f.seen) && f.seen.length > LIMITS.seen) return 'It would name ' + f.seen.length + ' records it saw; a to-do record names at most ' + LIMITS.seen + '. Settle some open decisions first.';
+    if (t.length > LIMITS.bytes) return { why: 'It would be ' + t.length + ' bytes; a to-do record is at most ' + LIMITS.bytes + '.' };
+    if (Array.isArray(f.seen) && f.seen.length > LIMITS.seen) return { why: 'It would name ' + f.seen.length + ' records it saw; a to-do record names at most ' + LIMITS.seen + '. Settle some open decisions first.' };
     var v = cleanFile(JSON.parse(t), name);
-    return v.ok ? '' : 'It wouldn\'t read back: it ' + v.why + '.';
+    return v.ok ? { why: '', record: v.record } : { why: 'It wouldn\'t read back: it ' + v.why + '.' };
   }
   /* The run a record names, when it says one plainly, even when it isn't in its format; null otherwise. */
   function runOf(o) { var v = isMap(o) && isMap(o.run) ? o.run : null; return v && typeof v.process === 'string' && typeof v.id === 'string' ? { process: v.process, id: v.id } : null; }
@@ -436,7 +438,12 @@ PF.todos = (function () {
     var wide = ['dec', 'app'].filter(function (s) { return (q[s + 'Out'] || []).length > LIMITS.seen; });
     if (wide.length) return set('disputed', (q[wide[0] + 'Out'].length) + ' decisions on this request were made at once, more than one record can settle (' + LIMITS.seen + '). Settle these ' + LIMITS.seen + ' first, then the rest.');
     if (q.decReview.length) return set('disputed', q.decReview[0].why);
-    if (q.appReview.length) return set('disputed', q.appReview[0].why);
+    if (q.appReview.length) {
+      /* Only prepared applications disagree, and none landed: the request is still authorized or not as before. */
+      var au = o.authority ? o.authority(q, T) : { ok: false };
+      if (au.ok) { q.via = au.via; q.appOnly = true; }
+      return set('disputed', q.appReview[0].why);
+    }
     if (q.dec && q.dec.op === 'decline') return set('declined', '');
     var auth = o.authority ? o.authority(q, T) : { ok: false, why: '' };
     if (auth.ok) { q.via = auth.via; return set('queued', auth.why); }
@@ -609,9 +616,36 @@ PF.todos = (function () {
   var HEAD = /^(req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})(\.status-[a-z0-9][a-z0-9-]{0,39}-[0-9a-f]{8})?$/;
   function cleanLiving(v) { return isMap(v) && Object.keys(v).length === 1 && typeof v.head === 'string' && HEAD.test(v.head) ? { head: v.head } : null; }
 
+  /* ---- Application (slice 1, commit 3). The recorder's window carries out a queued request in two writes: the application
+     record first (in proposals/, guarded), then the run, whose living.head moves to it. Recovery reads what is there before
+     writing anything: a request the head already reaches is done (whatever authority says now); an application already
+     written for the head as it stands, with the same effect and authority, is landed as it is; otherwise a new one is
+     prepared. A request that isn't queued now (authority lost, held, disputed) is left alone. ---- */
+  function sameVia(a, b) { return !!a && !!b && JSON.stringify(canon(a)) === JSON.stringify(canon(b)); }
+  function applyPlan(r, T, q) {
+    if (!q) return { skip: 'There is no such request.' };
+    if (q.landed) return { landed: q.landed };
+    /* Two applications prepared at once (two windows, neither landed) block nothing: a new one that saw both settles them. */
+    var appOnly = q.status === 'disputed' && q.appOnly && q.via;
+    if (q.status !== 'queued' && !appOnly) return { skip: q.why || 'It is ' + q.status + '.' };
+    var head = r.living && typeof r.living.head === 'string' ? r.living.head : '', byId = Object.create(null);
+    T.records.forEach(function (y) { byId[y.id] = y; });
+    var p = byId[q.id];
+    if (!p) return { skip: 'Its request can\'t be read in order yet.' };
+    var eff = effectOf(p), f = fp(eff);
+    if (p.kind === 'compound' && (p.application.previous || '') === head && p.application.fingerprint === f) return { adopt: p };
+    var c = q.candidates.map(function (id) { return byId[id]; }).filter(function (a) { return a && (a.previous || '') === head && a.fingerprint === f && sameVia(a.authority, q.via); }).sort(function (a, b) { return cmpStr(a.id, b.id); })[0];
+    if (c && !appOnly) return { adopt: c };
+    var must = [q.id]; if (head) must.push(head); if (q.via && q.via.decision) must.push(q.via.decision); if (q.via && q.via.grant) must.push(q.via.grant);
+    return { write: { kind: 'application', proposal: q.id, run: { process: T.run.process, id: T.run.id }, seen: seenFor(T, must, [q.id], ['app']).seen, authority: q.via, previous: head, effect: eff } };
+  }
+  /* The first queued request of a run, in causal order: one lands at a time, so each is checked against the work as the one
+     before it left it. */
+  function nextQueued(T) { return requestsOf(T).filter(function (q) { return q.status === 'queued' && !q.landed; })[0] || null; }
+
   return { FORMAT: FORMAT, STATUS: STATUS, FEATURE: FEATURE, LIMITS: LIMITS, OPS: OPS, WORDS: WORDS, STATE_WORDS: STATE_WORDS, idFor: idFor, todoIdFor: todoIdFor, statusName: statusName, isTodo: isTodo,
     targetKey: targetKey, placeOf: placeOf, placementWhy: placementWhy, placementFor: placementFor, effectOf: effectOf, fingerprint: fp, text: text,
-    buildProposal: buildProposal, buildGrant: buildGrant, buildStatus: buildStatus, cleanFile: cleanFile, fileWhy: fileWhy, runOf: runOf, recordsFor: recordsFor,
+    buildProposal: buildProposal, buildGrant: buildGrant, buildStatus: buildStatus, cleanFile: cleanFile, fileWhy: fileWhy, filed: filed, runOf: runOf, recordsFor: recordsFor,
     reduce: reduce, seenFor: seenFor, requestsOf: requestsOf,
-    personWhy: personWhy, mayFor: mayFor, consequenceOf: consequenceOf, authorityFor: authorityFor, view: view, holds: holds, markHolds: markHolds, cutFor: cutFor, cleanCut: cleanCut, cleanLiving: cleanLiving };
+    personWhy: personWhy, mayFor: mayFor, consequenceOf: consequenceOf, authorityFor: authorityFor, view: view, holds: holds, markHolds: markHolds, cutFor: cutFor, cleanCut: cleanCut, cleanLiving: cleanLiving, applyPlan: applyPlan, nextQueued: nextQueued };
 })();

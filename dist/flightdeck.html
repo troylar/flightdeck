@@ -8672,6 +8672,40 @@ PF.run = (function () {
     if (g && (g.s === 'passed' || g.s === 'waived')) r.gates[gid] = { s: 'review', was: g.s, by: g.by, at: g.at, reason: 'A loop\'s approval needs review', approved: g.approved };
     addLog(r, who, now, 'Approval needs review "' + x.step.text + '": ' + reasons.join(' ').slice(0, 200));
   }
+  /* Living runs (4.0, docs/design.md section 45): the recorder lands an application already written in proposals/. Only on
+     the head it was prepared on; a run/2 becomes a run/3 with its version's types fingerprint (o.typesHash). An addition or
+     reopening sends a passed or waived gate in its phase to review, or an approved loop it belongs to back for review.
+     o: { who, now, typesHash, app, todo (the to-do as the reduction reads it, for a change to existing work) }. */
+  var TODO_WORDS = { add: 'To-do added', done: 'To-do done', wont: 'To-do won\'t be done', move: 'To-do moved', reopen: 'To-do reopened' };
+  function todoLand(r, map, rec, o) {
+    o = o || {};
+    var ap = rec && (rec.kind === 'compound' ? rec.application : rec), head = r.living ? r.living.head : '';
+    if (!ap || !ap.effect || !own(TODO_WORDS, ap.effect.op)) throw new Error('That isn\'t an application of a to-do.');
+    if (r.ended) throw new Error('The run has ended, so it takes no new work.');
+    if ((ap.previous || '') !== head) throw new Error('The run\'s to-dos changed since this was prepared, so it wasn\'t applied; it will be prepared again.');
+    if (r.format !== FORMAT3) {
+      if (!(typeof o.typesHash === 'string' && /^[0-9a-f]{8}$/.test(o.typesHash))) throw new Error('This run\'s version can\'t be read here, so its to-dos can\'t be applied.');
+      r.format = FORMAT3; r.features = []; if (PF.envelope.semver(o.app)) r.app = o.app; r.typesHash = o.typesHash;
+    }
+    r.living = { head: rec.id };
+    addFeature(r, PF.todos.FEATURE);
+    var re = withPins(order3(r)); Object.keys(r).forEach(function (k) { delete r[k]; }); Object.keys(re).forEach(function (k) { r[k] = re[k]; });
+    var e = ap.effect, x = o.todo || null, text = String(e.op === 'add' ? e.text : x ? x.text : e.todo).slice(0, 200);
+    addLog(r, o.who, o.now, TODO_WORDS[e.op] + ': "' + text + '"' + (e.reason ? ' (' + String(e.reason).slice(0, 120) + ')' : ''));
+    if (e.op !== 'add' && e.op !== 'reopen') return;
+    var t = e.op === 'add' ? e.target : x && x.target, P = t ? PF.todos.placeOf(map, t) : null, did = e.op === 'add' ? 'added' : 'reopened';
+    if (!P || P.why) return;
+    if (t.item && P.loop) {
+      var la = r.steps[P.loop];
+      if (la && la.s === 'done' && la.loop) unsettleLoop(r, map, P.loop, ['A to-do was ' + did + ' on one of its items after this approval: "' + text + '".'], o.who, o.now);
+      return;
+    }
+    var g = r.gates[P.gate];
+    if (g && (g.s === 'passed' || g.s === 'waived')) {
+      r.gates[P.gate] = { s: 'review', was: g.s, by: g.by, at: g.at, reason: 'A to-do was ' + did + ' after it was ' + g.s, approved: g.approved };
+      addLog(r, o.who, o.now, 'Gate needs review: a to-do was ' + did + ' after it was ' + g.s);
+    }
+  }
   /* Whether a linked step can count the version its run starts on (3.0): what it accepts must be results that version
      returns, and the detail it imports into must hold every one of them. '' when it can, or why not. */
   function resultFit(r, step, cmap, version) {
@@ -10874,7 +10908,7 @@ PF.run = (function () {
     RUN_ID: RUN_ID, isTest: isTest, pubDir: pubDir, testProblem: testProblem, testLast: testLast,
     FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, applies: applies, held: held, stepNeeded: stepNeeded, canStartChild: canStartChild, phaseSkipped: phaseSkipped, condFields: condFields, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, fillOffered: fillOffered, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence, checkFill: checkFill,
-    pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, resultMoved: resultMoved, resultChanged: resultChanged, resultMarks: resultMarks, RESULT_CHANGED: RESULT_CHANGED, unsettleResult: unsettleResult, unsettleLoop: unsettleLoop, resultFit: resultFit, answerOf: answerOf, resultOf: resultOf, outcomeText: outcomeText, resultHeld: resultHeld, acceptsOf: acceptsOf, boundSource: boundSource, teamUnrecorded: teamUnrecorded, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, jiraFor: jiraFor, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, effStep: effStep, setFields: setFields,
+    pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, resultMoved: resultMoved, resultChanged: resultChanged, resultMarks: resultMarks, RESULT_CHANGED: RESULT_CHANGED, unsettleResult: unsettleResult, todoLand: todoLand, unsettleLoop: unsettleLoop, resultFit: resultFit, answerOf: answerOf, resultOf: resultOf, outcomeText: outcomeText, resultHeld: resultHeld, acceptsOf: acceptsOf, boundSource: boundSource, teamUnrecorded: teamUnrecorded, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, jiraFor: jiraFor, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, effStep: effStep, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,
     pass: pass, waive: waive, fail: fail, reopen: reopen, setDetail: setDetail, setRole: setRole,
     handOff: handOff, pickUp: pickUp, takeOver: takeOver, legacyLinks: legacyLinks, continuation: continuation, continued: continued, skillWarning: skillWarning, cleanSkill: cleanSkill, LEGACY_CHILD: LEGACY_CHILD, waitingForHandoff: waitingForHandoff, compare: compare, adopt: adopt, addFollowUp: addFollowUp, removeFollowUp: removeFollowUp, corrections: corrections, end: end, myNext: myNext, nextUp: nextUp, nextInPhase: nextInPhase, totals: totals, receipt: receipt, blockedSteps: blockedSteps
@@ -17991,12 +18025,14 @@ PF.todos = (function () {
     errors.push('"authority" is {"decision": <id>}, {"grant": <id>} or {"compound": <id>}.'); return null;
   }
   /* Why a record just built can't be filed ('' when it can): the reader's own check, on the bytes as they'd be written. */
-  function fileWhy(name, f) {
+  function fileWhy(name, f) { return filed(name, f).why; }
+  /* A record this copy built, as every reader will read it once it is filed: { why: '' , record } or { why }. */
+  function filed(name, f) {
     var t = text(f);
-    if (t.length > LIMITS.bytes) return 'It would be ' + t.length + ' bytes; a to-do record is at most ' + LIMITS.bytes + '.';
-    if (Array.isArray(f.seen) && f.seen.length > LIMITS.seen) return 'It would name ' + f.seen.length + ' records it saw; a to-do record names at most ' + LIMITS.seen + '. Settle some open decisions first.';
+    if (t.length > LIMITS.bytes) return { why: 'It would be ' + t.length + ' bytes; a to-do record is at most ' + LIMITS.bytes + '.' };
+    if (Array.isArray(f.seen) && f.seen.length > LIMITS.seen) return { why: 'It would name ' + f.seen.length + ' records it saw; a to-do record names at most ' + LIMITS.seen + '. Settle some open decisions first.' };
     var v = cleanFile(JSON.parse(t), name);
-    return v.ok ? '' : 'It wouldn\'t read back: it ' + v.why + '.';
+    return v.ok ? { why: '', record: v.record } : { why: 'It wouldn\'t read back: it ' + v.why + '.' };
   }
   /* The run a record names, when it says one plainly, even when it isn't in its format; null otherwise. */
   function runOf(o) { var v = isMap(o) && isMap(o.run) ? o.run : null; return v && typeof v.process === 'string' && typeof v.id === 'string' ? { process: v.process, id: v.id } : null; }
@@ -18119,7 +18155,12 @@ PF.todos = (function () {
     var wide = ['dec', 'app'].filter(function (s) { return (q[s + 'Out'] || []).length > LIMITS.seen; });
     if (wide.length) return set('disputed', (q[wide[0] + 'Out'].length) + ' decisions on this request were made at once, more than one record can settle (' + LIMITS.seen + '). Settle these ' + LIMITS.seen + ' first, then the rest.');
     if (q.decReview.length) return set('disputed', q.decReview[0].why);
-    if (q.appReview.length) return set('disputed', q.appReview[0].why);
+    if (q.appReview.length) {
+      /* Only prepared applications disagree, and none landed: the request is still authorized or not as before. */
+      var au = o.authority ? o.authority(q, T) : { ok: false };
+      if (au.ok) { q.via = au.via; q.appOnly = true; }
+      return set('disputed', q.appReview[0].why);
+    }
     if (q.dec && q.dec.op === 'decline') return set('declined', '');
     var auth = o.authority ? o.authority(q, T) : { ok: false, why: '' };
     if (auth.ok) { q.via = auth.via; return set('queued', auth.why); }
@@ -18292,11 +18333,38 @@ PF.todos = (function () {
   var HEAD = /^(req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})(\.status-[a-z0-9][a-z0-9-]{0,39}-[0-9a-f]{8})?$/;
   function cleanLiving(v) { return isMap(v) && Object.keys(v).length === 1 && typeof v.head === 'string' && HEAD.test(v.head) ? { head: v.head } : null; }
 
+  /* ---- Application (slice 1, commit 3). The recorder's window carries out a queued request in two writes: the application
+     record first (in proposals/, guarded), then the run, whose living.head moves to it. Recovery reads what is there before
+     writing anything: a request the head already reaches is done (whatever authority says now); an application already
+     written for the head as it stands, with the same effect and authority, is landed as it is; otherwise a new one is
+     prepared. A request that isn't queued now (authority lost, held, disputed) is left alone. ---- */
+  function sameVia(a, b) { return !!a && !!b && JSON.stringify(canon(a)) === JSON.stringify(canon(b)); }
+  function applyPlan(r, T, q) {
+    if (!q) return { skip: 'There is no such request.' };
+    if (q.landed) return { landed: q.landed };
+    /* Two applications prepared at once (two windows, neither landed) block nothing: a new one that saw both settles them. */
+    var appOnly = q.status === 'disputed' && q.appOnly && q.via;
+    if (q.status !== 'queued' && !appOnly) return { skip: q.why || 'It is ' + q.status + '.' };
+    var head = r.living && typeof r.living.head === 'string' ? r.living.head : '', byId = Object.create(null);
+    T.records.forEach(function (y) { byId[y.id] = y; });
+    var p = byId[q.id];
+    if (!p) return { skip: 'Its request can\'t be read in order yet.' };
+    var eff = effectOf(p), f = fp(eff);
+    if (p.kind === 'compound' && (p.application.previous || '') === head && p.application.fingerprint === f) return { adopt: p };
+    var c = q.candidates.map(function (id) { return byId[id]; }).filter(function (a) { return a && (a.previous || '') === head && a.fingerprint === f && sameVia(a.authority, q.via); }).sort(function (a, b) { return cmpStr(a.id, b.id); })[0];
+    if (c && !appOnly) return { adopt: c };
+    var must = [q.id]; if (head) must.push(head); if (q.via && q.via.decision) must.push(q.via.decision); if (q.via && q.via.grant) must.push(q.via.grant);
+    return { write: { kind: 'application', proposal: q.id, run: { process: T.run.process, id: T.run.id }, seen: seenFor(T, must, [q.id], ['app']).seen, authority: q.via, previous: head, effect: eff } };
+  }
+  /* The first queued request of a run, in causal order: one lands at a time, so each is checked against the work as the one
+     before it left it. */
+  function nextQueued(T) { return requestsOf(T).filter(function (q) { return q.status === 'queued' && !q.landed; })[0] || null; }
+
   return { FORMAT: FORMAT, STATUS: STATUS, FEATURE: FEATURE, LIMITS: LIMITS, OPS: OPS, WORDS: WORDS, STATE_WORDS: STATE_WORDS, idFor: idFor, todoIdFor: todoIdFor, statusName: statusName, isTodo: isTodo,
     targetKey: targetKey, placeOf: placeOf, placementWhy: placementWhy, placementFor: placementFor, effectOf: effectOf, fingerprint: fp, text: text,
-    buildProposal: buildProposal, buildGrant: buildGrant, buildStatus: buildStatus, cleanFile: cleanFile, fileWhy: fileWhy, runOf: runOf, recordsFor: recordsFor,
+    buildProposal: buildProposal, buildGrant: buildGrant, buildStatus: buildStatus, cleanFile: cleanFile, fileWhy: fileWhy, filed: filed, runOf: runOf, recordsFor: recordsFor,
     reduce: reduce, seenFor: seenFor, requestsOf: requestsOf,
-    personWhy: personWhy, mayFor: mayFor, consequenceOf: consequenceOf, authorityFor: authorityFor, view: view, holds: holds, markHolds: markHolds, cutFor: cutFor, cleanCut: cleanCut, cleanLiving: cleanLiving };
+    personWhy: personWhy, mayFor: mayFor, consequenceOf: consequenceOf, authorityFor: authorityFor, view: view, holds: holds, markHolds: markHolds, cutFor: cutFor, cleanCut: cleanCut, cleanLiving: cleanLiving, applyPlan: applyPlan, nextQueued: nextQueued };
 })();
 
 /* Reports from other apps (docs/apps.md, docs/design.md section 26): a tool that did a step's work says so in a report, a file
@@ -21221,7 +21289,7 @@ PF.repo = (function () {
         if (x.kind === 'cached') { var e = x.entry; x.sig = sigOf(e.fileHash, e.notesSig, e.conflicts, e.unrunnable || badFor(cache, e), e.recheckAt); delete x.entry; }
       });
       var out = { people: r[0], drafts: r[1], processes: r[2], reads: reads, runsComplete: complete, legacy: r[4], skills: r[5], validations: r[9], valUnread: valUnread, corrDecisions: r[10].filter(function (d) { return !d._unread; }), corrUnread: r[10].filter(function (d) { return d._unread; }),
-        fuDecisions: r[11].filter(function (d) { return !d._unread; }), fuUnread: r[11].filter(function (d) { return d._unread; }), plans: plans, scopes: r[6].scopes || [], scopesUnread: r[6].scopesUnread || [], stepTypes: r[7], jira: r[8],
+        fuDecisions: r[11].filter(function (d) { return !d._unread; }), fuUnread: r[11].filter(function (d) { return d._unread; }), plans: plans, scopes: r[6].scopes || [], scopesUnread: r[6].scopesUnread || [], todos: r[6].todos || [], todosUnread: r[6].todosUnread || [], stepTypes: r[7], jira: r[8],
         unreadable: unreadable, failed: failed, planUnread: planUnread, skillsSkipped: r[5].skipped || 0, readAt: new Date().toISOString(), proposed: r[12], presence: r[13],
         reports: r[14], repDecisions: r[15].filter(function (d) { return !d._unread; }), repUnread: r[15].filter(function (d) { return d._unread; }), stages: r[16], teamValues: r[17],
         /* Files from a newer Flightdeck this copy refused, by path, with the version each needs: shown by Folder health and
@@ -23030,8 +23098,16 @@ PF.repo = (function () {
   function readPlans(fs, bad, only, two) {
     var refused = [], torn = [];
     return loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status' || typeof o.format === 'string'; }, bad, only, torn).then(function (props) {
-      var plans = [], statuses = [], scopes = [], scopesUnread = [];
+      var plans = [], statuses = [], scopes = [], scopesUnread = [], todos = [], todosUnread = [];
       props.forEach(function (p) {
+        /* A to-do record (4.0, PF.todos) goes to its own reader first; one that can't be read holds its run (or, when which run
+           it is for can't be told, every living run). */
+        if (PF.todos.isTodo(p)) {
+          var raw = {}; Object.keys(p).forEach(function (k) { if (k !== '_file') raw[k] = p[k]; });
+          var tv = PF.todos.cleanFile(raw, p._file), tp = 'proposals/' + p._file, tf = p.format === PF.todos.STATUS ? 'flightdeck-plan-status' : 'flightdeck-plan';
+          if (!tv.ok) { if (bad) bad.push({ path: tp, kind: tv.kind, why: tv.why }); refused.push(PF.envelope.refusal(tp, tf, tv)); todosUnread.push({ file: p._file, why: tv.why, run: PF.todos.runOf(p) }); return; }
+          tv.record._file = p._file; todos.push(tv.record); return;
+        }
         /* A scope request or decision (3.0, PF.loop) goes to its own reader first and never reaches the plan reader. */
         if (PF.loop.isScope(p)) {
           var sv = PF.loop.cleanFile(p, p._file), sp = 'proposals/' + p._file, sf = p.format === PF.loop.STATUS ? 'flightdeck-plan-status' : 'flightdeck-plan';
@@ -23051,8 +23127,8 @@ PF.repo = (function () {
         else if (typeof p.id === 'string' && typeof p.process === 'string') plans.push(p);
       });
       /* A scope record that can't be read (cut short, still syncing) holds every loop, since which loop it is for can't be known. */
-      (torn || []).forEach(function (t) { if (/^req-/.test(String(t._file || ''))) scopesUnread.push({ file: t._file, why: t.why, loop: null }); });
-      return { plans: plans, statuses: statuses, scopes: scopes, scopesUnread: scopesUnread, refused: refused, torn: torn || [] };
+      (torn || []).forEach(function (t) { if (/^req-/.test(String(t._file || ''))) { scopesUnread.push({ file: t._file, why: t.why, loop: null }); todosUnread.push({ file: t._file, why: t.why, run: null }); } });
+      return { plans: plans, statuses: statuses, scopes: scopes, scopesUnread: scopesUnread, todos: todos, todosUnread: todosUnread, refused: refused, torn: torn || [] };
     });
   }
   /* Reading for other apps: a view of a folder that writes down, by path, every list, read, stat or blob that failed (as
@@ -32119,12 +32195,14 @@ PF.examples = (function () {
   }
   /* A part of the folder that couldn't be read this time keeps what was read before, and so does a run whose file couldn't
      be read: an unreadable part never looks empty, and Folder health and the Runs page say what couldn't be read. */
-  var KEEP = { people: ['people'], drafts: ['drafts'], publications: ['processes'], legacy: ['legacy'], skills: ['skills', 'skillsSkipped'], proposals: ['plans', 'planUnread', 'scopes'], 'step types': ['stepTypes'], 'Jira workflows': ['jira'], 'sign-offs': ['validations', 'valUnread'], corrections: ['corrDecisions', 'corrUnread'], 'follow-ups': ['fuDecisions', 'fuUnread'], 'proposed changes': ['proposed'], presence: ['presence'], reports: ['reports'], 'report decisions': ['repDecisions', 'repUnread'], stages: ['stages'] };
+  var KEEP = { people: ['people'], drafts: ['drafts'], publications: ['processes'], legacy: ['legacy'], skills: ['skills', 'skillsSkipped'], proposals: ['plans', 'planUnread', 'scopes', 'todos'], 'step types': ['stepTypes'], 'Jira workflows': ['jira'], 'sign-offs': ['validations', 'valUnread'], corrections: ['corrDecisions', 'corrUnread'], 'follow-ups': ['fuDecisions', 'fuUnread'], 'proposed changes': ['proposed'], presence: ['presence'], reports: ['reports'], 'report decisions': ['repDecisions', 'repUnread'], stages: ['stages'] };
   function keepUnread(d) {
     Object.keys(d.failed || {}).forEach(function (k) { (KEEP[k] || []).forEach(function (f) { if (data[f] !== undefined) d[f] = data[f]; }); });
     /* Loops (3.0): proposals/ not read this time keeps the scope records read before and holds every loop until it is, as
        flightdeck run and next do (PF.loop.markStale); a loop is never judged on part of its list. */
     if (d.failed && 'proposals' in d.failed) d.scopesUnread = (data.scopesUnread || []).filter(function (u) { return u.file !== 'proposals/'; }).concat([{ file: 'proposals/', why: 'The loop\'s scope records couldn\'t be read.', loop: null }]);
+    /* Living runs (4.0) the same way: the to-do records read before are kept, and every living run is held until they're read. */
+    if (d.failed && 'proposals' in d.failed) d.todosUnread = (data.todosUnread || []).filter(function (u) { return u.file !== 'proposals/'; }).concat([{ file: 'proposals/', why: 'The to-do records couldn\'t be read.', run: null }]);
     /* Versions kept from before because publications/ couldn't be read now: their bytes weren't checked against their stage
        this time, so none of a stage's test runs or sign-offs count for them until they are (2.1). */
     if (d.failed && 'publications' in d.failed) (d.processes || []).forEach(function (p) {
@@ -34298,6 +34376,8 @@ PF.examples = (function () {
   /* Whether a run is a loop's parent (its checklist has a {for.each} step) or a loop's child. */
   function loopy(r) {
     if (!r) return false;
+    /* A living run (4.0) is written by the recorder applying to-dos in the background: the same guard. */
+    if (r.living) return true;
     if (r.parent && r.parent.item) return true;
     try { return M.steps(R.mapOf(r)).some(function (x) { return x.step.type === 'for.each'; }); } catch (e) { return false; }
   }
@@ -34528,6 +34608,62 @@ PF.examples = (function () {
     return mutateRun(key, cx.g, es.fn, es.opts)
       .then(function (ok) { return ok === false ? { ok: false, why: 'The run changed meanwhile; ask again.' } : { ok: true, why: 'Sent back for review.' }; });
   }
+  /* Living runs (4.0, docs/design.md section 45): the recorder's window carries out each run's first queued to-do request, one
+     at a time per run: the application record first (proposals/, guarded), then the run, whose living.head moves to it
+     (R.todoLand inside the write queue, checked again against the run as it is). Recovery is the same path: what landed is
+     done, a prepared application that still fits is landed as it is, otherwise a new one is prepared. */
+  function todoApply() {
+    if (!state.me || !((data.todos || []).length)) return;
+    var applying = loopMem().applying;
+    data.runs.forEach(function (r) {
+      if (!ctx.recording(r) || r.paused || r.ended || r._unrunnable || state.unsaved[r.id] || runUnread(r)) return;
+      var key = r.process + '/' + r.id, gk = gen + ':todo:' + key;
+      if (applying[gk]) return;
+      var V = todoView(r);
+      if (!V || V.broken) return;
+      var q = PF.todos.nextQueued(V) || PF.todos.requestsOf(V).filter(function (y) { return y.status === 'disputed' && y.appOnly && y.via; })[0];
+      if (!q) return;
+      applying[gk] = true;
+      var cx = loopGuard({ run: key });
+      todoCarry(r, V, q, cx).then(function (wrote) { delete applying[gk]; if (wrote && cx.g === gen) return load(true); }, function () { delete applying[gk]; });
+    });
+  }
+  function todoView(r) { return PF.todos.view(r, { records: data.todos || [], unread: data.todosUnread || [], people: data.people }); }
+  /* The types fingerprint of a run's own version, for a run/2 its first to-do makes a run/3; '' when the version can't be read. */
+  function todoTypes(r) {
+    if (r.format === R.FORMAT3) return r.typesHash;
+    var p = ctx.procOf(r.process), all = p ? [p.latest].concat(p.all || [], p.pubs || []) : [];
+    var pub = all.filter(function (x) { return x && x.info && x.info.folder === r.folder && x.info.mapHash === r.mapHash; })[0];
+    return pub && typeof pub.info.typesHash === 'string' ? pub.info.typesHash : '';
+  }
+  function todoCarry(r, V, q, cx) {
+    var key = r.process + '/' + r.id, plan = PF.todos.applyPlan(r, V, q);
+    if (plan.landed || plan.skip) return Promise.resolve(false);
+    var prepared;
+    if (plan.adopt) prepared = Promise.resolve(plan.adopt);
+    else {
+      if (!guardOk(cx)) return Promise.resolve(false);
+      var s = PF.todos.buildStatus(Object.assign({}, plan.write, { by: cx.me, at: new Date().toISOString(), writer: 'w' + loopHex(10), rev: loopHex(8), app: APP_VERSION }));
+      var fw = PF.todos.filed(s.name, s.file); if (fw.why) return Promise.reject(new Error(fw.why));
+      var rec = fw.record;
+      prepared = repo.saveScope(cx.fs, s.name, s.file, { still: function () { return guardOk(cx); } }).then(function (res) { if (res && res.dropped) return null; rec._file = s.name; (data.todos = (data.todos || []).slice()).push(rec); return rec; });
+    }
+    return prepared.then(function (a) {
+      if (!a || !guardOk(cx)) return false;
+      var types = todoTypes(r);
+      var ed = loopEdit(loopGuard({ run: key }), key, function (rr, m, me, now) {
+        /* Asked again in the write queue, on the run as it is: still queued (or only its prepared applications disagree), the
+           same head, the same authority. */
+        var V2 = todoView(rr), q2 = V2 && V2.requests[q.id], plan2 = q2 ? PF.todos.applyPlan(rr, V2, q2) : { skip: 'gone' };
+        if (V2.broken || plan2.landed || plan2.skip) throw new Error('The to-do request changed while it was carried out.');
+        if (plan2.adopt && plan2.adopt.id !== a.id) throw new Error('Another application of it is in the folder now.');
+        if (plan2.write && !q2.candidates.some(function (id) { return id === a.id; })) throw new Error('The to-do request changed while it was carried out.');
+        var x = V2.byTodo[(a.kind === 'compound' ? a.application : a).effect.todo] || null;
+        R.todoLand(rr, m, a, { who: me, now: now, typesHash: types, app: APP_VERSION, todo: x });
+      }, { background: true });
+      return mutateRun(key, cx.g, ed.fn, ed.opts).then(function (ok) { return ok !== false; });
+    });
+  }
   /* The recorder resolves an outcome recorded both ways by what the request left behind; the action is never done again.
      The outcome written has seen both, so it settles them. */
   function loopResolve(id, qid, outcome) {
@@ -34659,6 +34795,7 @@ PF.examples = (function () {
   /* The recorder's window settles a parent step once its child run ends: done if it completed, blocked otherwise. */
   function syncChildren() {
     loopApply();
+    todoApply();
     data.runs.forEach(function (r) {
       if (!ctx.recording(r) || r.paused || state.unsaved[r.id]) return;
       Object.keys(r.steps).forEach(function (sid) {
@@ -37305,7 +37442,12 @@ PF.examples = (function () {
   }
   /* Loops (3.0): which approvals the folder no longer matches, read-only, on every draw and on the fresh copy every change
      starts from, so a held gate can't be passed before the send-back is saved. */
-  function markLoops(runs) { if (data) PF.loop.markStale(runs || [], { records: data.scopes, unread: data.scopesUnread || [], procOf: ctx.procOf }); }
+  function markLoops(runs) {
+    if (!data) return;
+    PF.loop.markStale(runs || [], { records: data.scopes, unread: data.scopesUnread || [], procOf: ctx.procOf });
+    /* Living runs (4.0): what open or disputed to-dos hold, read-only, on every read (r._todos). */
+    PF.todos.markHolds(runs || [], { records: data.todos || [], unread: data.todosUnread || [], people: data.people });
+  }
   function mutate(fn, opts) { return mutateRun(state.runKey, gen, function (r, m, me, now) { markLoops([r].concat((data.runs || []).filter(function (x) { return x.id !== r.id; }))); return fn(r, m, me, now); }, opts); }
   /* Change one run, named by its key, in the folder generation the action started in. An action that finishes after the
      person switched folders or runs does nothing, rather than landing on whatever is on screen now. */

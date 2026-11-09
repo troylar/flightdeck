@@ -242,6 +242,35 @@ rule('Keeping a conflict copy never loses the run\'s to-dos: the copy\'s head is
   same(cur.living, { head: a2.id }, 'the copy\'s head');
   const back = R.sanitize(plain(cur)); assert.ok(!back._unrunnable, back._unrunnable);
 });
+/* ---------- Application (commit 3) ---------- */
+rule('The recorder\'s next step for a request reads what is there first: landed is done, a prepared application that still fits is landed as it is, otherwise one is prepared on the head', () => {
+  const { r } = newRun(), map = R.mapOf(r), p = prop('ap1', add('Check the links', { phase: 'draft' }), [], 'person-avery');
+  const C = T.consequenceOf(r, map, p, V(r, [p])).fingerprint, d = decide(p, 'accept', 'person-avery', C), recs = [p, d];
+  let W = V(r, recs), plan = T.applyPlan(r, W, W.requests[p.id]);
+  assert.ok(plan.write, JSON.stringify(plan));
+  same([plan.write.previous, plan.write.authority, plan.write.seen.indexOf(d.id) >= 0], ['', { decision: d.id }, true], 'on no head, by the decision, seeing it (and so the request)');
+  const s = T.buildStatus(Object.assign({}, plan.write, { by: 'person-avery', at: AT, writer: 'rec', rev: rev() })), a = clean(s.file, s.name);
+  W = V(r, recs.concat([a])); plan = T.applyPlan(r, W, W.requests[p.id]);
+  same(plan.adopt && plan.adopt.id, a.id, 'prepared, not landed: landed as it is');
+  R.todoLand(r, map, a, { who: 'person-avery', now: AT, typesHash: 'abcdef12', app: '4.0.0' });
+  W = V(r, recs.concat([a])); plan = T.applyPlan(r, W, W.requests[p.id]);
+  same(plan, { landed: a.id });
+  const q = prop('ap2', add('Another', { phase: 'draft' }), [a.id], 'person-avery'), dq = decide(q, 'accept', 'person-blake', T.consequenceOf(r, map, q, V(r, recs.concat([a, q]))).fingerprint);
+  const stale = applied(q, '', { decision: dq.id });
+  W = V(r, recs.concat([a, q, dq, stale])); plan = T.applyPlan(r, W, W.requests[q.id]);
+  same([!!plan.write, plan.write && plan.write.previous, plan.write && plan.write.seen.indexOf(stale.id) >= 0], [true, a.id, true], 'one prepared on another head is seen, and a new one written');
+});
+rule('Landing names the application, stamps the feature, makes a run/2 a run/3 and refuses one prepared on another head', () => {
+  const { r: r2 } = newRun(MD), map = R.mapOf(r2), p = prop('ld1', add('One', { phase: 'draft' }), [], 'person-avery'), a = applied(p, '', { decision: p.id + '.status-w1-00000000' });
+  same(r2.format, 'preflight-run/2');
+  assert.throws(() => R.todoLand(r2, map, a, { who: 'person-avery', now: AT }), /version can't be read/, 'a run/2 needs its version\'s types fingerprint');
+  R.todoLand(r2, map, a, { who: 'person-avery', now: AT, typesHash: 'abcdef12', app: '4.0.0' });
+  same([r2.format, r2.features, r2.typesHash, r2.living], ['preflight-run/3', ['living-runs'], 'abcdef12', { head: a.id }]);
+  assert.ok(!R.sanitize(plain(r2))._unrunnable, R.sanitize(plain(r2))._unrunnable);
+  const pb = prop('ld2', add('Two', { phase: 'draft' }), [a.id], 'person-avery'), b = applied(pb, '', { decision: pb.id + '.status-w1-00000000' });
+  assert.throws(() => R.todoLand(r2, map, b, { who: 'person-avery', now: AT }), /changed since/);
+});
+
 /* ---------- The run file ---------- */
 const reread = (r) => R.sanitize(JSON.parse(JSON.stringify(Object.assign({}, r, { _todos: undefined }))));
 rule('A living run reads back with its head, its feature and its approvals\' cuts; a malformed marker is read-only', () => {

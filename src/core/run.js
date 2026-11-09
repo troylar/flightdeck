@@ -371,6 +371,40 @@ PF.run = (function () {
     if (g && (g.s === 'passed' || g.s === 'waived')) r.gates[gid] = { s: 'review', was: g.s, by: g.by, at: g.at, reason: 'A loop\'s approval needs review', approved: g.approved };
     addLog(r, who, now, 'Approval needs review "' + x.step.text + '": ' + reasons.join(' ').slice(0, 200));
   }
+  /* Living runs (4.0, docs/design.md section 45): the recorder lands an application already written in proposals/. Only on
+     the head it was prepared on; a run/2 becomes a run/3 with its version's types fingerprint (o.typesHash). An addition or
+     reopening sends a passed or waived gate in its phase to review, or an approved loop it belongs to back for review.
+     o: { who, now, typesHash, app, todo (the to-do as the reduction reads it, for a change to existing work) }. */
+  var TODO_WORDS = { add: 'To-do added', done: 'To-do done', wont: 'To-do won\'t be done', move: 'To-do moved', reopen: 'To-do reopened' };
+  function todoLand(r, map, rec, o) {
+    o = o || {};
+    var ap = rec && (rec.kind === 'compound' ? rec.application : rec), head = r.living ? r.living.head : '';
+    if (!ap || !ap.effect || !own(TODO_WORDS, ap.effect.op)) throw new Error('That isn\'t an application of a to-do.');
+    if (r.ended) throw new Error('The run has ended, so it takes no new work.');
+    if ((ap.previous || '') !== head) throw new Error('The run\'s to-dos changed since this was prepared, so it wasn\'t applied; it will be prepared again.');
+    if (r.format !== FORMAT3) {
+      if (!(typeof o.typesHash === 'string' && /^[0-9a-f]{8}$/.test(o.typesHash))) throw new Error('This run\'s version can\'t be read here, so its to-dos can\'t be applied.');
+      r.format = FORMAT3; r.features = []; if (PF.envelope.semver(o.app)) r.app = o.app; r.typesHash = o.typesHash;
+    }
+    r.living = { head: rec.id };
+    addFeature(r, PF.todos.FEATURE);
+    var re = withPins(order3(r)); Object.keys(r).forEach(function (k) { delete r[k]; }); Object.keys(re).forEach(function (k) { r[k] = re[k]; });
+    var e = ap.effect, x = o.todo || null, text = String(e.op === 'add' ? e.text : x ? x.text : e.todo).slice(0, 200);
+    addLog(r, o.who, o.now, TODO_WORDS[e.op] + ': "' + text + '"' + (e.reason ? ' (' + String(e.reason).slice(0, 120) + ')' : ''));
+    if (e.op !== 'add' && e.op !== 'reopen') return;
+    var t = e.op === 'add' ? e.target : x && x.target, P = t ? PF.todos.placeOf(map, t) : null, did = e.op === 'add' ? 'added' : 'reopened';
+    if (!P || P.why) return;
+    if (t.item && P.loop) {
+      var la = r.steps[P.loop];
+      if (la && la.s === 'done' && la.loop) unsettleLoop(r, map, P.loop, ['A to-do was ' + did + ' on one of its items after this approval: "' + text + '".'], o.who, o.now);
+      return;
+    }
+    var g = r.gates[P.gate];
+    if (g && (g.s === 'passed' || g.s === 'waived')) {
+      r.gates[P.gate] = { s: 'review', was: g.s, by: g.by, at: g.at, reason: 'A to-do was ' + did + ' after it was ' + g.s, approved: g.approved };
+      addLog(r, o.who, o.now, 'Gate needs review: a to-do was ' + did + ' after it was ' + g.s);
+    }
+  }
   /* Whether a linked step can count the version its run starts on (3.0): what it accepts must be results that version
      returns, and the detail it imports into must hold every one of them. '' when it can, or why not. */
   function resultFit(r, step, cmap, version) {
@@ -2573,7 +2607,7 @@ PF.run = (function () {
     RUN_ID: RUN_ID, isTest: isTest, pubDir: pubDir, testProblem: testProblem, testLast: testLast,
     FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, applies: applies, held: held, stepNeeded: stepNeeded, canStartChild: canStartChild, phaseSkipped: phaseSkipped, condFields: condFields, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, fillOffered: fillOffered, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence, checkFill: checkFill,
-    pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, resultMoved: resultMoved, resultChanged: resultChanged, resultMarks: resultMarks, RESULT_CHANGED: RESULT_CHANGED, unsettleResult: unsettleResult, unsettleLoop: unsettleLoop, resultFit: resultFit, answerOf: answerOf, resultOf: resultOf, outcomeText: outcomeText, resultHeld: resultHeld, acceptsOf: acceptsOf, boundSource: boundSource, teamUnrecorded: teamUnrecorded, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, jiraFor: jiraFor, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, effStep: effStep, setFields: setFields,
+    pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, resultMoved: resultMoved, resultChanged: resultChanged, resultMarks: resultMarks, RESULT_CHANGED: RESULT_CHANGED, unsettleResult: unsettleResult, todoLand: todoLand, unsettleLoop: unsettleLoop, resultFit: resultFit, answerOf: answerOf, resultOf: resultOf, outcomeText: outcomeText, resultHeld: resultHeld, acceptsOf: acceptsOf, boundSource: boundSource, teamUnrecorded: teamUnrecorded, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, jiraFor: jiraFor, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, effStep: effStep, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,
     pass: pass, waive: waive, fail: fail, reopen: reopen, setDetail: setDetail, setRole: setRole,
     handOff: handOff, pickUp: pickUp, takeOver: takeOver, legacyLinks: legacyLinks, continuation: continuation, continued: continued, skillWarning: skillWarning, cleanSkill: cleanSkill, LEGACY_CHILD: LEGACY_CHILD, waitingForHandoff: waitingForHandoff, compare: compare, adopt: adopt, addFollowUp: addFollowUp, removeFollowUp: removeFollowUp, corrections: corrections, end: end, myNext: myNext, nextUp: nextUp, nextInPhase: nextInPhase, totals: totals, receipt: receipt, blockedSteps: blockedSteps
