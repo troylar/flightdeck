@@ -9770,11 +9770,15 @@ PF.run = (function () {
     return out;
   }
   /* Make a conflict copy the current version. Everything a person recorded comes from the copy; both versions' activity stays
-     in the log. Refuses a copy of another run or of another map version. The caller keeps the displaced version. */
-  function adopt(cur, copy, who, now) {
+     in the log. Refuses a copy of another run or of another map version. The caller keeps the displaced version.
+     o.typesHash (4.0): the types fingerprint of the run's own version, as the folder's publication says it; a run/2 whose
+     copy a to-do made a run/3 is made a run/3 with it, so the copy's landed to-dos are never dropped. */
+  function adopt(cur, copy, who, now, o) {
     if (!copy || copy.id !== cur.id || copy.process !== cur.process) throw new Error('That copy belongs to a different run.');
     if (copy._unrunnable) throw new Error(copy._unrunnable + ' That copy can only be read here, so it wasn\'t kept.');
     if (copy.mapHash !== cur.mapHash || copy.folder !== cur.folder) throw new Error('That copy was made from a different version of the checklist, so it can\'t replace this one.');
+    var promote = cur.format !== FORMAT3 && copy.format === FORMAT3 && !!copy.living;
+    if (promote && !(o && typeof o.typesHash === 'string' && /^[0-9a-f]{8}$/.test(o.typesHash) && o.typesHash === copy.typesHash)) throw new Error('That copy has to-dos, but its step types aren\'t the ones this run\'s version publishes' + (o && o.typesHash ? '' : ' (the version can\'t be read here)') + ', so it wasn\'t kept.');
     /* Every deviation either version shows (in its marks, its answers or their earlier answers), taken before the copy's
        answers replace this version's, so a run from before marks existed can't lose a block by being recovered. */
     var seenMarks = [cur, copy].map(function (v) { var m = {}; Object.keys(v.marks || {}).forEach(function (k) { m[k] = (v.marks[k] || []).slice(); }); Object.keys(v.steps || {}).forEach(function (k) { var a = v.steps[k] || {}; [a].concat(a.history || []).forEach(function (h) { var kind = h.s === 'blocked' || h.s === 'recheck' || h.s === 'na' ? h.s : null; [kind, h.differently ? 'differently' : null].forEach(function (x) { if (!x) return; var l = Object.prototype.hasOwnProperty.call(m, k) ? m[k] : (m[k] = []); if (l.indexOf(x) < 0) l.push(x); }); }); }); return m; });
@@ -9796,6 +9800,7 @@ PF.run = (function () {
     }
     /* Living runs (4.0): a kept copy never drops landed to-dos. Its head is kept, or this version's when it has none; an approval
        either made without counting the work lands back in review (PF.todos.markHolds), never quietly kept. */
+    if (promote) { cur.format = FORMAT3; cur.features = []; if (PF.envelope.semver(copy.app)) cur.app = copy.app; cur.typesHash = o.typesHash; }
     var lv = cur.format === FORMAT3 ? copy.living || cur.living : null;
     if (lv) { cur.living = { head: lv.head }; addFeature(cur, PF.todos.FEATURE); var lo = order3(cur); Object.keys(cur).forEach(function (k) { delete cur[k]; }); Object.keys(lo).forEach(function (k) { cur[k] = lo[k]; }); }
     if (cur.format === FORMAT3) { var re = withPins(cur); Object.keys(cur).forEach(function (k) { delete cur[k]; }); Object.keys(re).forEach(function (k) { cur[k] = re[k]; }); }
@@ -40293,7 +40298,7 @@ PF.examples = (function () {
         if (g !== gen) return false;
         return mutateRun(key, g, function (run, map, me, now) {
           var extra = c._overflow || [];
-          R.adopt(run, c, me, now);
+          R.adopt(run, c, me, now, { typesHash: todoTypes(run) });
           if (extra.length) run._overflow = (run._overflow || []).concat(extra);
           R.log(run, me, now, logPrefix + where.split('/').pop());
         }, { recovery: true, expect: cur, expectText: text });

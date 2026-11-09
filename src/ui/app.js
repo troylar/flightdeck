@@ -8845,7 +8845,7 @@
         if (g !== gen) return false;
         return mutateRun(key, g, function (run, map, me, now) {
           var extra = c._overflow || [];
-          R.adopt(run, c, me, now);
+          R.adopt(run, c, me, now, { typesHash: todoTypes(run) });
           if (extra.length) run._overflow = (run._overflow || []).concat(extra);
           R.log(run, me, now, logPrefix + where.split('/').pop());
         }, { recovery: true, expect: cur, expectText: text });

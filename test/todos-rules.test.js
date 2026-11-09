@@ -288,6 +288,18 @@ rule('Keeping a conflict copy never loses the run\'s to-dos: the copy\'s head is
   same(cur.living, { head: a2.id }, 'the copy\'s head');
   const back = R.sanitize(plain(cur)); assert.ok(!back._unrunnable, back._unrunnable);
 });
+rule('Keeping a run/3 copy with landed to-dos over a run/2 makes this one a run/3 with its head, and the other way keeps this head', () => {
+  const { r: cur } = newRun(MD), map = R.mapOf(cur), p = prop('ia1', add('One', { phase: 'draft' }), [], 'person-avery'), a = applied(p, '', { decision: p.id + '.status-w1-00000000' });
+  const copy = plain(cur); R.todoLand(copy, map, a, { who: 'person-avery', now: AT, typesHash: 'abcdef12', app: '4.0.0' });
+  const c1 = plain(cur);
+  assert.throws(() => R.adopt(plain(cur), R.sanitize(plain(copy)), 'person-avery', AT, { typesHash: '12345678' }), /types/);
+  R.adopt(c1, R.sanitize(plain(copy)), 'person-avery', AT, { typesHash: 'abcdef12' });
+  same([c1.format, c1.living, c1.features.indexOf('living-runs') >= 0, c1.typesHash], ['preflight-run/3', { head: a.id }, true, 'abcdef12']);
+  assert.ok(!R.sanitize(plain(c1))._unrunnable, R.sanitize(plain(c1))._unrunnable);
+  const c2 = plain(copy); R.adopt(c2, R.sanitize(plain(cur)), 'person-avery', AT, { typesHash: 'abcdef12' });
+  same([c2.format, c2.living], ['preflight-run/3', { head: a.id }]);
+  assert.ok(!R.sanitize(plain(c2))._unrunnable);
+});
 /* ---------- Application (commit 3) ---------- */
 rule('The recorder\'s next step for a request reads what is there first: landed is done, a prepared application that still fits is landed as it is, otherwise one is prepared on the head', () => {
   const { r } = newRun(), map = R.mapOf(r), p = prop('ap1', add('Check the links', { phase: 'draft' }), [], 'person-avery');
