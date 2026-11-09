@@ -246,6 +246,21 @@ async function conflictCopy(app, decider) {
   await app.fs.write(runPath(app), JSON.stringify(r0, null, 2));
   return { p, head };
 }
+rule('A role reassigned while the landing save is under way lands nothing the old role holder approved', async () => {
+  const app = await setup();
+  await asReviewer(app, 'person-blake');
+  const p = await request(app, { op: 'add', text: 'Reviewer work', target: { phase: 'draft' } }, { decider: 'person-blake' });
+  const h = holdLanding(app, p.id);
+  await refresh(app, 300);
+  assert.strictEqual(h.seen(), 1, 'set-up: the landing reached its read');
+  h.off();
+  app.click('run-details'); await app.tick(10); app.click('edit', 'role:reviewer'); await app.tick(10);
+  app.input('edit-input', 'person-casey'); app.click('save-edit'); await app.tick(50);
+  h.hold.open(); await app.tick(500);
+  const r = theRun(app);
+  assert.strictEqual(r.roles.reviewer, 'person-casey', 'set-up: the role changed');
+  assert.strictEqual(r.living, undefined, 'nothing the old reviewer approved landed');
+});
 rule('Keeping a copy whose head names an application this run never landed asks its authority again first', async () => {
   const app = await setup();
   const { head } = await conflictCopy(app, 'person-blake');

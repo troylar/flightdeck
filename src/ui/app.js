@@ -2969,7 +2969,8 @@
      the person; with run, that run's identity and state (paused, ended, its recorder); with view, the loop's roll-up and the
      run's revision as the click saw them; with q, the request, whose asker must still be allowed to ask. guardOk asks all of
      it again, and every save of a loop's parent or child asks guardOk right before each write (repo.saveRun's still). */
-  function runSig(r) { return r ? JSON.stringify([r.id, !!r.paused, !!r.ended, r.recorder ? [r.recorder.person || '', r.recorder.session || ''] : null]) : ''; }
+  /* Who holds each role is in it too (4.0): a role holder's authority over to-dos is asked of the run as it is. */
+  function runSig(r) { return r ? JSON.stringify([r.id, !!r.paused, !!r.ended, r.recorder ? [r.recorder.person || '', r.recorder.session || ''] : null, r.roles || null]) : ''; }
   function viewSig(r, id) { var V = r && loopView(r, id); return V ? JSON.stringify([V.ledger.heads, V.rollup.ok, V.rollup.summary, r.rev || 0]) : ''; }
   function loopGuard(o) {
     o = o || {};
@@ -2990,13 +2991,20 @@
      (candidate, final, backup): on the run as it was before (t.pre: its tentative head never counts), with the records, people
      and unread files as this window reads them now, PF.todos.keepHead still keeps exactly the head it kept (t.head) of the one
      it was given (t.from), dropping the same (t.dropped): authority, revokes, unread and held records all asked again. A
-     landing is keeping one application past the run's head. */
+     landing is keeping one application past the run's head. The roles are asked as the run (t.key) has them now as well. */
   function todoStill(t) {
     if (!t.pre) return true;
     var pre; try { pre = R.sanitize(JSON.parse(t.pre)); } catch (e) { return false; }
     if (!pre || pre._unrunnable) return false;
-    var kh = PF.todos.keepHead(pre, { living: t.from ? { head: t.from } : null }, { records: data.todos || [], unread: data.todosUnread || [], people: data.people });
-    return kh.head === t.head && kh.dropped === (t.dropped || '');
+    var ok = function (run) { var kh = PF.todos.keepHead(run, { living: t.from ? { head: t.from } : null }, { records: data.todos || [], unread: data.todosUnread || [], people: data.people }); return kh.head === t.head && kh.dropped === (t.dropped || ''); };
+    if (!ok(pre)) return false;
+    /* Asked again with the roles the run has now (the durable head stays the one before): a role reassigned meanwhile takes
+       its holder's authority with it. */
+    var now = t.key ? findRun(t.key) : null;
+    if (t.key && !now) return false;
+    if (!now || JSON.stringify(now.roles || null) === JSON.stringify(pre.roles || null)) return true;
+    pre.roles = JSON.parse(JSON.stringify(now.roles || {}));
+    return ok(pre);
   }
   function todoPre(r) { return JSON.stringify(r, function (k, v) { return this === r && k.charAt(0) === '_' ? undefined : v; }); }
   /* Whether a run is a loop's parent (its checklist has a {for.each} step) or a loop's child. */
@@ -3301,7 +3309,7 @@
       var types = todoTypes(r), lcx = loopGuard({ run: key });
       var ed = loopEdit(lcx, key, function (rr, m, me, now) {
         /* The write guard asks again before every write, on the run as it is now, before this landing. */
-        lcx.todo = { from: a.id, head: a.id, pre: todoPre(rr) };
+        lcx.todo = { key: key, from: a.id, head: a.id, pre: todoPre(rr) };
         /* Asked again in the write queue, on the run as it is: still queued (or only its prepared applications disagree), the
            same head, the same authority. */
         var V2 = todoView(rr), q2 = V2 && V2.requests[q.id], plan2 = q2 ? PF.todos.applyPlan(rr, V2, q2) : { skip: 'gone' };
@@ -8898,7 +8906,7 @@
           /* A copy's to-dos this run never landed are kept only while they would land now (PF.todos.keepHead); the rest are
              prepared again. */
           var kh = PF.todos.keepHead(run, c, { records: data.todos || [], unread: data.todosUnread || [], people: data.people }), ko = { typesHash: todoTypes(run), head: kh.head };
-          rcx.todo = { from: c.living && typeof c.living.head === 'string' ? c.living.head : '', head: kh.head, dropped: kh.dropped, pre: todoPre(run) };
+          rcx.todo = { key: key, from: c.living && typeof c.living.head === 'string' ? c.living.head : '', head: kh.head, dropped: kh.dropped, pre: todoPre(run) };
           var keep = function (t) {
             R.adopt(t, c, me, now, ko);
             if (kh.dropped) R.log(t, me, now, 'Kept the copy without its to-dos from ' + kh.dropped.slice(0, 120) + ' on: they aren\'t authorized now, so they will be prepared again');
