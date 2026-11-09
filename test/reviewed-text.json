@@ -33,8 +33,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 0 sentences here, each read by hand: none."
     },
     "docs/map-format.md": {
-      "sha256": "9342f4f95f3122e2a3d6fbb62229401243f85ba52d31373b2c76282706561264",
-      "reviewed": "run screen and app: loop noun on every part of the box, raw keys and title/link for items, escaped http(s)-only link; writes only through repo.saveScope with the guard, checked for direct writes and unconditional deletes"
+      "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
+      "reviewed": "3.0.1: map-format.md says what results and loops need, every computer on 3.0 first, and its result example publishes; checked for direct writes and unconditional deletes"
     },
     "docs/onedrive.md": {
       "sha256": "e11b0fc58b4abf3ba2057f922a35599951384be2c68674f55432c0bfaaf232c5",
@@ -73,8 +73,8 @@
       "reviewed": "run screen and app: loop noun on every part of the box, raw keys and title/link for items, escaped http(s)-only link; writes only through repo.saveScope with the guard, checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/map-format.md": {
-      "sha256": "9342f4f95f3122e2a3d6fbb62229401243f85ba52d31373b2c76282706561264",
-      "reviewed": "run screen and app: loop noun on every part of the box, raw keys and title/link for items, escaped http(s)-only link; writes only through repo.saveScope with the guard, checked for direct writes and unconditional deletes"
+      "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
+      "reviewed": "3.0.1: map-format.md says what results and loops need, every computer on 3.0 first, and its result example publishes; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/flightdeck-edit-checklist/SKILL.md": {
       "sha256": "5559b74cc42be964c92384675c449efe7bfe2b855abc1891344f24bbc798b0ce",
