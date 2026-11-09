@@ -13,16 +13,16 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "f6729c9ccb2cd760d98ebcffab301deb2e01a275aa7996d38df6c77a0aa3835f",
-      "reviewed": "AR: flightdeck todo returns held (exit 4) for an unreadable dependency before preparing the request; checked for direct writes and unconditional deletes (none)"
+      "sha256": "3a9bfa4cf9934e14794e3bb4670d32f91d13c2e727fd4e7827a90e93f4d9fb0d",
+      "reviewed": "AX: readers give a to-do's current resolution reason as reason and the addition's as addedReason; checked for direct writes and unconditional deletes (none)"
     },
     "build.py": {
       "sha256": "3ccfcefff2f5c647ab6a3703c5b303f5e1de7073bc26ead84f7b84902fdd50de",
       "reviewed": "4.0 slice 1, commit 1: to-do records and their reduction (src/core/todos.js), loop settle and paging shared, living-runs feature, design §45"
     },
     "docs/apps.md": {
-      "sha256": "13fded9dc129ea4981c64f735344b97216a69d2d5f2a952e5ec85340013d204b",
-      "reviewed": "AP docs: name tool and version under a to-do request's by; checked for direct writes and unconditional deletes (none)"
+      "sha256": "f719b092bd04019829a5a3734847f0d2854626ff6454fe0f1058a045636ebc70",
+      "reviewed": "AX: readers give a to-do's current resolution reason as reason and the addition's as addedReason; checked for direct writes and unconditional deletes (none)"
     },
     "docs/design.md": {
       "sha256": "3bcda05e2ed6d12db8cc15c3a4da2db7de4f742ec43592959461926a4c252e1f",
@@ -201,8 +201,8 @@
       "reviewed": "AZ: baselines for the checker and status skill text; checked for direct writes and unconditional deletes (none)"
     },
     "src/core/appjson.js": {
-      "sha256": "b22146ed72188c14a5eae51d97a9c1da567e8276c6881cbc11ac010c38066255",
-      "reviewed": "AP: the run reader serializes who asked for a to-do request as {person} or {tool, version}; schema and docs say so; checked for direct writes and unconditional deletes (none)"
+      "sha256": "d3bcd6c56e778c6eba888b38b74415cf61bc96905589d51ce8c67b319f63c676",
+      "reviewed": "AX: readers give a to-do's current resolution reason as reason and the addition's as addedReason; checked for direct writes and unconditional deletes (none)"
     },
     "src/core/attach.js": {
       "sha256": "0e75bc0c0d748fe10aaf5657662e4ce8679c27f9d10d85c1e34891b1c9d58df0",

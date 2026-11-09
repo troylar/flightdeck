@@ -202,6 +202,26 @@ rule('A dependency that can\'t be read holds the ask (exit 4), even when what it
     assert.deepStrictEqual(ls(root), before, 'nothing written');
   }
 });
+rule('run (contract 2) and todo list give a resolved to-do\'s own reason, and the reason it was added apart', async () => {
+  const { root, d } = await folder();
+  const r = JSON.parse(fs.readFileSync(path.join(root, 'runs/release-notes/r-1/run.json'), 'utf8'));
+  const RUN = { process: 'release-notes', id: 'r-1' }, map = R.mapOf(R.sanitize(r)), ppl = { people };
+  const comp = async (key, body, previous) => {
+    const id = T.idFor('flightdeck', key), b = Object.assign(body.op === 'add' ? { todo: T.todoIdFor(id) } : {}, body), eff = T.effectOf(b);
+    const recs = (await PF.repo.loadAll(d, {})).todos || [];
+    const V = T.view(R.sanitize(r), { records: recs, people: ppl }), C = T.consequenceOf(R.sanitize(r), map, b, V).fingerprint;
+    const c = T.buildProposal({ kind: 'compound', run: RUN, id, by: 'person-avery', seen: previous ? [previous] : [], at: AT, body, decision: { by: 'person-avery', consequence: C }, application: { previous: previous || '', effect: eff, fingerprint: T.fingerprint(eff) }, app: '4.0.0' });
+    await d.write('proposals/' + id + '.json', T.text(c));
+    r.living = { head: id }; r.features = PF.envelope.FROZEN.filter(f => r.features.concat(['living-runs']).indexOf(f) >= 0);
+    await d.write('runs/release-notes/r-1/run.json', JSON.stringify(r, null, 2));
+    return { id, todo: b.todo };
+  };
+  const a = await comp('ax-add', { op: 'add', text: 'Check the links', target: { phase: 'draft' }, placement: T.placementFor(map, { phase: 'draft' }), reason: 'Found in review' });
+  await comp('ax-wont', { op: 'wont', todo: a.todo, reason: 'Covered by ABC-123' }, a.id);
+  const x = json('run', root, 'release-notes/r-1', '--contract', '2', '--json').data.run.todos[0], l = json('todo', 'list', root, 'release-notes/r-1', '--json').data.todos[0];
+  assert.deepStrictEqual([x.state, x.reason, x.addedReason], ['wont', 'Covered by ABC-123', 'Found in review'], JSON.stringify(x));
+  assert.deepStrictEqual([l.state, l.reason, l.addedReason], ['wont', 'Covered by ABC-123', 'Found in review'], JSON.stringify(l));
+});
 rule('Usage, an unknown run, a run that ended and a folder part that can\'t be read write nothing', async () => {
   const { root } = await folder();
   assert.strictEqual(json('todo', 'add', root, 'release-notes/r-1', '--text', 'x', '--phase', 'draft', '--json').code, 1, 'no --tool');
