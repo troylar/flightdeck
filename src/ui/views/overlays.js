@@ -357,13 +357,15 @@
   /* Delegate on the open run: a tool or a person may add, check off or reopen to-dos in the current phase. Never Won't do,
      Moved or a gate (PF.todos.grantOf). */
   function todoDelegate(ctx) {
-    var r = ctx.run(), mem = ctx.loopMem(), ph = mem.tdDelegate && mem.tdDelegate.phase, map = r ? R.mapOf(r) : null, p = map ? map.phases.filter(function (x) { return x.id === ph; })[0] : null;
+    /* What was chosen lives in the dialog's state (mem.tdDelegate: who, ops, adds), so a redraw (a refused save, a refresh)
+       draws exactly it, checkboxes included. */
+    var r = ctx.run(), mem = ctx.loopMem(), dg = mem.tdDelegate || {}, ops = dg.ops || { add: true }, ph = dg.phase, map = r ? R.mapOf(r) : null, p = map ? map.phases.filter(function (x) { return x.id === ph; })[0] : null;
     var h = '<div class="overlay" data-act="close-overlay"><div class="help tdi" role="dialog" aria-modal="true" aria-labelledby="tdg-h"><h2 id="tdg-h" tabindex="-1">Delegate to-dos' + (p ? ' in ' + esc(p.title) : '') + '</h2>';
     if (mem.tdSaid) h += '<p class="small" role="status">' + esc(mem.tdSaid) + '</p>';
     h += '<p class="small">A tool or a person may then add, check off or reopen to-dos here without asking each time. Dropping or moving work, and every gate, stay with people. You can revoke it from To-do requests.</p>' +
-      '<label for="tdg-who">Who: a tool\'s name, or a person\'s ID from people.json</label><input id="tdg-who" class="rw-in" maxlength="80" autocomplete="off">' +
-      '<fieldset><legend class="small">May</legend>' + [['add', 'Add'], ['done', 'Check off'], ['reopen', 'Reopen']].map(function (o) { return '<label class="check-label small"><input type="checkbox" id="tdg-' + o[0] + '"' + (o[0] === 'add' ? ' checked' : '') + '> ' + o[1] + '</label>'; }).join('') + '</fieldset>' +
-      '<label for="tdg-adds">At most this many additions</label><input id="tdg-adds" class="rw-in" type="number" min="0" max="500" value="10">' +
+      '<label for="tdg-who">Who: a tool\'s name, or a person\'s ID from people.json</label><input id="tdg-who" class="rw-in" maxlength="80" autocomplete="off" value="' + esc(dg.who || '') + '">' +
+      '<fieldset><legend class="small">May</legend>' + [['add', 'Add'], ['done', 'Check off'], ['reopen', 'Reopen']].map(function (o) { return '<label class="check-label small"><input type="checkbox" id="tdg-' + o[0] + '"' + (ops[o[0]] ? ' checked' : '') + '> ' + o[1] + '</label>'; }).join('') + '</fieldset>' +
+      '<label for="tdg-adds">At most this many additions</label><input id="tdg-adds" class="rw-in" type="number" min="0" max="500" value="' + esc(dg.adds == null ? '10' : dg.adds) + '">' +
       '<div class="row"><button type="button" class="btn" data-act="td-delegate-save">Delegate</button><button type="button" class="mini" data-act="close-overlay">Cancel</button></div></div></div>';
     return h;
   }

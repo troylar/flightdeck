@@ -191,6 +191,19 @@ rule('An active delegation can always be ended: the run screen and Home offer De
   app.click('go', '', { view: 'home' }); await app.tick(40);
   assert.ok(!/data-act="td-grants"/.test(app.html()), 'none left: no entry');
 });
+rule('A delegation\'s choices survive its own redraws: a refused save keeps what was ticked, and that is what is granted', async () => {
+  const app = await setup();
+  app.click('td-delegate'); await app.tick(10);
+  app.check('tdg-add', false); app.check('tdg-done', true); app.set('tdg-adds', '3');
+  app.click('td-delegate-save'); await app.tick(20);
+  assert.ok(/Say who/.test(ov(app)), 'set-up: refused for who');
+  const tag = (id) => (new RegExp('<input[^>]*id="' + id + '"[^>]*>').exec(ov(app)) || [''])[0];
+  assert.deepStrictEqual(['tdg-add', 'tdg-done', 'tdg-reopen'].map(id => /\schecked\b/.test(tag(id))), [false, true, false], 'drawn as ticked: ' + ['tdg-add', 'tdg-done', 'tdg-reopen'].map(tag).join(' '));
+  assert.ok(/value="3"/.test(tag('tdg-adds')), 'the number too: ' + tag('tdg-adds'));
+  const before = recs(app);
+  app.set('tdg-who', 'notes-bot'); app.click('td-delegate-save'); await app.tick(80);
+  assert.deepStrictEqual(fresh(app, before).map(x => [x.kind, x.ops]), [['grant', ['done']]]);
+});
 rule('More than ten wait: ten at a time, and Show more brings the rest', async () => {
   const app = await setup();
   await asked(app, 12);

@@ -405,8 +405,8 @@
       "reviewed": "AY: the folder reader keeps a file's own _file/_bytes apart from the loader's and validates to-do and scope records as written; checked for direct writes and unconditional deletes (none)"
     },
     "src/ui/app.js": {
-      "sha256": "9c5550fe9487b20b34cc4bc2f98ade5edab2079e6a40db67ccc1eabe609a398a",
-      "reviewed": "AK follow-up: what a to-do form sent is kept as a list, never a plain object keyed by a box id; checked for direct writes and unconditional deletes (none)"
+      "sha256": "1283d21b622dd379a151fe44bbd4241454d707274dc29618ccb7dc359eea2939",
+      "reviewed": "AW: the delegation dialog draws its who, permissions and additions from its own state, so a redraw keeps what was chosen; checked for direct writes and unconditional deletes (none)"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
@@ -461,8 +461,8 @@
       "reviewed": "Used by and similar: paged lists, partial when any version can't be read, empty states say among how many were read, links open the version that matched; step types' checklists paged; checked for direct writes and unconditional deletes"
     },
     "src/ui/views/overlays.js": {
-      "sha256": "a8bd61dff7e506a8094395d9929cd8c5e2c469e2d78f811c95bced5c9ad83120",
-      "reviewed": "AI: Home and the run screen offer Delegations whenever an active grant can be ended; checked for direct writes and unconditional deletes (none)"
+      "sha256": "f9d088cbde94c32f56935efd72603612cf651cbd05f5f7982d41276246b5a8d8",
+      "reviewed": "AW: the delegation dialog draws its who, permissions and additions from its own state, so a redraw keeps what was chosen; checked for direct writes and unconditional deletes (none)"
     },
     "src/ui/views/pages.js": {
       "sha256": "cc7cc89785dbaf15eac97e4b54a96930e2308b433f9d3d12e53c76f1b74bc301",

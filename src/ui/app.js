@@ -3380,6 +3380,15 @@
     if (made.why) { mem.tdSaid = made.why; render(); return; }
     tdWrite(r, made, made.words, slot).then(function (ok) { if (ok && mem.tdDec === open && (!sent || tdClearIf(sent))) { mem.tdDec = null; render(); } });
   }
+  /* The delegation dialog's choices, as drawn now, into its state (mem.tdDelegate), so every redraw draws them again. */
+  function tdDelegateKeep() {
+    var dg = loopMem().tdDelegate; if (!dg) return;
+    var box = function (id) { return document.getElementById(id); }, w = box('tdg-who'), a = box('tdg-adds');
+    if (w) dg.who = String(w.value == null ? '' : w.value);
+    if (a) dg.adds = String(a.value == null ? '' : a.value);
+    var ops = dg.ops || { add: true }; dg.ops = { add: !!ops.add, done: !!ops.done, reopen: !!ops.reopen };
+    ['add', 'done', 'reopen'].forEach(function (k) { var el = box('tdg-' + k); if (el) dg.ops[k] = !!el.checked; });
+  }
   function tdClear(ids) { ids.forEach(function (id) { var el = document.getElementById(id); if (el) el.value = ''; }); }
   /* A to-do form's boxes as sent (tdSent), and clearing them when its save finishes (tdClearIf): only while every box still
      holds exactly what was sent, so typing done meanwhile is never wiped; true when cleared. */
@@ -8023,9 +8032,10 @@
     'td-delegate': function () { var r = ctx.run(); if (!r) return; var mem = loopMem(); mem.tdDelegate = { run: r.process + '/' + r.id, phase: tdPhase(r) }; mem.tdSaid = ''; state.overlayFocus = '#tdg-h'; openOverlay({ tdDelegate: true, html: function () { return V.todoDelegate(ctx); } }); },
     'td-delegate-save': function () {
       var mem = loopMem(), dg = mem.tdDelegate, r = dg && findRun(dg.run); if (!r || !state.me) return;
-      var who = String(val('tdg-who') || '').trim(), ppl = PF.people.listOf(data.people).some(function (p) { return p && p.id === who; });
-      var ops = ['add', 'done', 'reopen'].filter(function (k) { var el = document.getElementById('tdg-' + k); return !!(el && el.checked); });
-      var n = String(val('tdg-adds') || '').trim(), adds = /^\d{1,3}$/.test(n) ? Number(n) : -1;
+      tdDelegateKeep();
+      var who = String(dg.who || '').trim(), ppl = PF.people.listOf(data.people).some(function (p) { return p && p.id === who; });
+      var ops = ['add', 'done', 'reopen'].filter(function (k) { return !!dg.ops[k]; });
+      var n = String(dg.adds || '').trim(), adds = /^\d{1,3}$/.test(n) ? Number(n) : -1;
       if (!who) { mem.tdSaid = 'Say who: a tool\'s name, or a person\'s ID from people.json.'; render(); return; }
       var subject = ppl ? { person: who } : { tool: who }, sig = JSON.stringify([dg.run, subject, ops, dg.phase, adds, state.me]);
       var made = tdKept('grant', sig, function (seed) { return PF.todos.grantOf(r, { subject: subject, ops: ops, targets: [{ phase: dg.phase }], adds: adds, by: state.me, key: seed.key, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION }); });
@@ -9717,6 +9727,7 @@
     }
   }, true);
   document.addEventListener('change', function (e) {
+    if (e.target && /^tdg-(add|done|reopen|who|adds)$/.test(e.target.id || '')) tdDelegateKeep();
     /* A long dropdown's "Show 50 more…" (K.select): the list widens and the choice stays what it was; nothing else hears it. */
     if (PF.vk.isSelMore(e.target)) { e.target.value = (e.target.dataset && e.target.dataset.cur) || ''; selMore(e.target.id, e.target.dataset && e.target.dataset.step); return; }
     /* A role given someone on Start or Plan (2.11) stays drawn through Show more, Find and a refresh, for this form only. */
