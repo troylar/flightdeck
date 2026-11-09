@@ -18,10 +18,12 @@ The essentials:
   process: jira-cleanup
   title: Weekly Jira cleanup
   runs: solo
-  context: board
+  context: project
   ---
   ## Triage new issues · READ-DO {#triage}
-  - [!] {confirm} Every new issue has a component and a priority ^board {#fields}
+  - [!] {jira.search} No new issue lacks a component or a priority {#fields}
+    query: project = ^project AND created >= -7d AND (component is EMPTY OR priority is EMPTY)
+    results: none
   - [ ] {jira.issue} Duplicates linked to the original and closed {#dupes}
     action: link
   ```
@@ -29,7 +31,7 @@ The essentials:
 ### Steps
 
 - Every phase, step and written gate has a stable ID: `{#id}`.
-- **Every step has a type**: `{confirm}`, `{communicate}`, `{meeting}`, `{decide}`, `{review}`, `{wait}`, `{ui.action}`, `{jenkins.job}`, `{bitbucket.pr}`, `{jira.issue}`, `{jira.sprint}`, `{github.pr}`, `{deploy}`, `{verify.health}`, `{measure}`, `{run.command}`, `{run.script}`, `{run.skill}`, `{ci.gate}`, `{run.process}`, plus any team types in `step-types/`. Pick the most specific one: a Jenkins job is `{jenkins.job}`, not `{ui.action}`.
+- **Every step has a type**: `{confirm}`, `{communicate}`, `{meeting}`, `{decide}`, `{review}`, `{wait}`, `{ui.action}`, `{jenkins.job}`, `{bitbucket.pr}`, `{jira.issue}`, `{jira.sprint}`, `{github.pr}`, `{deploy}`, `{verify.health}`, `{measure}`, `{run.command}`, `{run.script}`, `{run.skill}`, `{ci.gate}`, `{run.process}`, `{jira.search}`, `{for.each}`, plus any team types in `step-types/`. Pick the most specific one: a Jenkins job is `{jenkins.job}`, not `{ui.action}`.
 - **Fill in the fields you know** (the table in the repo's `docs/map-format.md`): the job, the repo and branches, the Jira action. Leave out values that change each run; people fill them in during the run. Use `^details` for run values, like `parameters: TICKET=^ticket`, spelled exactly as in `context`: checks name a field's `^word` that isn't a run detail, and a run shows it as written.
 - **Require evidence only where it matters**: add `require: build` (or `require: all`) on steps like a production deploy. Add `evidence: link` or `evidence: note` when a plain confirm needs proof. Most steps need neither.
 - Keep steps to one line; put explanations in an indented `>` note.

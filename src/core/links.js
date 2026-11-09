@@ -208,10 +208,11 @@ PF.links = (function () {
     if (!map || typeof children !== 'function') return out;
     PF.map.steps(map).forEach(function (x) {
       var s = x.step, f = s.fields || {};
-      if (s.type !== 'run.process' || !f.process || own(f, 'version')) return;
+      if ((s.type !== 'run.process' && s.type !== 'for.each') || !f.process || own(f, 'version')) return;
       var got = children(f.process, '');
       if (!got || !got.map) return;
-      var st = rows(s, map.meta.context, got.map).stale;
+      /* A loop (3.0.1) passes only its pass: line, by name; a name its child no longer has stops each new item's run. */
+      var st = s.type === 'for.each' ? parse(f.pass, { items: true }).entries.filter(function (e) { return (got.map.meta.context || []).indexOf(e.name) < 0; }) : rows(s, map.meta.context, got.map).stale;
       if (st.length) out.push({ step: s, child: f.process, title: got.title, version: got.version, names: st.map(function (y) { return y.name; }) });
     });
     return out;

@@ -408,4 +408,13 @@ rule('Round 23: a docs note git ignores (docs/.*.md, kept locally, never committ
     assert.ok('docs/new.md' in RT.inventory({ 'docs/new.md': 'x' }), 'a doc git would track still is');
   } finally { fs.rmSync(note, { force: true }); }
 });
+/* 3.0.1: the Module results example in docs/map-format.md is a checklist that publishes: no blockers, no design tips. */
+rule('The Module results example in docs/map-format.md publishes as written: no blockers and no design tips', () => {
+  const md = read('docs/map-format.md'), at = md.indexOf('## Module results'), from = md.indexOf('```markdown\n', at) + '```markdown\n'.length;
+  const example = md.slice(from, md.indexOf('\n```', from)) + '\n', map = PF.map.parse(example);
+  assert.strictEqual(map.meta.process, 'story-check', 'set-up: the first example under Module results');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(PF.map.check(map, {}).blockers)), []);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(PF.library.lints(example).map((t) => t.text))), []);
+});
+
 run();

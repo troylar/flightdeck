@@ -47,6 +47,8 @@ Some work repeats for each item in a set: each environment to deploy to, each do
 
 Never write "every environment is ready" as one `{confirm}`: nobody can tell which items were looked at.
 
+A loop, or a result a parent accepts (`result:`, `accepts:`), needs Flightdeck 3.0 on every computer before anyone publishes one: older copies can't run the version or its runs. Say so in the design brief, and have the person confirm each computer's version.
+
 ## What makes a good checklist
 
 - **Pause points, not procedures.** Each phase ends where people naturally stop: before a merge, before production, after the deploy. That's where the gate goes.

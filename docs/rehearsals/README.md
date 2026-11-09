@@ -176,7 +176,7 @@ Copy this into `docs/rehearsals/<version>-<date>-waiver.md` and fill it in.
 
 ## The records so far
 
-All nineteen are waivers; no release has a rehearsal record yet.
+All twenty are waivers; no release has a rehearsal record yet.
 
 - [1.22.0, 2026-10-20](1.22.0-2026-10-20-waiver.md)
 - [2.0.0, 2026-10-21](2.0.0-2026-10-21-waiver.md)
@@ -197,5 +197,6 @@ All nineteen are waivers; no release has a rehearsal record yet.
 - [2.16.2, 2026-11-05](2.16.2-2026-11-05-waiver.md)
 - [2.16.1, 2026-11-05](2.16.1-2026-11-05-waiver.md)
 - [3.0.0, 2026-11-08](3.0.0-2026-11-08-waiver.md)
+- [3.0.1, 2026-11-09](3.0.1-2026-11-09-waiver.md)
 
 Records written before 2.6.1 call steps 24 and 25 "P and R", and some name their sections a little differently ("What isn't proven on real OneDrive", "What still runs by hand").

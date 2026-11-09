@@ -45,7 +45,7 @@ roles: author, reviewer
 | `roles` | no | Roles people are assigned to in each run. |
 | `result` | no | The run detail this checklist returns to a run that links to it: a choice in `context`, set by one decision. See [Module results](#module-results) (Flightdeck 3.0). |
 | `runs` | no | `solo` if one person usually runs it alone (every role goes to whoever starts it, except a role that approves a gate, which is chosen at start), or `team` (the default). |
-| `format`, `features` | no | Don't write them: Flightdeck works out what a version needs when it publishes. If they're there, `format:` must be `flightdeck-checklist/2`, `features:` may name only features Flightdeck knows, and the checklist must use something from [Needs Flightdeck 2.0](#needs-flightdeck-20) or `only when`. Anything else stops publishing, and so does `format: flightdeck-checklist/1`. |
+| `format`, `features` | no | Don't write them: Flightdeck works out what a version needs when it publishes. If they're there, `format:` must be `flightdeck-checklist/2`, `features:` may name only features Flightdeck knows, and the checklist must use something from [Needs Flightdeck 2.0](#needs-flightdeck-20), `only when`, a result or a loop. Anything else stops publishing, and so does `format: flightdeck-checklist/1`. |
 
 Each line between the `---` lines is `key: value`; any other line there stops publishing. A key not in this table is kept and ignored. Run detail and role names can't be names Flightdeck keeps for itself (`constructor`, `__proto__` and the like).
 
@@ -131,7 +131,7 @@ A phase can have a note and screenshots too, right under its heading and before 
 
 ## Needs Flightdeck 2.0
 
-A checklist that uses nothing on this list publishes as before, and every teammate can run it. One that uses any of these publishes a version that only Flightdeck 2.0 or later runs. The publish panel names what the draft uses before you publish; teammates on Flightdeck 1.22 or earlier see the version but can't run it until they update.
+A checklist that uses nothing on this list publishes as before, and every teammate can run it. One that uses any of these publishes a version that only Flightdeck 2.0 or later runs. The publish panel names what the draft uses before you publish; teammates on Flightdeck 1.22 or earlier see the version but can't run it until they update. [Module results](#module-results) and [Loops](#loops) need Flightdeck 3.0.
 
 - A run detail with a kind (`rows:number` in `context`; see [Typed run details](#typed-run-details)).
 - Typed evidence: `evidence: number`, `yes-no` or `date` on a step, or a step whose team step type records a number, a yes or no, or a date.
@@ -227,7 +227,7 @@ During a run, the recorder can **Fill in** any step's checklist fields and evide
 | `for.each` | Start a linked run of another checklist for each item in a list; done when every item is cleared or excused. | **`process`**, `from`, **`items`** (`jira.issue`, `item`), `max`, `source`, `noun` | nothing (use `evidence:`) |
 <!-- types:end -->
 
-`version` on `{run.process}` and `skillVersion` on `{run.skill}` aren't in the table: they're pins (Needs Flightdeck 2.0), described under [Nested processes](#nested-processes) and [Skill versions](#skill-versions). No other type takes them.
+`version` on `{run.process}` and `{for.each}` and `skillVersion` on `{run.skill}` aren't in the table: they're pins (Needs Flightdeck 2.0), described under [Nested processes](#nested-processes), [Loops](#loops) and [Skill versions](#skill-versions). No other type takes them.
 
 Every type also accepts these nine fields:
 
@@ -255,7 +255,7 @@ A `{run.process}` step starts a linked run of another published process:
   carry: commit
 ```
 
-`carry:` lists the run details passed to the child (all matching details if it's left out). The step is checked only by its child run: done when the child completes with the details it was started for, and blocked if it ends any other way (a new child can then replace it). It can't be ticked by hand; a step that isn't must-do can still be marked N/A. If a carried detail changes, the step goes back for a re-check and needs a new child run.
+`carry:` lists the run details passed to the child (all matching details if it's left out). The step is checked only by its child run: done when the child completes with the details it was started for (and, with `accepts:`, with a result it accepts: see [Module results](#module-results)), and blocked if it ends any other way (a new child can then replace it). It can't be ticked by hand; a step that isn't must-do can still be marked N/A. If a carried detail changes, the step goes back for a re-check and needs a new child run.
 
 Add `pass:` to say where each of the child's run details comes from (Needs Flightdeck 2.8):
 
@@ -298,12 +298,13 @@ A checklist can return one result, so the run that links to it knows more than "
 ---
 process: story-check
 title: Check a story
-context: story:jira.issue, disposition:choice(cleared|needs-work)
+context: story, disposition:choice(cleared|needs-work)
+roles: validator
 result: disposition
 ---
 
 ## Verdict · READ-DO {#verdict}
-- [!] {decide} Is the story ready to ship? @validator {#ready}
+- [!] {decide} Is ^story ready to ship? @validator {#ready}
   options: cleared, needs-work
   sets: disposition=decision
 ```
@@ -311,7 +312,7 @@ result: disposition
 - `result:` in the front matter names one run detail in `context:`, and it must be a choice.
 - Exactly one `{decide}` step sets it, with `sets: <detail>=decision`. Its answer and the detail are one value: recording the decision sets the detail, and the detail can't be edited on its own ("^disposition is the result its decision sets: answer …").
 - The step's `options:` must be the choice's options, in the same order. They aren't filled in for you, so the checklist reads the same in every copy.
-- A run that ends shows its result everywhere its outcome shows: "Completed · needs-work".
+- A run that ends Completed shows its result everywhere its outcome shows: "Completed · needs-work". A run stopped early or canceled shows its outcome alone.
 
 A `{run.process}` step that links to a checklist with a result says which results let it count as done, and can copy the result into one of its own details:
 
@@ -329,7 +330,7 @@ A `{run.process}` step that links to a checklist with a result says which result
 - A run whose result disagrees with its decision, or whose decision has no recorded answer (only a damaged or hand-edited run file can), never settles the step: correct that run first.
 - A run that already ended is never changed by its linked runs. If one changes after it ended, the run says "A linked run's result changed after this run ended", and so does Folder health.
 
-Publishing reads the child (the pinned version, or the latest) and stops when `result:` isn't in `context:` or isn't a choice, nothing or more than one step sets it, `=decision` is on a step that isn't `{decide}`, the decision's options don't match, `accepts:` names a result the child doesn't return or the child declares no result, or `=result` imports into a detail that isn't a compatible choice. A step that links to a checklist with a result but has no `accepts:` gets a suggestion. A version that uses results is refused by name in Flightdeck before 3.0, which writes nothing to it or its runs.
+Publishing reads the child (the pinned version, or the latest) and stops when `result:` isn't in `context:` or isn't a choice, nothing or more than one step sets it, `=decision` is on a step that isn't `{decide}`, the decision's options don't match, `accepts:` names a result the child doesn't return or the child declares no result, or `=result` imports into a detail that isn't a compatible choice. A step that links to a checklist with a result but has no `accepts:` gets a suggestion. A version that uses results is refused by name in Flightdeck before 3.0, which writes nothing to it or its runs, so every computer that opens the team folder must be on 3.0 before anyone publishes one (*Moving a team to Flightdeck 3.0* in docs/updating.md of the Flightdeck repository).
 
 ## Loops
 
@@ -372,9 +373,9 @@ Stories in a release come from a Jira search instead:
 - `pass:` gives each item's run its details: `item:key` and `item:title` are the item's own, `^detail` and fixed values work as on `{run.process}`. `carry:` and `sets: <detail>=result` aren't allowed: results stay per item.
 - `accepts:` lists the child results that clear an item. `max:` (1 to 500, 200 when left out) is the most items the list may hold; more is refused, never cut.
 - The step is approved from its item list, never checked by hand: every item in scope needs an accepted result or an approval without a run, given by a person with a reason. The approval records the list and every result as they were. A change after it (an item added, removed or restored, a result changed) sends it back for review, listing each change; it never quietly returns.
-- The list is kept as scope records in `proposals/`, written by Flightdeck and by `flightdeck loop` (a tool's search results, items added by hand, removals, approvals without a run). A search that no longer finds an item only proposes its removal; a person decides. Each item's run is started by a person, from the list.
+- The list is kept as scope records in `proposals/`, written by Flightdeck and by `flightdeck loop` (a tool's search results, items added by hand, removals, approvals without a run). A search that no longer finds an item only proposes its removal; a person decides. Each item's run is started from the list: by a person, or by the recorder's window carrying out a `flightdeck loop start` request. Never write a scope record by hand.
 
-Publishing stops when the child is the checklist itself, the kind isn't one Flightdeck knows, `from:` is on a list of items or doesn't name a `{jira.search}` step, `source:` is on a Jira loop or isn't a feed id, `noun:` isn't one / many, `accepts:` is missing or names a result the child doesn't return, or `pass:` names a detail the child doesn't have.
+Publishing stops when the child is the checklist itself, the kind isn't one Flightdeck knows, `from:` is on a list of items or doesn't name a `{jira.search}` step, `source:` is on a Jira loop or isn't a feed id, `noun:` isn't one / many, `accepts:` is missing or names a result the child doesn't return, or `pass:` names a detail the child doesn't have. A version with a loop is refused by name in Flightdeck before 3.0, so every computer that opens the team folder must be on 3.0 before anyone publishes one.
 
 ## Skill versions
 

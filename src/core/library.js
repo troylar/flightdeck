@@ -58,10 +58,10 @@ PF.library = (function () {
         }
         var sets = PF.map.setNames(s.fields.sets);
         if (sets.length) out.sets.push({ step: s.id, names: sets });
-        if (s.type === 'run.process' && s.fields.process) {
-          var pass = own(s.fields, 'pass') ? PF.links.parse(s.fields.pass).entries || [] : [];
+        if ((s.type === 'run.process' || s.type === 'for.each') && s.fields.process) {
+          var pass = own(s.fields, 'pass') ? PF.links.parse(s.fields.pass, { items: s.type === 'for.each' }).entries || [] : [];
           out.children.push({ step: s.id, process: String(s.fields.process).trim(), version: own(s.fields, 'version') ? +s.fields.version || null : null,
-            pass: pass.map(function (e) { return PF.links.entryText(e); }), carry: PF.links.carryList(s) });
+            pass: pass.map(function (e) { return e.source === 'item' ? e.name + '=item:' + e.item : PF.links.entryText(e); }), carry: PF.links.carryList(s) });
         }
       });
       var g = p.gate;
