@@ -1332,15 +1332,22 @@ PF.todos = (function () {
   }
   /* The first queued request of a run, in causal order: one lands at a time, so each is checked against the work as the one
      before it left it. */
+  /* The one eligibility check every candidate the recorder picks from passes: a stop not landed yet that can't land as it is
+     (what its spread is owed on changed since it was asked, or can't all be read) is passed over, never blocking the requests
+     after it; applyPlan checks it again before any write. Without r, nothing is passed over. */
+  function canCarry(r, T, q, o) { return !(r && q.op === 'spread-stop' && !q.landed && stopCheck(r, T, q, o)); }
   function nextQueued(T, r, o) {
-    /* A stop that can't land as it is (what its spread is owed on changed since it was asked) is passed over, never applied
-       and never blocking the requests after it; a fresh stop is asked. Without r, every queued request counts. */
-    return requestsOf(T).filter(function (q) { return q.status === 'queued' && !q.landed && !(r && q.op === 'spread-stop' && (stopCheck(r, T, q, o) || {}).stale); })[0] || null;
+    return requestsOf(T).filter(function (q) { return q.status === 'queued' && !q.landed && canCarry(r, T, q, o); })[0] || null;
+  }
+  /* What the recorder carries out next: the first queued request, else the first whose prepared applications are to be settled
+     (none landed, or one landed with others outstanding), each through the same check. */
+  function nextToCarry(T, r, o) {
+    return nextQueued(T, r, o) || requestsOf(T).filter(function (q) { return ((q.status === 'disputed' && q.appOnly && q.via) || (q.landed && (q.appOut || []).length)) && canCarry(r, T, q, o); })[0] || null;
   }
 
   return { SOPS: SOPS, ALL_OPS: ALL_OPS, isSpreadOp: isSpreadOp, hasPair: hasPair, loopWhy: loopWhy, FORMAT: FORMAT, STATUS: STATUS, FEATURE: FEATURE, LIMITS: LIMITS, OPS: OPS, WORDS: WORDS, STATE_WORDS: STATE_WORDS, idFor: idFor, todoIdFor: todoIdFor, statusName: statusName, isTodo: isTodo, claims: claims, familyOf: familyOf,
     targetKey: targetKey, placeOf: placeOf, placementWhy: placementWhy, placementFor: placementFor, effectOf: effectOf, fingerprint: fp, text: text,
     buildProposal: buildProposal, buildGrant: buildGrant, buildStatus: buildStatus, cleanFile: cleanFile, fileWhy: fileWhy, filed: filed, runOf: runOf, recordsFor: recordsFor,
     reduce: reduce, seenFor: seenFor, requestsOf: requestsOf,
-    personWhy: personWhy, mayFor: mayFor, consequenceOf: consequenceOf, authorityFor: authorityFor, view: view, holds: holds, markHolds: markHolds, cutFor: cutFor, cleanCut: cleanCut, cleanLiving: cleanLiving, applyPlan: applyPlan, nextQueued: nextQueued, keepHead: keepHead, prepare: prepare, gateTitle: gateTitle, toOf: toOf, inbox: inbox, delegations: delegations, decide: decide, revokeOf: revokeOf, grantOf: grantOf, whatWords: whatWords, askDiffers: askDiffers };
+    personWhy: personWhy, mayFor: mayFor, consequenceOf: consequenceOf, authorityFor: authorityFor, view: view, holds: holds, markHolds: markHolds, cutFor: cutFor, cleanCut: cleanCut, cleanLiving: cleanLiving, applyPlan: applyPlan, nextQueued: nextQueued, nextToCarry: nextToCarry, keepHead: keepHead, prepare: prepare, gateTitle: gateTitle, toOf: toOf, inbox: inbox, delegations: delegations, decide: decide, revokeOf: revokeOf, grantOf: grantOf, whatWords: whatWords, askDiffers: askDiffers };
 })();

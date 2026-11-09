@@ -3282,7 +3282,7 @@
       if (applying[gk]) return;
       var V = todoView(r);
       if (!V || V.broken) return;
-      var q = PF.todos.nextQueued(V, r, spInputs()) || PF.todos.requestsOf(V).filter(function (y) { return (y.status === 'disputed' && y.appOnly && y.via) || (y.landed && (y.appOut || []).length); })[0];
+      var q = PF.todos.nextToCarry(V, r, spInputs());
       if (!q) return;
       applying[gk] = true;
       var cx = loopGuard({ run: key, readable: true });

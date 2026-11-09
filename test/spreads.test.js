@@ -543,4 +543,43 @@ rule('TA: contrary decisions on a first, unapplied spread-add hold an approved l
   W.mark();
   assert.ok(W.r._todos.stale.loop.each, 'the approval made before the dispute stays in review');
 });
+/* Review round 2 (TB): a stop that can't progress (stale, or what it is owed on can't all be read) is passed over in every
+   path the recorder picks from, queued or settling, so the requests after it still land. */
+rule('TB: a stop held by incomplete coverage never blocks a queued request after it', () => {
+  const W = world([101]); W.kid(101);
+  W.spreadAdd(); W.land(W.r);
+  const st = W.ask(W.r, stopBody(W, [101]), { tool: 'release-helper', version: '1.0', key: 'tb-1' });
+  W.decide(W.r, st.id, 'person-morgan');
+  W.scopes.push(scope('s2', [101, 102], ['req-release-helper-' + 'f'.repeat(24)]));
+  same(W.one().complete, false, 'set-up: incomplete');
+  const add = W.ask(W.r, { op: 'add', text: 'Plain', target: { phase: 'ship' } }, { person: 'person-morgan' });
+  same((T.nextQueued(W.view(), W.r, W.inputs()) || {}).id, add.id, 'the addition is next, not the stop');
+  same((T.nextToCarry(W.view(), W.r, W.inputs()) || {}).id, add.id);
+  W.land(W.r);
+  same(W.view().requests[add.id].status, 'applied');
+  same(W.view().requests[st.id].status, 'queued', 'the stop waits, unapplied');
+});
+rule('TB: a stale stop whose applications disagree never blocks settling another request\'s applications', () => {
+  const W = world([101]); W.kid(101);
+  W.spreadAdd(); W.land(W.r);
+  const twoApps = (id) => {
+    const V = W.view(), plan = T.applyPlan(W.r, V, V.requests[id], W.inputs());
+    assert.ok(plan.write, JSON.stringify(plan));
+    for (const w of ['wa', 'wb']) { const s = T.buildStatus(Object.assign({}, plan.write, w === 'wb' ? { previous: T.idFor('x', 'elsewhere-' + id) } : {}, { by: 'person-morgan', at: AT, writer: w, rev: rev(), app: '4.0.0' })); const fd = T.filed(s.name, s.file); assert.ok(!fd.why, fd.why); W.push(fd.record, s.name); }
+  };
+  const st = W.ask(W.r, stopBody(W, [101]), { tool: 'release-helper', version: '1.0', key: 'tb-2' });
+  W.decide(W.r, st.id, 'person-morgan');
+  twoApps(st.id);
+  W.scopes.push(scope('s2', [101, 102], [W.scopes[0].id])); W.kid(102);
+  const vs = W.view().requests[st.id];
+  same([vs.status, !!vs.appOnly, (T.applyPlan(W.r, W.view(), vs, W.inputs()) || {}).stale], ['disputed', true, true], 'set-up: a stale stop prepared two ways');
+  const add = W.ask(W.r, { op: 'add', text: 'Plain', target: { phase: 'ship' } }, { tool: 'release-helper', version: '1.0', key: 'tb-3' });
+  W.decide(W.r, add.id, 'person-morgan');
+  twoApps(add.id);
+  same([W.view().requests[add.id].status, !!W.view().requests[add.id].appOnly], ['disputed', true], 'set-up: the addition prepared two ways');
+  const q = T.nextToCarry(W.view(), W.r, W.inputs());
+  same(q && q.id, add.id, 'the addition settles next, not the stale stop');
+  const plan = T.applyPlan(W.r, W.view(), q, W.inputs());
+  assert.ok(plan.write || plan.adopt, JSON.stringify(plan));
+});
 run();
