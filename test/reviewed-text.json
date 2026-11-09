@@ -405,8 +405,8 @@
       "reviewed": "AS: a to-do record from a newer Flightdeck keeps its refusal's kind (newer) in run, next and todo list; checked for direct writes and unconditional deletes (none)"
     },
     "src/ui/app.js": {
-      "sha256": "8973bd834883f9306e4e1789cdd2bc186258017dde9a2cb2c6d664758a3b9045",
-      "reviewed": "AI: Home and the run screen offer Delegations whenever an active grant can be ended; checked for direct writes and unconditional deletes (none)"
+      "sha256": "9c5550fe9487b20b34cc4bc2f98ade5edab2079e6a40db67ccc1eabe609a398a",
+      "reviewed": "AK follow-up: what a to-do form sent is kept as a list, never a plain object keyed by a box id; checked for direct writes and unconditional deletes (none)"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

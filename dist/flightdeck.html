@@ -35380,10 +35380,10 @@ PF.examples = (function () {
   /* The open Won't do or Move form, only on the run and folder it was opened in (folder, run, to-do and action). */
   function tdPickHere(r) { var pk = state.tdPick; return pk && r && pk.fs === fsKey() && pk.run === r.process + '/' + r.id ? pk : null; }
   function tdUnsentPick() { return ['td-why', 'td-to'].some(function (id) { var el = document.getElementById(id); return !!(el && String(el.value || '').trim()); }); }
-  function tdSent(ids) { var o = {}; ids.forEach(function (id) { var el = document.getElementById(id); o[id] = el ? String(el.value == null ? '' : el.value) : ''; }); return o; }
+  function tdSent(ids) { return ids.map(function (id) { var el = document.getElementById(id); return { id: id, v: el ? String(el.value == null ? '' : el.value) : '' }; }); }
   function tdClearIf(sent) {
-    var same = Object.keys(sent).every(function (id) { var el = document.getElementById(id); return !el || String(el.value == null ? '' : el.value) === sent[id]; });
-    if (same) tdClear(Object.keys(sent));
+    var same = sent.every(function (x) { var el = document.getElementById(x.id); return !el || String(el.value == null ? '' : el.value) === x.v; });
+    if (same) tdClear(sent.map(function (x) { return x.id; }));
     return same;
   }
   /* The current phase, where Add something to do sits (views/run.js todoBlock): the first whose gate isn't passed or waived,
