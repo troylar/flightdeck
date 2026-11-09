@@ -971,7 +971,9 @@ async function readData(eng, adapter, req) {
         if (pr.why) L.note('proposals', 'unreadable', pr.why);
         if (gp) {
           const un = markTodos(PF, [r], gp, one.people, !!(one.peopleWhy || pw), loopIn), was = relevant, mine = {};
-          un.filter((u) => u.run ? u.run.process === m[1] && u.run.id === m[2] : !!r.living).forEach((u) => { if (u.file !== 'people.json') { mine['proposals/' + u.file] = true; L.note('proposals/' + u.file, u.kind === 'newer' ? 'newer' : 'malformed', u.kind === 'newer' ? u.why : fileWhy(u.why)); } });
+          /* A spread's coverage reads its items' runs' to-do records too: one of those that can't be read is this command's problem. */
+          const kidRun = (u) => !!(loopIn && r._tdv && r._tdv.spreads.length && loopIn.runs.some((c) => c.process === u.run.process && c.id === u.run.id));
+          un.filter((u) => u.run ? (u.run.process === m[1] && u.run.id === m[2]) || kidRun(u) : !!r.living).forEach((u) => { if (u.file !== 'people.json') { mine['proposals/' + u.file] = true; L.note('proposals/' + u.file, u.kind === 'newer' ? 'newer' : 'malformed', u.kind === 'newer' ? u.why : fileWhy(u.why)); } });
           relevant = (p) => was(p) || !!mine[p];
         } else if (r.living) { const was = relevant; relevant = (p) => was(p) || p === 'proposals'; }
       }

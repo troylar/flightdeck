@@ -281,5 +281,15 @@ rule('SG: run on a living story reads its spread request as every window does: w
   const got = r.data.run.todoRequests.filter(x => x.id === q.request)[0];
   assert.deepStrictEqual([got && got.status, got && got.why], ['waiting', got && got.why], JSON.stringify(r.data.run.todoRequests));
 });
-
+rule('SH: a story\'s spread request that can\'t be read makes the parent\'s run and next exit 4, naming the file', async () => {
+  const { root, sp } = await spread();
+  const s = json('spread', 'sync', root, PR, '--spread', sp.id, '--json', ...TOOL);
+  const file = s.data.items[0].file, full = path.join(root, file), j = JSON.parse(fs.readFileSync(full, 'utf8'));
+  j.text = 123; fs.writeFileSync(full, JSON.stringify(j, null, 2));
+  for (const cmd of ['run', 'next']) {
+    const r = json(cmd, root, PR, '--contract', '2', '--json');
+    assert.strictEqual(r.code, 4, cmd + ': ' + JSON.stringify(r).slice(0, 300));
+    assert.ok(r.problems.some(p => p.path === file), cmd + ': ' + JSON.stringify(r.problems));
+  }
+});
 run();
