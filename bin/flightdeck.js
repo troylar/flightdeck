@@ -3222,7 +3222,7 @@ async function todoMain(argv) {
       try { res = writeOnce(dir, ['proposals'], P.name, T.text(P.file)); } catch (e) { return failOut('failed', UNCERTAIN + ' (' + (e && e.message || String(e)) + ')', problems()); }
       if (res !== 'written') {
         /* Its name is its evidence: the same suggestion filed meanwhile is already; anything else there is refused. */
-        let there = null; try { const tx = fs.readFileSync(path.join(dir, 'proposals', P.name), 'utf8'), tv = T.cleanFile(JSON.parse(tx), P.name, Buffer.byteLength(tx, 'utf8')); there = tv.ok ? tv.record : null; } catch (e) { there = null; }
+        let there = null; try { const tx = fs.readFileSync(path.join(dir, 'proposals', P.name), 'utf8'), tv = PF.todos.cleanFile(JSON.parse(tx), P.name, Buffer.byteLength(tx, 'utf8')); there = tv.ok ? tv.record : null; } catch (e) { there = null; }
         if (!there) return failOut('failed', UNCERTAIN, problems());
         if (there.op !== 'done' || there.todo !== x.id || !there.support) return failOut('key-taken', 'A different record is already filed under this suggestion\'s name (' + file + '). Nothing was written.', problems());
         return done(Object.assign(data('requested'), { status: 'already', preview: 'Already suggested on this evidence. Nothing written.' }));

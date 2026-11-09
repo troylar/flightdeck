@@ -19371,7 +19371,10 @@ PF.facts = (function () {
     only(v, ['feed', 'site', 'account'], what, errors);
     var out = {};
     if (typeof v.feed !== 'string' || !SRC.test(v.feed)) errors.push(what + ' "feed" is a name of at most ' + LIMITS.source + ' letters, digits, . _ : @ -.'); else out.feed = v.feed;
-    ['site', 'account'].forEach(function (k) { if (v[k] == null) return; if (typeof v[k] !== 'string' || !SRC.test(v[k])) errors.push(what + ' "' + k + '" is a name of at most ' + LIMITS.source + ' letters, digits, . _ : @ -.'); else out[k] = v[k]; });
+    var name = function (x, k) { if (x == null) return undefined; if (typeof x !== 'string' || !SRC.test(x)) { errors.push(what + ' "' + k + '" is a name of at most ' + LIMITS.source + ' letters, digits, . _ : @ -.'); return undefined; } return x; };
+    var site = name(v.site, 'site'), account = name(v.account, 'account');
+    if (site !== undefined) out.site = site;
+    if (account !== undefined) out.account = account;
     return errors.length > n0 ? null : out;
   }
   function cleanEntry(domain, e, errors, what) {
@@ -19382,7 +19385,9 @@ PF.facts = (function () {
     var out = {};
     if (typeof e.id !== 'string' || !ENTRY.test(e.id)) errors.push(what + ' "id" is the source\'s id for it, at most ' + LIMITS.entry + ' characters.'); else out.id = e.id;
     var t = line(e.text, LIMITS.text, what + ' "text"', errors); if (t) out.text = t;
-    if (D.field) { if (typeof e[D.field] !== 'string' || D.values.indexOf(e[D.field]) < 0) errors.push(what + ' "' + D.field + '" is one of ' + D.values.join(', ') + '.'); else out[D.field] = e[D.field]; }
+    /* A domain's own field is "state" or "category", each read by name. */
+    var fv = D.field === 'state' ? e.state : D.field === 'category' ? e.category : undefined;
+    if (D.field) { if (typeof fv !== 'string' || D.values.indexOf(fv) < 0) errors.push(what + ' "' + D.field + '" is one of ' + D.values.join(', ') + '.'); else if (D.field === 'state') out.state = fv; else out.category = fv; }
     if (e.link != null) { if (!PF.loop.httpLink(e.link)) errors.push(what + ' "link" is an http or https address of at most 2048 characters.'); else out.link = e.link; }
     return errors.length > n0 ? null : out;
   }
@@ -19688,7 +19693,7 @@ PF.facts = (function () {
     var after = view(r, { records: (o.records || []).concat([fd.record]), unread: o.unread });
     return { id: id, name: id + '.json', file: f, record: fd.record, status: 'new', words: words(after.bySlot[slotKey(fd.record)], typeof o.now === 'number' ? o.now : Date.parse(o.at), after).words };
   }
-  function observationOf(f) { var o = {}; FIELDS.forEach(function (k) { o[k] = f[k]; }); o.entries = (f.entries || []).slice().sort(function (a, b) { return cmpStr(a.id, b.id); }); return o; }
+  function observationOf(f) { var o = Object.create(null); FIELDS.forEach(function (k) { o[k] = f[k]; }); o.entries = (f.entries || []).slice().sort(function (a, b) { return cmpStr(a.id, b.id); }); return o; }
 
   return { LIMITS: LIMITS, DOMAINS: DOMAINS, NAMES: NAMES, TITLE: TITLE, idFor: idFor, sourceKey: sourceKey, slotKey: slotKey, itemKey: itemKey, contentOf: contentOf, suggestionId: suggestionId, suggestionKey: suggestionKey,
     cleanFile: cleanFile, cleanObservation: cleanObservation, cleanSupport: cleanSupport, build: build, factsOf: factsOf, view: view, stateOf: stateOf, words: words, itemFacts: itemFacts, agoWords: agoWords,
@@ -35120,7 +35125,7 @@ PF.examples = (function () {
     repHarvest();
     corrHarvest();
     tdHarvest();
-    procCache = null; pplBy = { list: null, len: -1, by: null }; pplSorted = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null; tdMemo = null; tdBox = null; spBox = null;
+    procCache = null; pplBy = { list: null, len: -1, by: null }; pplSorted = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null; tdMemo = null; tdBox = null; spBox = null; fcMemo = null;
     pruneUnapplied();
     var keep = {}, ae = document.activeElement, focusKey = null;
     /* What a person typed or ticked survives a redraw of the same thing: the same screen, run, step and open form. Moving to
