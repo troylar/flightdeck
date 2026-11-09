@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "1c6e88e5b967ea082d50cc526d9ad6cbc3117972f16ab0a836e350ef7a5eee28",
-      "reviewed": "4.0 slice 2 commit 6: a taken todo request name is read back through PF.todos.cleanFile (listed as a checked reader) before it is compared; assistant-start's 2.12.0 stand-in leaves out the new living-run skill. Checked for direct writes and unconditional deletes: none added"
+      "sha256": "568de09d2f869cc1f1bc94352fece56a0a5f814eb44c62ab3ed0337776a5e57e",
+      "reviewed": "AM: contract 2 run and next read and mark to-do holds for every usable run, run/2 included; checked for direct writes and unconditional deletes (none)"
     },
     "build.py": {
       "sha256": "3ccfcefff2f5c647ab6a3703c5b303f5e1de7073bc26ead84f7b84902fdd50de",

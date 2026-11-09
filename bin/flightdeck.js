@@ -950,9 +950,10 @@ async function readData(eng, adapter, req) {
         if (gp && dk) PF.loop.markStale([r].concat(dk.runs || []), { records: gp.scopes, unread: gp.scopesUnread, procOf: procOfFrom(dk) });
         else { r._loopStale = Object.create(null); Object.keys(r.steps).forEach((id) => { if (r.steps[id] && r.steps[id].loop && r.steps[id].s === 'done') r._loopStale[id] = ['The loop\'s scope records couldn\'t be read.']; }); }
       }
-      /* Living runs (4.0): the run's to-dos and what they hold, read here as in every window (PF.todos.markHolds). A to-do record
-         of this run that can't be read is this command's problem; the proposals/ folder can't be read: approval waits. */
-      if (usable && two && r.format === PF.run.FORMAT3) {
+      /* Living runs (4.0): the run's to-dos and what they hold, read here as in every window (PF.todos.markHolds), for every
+         usable run, a run/2 with none landed yet among them: a to-do record of this run that can't be read holds it and is this
+         command's problem; the proposals/ folder can't be read: approval waits. The to-do fields print only for a living run. */
+      if (usable && two) {
         const gp = await repo.readPlans(L.fs, null, null, true).catch((e) => { L.note('proposals', 'unreadable', fileWhy(e && e.message || String(e))); return null; });
         if (gp) {
           const un = markTodos(PF, [r], gp, one.people, !!(one.peopleWhy || pw)), was = relevant, mine = {};

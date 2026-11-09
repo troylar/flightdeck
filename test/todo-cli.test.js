@@ -26,10 +26,10 @@ const MD = ['---', 'process: release-notes', 'title: Release notes', 'roles: rev
   '## Draft · DO-CONFIRM {#draft}', '- [!] {confirm} Write the notes {#write}', '',
   '## Review · READ-DO {#review}', '- [!] {confirm} @reviewer Read them {#read}', ''].join('\n');
 const people = [{ id: 'person-avery', name: 'Avery' }, { id: 'person-blake', name: 'Blake' }, { id: 'person-casey', name: 'Casey' }];
-async function folder() {
+async function folder(md) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-todo-')), d = new DiskFS(root);
   await d.write('people.json', JSON.stringify(people));
-  const pr = await PF.repo.publish(d, MD, { people, by: 'person-avery', changes: 'First', existing: [], now: AT, app: '4.0.0' }); if (pr.blockers) throw new Error(JSON.stringify(pr.blockers));
+  const pr = await PF.repo.publish(d, md || MD, { people, by: 'person-avery', changes: 'First', existing: [], now: AT, app: '4.0.0' }); if (pr.blockers) throw new Error(JSON.stringify(pr.blockers));
   const all = await PF.repo.loadAll(d, {}), pub = all.processes.filter(p => p.process === 'release-notes')[0].index.latest;
   const r = R.create(pub, { id: 'r-1', by: 'person-avery', session: 'w', now: AT, app: '4.0.0', roles: { reviewer: 'person-blake' } });
   await d.write('runs/release-notes/r-1/run.json', JSON.stringify(r, null, 2));
@@ -144,6 +144,25 @@ rule('run, next and runs (contract 2) list a living run\'s to-dos and say what h
   /* A run with no to-dos prints none of these fields. */
   const { root: r2 } = await folder(), plain = json('run', r2, 'release-notes/r-1', '--contract', '2', '--json').data.run;
   assert.deepStrictEqual(['todos', 'todoCounts', 'todoHolds'].filter(k => k in plain), []);
+});
+rule('A run/2 with no to-dos yet is still held by a to-do record of it that can\'t be read, as every window holds it', async () => {
+  const { root, d } = await folder(MD.replace('context: kind:choice(minor|major)\n', ''));
+  const r = JSON.parse(fs.readFileSync(path.join(root, 'runs/release-notes/r-1/run.json'), 'utf8')), map = R.mapOf(R.sanitize(r));
+  assert.strictEqual(r.format, R.FORMAT, 'set-up: a run/2');
+  R.done(r, map, 'write', 'person-avery', AT); await d.write('runs/release-notes/r-1/run.json', JSON.stringify(r, null, 2));
+  const bad = T.idFor('notes-bot', 'bad') + '.json';
+  await d.write('proposals/' + bad, JSON.stringify({ format: T.FORMAT, features: ['living-runs'], kind: 'proposal', run: { process: 'release-notes', id: 'r-1' } }));
+  const all = await PF.repo.loadAll(d, {}), ar = all.runs.find(y => y.id === 'r-1');
+  T.markHolds([ar], { records: all.todos, unread: all.todosUnread, people: all.people });
+  assert.strictEqual(R.canPass(ar, R.mapOf(ar), 0), false, 'set-up: the app holds the gate');
+  const one = json('run', root, 'release-notes/r-1', '--contract', '2', '--json');
+  assert.ok(one.problems.some(p => p.path === 'proposals/' + bad && p.kind === 'malformed'), 'named: ' + JSON.stringify(one.problems));
+  assert.strictEqual(one.complete, false);
+  assert.notStrictEqual(one.code, 0);
+  assert.deepStrictEqual(['todos', 'todoCounts', 'todoHolds'].filter(k => k in one.data.run), [], 'not living: no to-do fields');
+  const n = json('next', root, 'release-notes/r-1', '--as', 'person-avery', '--contract', '2', '--json');
+  assert.ok(n.problems.some(p => p.path === 'proposals/' + bad), 'next names it too');
+  assert.ok(!('todos' in n.data), 'and prints no to-do fields');
 });
 rule('Usage, an unknown run, a run that ended and a folder part that can\'t be read write nothing', async () => {
   const { root } = await folder();
