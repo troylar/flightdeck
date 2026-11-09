@@ -302,4 +302,10 @@ rule('SI: text-mode sync says partial and names each item not asked, with why', 
   assert.ok(new RegExp(p.data.items[1].key + '[^\\n]*not asked[^\\n]*: ').test(t.out), 'the item and why: ' + t.out);
   assert.ok(!new RegExp(p.data.items[0].key + '[^\\n]*not asked').test(t.out), t.out);
 });
+rule('SJ: the living-run skill lets the assistant add work and facts within its task without asking; consent only to drop, move, stop or reopen', () => {
+  const t = fs.readFileSync(path.join(__dirname, '..', 'example-folder', '.flightdeck', 'skills', 'flightdeck-living-run', 'SKILL.md'), 'utf8');
+  assert.ok(!/(person said in their|person's) own words/.test(t) && !/the person asked for may go on/.test(t), 'no consent asked for an assistant\'s own addition');
+  assert.ok(/you found while doing the task/.test(t), 'an addition the assistant found within its task proceeds');
+  assert.ok(/Ask the person first[^\n]*drop[^\n]*move[^\n]*stop[^\n]*approval/.test(t), 'consent kept for dropping, moving, stopping and reopening');
+});
 run();
