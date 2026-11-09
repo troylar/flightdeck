@@ -941,11 +941,14 @@ async function readData(eng, adapter, req) {
       if (pw) L.note('people.json', 'malformed', pw);
       if (r) { relevant = runCovers(m[1], m[2], r); take(judgeRun(PF, r, one.pub)); }
       const usable = !!r && !newerRun(PF, r);
+      /* proposals/ is read once, checked, for the loop and the to-dos alike: { got } or { why } when it can't be read. */
+      let plansRead = null;
+      const plansOnce = () => plansRead || (plansRead = repo.readPlans(L.fs, null, null, true).then((got) => ({ got }), (e) => ({ why: fileWhy(e && e.message || String(e)) })));
       /* Loops (3.0): an approval the folder no longer matches holds its gate here as in every window (PF.loop.markStale). */
       if (usable && two && Object.keys(r.steps || {}).some((id) => r.steps[id] && r.steps[id].loop)) {
         const mp = PF.run.mapOf(r), kids = [];
         Object.keys(r.steps).forEach((id) => { const x = r.steps[id] && r.steps[id].loop && PF.map.findStep(mp, id); const pr = x && String(PF.run.fieldsOf(r, x.step).process || ''); if (pr && kids.indexOf('runs/' + pr) < 0) kids.push('runs/' + pr, 'publications/' + pr); });
-        const gp = await repo.readPlans(L.fs, null, null, true).catch(() => null);
+        const gp = (await plansOnce()).got || null;
         const dk = gp && kids.length ? await repo.loadAll(dependsOn(L.fs, kids), { readOnly: true, deep: true }).catch(() => null) : { runs: [] };
         if (gp && dk) PF.loop.markStale([r].concat(dk.runs || []), { records: gp.scopes, unread: gp.scopesUnread, procOf: procOfFrom(dk) });
         else { r._loopStale = Object.create(null); Object.keys(r.steps).forEach((id) => { if (r.steps[id] && r.steps[id].loop && r.steps[id].s === 'done') r._loopStale[id] = ['The loop\'s scope records couldn\'t be read.']; }); }
@@ -954,7 +957,8 @@ async function readData(eng, adapter, req) {
          usable run, a run/2 with none landed yet among them: a to-do record of this run that can't be read holds it and is this
          command's problem; the proposals/ folder can't be read: approval waits. The to-do fields print only for a living run. */
       if (usable && two) {
-        const gp = await repo.readPlans(L.fs, null, null, true).catch((e) => { L.note('proposals', 'unreadable', fileWhy(e && e.message || String(e))); return null; });
+        const pr = await plansOnce(), gp = pr.got || null;
+        if (pr.why) L.note('proposals', 'unreadable', pr.why);
         if (gp) {
           const un = markTodos(PF, [r], gp, one.people, !!(one.peopleWhy || pw)), was = relevant, mine = {};
           un.filter((u) => u.run ? u.run.process === m[1] && u.run.id === m[2] : !!r.living).forEach((u) => { if (u.file !== 'people.json') { mine['proposals/' + u.file] = true; L.note('proposals/' + u.file, 'malformed', fileWhy(u.why)); } });

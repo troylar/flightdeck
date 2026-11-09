@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "568de09d2f869cc1f1bc94352fece56a0a5f814eb44c62ab3ed0337776a5e57e",
-      "reviewed": "AM: contract 2 run and next read and mark to-do holds for every usable run, run/2 included; checked for direct writes and unconditional deletes (none)"
+      "sha256": "5303a19b9b63abe9130ef6b1e6d1471ad1b547409edc1a74fbc48709c94d1fec",
+      "reviewed": "AQ: run and next read proposals/ once for the loop and the to-dos; checked for direct writes and unconditional deletes (none)"
     },
     "build.py": {
       "sha256": "3ccfcefff2f5c647ab6a3703c5b303f5e1de7073bc26ead84f7b84902fdd50de",
