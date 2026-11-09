@@ -34972,12 +34972,15 @@ PF.examples = (function () {
     if (o.run) { var r = findRun(o.run); cx.sig = runSig(r); if (o.view) cx.vsig = viewSig(r, o.step); }
     return cx;
   }
+  /* cx.readable: a to-do write (asking, deciding, delegating, landing) also stops once the run's own file couldn't be read
+     on the last check, so nothing is decided or applied against a copy this window couldn't read again. */
   function guardOk(cx) {
     if (!cx || cx.g !== gen || cx.fs !== state.fs || cx.me !== state.me) return false;
     if (cx.todo && !todoStill(cx.todo)) return false;
     if (!cx.run) return true;
     var r = findRun(cx.run);
     if (!r || runSig(r) !== cx.sig) return false;
+    if (cx.readable && runUnread(r)) return false;
     if (cx.view && viewSig(r, cx.step) !== cx.vsig) return false;
     return !(cx.q && cx.step && PF.loop.askerWhy(r, loopView(r, cx.step), cx.q, data.people));
   }
@@ -35258,7 +35261,7 @@ PF.examples = (function () {
       var q = PF.todos.nextQueued(V) || PF.todos.requestsOf(V).filter(function (y) { return (y.status === 'disputed' && y.appOnly && y.via) || (y.landed && (y.appOut || []).length); })[0];
       if (!q) return;
       applying[gk] = true;
-      var cx = loopGuard({ run: key });
+      var cx = loopGuard({ run: key, readable: true });
       /* A settlement page that leaves more to settle reads again at once; each page covers more, and a request is paged at
          most TODO_PAGES times in a row before it waits for the next refresh. */
       var pages = loopMem().todoPages || (loopMem().todoPages = Object.create(null));
@@ -35294,10 +35297,11 @@ PF.examples = (function () {
     var key = keep && keep.sig === sig ? keep.key : 'ui-' + loopHex(20);
     var P = PF.todos.prepare(r, { body: body, by: { person: state.me }, key: key, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION });
     if (P.why) { say(P.why + ' Nothing was written.', 'warn'); render(); return; }
+    if (runUnread(r)) { say(runUnread(r) + ' Nothing was written.', 'warn'); render(); return; }
     /* Asked again after a write that may have happened: exactly the bytes of the first ask, so it is found as the same. */
     if (keep && keep.sig === sig && keep.P && keep.P.id === P.id) P = keep.P;
     state.tdKey = { sig: sig, key: key, P: P };
-    var cx = loopGuard({ run: r.process + '/' + r.id }), text = PF.todos.text(P.file), endBusy = busyStart(), sg = gen;
+    var cx = loopGuard({ run: r.process + '/' + r.id, readable: true }), text = PF.todos.text(P.file), endBusy = busyStart(), sg = gen;
     repo.saveScope(cx.fs, P.name, P.file, { still: function () { return guardOk(cx); } }).then(function (res) {
       endBusy(); if (sg !== gen) return;
       if (res && res.dropped) { say('Nothing was written: the folder, the person or the run changed before it was. Ask again if it still needs doing.', 'warn'); render(); return; }
@@ -35317,13 +35321,17 @@ PF.examples = (function () {
     if (tdBox) return tdBox;
     var o = { records: data.todos || [], unread: data.todosUnread || [], people: data.people, me: state.me };
     tdBox = { items: [], grants: [] };
-    try { tdBox = { items: PF.todos.inbox(data.runs || [], o), grants: PF.todos.delegations(data.runs || [], o) }; } catch (e) { tdBox = { items: [], grants: [] }; }
+    /* A run whose own file couldn't be read on the last check asks nothing and offers nothing: the copy shown is stale. */
+    var rs = (data.runs || []).filter(function (r) { return r && !runUnread(r); });
+    try { tdBox = { items: PF.todos.inbox(rs, o), grants: PF.todos.delegations(rs, o) }; } catch (e) { tdBox = { items: [], grants: [] }; }
     return tdBox;
   }
   /* Writes one decision, revoke or grant the person made in a dialog: under the run guard taken at the click, so a folder,
      person, pause, end or recorder change before the write writes nothing. What happened is said in the dialog. */
   function tdWrite(r, made, words) {
-    var mem = loopMem(), cx = loopGuard({ run: r.process + '/' + r.id }), endBusy = busyStart(), sg = gen;
+    var mem = loopMem(), un = runUnread(r);
+    if (un) { mem.tdSaid = un + ' Nothing was written.'; render(); return Promise.resolve(false); }
+    var cx = loopGuard({ run: r.process + '/' + r.id, readable: true }), endBusy = busyStart(), sg = gen;
     return repo.saveScope(cx.fs, made.name, made.file, { still: function () { return guardOk(cx); } }).then(function (res) {
       endBusy(); if (sg !== gen) return false;
       if (res && res.dropped) { mem.tdSaid = 'Nothing was written: the folder, the person or the run changed before it was.'; render(); return false; }
@@ -35337,6 +35345,7 @@ PF.examples = (function () {
   function tdDecide(key, id, op, shown, reason) {
     var r = findRun(key), mem = loopMem();
     if (!r || !state.me) return;
+    if (runUnread(r)) { mem.tdSaid = runUnread(r) + ' Nothing was decided.'; render(); return; }
     var made = PF.todos.decide(r, { request: id, op: op, by: state.me, shown: shown, reason: reason, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION, writer: 'w' + loopHex(10), rev: loopHex(8) });
     if (made.why) { mem.tdSaid = made.why; render(); return; }
     tdWrite(r, made, made.words).then(function (ok) { if (ok) { mem.tdDec = null; tdClear(['td-dec-why']); render(); } });
@@ -35386,7 +35395,7 @@ PF.examples = (function () {
       var V1 = todoView(r), q1 = V1.requests[q.id], p1 = q1 ? PF.todos.applyPlan(r, V1, q1) : { skip: 'gone' };
       if (p1.write) return 'again';
       if (!p1.adopt || p1.adopt.id !== a.id) return false;
-      var types = todoTypes(r), lcx = loopGuard({ run: key });
+      var types = todoTypes(r), lcx = loopGuard({ run: key, readable: true });
       var ed = loopEdit(lcx, key, function (rr, m, me, now) {
         /* The write guard asks again before every write, on the run as it is now, before this landing. */
         lcx.todo = { key: key, from: a.id, head: a.id, pre: todoPre(rr) };

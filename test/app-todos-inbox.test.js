@@ -108,6 +108,29 @@ rule('A decision dispute on a request that already landed is in the inbox; settl
   assert.strictEqual(apps(app, p.id).length, 1, 'never applied again');
   assert.strictEqual(accepts(ov(app) || '').length, 0, 'settled, it leaves the inbox');
 });
+rule('A run whose file can\'t be read asks nothing, and an open dialog writes nothing for it: decide, revoke or delegate', async () => {
+  const app = await setup();
+  const [p] = await asked(app, 1);
+  const g = await (async () => { app.click('td-delegate'); await app.tick(10); app.set('tdg-who', 'notes-bot'); app.check('tdg-add', true); app.set('tdg-adds', '2'); app.click('td-delegate-save'); await app.tick(80); return recs(app).map(f => JSON.parse(app.fs.files[f].t)).filter(x => x.kind === 'grant')[0]; })();
+  assert.ok(g, 'set-up: a delegation');
+  app.click('close-overlay'); await app.tick(10);
+  await refresh(app, 400);
+  app.click('td-inbox', ''); await app.tick(20);
+  const it = accepts(ov(app))[0];
+  assert.strictEqual(it.id, p.id, 'set-up: it waits');
+  const path = runPath(app), read = app.fs.read.bind(app.fs);
+  app.fs.read = (f) => f === path ? Promise.reject(new Error('NotReadableError')) : read(f);
+  await refresh(app, 400);
+  const before = recs(app);
+  app.click('td-accept', it.id, { run: it.run, fp: it.fp }); await app.tick(60);
+  app.click('td-revoke', g.id, { run: it.run }); await app.tick(60);
+  app.click('td-delegate'); await app.tick(10); app.set('tdg-who', 'other-bot'); app.check('tdg-add', true); app.set('tdg-adds', '1'); app.click('td-delegate-save'); await app.tick(80);
+  assert.deepStrictEqual(fresh(app, before), [], 'nothing written while the run can\'t be read');
+  app.click('close-overlay'); await app.tick(10);
+  app.click('td-inbox', ''); await app.tick(20);
+  assert.strictEqual(accepts(ov(app)).length, 0, 'and it asks nothing');
+  app.fs.read = read;
+});
 rule('More than ten wait: ten at a time, and Show more brings the rest', async () => {
   const app = await setup();
   await asked(app, 12);
