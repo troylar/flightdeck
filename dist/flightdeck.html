@@ -19609,7 +19609,13 @@ PF.facts = (function () {
     if (F.domain !== s.domain || sourceKey(F.source) !== sourceKey(s.source) || F.content !== s.content) return 'Its evidence isn\'t what it names.';
     var S = FV.bySlot[slotKey(F)];
     if (S && !S.held.length && !FV.unread.length && !S.disputed && S.current && S.content !== s.content) return 'Its evidence changed since it was suggested: ' + words(S, now, FV).words;
-    return slotWhy(S, now, FV);
+    return slotWhy(S, now, FV) || contraryWhy(FV, S, now);
+  }
+  /* Contrary facts about the item, beside the one a suggestion rests on: another source or domain that is disputed or held,
+     or open blockers. Asked when a suggestion is made and again whenever it would be decided or applied. '' or why. */
+  function contraryWhy(FV, S, now) {
+    var against = (FV.byItem[S.item] || []).filter(function (T2) { return T2 !== S && (T2.disputed || T2.held.length || (T2.domain === 'blockers' && T2.current && (T2.entries || []).some(function (e) { return e.state === 'open'; }))); });
+    return against.length ? 'Other facts about it disagree: ' + words(against[0], now, FV).words + ' Nothing is applied on its evidence while they do.' : '';
   }
   /* What `todo suggest-done` asks: the support for one to-do from one fact, or why it can't be suggested. Over supportWhy, a
      suggestion is refused while any of the item's current facts contradicts it (an open blocker, a disputed slot). Returns
@@ -19628,9 +19634,9 @@ PF.facts = (function () {
     if (S.current && S.content !== F.content) return { why: 'That fact was replaced by a later observation that says something else: ' + words(S, o.now, FV).words };
     var sw = slotWhy(S, o.now, FV);
     if (sw) return { why: sw };
-    /* Contrary facts suppress a suggestion: another source or domain about the item that is disputed, or open blockers. */
-    var against = (FV.byItem[S.item] || []).filter(function (T2) { return T2 !== S && (T2.disputed || T2.held.length || (T2.domain === 'blockers' && T2.current && (T2.entries || []).some(function (e) { return e.state === 'open'; }))); });
-    if (against.length) return { why: 'Other facts about it disagree: ' + words(against[0], o.now, FV).words + ' Nothing is suggested while they do.' };
+    /* Contrary facts suppress a suggestion (the same check every decision and application asks again). */
+    var cw = contraryWhy(FV, S, o.now);
+    if (cw) return { why: cw };
     var support = { fact: F.id, content: F.content, incarnation: incarnationOf(x), source: F.source, domain: F.domain };
     return { support: support, words: words(S, o.now, FV).words };
   }

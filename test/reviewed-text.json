@@ -25,8 +25,8 @@
       "reviewed": "4.0 slice 4 commit 4: fact sync/list and todo suggest-done (writes only through writeOnce, created once; no deletes), now threaded into every to-do view and guard, application save re-asks its plan, loop fact lines and evidence/ack in the to-do row, docs and skills; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "3599a54623a4f39841ebeb303bfda00b18650bbf6aa3d746308c1a31bd56ec90",
-      "reviewed": "4.0 slice 4 commit 4: fact sync/list and todo suggest-done (writes only through writeOnce, created once; no deletes), now threaded into every to-do view and guard, application save re-asks its plan, loop fact lines and evidence/ack in the to-do row, docs and skills; checked for direct writes and unconditional deletes"
+      "sha256": "85eca3296714e655467ed08e66af13c0f836f89ad199a4ba59f4327e5762db3a",
+      "reviewed": "FA: contrary sibling facts asked again for an existing suggestion (contraryWhy shared by supportFor and supportWhy); checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -233,8 +233,8 @@
       "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/facts.js": {
-      "sha256": "29f246008d092be51f97cc928d0ef7fcd58497e2788cabb852bf5fa1a6d350e5",
-      "reviewed": "4.0 slice 4: facts read fields by name (no computed keys), suggest-done reads back through PF.todos.cleanFile, fact sync input listed as a raw consumer, fcMemo cleared per draw; checked for direct writes and unconditional deletes"
+      "sha256": "138a55f2bf89d862f79fee812e186eb6748bdac799ba185c06de6e702751ad16",
+      "reviewed": "FA: contrary sibling facts asked again for an existing suggestion (contraryWhy shared by supportFor and supportWhy); checked for direct writes and unconditional deletes"
     },
     "src/core/followups.js": {
       "sha256": "ee399703ee43c4408af48a9bbd816483f6c28039a4587815063ff0a175c8fea0",

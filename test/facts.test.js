@@ -323,6 +323,32 @@ rule('A done on evidence holds until its evidence is fresh, complete and current
   W.fact('prs-4', { entries: [pr(1, 'open')] });
   same(W.view().byTodo[x.id].state, 'done');
 });
+rule('A contrary fact about the item filed after a suggestion holds it: an open blocker, a disputed sibling, one that can\'t be read in order; once landed, nothing changes', () => {
+  for (const how of ['blocker', 'disputed', 'held']) {
+    const W = world(), x = W.todo(), f = W.fact('prs-1', { maxAgeSeconds: 18000 });
+    const g = T.grantOf(W.r, { subject: { tool: 'git-bot' }, ops: ['done'], targets: [{ item: { loopStep: 'each', uid: uid(101), attempt: 1 } }], by: 'person-morgan', key: 'g1', records: W.recs, people: PEOPLE, at: AT, now: NOW });
+    assert.ok(!g.why, g.why); W.push(g.record, g.name);
+    const s = W.suggest(x, f.id); assert.ok(!s.why, s.why); W.push(s.record, s.name);
+    same(W.view().requests[s.id].status, 'queued', how + ' set-up');
+    if (how === 'blocker') W.fact('blk-1', { source: JIRA, domain: 'blockers', complete: true, reported: 1, entries: [blk(1)] });
+    if (how === 'disputed') { W.raw('st-a', { source: JIRA, domain: 'status', entries: [{ id: 'ABC-101', text: 'Doing', category: 'doing' }] }); W.raw('st-b', { source: JIRA, domain: 'status', entries: [{ id: 'ABC-101', text: 'Done', category: 'done' }] }); }
+    if (how === 'held') W.raw('st-c', { source: JIRA, domain: 'status', entries: [{ id: 'ABC-101', text: 'Done', category: 'done' }] }, [F.idFor('git-bot', 'never-read')]);
+    const q = W.view().requests[s.id];
+    same(q.status, 'held', how + ': ' + JSON.stringify(q));
+    assert.ok(/Other facts about it disagree/.test(q.why), how + ': ' + q.why);
+    W.land();
+    same(W.view().byTodo[x.id].state, 'open', how + ': nothing landed');
+  }
+  /* Landed first, then contrary: the work stays done. */
+  const W = world(), x = W.todo(), f = W.fact('prs-1');
+  const s = W.suggest(x, f.id); W.push(s.record, s.name);
+  const it = T.inbox([W.r], { records: W.recs, people: PEOPLE, me: 'person-morgan', now: NOW }).filter((y) => y.id === s.id)[0];
+  const d = T.decide(W.r, { request: s.id, op: 'accept', by: 'person-morgan', shown: it.consequence.fingerprint, records: W.recs, people: PEOPLE, at: AT, writer: 'w2', rev: rev(), now: NOW });
+  W.push(d.record, d.name); W.land();
+  same(W.view().byTodo[x.id].state, 'done');
+  W.fact('blk-1', { source: JIRA, domain: 'blockers', complete: true, reported: 1, entries: [blk(1)] });
+  same([W.view().byTodo[x.id].state, W.view().requests[s.id].status], ['done', 'applied'], 'landed work is unchanged');
+});
 rule('A delegation that covers done applies a suggestion without a person, still only on its evidence', () => {
   const W = world(), x = W.todo(), f = W.fact('prs-1', { maxAgeSeconds: 18000 });
   const g = T.grantOf(W.r, { subject: { tool: 'git-bot' }, ops: ['done'], targets: [{ item: { loopStep: 'each', uid: uid(101), attempt: 1 } }], by: 'person-morgan', key: 'g1', records: W.recs, people: PEOPLE, at: AT, now: NOW });

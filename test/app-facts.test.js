@@ -158,9 +158,9 @@ rule('A done suggested on evidence shows that evidence while it waits; once appl
   assert.strictEqual((html.match(/class="small td-ack"/g) || []).length, 1, 'one quiet line, on the to-do');
 });
 
-rule('Evidence replaced or gone stale, or the delegation revoked, between preparing and each write lands nothing; with nothing changed it lands', async () => {
+rule('Evidence replaced or gone stale, a contrary fact about the item, or the delegation revoked, between preparing and each write lands nothing; with nothing changed it lands', async () => {
   for (const point of ['application', 'run']) {
-    for (const how of ['none', 'replaced', 'stale', 'revoked']) {
+    for (const how of ['none', 'replaced', 'stale', 'blocker', 'revoked']) {
       const c = clockOf(), app = await setup({ Date: c.Date }), x = await todo(app), f = await fact(app, 'prs-1', { observedAt: ago(30000), maxAgeSeconds: 120 }), g = await grant(app);
       const S = await suggest(app, x, f.id), tag = point + '/' + how;
       const h = point === 'application' ? holdApplication(app, S.id) : holdLanding(app, S.id);
@@ -170,6 +170,7 @@ rule('Evidence replaced or gone stale, or the delegation revoked, between prepar
       h.off();
       if (how === 'replaced') await fact(app, 'prs-2', { observedAt: ago(10000), maxAgeSeconds: 120, entries: [{ id: '17', text: 'Fix the login', state: 'open' }] });
       if (how === 'stale') c.skew += 5 * 60000;
+      if (how === 'blocker') await fact(app, 'blk-1', { observedAt: ago(10000), source: JIRA, domain: 'blockers', complete: true, reported: 1, entries: [{ id: 'B-1', text: 'Waiting on legal', state: 'open' }] });
       if (how === 'revoked') {
         const W = await now(app), rv = app.PF.todos.revokeOf(W.parent, { grant: g.id, by: 'person-avery', key: 'rv-' + hex(6), records: W.d.todos, unread: W.d.todosUnread, people: W.people, at: new Date().toISOString(), app: '4.0.0', now: Date.now() });
         assert.ok(!rv.why, rv.why);
