@@ -973,7 +973,12 @@ async function readData(eng, adapter, req) {
           const un = markTodos(PF, [r], gp, one.people, !!(one.peopleWhy || pw), loopIn), was = relevant, mine = {};
           /* A spread's coverage reads its items' runs' to-do records too: one of those that can't be read is this command's problem. */
           const kidRun = (u) => !!(loopIn && r._tdv && r._tdv.spreads.length && loopIn.runs.some((c) => c.process === u.run.process && c.id === u.run.id));
-          un.filter((u) => u.run ? (u.run.process === m[1] && u.run.id === m[2]) || kidRun(u) : !!r.living).forEach((u) => { if (u.file !== 'people.json') { mine['proposals/' + u.file] = true; L.note('proposals/' + u.file, u.kind === 'newer' ? 'newer' : 'malformed', u.kind === 'newer' ? u.why : fileWhy(u.why)); } });
+          /* And the other way: a story's request that fulfils a spread reads its parent's records (fulfills.run), so one of those
+             that can't be read is this command's problem too, whether or not the story is living yet. */
+          const parents = {};
+          (gp.todos || []).forEach((x) => { if (x && x.run && x.run.process === m[1] && x.run.id === m[2] && x.fulfills && x.fulfills.run) parents[x.fulfills.run.process + '/' + x.fulfills.run.id] = true; });
+          const parentRun = (u) => !!parents[u.run.process + '/' + u.run.id];
+          un.filter((u) => u.run ? (u.run.process === m[1] && u.run.id === m[2]) || kidRun(u) || parentRun(u) : !!r.living || Object.keys(parents).length > 0).forEach((u) => { if (u.file !== 'people.json') { mine['proposals/' + u.file] = true; L.note('proposals/' + u.file, u.kind === 'newer' ? 'newer' : 'malformed', u.kind === 'newer' ? u.why : fileWhy(u.why)); } });
           relevant = (p) => was(p) || !!mine[p];
         } else if (r.living) { const was = relevant; relevant = (p) => was(p) || p === 'proposals'; }
       }

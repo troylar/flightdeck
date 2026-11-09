@@ -313,6 +313,24 @@ rule('SH: a story\'s spread request that can\'t be read makes the parent\'s run 
     assert.ok(r.problems.some(p => p.path === file), cmd + ': ' + JSON.stringify(r.problems));
   }
 });
+/* Review round 2 (TG): the other direction. A story's request depends on its parent's records (fulfills.run): one of those that
+   can't be read, or is newer, makes the story's run and next exit 4, naming it, living or not. */
+rule('TG: a parent record a story\'s spread request depends on that can\'t be read makes the story\'s run and next exit 4, naming it', async () => {
+  for (const how of ['malformed', 'newer']) {
+    const { root, d, sp } = await spread();
+    await living(d, 'validate-story/k102');
+    json('spread', 'sync', root, PR, '--spread', sp.id, '--json', ...TOOL);
+    const file = 'proposals/' + T.idFor('release-helper', 'sec-1') + '.json', full = path.join(root, file), j = JSON.parse(fs.readFileSync(full, 'utf8'));
+    assert.strictEqual(j.op, 'spread-add', 'set-up: the parent\'s spread-add');
+    if (how === 'malformed') j.text = 123; else j.format = 'flightdeck-plan/5';
+    fs.writeFileSync(full, JSON.stringify(j, null, 2));
+    for (const key of ['validate-story/k102', 'validate-story/k103']) for (const cmd of ['run', 'next']) {
+      const r = json(cmd, root, key, '--contract', '2', '--json');
+      assert.strictEqual(r.code, 4, how + ' ' + key + ' ' + cmd + ': ' + JSON.stringify(r).slice(0, 300));
+      assert.ok(r.problems.some(p => p.path === file), how + ' ' + key + ' ' + cmd + ': ' + JSON.stringify(r.problems));
+    }
+  }
+});
 rule('SI: text-mode sync says partial and names each item not asked, with why', async () => {
   const { root, sp } = await spread();
   const p = json('spread', 'sync', root, PR, '--spread', sp.id, '--dry-run', '--json', ...TOOL), names = p.data.items.map(i => i.file.slice('proposals/'.length));
