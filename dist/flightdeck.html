@@ -17904,7 +17904,7 @@ PF.todos = (function () {
     var out = { op: e.op };
     if (typeof e.todo !== 'string' || !TD.test(e.todo)) { errors.push('"effect" "todo" is a to-do id.'); return null; }
     out.todo = e.todo;
-    if (e.op === 'add') { out.text = line(e.text, LIMITS.text, '"effect" "text"', errors); out.target = cleanTarget(e.target, errors, '"effect" "target"'); out.placement = cleanPlacement(e.placement, errors); if (e.owner != null) { if (!PERSON.test(String(e.owner))) errors.push('"effect" "owner" is a person\'s ID.'); else out.owner = e.owner; } if (e.origin != null) out.origin = cleanOrigin(e.origin, errors); }
+    if (e.op === 'add') { out.text = line(e.text, LIMITS.text, '"effect" "text"', errors); out.target = cleanTarget(e.target, errors, '"effect" "target"'); out.placement = cleanPlacement(e.placement, errors); if (e.owner != null) { if (typeof e.owner !== 'string' || !PERSON.test(e.owner)) errors.push('"effect" "owner" is a person\'s ID.'); else out.owner = e.owner; } if (e.origin != null) out.origin = cleanOrigin(e.origin, errors); }
     if (e.reason != null) { var r = line(e.reason, LIMITS.reason, '"effect" "reason"', errors); if (r) out.reason = r; }
     if (e.op === 'wont' && !out.reason) errors.push('"effect" of a won\'t-do says why.');
     if (e.op === 'move') out.to = cleanTo(e.to, errors);
@@ -23173,7 +23173,10 @@ PF.repo = (function () {
            read (newer, malformed) holds its run (or, when which run it is for can't be told, every living run). */
         if (PF.todos.claims(p)) {
           var raw = {}; Object.keys(p).forEach(function (k) { if (k !== '_file') raw[k] = p[k]; });
-          var tv = PF.todos.cleanFile(raw, p._file), tp = 'proposals/' + p._file, tf = PF.todos.familyOf(p);
+          /* A record the checks can't even look at (a value that can't be turned into text) is one unread file, never a read
+             that fails. */
+          var tv; try { tv = PF.todos.cleanFile(raw, p._file); } catch (e) { tv = { ok: false, kind: 'malformed', why: 'is a to-do record that isn\'t in its format', needs: '' }; }
+          var tp = 'proposals/' + p._file, tf = PF.todos.familyOf(p);
           if (!tv.ok) { if (bad) bad.push({ path: tp, kind: tv.kind, why: tv.why }); refused.push(PF.envelope.refusal(tp, tf, tv)); todosUnread.push({ file: p._file, why: tv.why, run: PF.todos.runOf(p) }); return; }
           tv.record._file = p._file; todos.push(tv.record); return;
         }

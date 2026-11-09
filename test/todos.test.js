@@ -273,4 +273,25 @@ rule('An application\'s effect with a field its op doesn\'t have, or one out of 
     same(T.cleanFile(f, s.name).ok, false, k);
   });
 });
+rule('A value of the wrong type in any field is one malformed record, never a thrown read', async () => {
+  const poison = () => ({ toString: null, valueOf: null });
+  const p = T.buildProposal({ run: RUN, id: T.idFor('flightdeck', 't1'), by: 'person-avery', seen: [], at: AT, body: ADD('One') });
+  const g = T.buildGrant({ kind: 'grant', id: T.idFor('flightdeck', 't2'), run: RUN, seen: [], by: 'person-avery', at: AT, subject: { tool: 'bot' }, ops: ['add'], targets: [{ phase: 'draft' }], limits: { adds: 1 } });
+  const x = T.buildGrant({ kind: 'revoke', id: T.idFor('flightdeck', 't3'), run: RUN, seen: [g.id], by: 'person-avery', at: AT, grant: g.id, reason: 'x' });
+  const pr = cleanOf(p), eff = T.effectOf(pr);
+  const cp = T.buildProposal({ kind: 'compound', run: RUN, id: T.idFor('flightdeck', 't4'), by: 'person-avery', seen: [], at: AT, body: { op: 'done', todo: pr.todo, reason: 'r' }, decision: { by: 'person-avery', consequence: 'aaaaaaaaaaaaaaaa', reason: 'y' }, application: { previous: '', effect: { op: 'done', todo: pr.todo, reason: 'r' }, fingerprint: T.fingerprint({ op: 'done', todo: pr.todo, reason: 'r' }) } });
+  const ap = T.buildStatus({ kind: 'application', proposal: p.id, run: RUN, seen: [p.id], by: 'person-avery', at: AT, authority: { grant: g.id }, previous: '', effect: Object.assign({ owner: 'person-avery', origin: { step: 'write', link: 'https://x.test/a' } }, eff), writer: 'rec', rev: '0000abcd' });
+  const dc = T.buildStatus({ kind: 'decision', proposal: p.id, run: RUN, seen: [p.id], by: 'person-avery', at: AT, op: 'accept', consequence: 'aaaaaaaaaaaaaaaa', reason: 'ok', writer: 'w1', rev: '0000abce' });
+  const files = [[p, p.id + '.json'], [g, g.id + '.json'], [x, x.id + '.json'], [cp, cp.id + '.json'], [ap.file, ap.name], [dc.file, dc.name]];
+  const paths = (o, pre) => [].concat(...Object.keys(o).map(k => { const v = o[k], here = pre.concat([k]); return v && typeof v === 'object' ? [here].concat(paths(v, here)) : [here]; }));
+  let n = 0;
+  files.forEach(([f, name]) => paths(f, []).forEach((pa) => [poison(), 5, ['x'], true, null, {}].forEach((bad) => {
+    const o = JSON.parse(T.text(f)); let at = o; pa.slice(0, -1).forEach(k => { at = at[k]; }); at[pa[pa.length - 1]] = bad; n++;
+    let v; assert.doesNotThrow(() => { v = T.cleanFile(o, name); }, name + ' ' + pa.join('.'));
+  })));
+  assert.ok(n > 300, n);
+  [5, ['person-avery']].forEach((o) => { const f = JSON.parse(T.text(ap.file)); f.effect.owner = o; same(T.cleanFile(f, ap.name).ok, false, JSON.stringify(o)); });
+  const d = await PF.repo.readPlans(memFs({ ['proposals/' + p.id + '.json']: T.text(p), ['proposals/' + ap.name]: T.text(Object.assign({}, ap.file, { effect: Object.assign({}, ap.file.effect, { owner: 5 }) })) }));
+  same([d.todos.length, d.todosUnread.length], [1, 1]);
+});
 run();

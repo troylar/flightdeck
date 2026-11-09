@@ -180,7 +180,7 @@ PF.todos = (function () {
     var out = { op: e.op };
     if (typeof e.todo !== 'string' || !TD.test(e.todo)) { errors.push('"effect" "todo" is a to-do id.'); return null; }
     out.todo = e.todo;
-    if (e.op === 'add') { out.text = line(e.text, LIMITS.text, '"effect" "text"', errors); out.target = cleanTarget(e.target, errors, '"effect" "target"'); out.placement = cleanPlacement(e.placement, errors); if (e.owner != null) { if (!PERSON.test(String(e.owner))) errors.push('"effect" "owner" is a person\'s ID.'); else out.owner = e.owner; } if (e.origin != null) out.origin = cleanOrigin(e.origin, errors); }
+    if (e.op === 'add') { out.text = line(e.text, LIMITS.text, '"effect" "text"', errors); out.target = cleanTarget(e.target, errors, '"effect" "target"'); out.placement = cleanPlacement(e.placement, errors); if (e.owner != null) { if (typeof e.owner !== 'string' || !PERSON.test(e.owner)) errors.push('"effect" "owner" is a person\'s ID.'); else out.owner = e.owner; } if (e.origin != null) out.origin = cleanOrigin(e.origin, errors); }
     if (e.reason != null) { var r = line(e.reason, LIMITS.reason, '"effect" "reason"', errors); if (r) out.reason = r; }
     if (e.op === 'wont' && !out.reason) errors.push('"effect" of a won\'t-do says why.');
     if (e.op === 'move') out.to = cleanTo(e.to, errors);

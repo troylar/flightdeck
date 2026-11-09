@@ -2589,7 +2589,10 @@ PF.repo = (function () {
            read (newer, malformed) holds its run (or, when which run it is for can't be told, every living run). */
         if (PF.todos.claims(p)) {
           var raw = {}; Object.keys(p).forEach(function (k) { if (k !== '_file') raw[k] = p[k]; });
-          var tv = PF.todos.cleanFile(raw, p._file), tp = 'proposals/' + p._file, tf = PF.todos.familyOf(p);
+          /* A record the checks can't even look at (a value that can't be turned into text) is one unread file, never a read
+             that fails. */
+          var tv; try { tv = PF.todos.cleanFile(raw, p._file); } catch (e) { tv = { ok: false, kind: 'malformed', why: 'is a to-do record that isn\'t in its format', needs: '' }; }
+          var tp = 'proposals/' + p._file, tf = PF.todos.familyOf(p);
           if (!tv.ok) { if (bad) bad.push({ path: tp, kind: tv.kind, why: tv.why }); refused.push(PF.envelope.refusal(tp, tf, tv)); todosUnread.push({ file: p._file, why: tv.why, run: PF.todos.runOf(p) }); return; }
           tv.record._file = p._file; todos.push(tv.record); return;
         }
