@@ -13,16 +13,16 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "284969e0e1ffcd639116fc980b7ada36911749e3da60c3a003fabcfdce1ca079",
-      "reviewed": "s3 review SI: text-mode sync names each item not asked and says partial; no direct writes or unconditional deletes"
+      "sha256": "ceb69df1e4187ef355e83a78a1f9e102da6b598a6f19126bf00c97a6ad3110e8",
+      "reviewed": "every spread subcommand and list hold with exit 4 on incomplete coverage; no writes or deletes"
     },
     "build.py": {
       "sha256": "1dce012e7269422f84c2c2aeb7b327b242a28e4990a5c5c95a22dc98228122dc",
       "reviewed": "slice 3 commit 1: spreads core (spreads.js), todos reduction and holds, run.js todoLand, app wiring, Python checker parity; no direct writes or unconditional deletes"
     },
     "docs/apps.md": {
-      "sha256": "c274051da1107eec8e4f23ce41dc59580f178049dc519071fd8f405e1ca90c9a",
-      "reviewed": "slice 3 commit 2: flightdeck spread (list/add/sync/include/stop), CLI run/next read loop inputs for spreads, the spread row and Accept N additions in the app, docs, command guide, AGENTS.md row and the living-run skill; sync writes each request once through writeOnce; no direct writes or unconditional deletes"
+      "sha256": "3c2b717950f084fb719f931bd04e029b3e9099a38027577c0687e38cac179b26",
+      "reviewed": "every spread subcommand and list hold with exit 4 on incomplete coverage; no writes or deletes"
     },
     "docs/design.md": {
       "sha256": "5fb1dadcb6f998406d3897a28f90365f762d65735c2bad444e8117d047f518dc",

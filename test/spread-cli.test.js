@@ -263,6 +263,27 @@ rule('SA: stop is refused (exit 4, nothing written) while a scope record of the 
   assert.deepStrictEqual(snap(root), before, 'nothing written');
 });
 
+/* Review round 2 (TE): incomplete coverage is never read as empty coverage: every spread subcommand holds (exit 4) with the
+   reason, and list exits 4 with it too. */
+rule('TE: sync, its dry run, include and list all hold (exit 4) with the reason while a scope record of the loop is missing', async () => {
+  const { root, d, sp } = await spread();
+  const c = LP.cleanIntent({ loop: { process: 'release-readiness', run: 'r-41', step: 'each' }, observation: obs([101, 102, 103, 104]), changes: [] }, 's9', { name: 'release-helper', version: '1.0' });
+  const f = LP.buildRequest(c.intent, { seen: ['req-release-helper-' + 'e'.repeat(24)], children: [], now: AT, app: '4.0.0' });
+  await d.write('proposals/' + f.id + '.json', LP.text(f));
+  const before = snap(root);
+  for (const args of [['sync'], ['sync', '--dry-run'], ['include', '--item', 'ABC-101', '--key', 'inc-h', '--reason', 'x']]) {
+    const x = json('spread', args[0], root, PR, '--spread', sp.id, ...args.slice(1), '--json', ...TOOL);
+    assert.deepStrictEqual([x.code, x.data && x.data.status, x.data && x.data.partial], [4, 'held', undefined], args.join(' ') + ': ' + JSON.stringify(x));
+    assert.ok(/scope record/.test(x.data.why || ''), args.join(' ') + ': ' + JSON.stringify(x.data));
+  }
+  assert.deepStrictEqual(snap(root), before, 'nothing written');
+  const l = json('spread', 'list', root, PR, '--json');
+  assert.deepStrictEqual([l.code, l.data.spreads[0].complete], [4, false], JSON.stringify(l));
+  assert.ok(l.data.held.some((h) => /scope record/.test(h)), JSON.stringify(l.data.held));
+  const tx = cli('spread', 'sync', root, PR, '--spread', sp.id, ...TOOL);
+  assert.ok(tx.code === 4 && !/synced|Asked 0/.test(tx.out) && /scope record/.test(tx.out), tx.out);
+});
+
 /* A story's run made living: its recorder adds and lands a plain to-do of its own. */
 async function living(d, key) {
   const W = await read(d), x = W.runs.find(y => y.process + '/' + y.id === key);

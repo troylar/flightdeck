@@ -2841,13 +2841,17 @@ async function spreadMain(argv) {
       items: C.items.map((i) => ({ uid: i.uid, key: i.key || null, attempt: i.attempt, state: i.state, words: i.words, why: i.why || null, owed: i.owed, resolved: i.resolved, arrival: !!i.arrival, run: i.run || null, request: i.request || null, todo: i.todo || null })),
       notices: C.notices, holds: C.unresolved, stop: C.stop ? { reason: C.stop.reason } : null });
     const spreadReqs = T.requestsOf(V).filter((q) => T.isSpreadOp(q.op)).map((q) => ({ id: q.id, op: q.op, spread: q.spread || null, status: q.status, statusWords: T.WORDS[q.status] || q.status, why: q.why || null, by: q.by || null, at: q.at || null }));
-    if (sub === 'list') return done({ run: { process: proc, id: runId }, title, living: !!r.living, spreads: cov.spreads.map(shape), requests: spreadReqs, held: (V.broken ? [V.broken.why] : []).concat(V.unread.map((u) => String(u.file) + ': ' + u.why), V.held.map((h) => h.record + ': ' + h.why)) });
+    /* Coverage that can't all be read is never empty coverage: list says so and exits 4, and every write holds with the reason. */
+    const gapOf = (C) => C.complete ? '' : C.unresolved[0] || 'Spread "' + C.text + '": what it is owed on can\'t all be read yet.';
+    const gaps = cov.spreads.map(gapOf).filter(Boolean);
+    if (sub === 'list') return done({ run: { process: proc, id: runId }, title, living: !!r.living, spreads: cov.spreads.map(shape), requests: spreadReqs, held: (V.broken ? [V.broken.why] : []).concat(V.unread.map((u) => String(u.file) + ': ' + u.why), V.held.map((h) => h.record + ': ' + h.why), gaps) }, gaps.length ? EXIT.partial : undefined);
     /* Anything this depends on that couldn't be read holds the write (exit 4): reading it again could change the answer. */
-    const held = (why) => done({ run: { process: proc, id: runId }, status: 'held', preview: why + ' Nothing was written. Check folder availability, then retry' + (sub === 'sync' ? '.' : ' with the same key.') }, EXIT.partial);
+    const held = (why) => done({ run: { process: proc, id: runId }, status: 'held', why, preview: why + ' Nothing was written. Check folder availability, then retry' + (sub === 'sync' ? '.' : ' with the same key.') }, EXIT.partial);
     const C = val['--spread'] ? cov.spreads.filter((x) => x.id === val['--spread'])[0] : null;
     if (sub === 'sync') {
       if (!C) return failOut('invalid', 'That spread isn\'t on ' + proc + '/' + runId + ' (flightdeck spread list shows them).' + nothing, problems());
       if (problems().length) return held('Part of the team folder this depends on couldn\'t be read.');
+      if (!C.complete) return held(gapOf(C));
       /* One request per obligation not yet asked, on the run that covers it, named by the obligation and that run: a retry from
          any tool is the same request. Each is written once and on its own, so an interruption leaves the others standing and
          the next sync asks only what is still missing. */
@@ -2895,7 +2899,7 @@ async function spreadMain(argv) {
       if (val['--owner'] != null) body.owner = val['--owner'];
     } else {
       if (!C) return failOut('invalid', 'That spread isn\'t on ' + proc + '/' + runId + ' (flightdeck spread list shows them).' + nothing, problems());
-      if (sub === 'stop' && !C.complete) return held('What the spread is owed on can\'t all be read yet (a scope record of its loop is missing or unreadable), so a stop can\'t name it.');
+      if (!C.complete) return held(sub === 'stop' ? 'What the spread is owed on can\'t all be read yet (a scope record of its loop is missing or unreadable), so a stop can\'t name it.' : gapOf(C));
       if (sub === 'stop') body = { op: 'spread-stop', spread: C.id, owed: C.items.filter((i) => i.owed).map((i) => ({ uid: i.uid, attempt: i.attempt })) };
       else {
         const LV = LP.view(r, C.loopStep, { records: got.scopes || [], unread: sunread, runs, procOf }), it = LV ? LV.rollup.items.filter((i) => i.key === val['--item'] || i.uid === val['--item'])[0] : null;

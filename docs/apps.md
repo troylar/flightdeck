@@ -714,6 +714,8 @@ flightdeck spread stop    <same> --spread <spread id> --reason <why> --tool ... 
 
 Adding, including or binding needs a person, or a delegation that may add on the loop step; on an approved loop it sends that approval back for review, so a person decides. Stopping releases work, so a person decides.
 
+While what a spread is owed on can't all be read (a scope record of its loop is missing or can't be read), its `complete` is false and its coverage is never read as empty: `list` exits 4 with the reason in `held`, and `sync` (its dry run too), `include` and `stop` write nothing and give `status: "held"` with the reason in `why`, exit 4.
+
 ### The result
 
 `list` gives `spreads` (each `id`, `text`, `loop`, `beforeGate`, `state`, `row` like "Security sign-off · on 3 stories · 0 done", `preview` like "11 open stories; 3 cleared stories unchanged", `counts` (`owed`, `done`, `unchanged`, `arrivals`), `items` (each `key`, `uid`, `attempt`, `owed`, `state`, `words`, `why`, `arrival`, `run`, `request`, `todo`), `notices` ("ABC-105 joined. Security sign-off is owed; not requested yet.") and `holds`, what holds the loop) and `requests` (the spread requests and their status). An item's `state` is `exempt` (cleared when it was added, unchanged), `owed` (not requested yet), `waiting`, `queued`, `open` (added), `done`, `wont`, `moved`, `excepted` (approved without a run), `declined`, `disputed`, `held`, `ended`, `no-run`, `competing`, `rebind` or `unread`; only done, won't do, moved and excepted resolve it.
