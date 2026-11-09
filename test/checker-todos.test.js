@@ -23,7 +23,21 @@ function valid() {
   const dec = T.buildStatus({ kind: 'decision', proposal: tool.id, run: RUN, seen: [tool.id], by: 'person-avery', at: AT, op: 'accept', consequence: '0123456789abcdef', writer: 'w1', rev: '0a1b2c3d' });
   const tb = Object.assign({ todo: T.todoIdFor(tool.id) }, body), te = T.effectOf(tb);
   const app = T.buildStatus({ kind: 'application', proposal: tool.id, run: RUN, seen: [tool.id], by: 'person-avery', at: AT, authority: { decision: dec.name.replace(/\.json$/, '') }, previous: '', effect: te, writer: 'w1', rev: '0a1b2c3e' });
-  return [[tool.id + '.json', tool], [asked.id + '.json', asked], [person.id + '.json', person], [mv.id + '.json', mv], [cid + '.json', comp], [g.id + '.json', g], [rv.id + '.json', rv], [dec.name, dec.file], [app.name, app.file]];
+  /* Spreads (4.0 slice 3): a spread-add, an include, a binding, a stop, a story's request that fulfils one, and an application. */
+  const bot = { name: 'notes-bot', version: '1.2' }, pair = { uid: 'jira:10101', attempt: 1 };
+  const sp = T.buildProposal({ run: RUN, producer: bot, key: 's-1', seen: [], at: AT, body: { op: 'spread-add', loopStep: 'each', text: 'Security sign-off', owner: 'person-blake', reason: 'Audit', child: { beforeGate: 'assess-confirm' },
+    scope: { open: [pair], cleared: [{ uid: 'jira:key:ABC-2', attempt: 2 }], fingerprint: '0123456789abcdef' } } });
+  const inc = T.buildProposal({ run: RUN, producer: bot, key: 's-2', seen: [sp.id], at: AT, body: { op: 'spread-include', spread: sp.spread, item: { uid: 'jira:key:ABC-2', attempt: 2 } } });
+  const bnd = T.buildProposal({ run: RUN, id: T.idFor('flightdeck', 's-3'), by: 'person-avery', seen: [], at: AT, body: { op: 'spread-bind', spread: sp.spread, item: pair, dest: { process: 'validate-story', id: 'k101' } } });
+  const stp = T.buildProposal({ run: RUN, id: T.idFor('flightdeck', 's-4'), by: 'person-avery', seen: [], at: AT, body: { op: 'spread-stop', spread: sp.spread, reason: 'Covered elsewhere', owed: [pair] } });
+  const kidRun = { process: 'validate-story', id: 'k101' }, ful = { run: RUN, spread: sp.spread, uid: pair.uid, attempt: 1 };
+  const fil = T.buildProposal({ run: kidRun, producer: bot, key: PF.spreads.obligationId(sp.spread, pair.uid, 1), seen: [], at: AT, body: { op: 'add', text: 'Security sign-off', target: { phase: 'assess' }, placement: { beforeGate: 'assess-confirm' }, fulfills: ful } });
+  const spr = T.cleanFile(JSON.parse(T.text(sp)), sp.id + '.json').record, se = T.effectOf(spr);
+  const sap = T.buildStatus({ kind: 'application', proposal: sp.id, run: RUN, seen: [sp.id], by: 'person-avery', at: AT, authority: { decision: dec.name.replace(/\.json$/, '') }, previous: '', effect: se, writer: 'w1', rev: '0a1b2c3f' });
+  const fr = T.cleanFile(JSON.parse(T.text(fil)), fil.id + '.json').record, fe = T.effectOf(fr);
+  const fap = T.buildStatus({ kind: 'application', proposal: fil.id, run: kidRun, seen: [fil.id], by: 'person-avery', at: AT, authority: { grant: g.id }, previous: '', effect: fe, writer: 'w1', rev: '0a1b2c40' });
+  return [[tool.id + '.json', tool], [asked.id + '.json', asked], [person.id + '.json', person], [mv.id + '.json', mv], [cid + '.json', comp], [g.id + '.json', g], [rv.id + '.json', rv], [dec.name, dec.file], [app.name, app.file],
+    [sp.id + '.json', sp], [inc.id + '.json', inc], [bnd.id + '.json', bnd], [stp.id + '.json', stp], [fil.id + '.json', fil], [sap.name, sap.file], [fap.name, fap.file]];
 }
 /* Each record damaged one way at a time: every field dropped, retyped and nulled, an extra field, a newer or unmarked format,
    over-long text, a prototype key, another file name. */
@@ -103,6 +117,7 @@ rule('The checker refuses exactly the to-do records the app refuses, over every 
   if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
   const cs = corpus();
   assert.ok(cs.length > 400, 'a corpus of ' + cs.length);
+  ['spread-add', 'spread-include', 'spread-bind', 'spread-stop'].forEach((op) => assert.ok(cs.some((c) => c.label === 'valid' && JSON.parse(c.text).op === op), 'the corpus has a ' + op));
   const pyOut = JSON.parse(cp.execFileSync(py, ['-I', '-B', '-c', DRIVER, DIR], { input: JSON.stringify(cs), encoding: 'utf8', maxBuffer: 256 * 1048576 }));
   const off = [];
   const idn = (c) => IDN.some((v) => c.label === 'link ' + v || c.label === 'origin link ' + v), un = [];

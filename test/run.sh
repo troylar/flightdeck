@@ -120,6 +120,7 @@ test/results.test.js -
 test/loops.test.js -
 test/todos.test.js -
 test/todos-rules.test.js -
+test/spreads.test.js -
 test/loop-cli.test.js -
 test/todo-cli.test.js -
 test/patterns.test.js -

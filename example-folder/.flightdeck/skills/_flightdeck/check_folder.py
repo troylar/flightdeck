@@ -1776,8 +1776,13 @@ def held_why(pid, torn, refused):
 # goes to this reader. One it refuses is named in "refused", exactly as the app refuses it: test/checker-todos.test.js runs
 # the same records through both and fails when they disagree.
 TODO_FORMAT, TODO_STATUS, TODO_FEATURE = "flightdeck-plan/4", "flightdeck-plan-status/4", "living-runs"
-TODO_LIMITS = {"text": 200, "reason": 300, "link": 2048, "bytes": 262144, "seen": 50, "targets": 50, "grantAdds": 500}
+TODO_LIMITS = {"text": 200, "reason": 300, "link": 2048, "bytes": 262144, "seen": 50, "targets": 50, "grantAdds": 500, "items": 500}
 TODO_OPS, TODO_DOPS = ["add", "done", "wont", "move", "reopen"], ["accept", "decline"]
+# Spreads (4.0 slice 3, PF.todos): a standing requirement on a loop, asked, decided and applied like a to-do.
+TODO_SOPS = ["spread-add", "spread-include", "spread-bind", "spread-stop"]
+TODO_ALL_OPS = TODO_OPS + TODO_SOPS
+T_SFIELDS = ["spread", "loopStep", "child", "scope", "item", "dest", "owed"]
+T_SP = re.compile(r"^sp-[0-9a-f]{24}\Z")
 TODO_PKINDS, TODO_SKINDS = ["proposal", "compound", "grant", "revoke"], ["decision", "application"]
 T_PROC = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}\Z")
 T_RUN = re.compile(r"^[a-z0-9-]{1,40}\Z", re.I | re.A)
@@ -1797,8 +1802,10 @@ T_ISO = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(?::[0-9]{2}(?
 T_CONTROL = re.compile("[\u0000-\u001f\u007f  ]")
 T_RUNKEY = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}/[a-z0-9-]{1,40}\Z", re.I | re.A)
 T_COMMON = ["format", "features", "app", "kind", "id", "run", "seen", "producer", "key", "by", "at"]
-T_BODY = ["op", "todo", "target", "placement", "text", "owner", "reason", "origin", "to", "requester"]
-T_EFIELDS = {"add": ["op", "todo", "text", "target", "placement", "owner", "reason", "origin"], "done": ["op", "todo", "reason"],
+T_BODY = ["op", "todo", "target", "placement", "text", "owner", "reason", "origin", "to", "requester", "spread", "loopStep", "child", "scope", "item", "dest", "owed", "fulfills"]
+T_EFIELDS = {"add": ["op", "todo", "text", "target", "placement", "owner", "reason", "origin", "fulfills"], "done": ["op", "todo", "reason"],
+             "spread-add": ["op", "spread", "loopStep", "text", "child", "scope", "owner", "reason"], "spread-include": ["op", "spread", "item", "reason"],
+             "spread-bind": ["op", "spread", "item", "dest", "reason"], "spread-stop": ["op", "spread", "reason", "owed"],
              "reopen": ["op", "todo", "reason"], "wont": ["op", "todo", "reason"], "move": ["op", "todo", "to", "reason"]}
 
 
@@ -1902,6 +1909,23 @@ def todo_claims(o):
 def _todo_id(tool, key):
     import hashlib
     return "req-" + tool + "-" + hashlib.sha256(js_json(["todo", tool, key]).encode("utf-8")).hexdigest()[:24]
+
+
+def _thash(v, n):
+    import hashlib
+    return hashlib.sha256(js_json(v).encode("utf-8")).hexdigest()[:n]
+
+
+def _spread_id(request):
+    return "sp-" + _thash(["sp", request], 24)
+
+
+def _obligation_id(spread, uid, attempt):
+    return "ob-" + _thash(["ob", spread, uid, attempt], 24)
+
+
+def _spread_child_id(spread, uid, attempt, run):
+    return "req-spread-" + _thash(["spread", spread, uid, attempt, run["process"], run["id"]], 24)
 
 
 def _todo_td(proposal):
@@ -2056,11 +2080,139 @@ def todo_why(o, name, nbytes=None, unchecked=None):
             return None
         return list(val)
 
+    def clean_pair(v, what):
+        if not isinstance(v, dict) or len(v) != 2 or not _tstr(v.get("uid")) or not T_UID.match(v["uid"]) or not _twhole(v.get("attempt"), 1, 999):
+            err(what)
+            return None
+        return {"uid": v["uid"], "attempt": v["attempt"]}
+
+    def clean_pairs(v, mx, what):
+        if not isinstance(v, list) or len(v) > mx:
+            err(what)
+            return None
+        out, have = [], set()
+        for i, x in enumerate(v):
+            p = clean_pair(x, what + " " + str(i + 1))
+            if not p:
+                return None
+            k = (p["uid"], float(p["attempt"]))
+            if k in have:
+                err(what + " twice")
+                return None
+            have.add(k)
+            out.append(p)
+        return out
+
+    def clean_scope(v):
+        if not isinstance(v, dict):
+            err("scope")
+            return None
+        n0 = len(errors)
+        only(v, ["open", "cleared", "fingerprint"], "scope")
+        op_, cl = clean_pairs(v.get("open"), TODO_LIMITS["items"], "scope open"), clean_pairs(v.get("cleared"), TODO_LIMITS["items"], "scope cleared")
+        if not _tstr(v.get("fingerprint")) or not T_FP.match(v["fingerprint"]):
+            err("scope fingerprint")
+        if len(errors) > n0 or op_ is None or cl is None:
+            return None
+        if len(op_) + len(cl) > TODO_LIMITS["items"]:
+            err("scope over the limit")
+            return None
+        cs = set((p["uid"], float(p["attempt"])) for p in cl)
+        if any((p["uid"], float(p["attempt"])) in cs for p in op_):
+            err("scope both open and cleared")
+            return None
+        return {"open": op_, "cleared": cl, "fingerprint": v["fingerprint"]}
+
+    def clean_child(v):
+        if not isinstance(v, dict) or len(v) != 1 or not _tstr(v.get("beforeGate")) or not T_STEP.match(v["beforeGate"]):
+            err("child")
+            return None
+        return {"beforeGate": v["beforeGate"]}
+
+    def clean_dest(v):
+        if not isinstance(v, dict) or len(v) != 2 or not _tstr(v.get("process")) or not T_PROC.match(v["process"]) or not _tstr(v.get("id")) or not T_RUN.match(v["id"]):
+            err("dest")
+            return None
+        return {"process": v["process"], "id": v["id"]}
+
+    def clean_fulfills(v):
+        if not isinstance(v, dict) or len(v) != 4:
+            err("fulfills")
+            return None
+        n0 = len(errors)
+        rn = clean_run(v.get("run"))
+        pr = clean_pair({"uid": v.get("uid"), "attempt": v.get("attempt")}, "fulfills")
+        if not _tstr(v.get("spread")) or not T_SP.match(v["spread"]):
+            err("fulfills spread")
+        if len(errors) > n0:
+            return None
+        return {"run": rn, "spread": v["spread"], "uid": pr["uid"], "attempt": pr["attempt"]}
+
+    def clean_owner(v, what):
+        if not _tstr(v) or not T_PERSON.match(v):
+            err(what)
+            return None
+        return v
+
+    def clean_spread_body(oo, rid):
+        b = {"op": oo["op"]}
+        for k in ("todo", "target", "placement", "origin", "to", "fulfills"):
+            if oo.get(k) is not None:
+                err("A spread request has no " + k)
+        if oo["op"] == "spread-add":
+            sid = _spread_id(rid)
+            if oo.get("spread") is not None and oo["spread"] != sid:
+                err("spread of a spread-add")
+            b["spread"] = sid
+            if not _tstr(oo.get("loopStep")) or not T_STEP.match(oo["loopStep"]):
+                err("loopStep")
+            else:
+                b["loopStep"] = oo["loopStep"]
+            b["text"] = line(oo.get("text"), TODO_LIMITS["text"], "text")
+            b["child"] = clean_child(oo.get("child"))
+            b["scope"] = clean_scope(oo.get("scope"))
+            if oo.get("owner") is not None:
+                ow = clean_owner(oo["owner"], "owner")
+                if ow:
+                    b["owner"] = ow
+            for k in ("item", "dest", "owed"):
+                if oo.get(k) is not None:
+                    err("A spread-add has no " + k)
+        else:
+            if not _tstr(oo.get("spread")) or not T_SP.match(oo["spread"]):
+                err("spread")
+            else:
+                b["spread"] = oo["spread"]
+            for k in ("loopStep", "text", "child", "scope", "owner"):
+                if oo.get(k) is not None:
+                    err("Only a spread-add has " + k)
+            if oo["op"] in ("spread-include", "spread-bind"):
+                b["item"] = clean_pair(oo.get("item"), "item")
+            elif oo.get("item") is not None:
+                err("A stop has no item")
+            if oo["op"] == "spread-bind":
+                b["dest"] = clean_dest(oo.get("dest"))
+            elif oo.get("dest") is not None:
+                err("Only a binding has dest")
+            if oo["op"] == "spread-stop":
+                b["owed"] = clean_pairs(oo.get("owed"), TODO_LIMITS["items"], "owed")
+            elif oo.get("owed") is not None:
+                err("Only a stop has owed")
+        if oo["op"] == "spread-stop":
+            b["reason"] = line(oo.get("reason"), TODO_LIMITS["reason"], "reason")
+        elif oo.get("reason") is not None:
+            rr = line(oo["reason"], TODO_LIMITS["reason"], "reason")
+            if rr:
+                b["reason"] = rr
+        if oo.get("requester") is not None and (not _tstr(oo["requester"]) or not T_PERSON.match(oo["requester"])):
+            err("requester")
+        return b
+
     def clean_effect(e):
         if not isinstance(e, dict):
             err("effect")
             return None
-        if not _tstr(e.get("op")) or e["op"] not in TODO_OPS:
+        if not _tstr(e.get("op")) or e["op"] not in TODO_ALL_OPS:
             err("effect op")
             return None
         n0 = len(errors)
@@ -2068,6 +2220,35 @@ def todo_why(o, name, nbytes=None, unchecked=None):
         if len(errors) > n0:
             return None
         out = {"op": e["op"]}
+        if e["op"] in TODO_SOPS:
+            if not _tstr(e.get("spread")) or not T_SP.match(e["spread"]):
+                err("effect spread")
+                return None
+            out["spread"] = e["spread"]
+            if e["op"] == "spread-add":
+                if not _tstr(e.get("loopStep")) or not T_STEP.match(e["loopStep"]):
+                    err("effect loopStep")
+                else:
+                    out["loopStep"] = e["loopStep"]
+                out["text"] = line(e.get("text"), TODO_LIMITS["text"], "effect text")
+                out["child"] = clean_child(e.get("child"))
+                out["scope"] = clean_scope(e.get("scope"))
+                if e.get("owner") is not None:
+                    ow = clean_owner(e["owner"], "effect owner")
+                    if ow:
+                        out["owner"] = ow
+            if e["op"] in ("spread-include", "spread-bind"):
+                out["item"] = clean_pair(e.get("item"), "effect item")
+            if e["op"] == "spread-bind":
+                out["dest"] = clean_dest(e.get("dest"))
+            if e["op"] == "spread-stop":
+                out["owed"] = clean_pairs(e.get("owed"), TODO_LIMITS["items"], "effect owed")
+                out["reason"] = line(e.get("reason"), TODO_LIMITS["reason"], "effect reason")
+            elif e.get("reason") is not None:
+                sr = line(e["reason"], TODO_LIMITS["reason"], "effect reason")
+                if sr:
+                    out["reason"] = sr
+            return out
         if not _tstr(e.get("todo")) or not T_TD.match(e["todo"]):
             err("effect todo")
             return None
@@ -2083,6 +2264,8 @@ def todo_why(o, name, nbytes=None, unchecked=None):
                     out["owner"] = e["owner"]
             if e.get("origin") is not None:
                 out["origin"] = clean_origin(e["origin"])
+            if e.get("fulfills") is not None:
+                out["fulfills"] = clean_fulfills(e["fulfills"])
         if e.get("reason") is not None:
             rr = line(e["reason"], TODO_LIMITS["reason"], "effect reason")
             if rr:
@@ -2094,12 +2277,27 @@ def todo_why(o, name, nbytes=None, unchecked=None):
         return out
 
     def effect_of(p):
+        if p["op"] in TODO_SOPS:
+            e = {"op": p["op"], "spread": p.get("spread")}
+            if p["op"] == "spread-add":
+                e["loopStep"], e["text"], e["child"], e["scope"] = p.get("loopStep"), p.get("text"), p.get("child"), p.get("scope")
+                if p.get("owner"):
+                    e["owner"] = p["owner"]
+            if p.get("item"):
+                e["item"] = p["item"]
+            if p.get("dest"):
+                e["dest"] = p["dest"]
+            if p["op"] == "spread-stop":
+                e["owed"] = p.get("owed")
+            if p.get("reason"):
+                e["reason"] = p["reason"]
+            return e
         e = {"op": p["op"], "todo": p.get("todo")}
         if p["op"] == "add":
             e["text"] = p.get("text")
             e["target"] = p.get("target")
             e["placement"] = p.get("placement")
-            for k in ("owner", "reason", "origin"):
+            for k in ("owner", "reason", "origin", "fulfills"):
                 if p.get(k):
                     e[k] = p[k]
         if p["op"] == "wont" or (p["op"] in ("reopen", "done", "move") and p.get("reason")):
@@ -2188,17 +2386,35 @@ def todo_why(o, name, nbytes=None, unchecked=None):
             by = {"person": o["by"]}
     if not _tstr(o.get("at")) or not T_ISO.match(o["at"]):
         err("at")
-    if by and by.get("tool") and o["id"] != _todo_id(by["tool"], o.get("key")):
+    ful = o.get("fulfills") if isinstance(o.get("fulfills"), dict) and _tstr(o["fulfills"].get("spread")) and _tstr(o["fulfills"].get("uid")) and run else None
+    if ful:
+        if not _twhole(ful.get("attempt"), 1, 999) or o["id"] != _spread_child_id(ful["spread"], ful["uid"], ful.get("attempt"), run):
+            err("Its id isn't the one its spread, item, attempt and run give")
+        if by and by.get("tool") and (not _twhole(ful.get("attempt"), 1, 999) or o.get("key") != _obligation_id(ful["spread"], ful["uid"], ful.get("attempt"))):
+            err("Its key isn't its obligation's")
+        fr = ful.get("run")
+        if isinstance(fr, dict) and fr.get("process") == run["process"] and fr.get("id") == run["id"]:
+            err("fulfills names this run itself")
+    elif by and by.get("tool") and o["id"] != _todo_id(by["tool"], o.get("key")):
         err("Its id isn't the one its tool and key give")
     if kind in ("proposal", "compound"):
         only(o, T_COMMON + T_BODY + (["decision", "application"] if kind == "compound" else []), "It")
         b = None
         op = o.get("op")
-        if op not in TODO_OPS:
+        if not _tstr(op) or op not in TODO_ALL_OPS:
             err("op")
+        elif op in TODO_SOPS:
+            b = clean_spread_body(o, o["id"])
         else:
+            for k in T_SFIELDS:
+                if o.get(k) is not None:
+                    err("Only a spread request has " + k)
+            if op != "add" and o.get("fulfills") is not None:
+                err("Only an addition has fulfills")
             b = {"op": op}
             if op == "add":
+                if o.get("fulfills") is not None:
+                    b["fulfills"] = clean_fulfills(o["fulfills"])
                 if o.get("todo") is not None and o["todo"] != _todo_td(o["id"]):
                     err("todo of an addition")
                 b["todo"] = _todo_td(o["id"])

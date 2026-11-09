@@ -375,7 +375,8 @@ PF.run = (function () {
      the head it was prepared on; a run/2 becomes a run/3 with its version's types fingerprint (o.typesHash). An addition or
      reopening sends a passed or waived gate in its phase to review, or an approved loop it belongs to back for review.
      o: { who, now, typesHash, app, todo (the to-do as the reduction reads it, for a change to existing work) }. */
-  var TODO_WORDS = { add: 'To-do added', done: 'To-do done', wont: 'To-do won\'t be done', move: 'To-do moved', reopen: 'To-do reopened' };
+  var TODO_WORDS = { add: 'To-do added', done: 'To-do done', wont: 'To-do won\'t be done', move: 'To-do moved', reopen: 'To-do reopened',
+    'spread-add': 'Spread added', 'spread-include': 'Spread includes an item', 'spread-bind': 'Spread bound to a run', 'spread-stop': 'Spread stopped' };
   function todoLand(r, map, rec, o) {
     o = o || {};
     var ap = rec && (rec.kind === 'compound' ? rec.application : rec), head = r.living ? r.living.head : '';
@@ -389,8 +390,22 @@ PF.run = (function () {
     r.living = { head: rec.id };
     addFeature(r, PF.todos.FEATURE);
     var re = withPins(order3(r)); Object.keys(r).forEach(function (k) { delete r[k]; }); Object.keys(re).forEach(function (k) { r[k] = re[k]; });
-    var e = ap.effect, x = o.todo || null, text = String(e.op === 'add' ? e.text : x ? x.text : e.todo).slice(0, 200);
+    var e = ap.effect, x = o.todo || null, sp = o.spread || null, text = String(e.op === 'add' || e.op === 'spread-add' ? e.text : x ? x.text : sp ? sp.text : e.todo || e.spread).slice(0, 200);
     addLog(r, o.who, o.now, TODO_WORDS[e.op] + ': "' + text + '"' + (e.reason ? ' (' + String(e.reason).slice(0, 120) + ')' : ''));
+    /* A spread (4.0 slice 3) that owes work (added, an item included, a run bound) sends its loop's approval back and its
+       phase's gate to review, as an item's to-do does; stopping one releases work and reopens nothing. */
+    if (PF.todos.isSpreadOp(e.op)) {
+      var ls = e.op === 'spread-add' ? e.loopStep : sp ? sp.loopStep : '', SP = ls && !PF.todos.loopWhy(map, ls) ? PF.todos.placeOf(map, { step: ls }) : null;
+      if (e.op === 'spread-stop' || !SP || SP.why) return;
+      var sla = r.steps[ls];
+      if (sla && sla.s === 'done' && sla.loop) unsettleLoop(r, map, ls, ['A spread was changed on this loop after this approval: "' + text + '".'], o.who, o.now);
+      var sg = r.gates[SP.gate];
+      if (sg && (sg.s === 'passed' || sg.s === 'waived')) {
+        r.gates[SP.gate] = { s: 'review', was: sg.s, by: sg.by, at: sg.at, reason: 'A spread was changed after it was ' + sg.s, approved: sg.approved };
+        addLog(r, o.who, o.now, 'Gate needs review: a spread was changed after it was ' + sg.s);
+      }
+      return;
+    }
     if (e.op !== 'add' && e.op !== 'reopen') return;
     var t = e.op === 'add' ? e.target : x && x.target, P = t ? PF.todos.placeOf(map, t) : null, did = e.op === 'add' ? 'added' : 'reopened';
     if (!P || P.why) return;

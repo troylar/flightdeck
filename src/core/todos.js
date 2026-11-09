@@ -7,12 +7,17 @@ PF.todos = (function () {
   'use strict';
   var FORMAT = 'flightdeck-plan/4', STATUS = 'flightdeck-plan-status/4', FEATURE = 'living-runs', FEATURES = [FEATURE];
   /* One limit table for writers and readers. Anything over a limit is refused whole, never cut. */
-  var LIMITS = { todos: 500, text: 200, reason: 300, link: 2048, bytes: 262144, seen: 50, targets: 50, grantAdds: 500, cut: 5000 };
+  var LIMITS = { todos: 500, text: 200, reason: 300, link: 2048, bytes: 262144, seen: 50, targets: 50, grantAdds: 500, cut: 5000, spreads: 50, items: 500 };
   var OPS = ['add', 'done', 'wont', 'move', 'reopen'], DOPS = ['accept', 'decline'];
+  /* Spreads (4.0 slice 3, docs/design.md 45.1): a standing requirement on a loop is parent-run work, asked, decided and applied
+     like a to-do, by its own operations. spread-add installs one; include opts in one item cleared when it was added; bind
+     says which run of an item's attempt covers it; stop ends future inheritance (a release: a person decides). */
+  var SOPS = ['spread-add', 'spread-include', 'spread-bind', 'spread-stop'], ALL_OPS = OPS.concat(SOPS);
+  function isSpreadOp(op) { return SOPS.indexOf(op) >= 0; }
   var PKINDS = ['proposal', 'compound', 'grant', 'revoke'], SKINDS = ['decision', 'application'];
   var PROC = /^[a-z0-9][a-z0-9-]{0,59}$/, RUN = /^[a-z0-9-]{1,40}$/i, STEP = /^[a-z0-9][a-z0-9-]{0,59}$/i, PERSON = /^[A-Za-z0-9_.-]{1,80}$/;
   var TOOL = /^[a-z0-9][a-z0-9-]{0,29}$/, VERSION = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,39}$/, KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$/;
-  var REQ = /^req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24}$/, TD = /^td-[0-9a-f]{24}$/, FP = /^[0-9a-f]{16}$/;
+  var REQ = /^req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24}$/, TD = /^td-[0-9a-f]{24}$/, FP = /^[0-9a-f]{16}$/, SP = /^sp-[0-9a-f]{24}$/;
   var DNAME = /^(req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})\.status-([a-z0-9][a-z0-9-]{0,39})-([0-9a-f]{8})\.json$/;
   /* A synced copy's name (OneDrive): the record's own name with " (n)" or a dash suffix that has a capital letter (a
      computer's name) before .json. A record's own names are lowercase, so a copy never reads as another record. */
@@ -147,13 +152,89 @@ PF.todos = (function () {
     if (dup.length) { errors.push('"seen" names ' + dup[0] + ' twice.'); return null; }
     return v.slice();
   }
+  /* ---- A spread's fields (4.0 slice 3): an item's attempt, a list of them, the reviewed scope, the child gate, a destination
+     run and what a story's request fulfils. Each is checked whole; a list over its limit is refused, never cut. ---- */
+  function cleanPair(v, errors, what) {
+    if (!isMap(v) || Object.keys(v).length !== 2 || typeof v.uid !== 'string' || !UID.test(v.uid) || typeof v.attempt !== 'number' || Math.floor(v.attempt) !== v.attempt || v.attempt < 1 || v.attempt > 999) { errors.push(what + ' is {"uid": <the item\'s uid>, "attempt": <its attempt>}.'); return null; }
+    return { uid: v.uid, attempt: v.attempt };
+  }
+  function cleanPairs(v, max, errors, what) {
+    if (!Array.isArray(v) || v.length > max) { errors.push(what + ' is a list of at most ' + max + ' items.'); return null; }
+    var out = [], have = Object.create(null);
+    for (var i = 0; i < v.length; i++) {
+      var p = cleanPair(v[i], errors, what + ' ' + (i + 1)); if (!p) return null;
+      var k = p.uid + '#' + p.attempt; if (have[k]) { errors.push(what + ' names ' + k + ' twice.'); return null; }
+      have[k] = true; out.push(p);
+    }
+    return out;
+  }
+  function hasPair(list, p) { return (list || []).some(function (y) { return y.uid === p.uid && y.attempt === p.attempt; }); }
+  function cleanScope(v, errors) {
+    if (!isMap(v)) { errors.push('"scope" is {"open", "cleared", "fingerprint"}.'); return null; }
+    var n0 = errors.length;
+    only(v, ['open', 'cleared', 'fingerprint'], '"scope"', errors);
+    var o = cleanPairs(v.open, LIMITS.items, errors, '"scope" "open"'), c = cleanPairs(v.cleared, LIMITS.items, errors, '"scope" "cleared"');
+    if (typeof v.fingerprint !== 'string' || !FP.test(v.fingerprint)) errors.push('"scope" "fingerprint" is the fingerprint of the scope reviewed.');
+    if (errors.length > n0 || !o || !c) return null;
+    if (o.length + c.length > LIMITS.items) { errors.push('"scope" names ' + (o.length + c.length) + ' items; a spread covers at most ' + LIMITS.items + '.'); return null; }
+    if (o.some(function (p) { return hasPair(c, p); })) { errors.push('"scope" names an item as both open and cleared.'); return null; }
+    return { open: o, cleared: c, fingerprint: v.fingerprint };
+  }
+  function cleanChild(v, errors) {
+    if (!isMap(v) || Object.keys(v).length !== 1 || typeof v.beforeGate !== 'string' || !STEP.test(v.beforeGate)) { errors.push('"child" is {"beforeGate": <a gate of the item\'s checklist>}.'); return null; }
+    return { beforeGate: v.beforeGate };
+  }
+  function cleanDest(v, errors) {
+    if (!isMap(v) || Object.keys(v).length !== 2 || typeof v.process !== 'string' || !PROC.test(v.process) || typeof v.id !== 'string' || !RUN.test(v.id)) { errors.push('"dest" is {"process": <checklist>, "id": <run id>}.'); return null; }
+    return { process: v.process, id: v.id };
+  }
+  function cleanFulfills(v, errors) {
+    if (!isMap(v) || Object.keys(v).length !== 4) { errors.push('"fulfills" is {"run", "spread", "uid", "attempt"}.'); return null; }
+    var n0 = errors.length, run = cleanRun(v.run, errors), pair = cleanPair({ uid: v.uid, attempt: v.attempt }, errors, '"fulfills"');
+    if (typeof v.spread !== 'string' || !SP.test(v.spread)) errors.push('"fulfills" "spread" is a spread id (sp-...).');
+    if (errors.length > n0) return null;
+    return { run: run, spread: v.spread, uid: pair.uid, attempt: pair.attempt };
+  }
+  var SFIELDS = ['spread', 'loopStep', 'child', 'scope', 'item', 'dest', 'owed'];
+  /* A spread operation's body: spread-add (its loop step, text, child gate and the scope reviewed; the spread's id comes from
+     the request), include (one item's attempt cleared when it was added), bind (which run covers an item's attempt), stop
+     (why, and the obligations it keeps). */
+  function cleanSpreadBody(o, errors, id) {
+    var b = { op: o.op };
+    ['todo', 'target', 'placement', 'origin', 'to', 'fulfills'].forEach(function (k) { if (o[k] != null) errors.push('A spread request has no ' + q(k) + '.'); });
+    if (o.op === 'spread-add') {
+      var sid = PF.spreads.idFor(id);
+      if (o.spread != null && o.spread !== sid) errors.push('"spread" of a spread-add is the id its request gives it (' + sid + ').');
+      b.spread = sid;
+      if (typeof o.loopStep !== 'string' || !STEP.test(o.loopStep)) errors.push('"loopStep" is the loop step\'s id.'); else b.loopStep = o.loopStep;
+      b.text = line(o.text, LIMITS.text, '"text"', errors);
+      b.child = cleanChild(o.child, errors);
+      b.scope = cleanScope(o.scope, errors);
+      if (o.owner != null) { if (typeof o.owner !== 'string' || !PERSON.test(o.owner)) errors.push('"owner" is a person\'s ID from people.json.'); else b.owner = o.owner; }
+      ['item', 'dest', 'owed'].forEach(function (k) { if (o[k] != null) errors.push('A spread-add has no ' + q(k) + '.'); });
+    } else {
+      if (typeof o.spread !== 'string' || !SP.test(o.spread)) errors.push('"spread" is the spread\'s id (sp-...).'); else b.spread = o.spread;
+      ['loopStep', 'text', 'child', 'scope', 'owner'].forEach(function (k) { if (o[k] != null) errors.push('Only a spread-add has ' + q(k) + '.'); });
+      if (o.op === 'spread-include' || o.op === 'spread-bind') b.item = cleanPair(o.item, errors, '"item"'); else if (o.item != null) errors.push('A stop has no "item".');
+      if (o.op === 'spread-bind') b.dest = cleanDest(o.dest, errors); else if (o.dest != null) errors.push('Only a binding has "dest".');
+      if (o.op === 'spread-stop') b.owed = cleanPairs(o.owed, LIMITS.items, errors, '"owed"'); else if (o.owed != null) errors.push('Only a stop has "owed".');
+    }
+    if (o.op === 'spread-stop') b.reason = line(o.reason, LIMITS.reason, '"reason" (why it stops)', errors);
+    else if (o.reason != null) { var r = line(o.reason, LIMITS.reason, '"reason"', errors); if (r) b.reason = r; }
+    if (o.requester != null) { if (typeof o.requester !== 'string' || !PERSON.test(o.requester)) errors.push('"requester" is the ID from people.json of the person who asks.'); else b.requester = o.requester; }
+    return b;
+  }
 
   /* The operation a request asks for, as a proposal or a compound carries it. op: one of OPS; add has text and a target. */
-  var BODY = ['op', 'todo', 'target', 'placement', 'text', 'owner', 'reason', 'origin', 'to', 'requester'];
+  var BODY = ['op', 'todo', 'target', 'placement', 'text', 'owner', 'reason', 'origin', 'to', 'requester', 'spread', 'loopStep', 'child', 'scope', 'item', 'dest', 'owed', 'fulfills'];
   function cleanBody(o, errors, id) {
     var b = { op: o.op };
-    if (OPS.indexOf(o.op) < 0) { errors.push('"op" is one of ' + OPS.join(', ') + ' (one operation per request).'); return null; }
+    if (ALL_OPS.indexOf(o.op) < 0) { errors.push('"op" is one of ' + ALL_OPS.join(', ') + ' (one operation per request).'); return null; }
+    if (isSpreadOp(o.op)) return cleanSpreadBody(o, errors, id);
+    SFIELDS.forEach(function (k) { if (o[k] != null) errors.push('Only a spread request has ' + q(k) + '.'); });
+    if (o.op !== 'add' && o.fulfills != null) errors.push('Only an addition has "fulfills".');
     if (o.op === 'add') {
+      if (o.fulfills != null) b.fulfills = cleanFulfills(o.fulfills, errors);
       if (o.todo != null && o.todo !== todoIdFor(id)) errors.push('"todo" of an addition is the id its request gives it (' + todoIdFor(id) + ').');
       b.todo = todoIdFor(id);
       b.target = cleanTarget(o.target, errors, '"target"');
@@ -174,25 +255,49 @@ PF.todos = (function () {
   }
   /* The effect an application of a proposal records: exactly what changes, checked against the work as it stands. */
   function effectOf(p) {
+    if (isSpreadOp(p.op)) {
+      var s = { op: p.op, spread: p.spread };
+      if (p.op === 'spread-add') { s.loopStep = p.loopStep; s.text = p.text; s.child = p.child; s.scope = p.scope; if (p.owner) s.owner = p.owner; }
+      if (p.item) s.item = p.item;
+      if (p.dest) s.dest = p.dest;
+      if (p.op === 'spread-stop') s.owed = p.owed;
+      if (p.reason) s.reason = p.reason;
+      return s;
+    }
     var e = { op: p.op, todo: p.todo };
-    if (p.op === 'add') { e.text = p.text; e.target = p.target; e.placement = p.placement; if (p.owner) e.owner = p.owner; if (p.reason) e.reason = p.reason; if (p.origin) e.origin = p.origin; }
+    if (p.op === 'add') { e.text = p.text; e.target = p.target; e.placement = p.placement; if (p.owner) e.owner = p.owner; if (p.reason) e.reason = p.reason; if (p.origin) e.origin = p.origin; if (p.fulfills) e.fulfills = p.fulfills; }
     if (p.op === 'wont' || ((p.op === 'reopen' || p.op === 'done' || p.op === 'move') && p.reason)) e.reason = p.reason;
     if (p.op === 'move') e.to = p.to;
     return e;
   }
   /* The fields an effect of each op may have; any other is refused, never dropped (so a fingerprint is checked on exactly
      what the file says). Every field is type-checked before it is used. */
-  var EFIELDS = { add: ['op', 'todo', 'text', 'target', 'placement', 'owner', 'reason', 'origin'], done: ['op', 'todo', 'reason'], reopen: ['op', 'todo', 'reason'], wont: ['op', 'todo', 'reason'], move: ['op', 'todo', 'to', 'reason'] };
+  var EFIELDS = { add: ['op', 'todo', 'text', 'target', 'placement', 'owner', 'reason', 'origin', 'fulfills'],
+    'spread-add': ['op', 'spread', 'loopStep', 'text', 'child', 'scope', 'owner', 'reason'], 'spread-include': ['op', 'spread', 'item', 'reason'], 'spread-bind': ['op', 'spread', 'item', 'dest', 'reason'], 'spread-stop': ['op', 'spread', 'reason', 'owed'], done: ['op', 'todo', 'reason'], reopen: ['op', 'todo', 'reason'], wont: ['op', 'todo', 'reason'], move: ['op', 'todo', 'to', 'reason'] };
   function cleanEffect(e, errors) {
     if (!isMap(e)) { errors.push('"effect" is the change it made.'); return null; }
-    if (typeof e.op !== 'string' || OPS.indexOf(e.op) < 0) { errors.push('"effect" "op" is one of ' + OPS.join(', ') + '.'); return null; }
+    if (typeof e.op !== 'string' || ALL_OPS.indexOf(e.op) < 0) { errors.push('"effect" "op" is one of ' + ALL_OPS.join(', ') + '.'); return null; }
     var n0 = errors.length;
     only(e, EFIELDS[e.op], '"effect" of ' + e.op, errors);
     if (errors.length > n0) return null;
     var out = { op: e.op };
+    if (isSpreadOp(e.op)) {
+      if (typeof e.spread !== 'string' || !SP.test(e.spread)) { errors.push('"effect" "spread" is a spread id.'); return null; }
+      out.spread = e.spread;
+      if (e.op === 'spread-add') {
+        if (typeof e.loopStep !== 'string' || !STEP.test(e.loopStep)) errors.push('"effect" "loopStep" is a loop step id.'); else out.loopStep = e.loopStep;
+        out.text = line(e.text, LIMITS.text, '"effect" "text"', errors); out.child = cleanChild(e.child, errors); out.scope = cleanScope(e.scope, errors);
+        if (e.owner != null) { if (typeof e.owner !== 'string' || !PERSON.test(e.owner)) errors.push('"effect" "owner" is a person\'s ID.'); else out.owner = e.owner; }
+      }
+      if (e.op === 'spread-include' || e.op === 'spread-bind') out.item = cleanPair(e.item, errors, '"effect" "item"');
+      if (e.op === 'spread-bind') out.dest = cleanDest(e.dest, errors);
+      if (e.op === 'spread-stop') { out.owed = cleanPairs(e.owed, LIMITS.items, errors, '"effect" "owed"'); out.reason = line(e.reason, LIMITS.reason, '"effect" "reason"', errors); }
+      else if (e.reason != null) { var sr = line(e.reason, LIMITS.reason, '"effect" "reason"', errors); if (sr) out.reason = sr; }
+      return out;
+    }
     if (typeof e.todo !== 'string' || !TD.test(e.todo)) { errors.push('"effect" "todo" is a to-do id.'); return null; }
     out.todo = e.todo;
-    if (e.op === 'add') { out.text = line(e.text, LIMITS.text, '"effect" "text"', errors); out.target = cleanTarget(e.target, errors, '"effect" "target"'); out.placement = cleanPlacement(e.placement, errors); if (e.owner != null) { if (typeof e.owner !== 'string' || !PERSON.test(e.owner)) errors.push('"effect" "owner" is a person\'s ID.'); else out.owner = e.owner; } if (e.origin != null) out.origin = cleanOrigin(e.origin, errors); }
+    if (e.op === 'add') { out.text = line(e.text, LIMITS.text, '"effect" "text"', errors); out.target = cleanTarget(e.target, errors, '"effect" "target"'); out.placement = cleanPlacement(e.placement, errors); if (e.owner != null) { if (typeof e.owner !== 'string' || !PERSON.test(e.owner)) errors.push('"effect" "owner" is a person\'s ID.'); else out.owner = e.owner; } if (e.origin != null) out.origin = cleanOrigin(e.origin, errors); if (e.fulfills != null) { out.fulfills = cleanFulfills(e.fulfills, errors); } }
     if (e.reason != null) { var r = line(e.reason, LIMITS.reason, '"effect" "reason"', errors); if (r) out.reason = r; }
     if (e.op === 'wont' && !out.reason) errors.push('"effect" of a won\'t-do says why.');
     if (e.op === 'move') out.to = cleanTo(e.to, errors);
@@ -216,13 +321,15 @@ PF.todos = (function () {
   function buildProposal(o) {
     var f = head(FORMAT, o.app), b = o.body || {};
     f.kind = o.kind || 'proposal';
-    f.id = o.id || (o.producer ? idFor(o.producer.name, o.key) : '');
+    f.id = o.id || (b.fulfills ? PF.spreads.childRequestId(b.fulfills.spread, b.fulfills.uid, b.fulfills.attempt, o.run) : o.producer ? idFor(o.producer.name, o.key) : '');
     f.run = { process: o.run.process, id: o.run.id };
     f.seen = (o.seen || []).slice().sort();
     if (o.producer) { f.producer = { name: o.producer.name, version: o.producer.version }; f.key = o.key; } else f.by = o.by;
     f.at = o.at;
     BODY.forEach(function (k) { if (b[k] != null) f[k] = b[k]; });
     if (b.op === 'add') f.todo = todoIdFor(f.id);
+    if (b.op === 'spread-add') f.spread = PF.spreads.idFor(f.id);
+    if (o.producer && b.fulfills) f.key = PF.spreads.obligationId(b.fulfills.spread, b.fulfills.uid, b.fulfills.attempt);
     if (f.kind === 'compound') { f.decision = { op: 'accept', by: o.decision.by, consequence: o.decision.consequence }; if (o.decision.reason) f.decision.reason = o.decision.reason; f.application = { previous: o.application.previous || '', effect: o.application.effect, fingerprint: o.application.fingerprint }; }
     return f;
   }
@@ -290,7 +397,13 @@ PF.todos = (function () {
     if (typeof name === 'string' && !requestFile(name, o.id)) return mal('is a to-do record whose name isn\'t its id');
     var r = { id: o.id, kind: o.kind, run: cleanRun(o.run, errors), seen: cleanSeen(o.seen, errors), by: cleanBy(o, errors), at: '' };
     if (typeof o.at !== 'string' || !ISO.test(o.at)) errors.push('"at" is a date and time.'); else r.at = o.at;
-    if (r.by && r.by.tool && o.id !== idFor(r.by.tool, o.key)) errors.push('Its id isn\'t the one its tool and key give.');
+    /* A story's request for a spread is named by its obligation and its exact run, whichever tool or person files it. */
+    var ful = isMap(o.fulfills) && typeof o.fulfills.spread === 'string' && typeof o.fulfills.uid === 'string' && r.run ? o.fulfills : null;
+    if (ful) {
+      if (o.id !== PF.spreads.childRequestId(ful.spread, ful.uid, ful.attempt, r.run)) errors.push('Its id isn\'t the one its spread, item, attempt and run give.');
+      if (r.by && r.by.tool && o.key !== PF.spreads.obligationId(ful.spread, ful.uid, ful.attempt)) errors.push('Its key isn\'t its obligation\'s.');
+      if (isMap(ful.run) && ful.run.process === r.run.process && ful.run.id === r.run.id) errors.push('"fulfills" names this run itself; a spread is on its parent.');
+    } else if (r.by && r.by.tool && o.id !== idFor(r.by.tool, o.key)) errors.push('Its id isn\'t the one its tool and key give.');
     if (o.kind === 'proposal' || o.kind === 'compound') {
       only(o, COMMON.concat(BODY, o.kind === 'compound' ? ['decision', 'application'] : []), 'It', errors);
       var b = cleanBody(o, errors, o.id);
@@ -367,7 +480,7 @@ PF.todos = (function () {
     c.held.forEach(function (h) { heldIds[h.record] = h; });
     mine.forEach(function (x) { if (!byId[x.id] && !heldIds[x.id]) heldIds[x.id] = { record: x.id, missing: [], why: 'after' }; });
     T = { run: { process: r.process, id: r.id }, heads: c.heads, held: c.held.slice(), broken: null, chain: [], todos: [], byTodo: Object.create(null), requests: Object.create(null),
-      order: c.order.map(function (x) { return x.id; }), grants: Object.create(null), unread: [], saw: c.saw, records: c.order, limit: null };
+      order: c.order.map(function (x) { return x.id; }), grants: Object.create(null), unread: [], saw: c.saw, records: c.order, limit: null, spreads: [], bySpread: Object.create(null), bindSlots: Object.create(null) };
     var map = o.map || null;
     /* The chain of landed applications, from living.head back through previous. Any break holds every to-do (fail closed). */
     var headId = r.living && typeof r.living.head === 'string' ? r.living.head : '', chain = [], at = headId, visited = Object.create(null);
@@ -387,10 +500,12 @@ PF.todos = (function () {
       var ap = a.kind === 'compound' ? a.application : a, e = ap.effect, pid = a.kind === 'compound' ? a.id : a.proposal, p = byId[pid], x = T.byTodo[e.todo];
       var why = !p || (p.kind !== 'proposal' && p.kind !== 'compound') ? 'its request ' + pid + ' isn\'t here' : fp(effectOf(p)) !== ap.fingerprint ? 'its effect isn\'t what ' + pid + ' asks for' :
         a.kind === 'application' && !c.saw(a.id, pid) ? 'it didn\'t see its request' : ap.previous && a.kind === 'application' && !c.saw(a.id, ap.previous) ? 'it didn\'t see the application before it' : landed[pid] ? pid + ' was applied twice' :
+        isSpreadOp(e.op) ? spreadReplayWhy(T, e) :
         e.op === 'add' ? (x ? 'it adds ' + e.todo + ' again' : added >= LIMITS.todos ? 'it would add more than ' + LIMITS.todos + ' to-dos' : '') :
         !x ? 'it changes ' + e.todo + ', which was never added' : e.op === 'reopen' ? (x.state === 'open' ? e.todo + ' is already open' : '') : x.state !== 'open' ? e.todo + ' is already ' + STATE_WORDS[x.state].toLowerCase() : '';
       if (why) { T.broken = { why: 'The application ' + a.id + ' can\'t be applied: ' + why + '.', record: a.id }; return true; }
       landed[pid] = a.id;
+      if (isSpreadOp(e.op)) { spreadReplay(T, e, a.id, pid, p); return false; }
       if (e.op === 'add') {
         added++;
         x = { id: e.todo, text: e.text, target: e.target, placement: e.placement, owner: e.owner || '', reason: e.reason || '', origin: e.origin || null, state: 'open', to: null, why: '', added: a.id, request: pid, by: p.by, history: [], disputed: false, reopened: 0 };
@@ -402,7 +517,7 @@ PF.todos = (function () {
       x.history.push({ op: e.op, application: a.id, request: pid });
       return false;
     });
-    if (T.broken) { T.todos = []; T.byTodo = Object.create(null); landed = Object.create(null); added = 0; }
+    if (T.broken) { T.todos = []; T.byTodo = Object.create(null); T.spreads = []; T.bySpread = Object.create(null); landed = Object.create(null); added = 0; }
     else T.chain = chain.map(function (a) { return a.id; });
     T.added = added;
     /* Decisions and applications per request, settled causally: contrary ones made at once are disputed until a record that
@@ -410,8 +525,8 @@ PF.todos = (function () {
     var reqs = T.requests, rv = function (x) { return x; };
     c.order.forEach(function (x) {
       if (x.kind === 'proposal' || x.kind === 'compound') {
-        reqs[x.id] = { id: x.id, kind: x.kind, op: x.op, todo: x.todo, target: x.target || null, placement: x.placement || null, text: x.text || '', to: x.to || null, reason: x.reason || '', owner: x.owner || '', origin: x.origin || null, by: x.by, requester: x.requester || '', at: x.at,
-          status: '', why: '', landed: landed[x.id] || '', candidates: [], decisions: [], dec: null, decReview: [], rawReview: [], app: null, appReview: [], ignored: [], disputedIds: [] };
+        reqs[x.id] = reqOf(x, landed[x.id] || '');
+        if (x.op === 'spread-bind' && x.item && x.dest) bindSettle(c, T, reqs[x.id], x);
         /* A compound's decision counts only as a separate decision would (o.may); otherwise it is ignored, with why, and the
            request waits like any other. */
         if (x.kind === 'compound') {
@@ -465,8 +580,13 @@ PF.todos = (function () {
     /* A request this copy can't read in order is still listed, held, with what it says. */
     mine.forEach(function (x) {
       if ((x.kind !== 'proposal' && x.kind !== 'compound') || reqs[x.id]) return;
-      reqs[x.id] = { id: x.id, kind: x.kind, op: x.op, todo: x.todo, target: x.target || null, placement: x.placement || null, text: x.text || '', to: x.to || null, reason: x.reason || '', owner: x.owner || '', origin: x.origin || null, by: x.by, requester: x.requester || '', at: x.at,
-        status: '', why: '', landed: '', candidates: [], decisions: [], dec: null, decReview: [], rawReview: [], app: null, appReview: [], ignored: [], disputedIds: [], unordered: true };
+      reqs[x.id] = reqOf(x, ''); reqs[x.id].unordered = true;
+    });
+    /* A binding decided two ways at once leaves the item's coverage disputed until a binding that saw them all. */
+    Object.keys(T.bindSlots).forEach(function (bk) {
+      var sl = T.bindSlots[bk], sp = T.bySpread[sl.spread], n = (sl.bindOut || []).length;
+      if (!sp || !n) return;
+      sp.binds[sl.pair] = Object.assign({}, sp.binds[sl.pair] || {}, { disputed: true, why: n > LIMITS.seen ? n + ' bindings of it were made at once, more than one record can settle (' + LIMITS.seen + '). Settle these ' + LIMITS.seen + ' first, then the rest.' : (sl.bindReview[0] || { why: 'Two bindings were made at once.' }).why });
     });
     Object.keys(reqs).forEach(function (id) { statusOf(T, reqs[id], o, map, heldIds); });
     /* Work is disputed while any request on it is, and while any decision or application on it is unsettled, whatever the
@@ -474,6 +594,60 @@ PF.todos = (function () {
        a record that saw them all settles it. */
     T.todos.forEach(function (x) { x.requests = Object.keys(reqs).filter(function (id) { return reqs[id].todo === x.id; }); x.disputed = x.requests.some(function (id) { var q1 = reqs[id]; return q1.status === 'disputed' || (q1.decOut || []).length > 0 || (q1.appOut || []).length > 0; }); });
     return T;
+  }
+  /* A request as the reducer keeps it: what it asks, and slots for its decisions and applications. */
+  function reqOf(x, landedAs) {
+    return { id: x.id, kind: x.kind, op: x.op, todo: x.todo, target: x.target || null, placement: x.placement || null, text: x.text || '', to: x.to || null, reason: x.reason || '', owner: x.owner || '', origin: x.origin || null, by: x.by, requester: x.requester || '', at: x.at,
+      spread: x.spread || '', loopStep: x.loopStep || '', child: x.child || null, scope: x.scope || null, item: x.item || null, dest: x.dest || null, owed: x.owed || null, fulfills: x.fulfills || null,
+      status: '', why: '', landed: landedAs, candidates: [], decisions: [], dec: null, decReview: [], rawReview: [], app: null, appReview: [], ignored: [], disputedIds: [] };
+  }
+  /* ---- Spreads in the chain (4.0 slice 3): each landed spread operation, checked against the spreads as they stood. ---- */
+  function spreadReplayWhy(T, e) {
+    var s = T.bySpread[e.spread];
+    if (e.op === 'spread-add') return s ? 'it adds spread ' + e.spread + ' again' : T.spreads.length >= LIMITS.spreads ? 'it would add more than ' + LIMITS.spreads + ' spreads' : '';
+    if (!s) return 'it changes spread ' + e.spread + ', which was never added';
+    if (e.op === 'spread-stop') return s.state === 'stopped' ? 'spread ' + e.spread + ' is already stopped' : '';
+    if (e.op === 'spread-include') return s.state === 'stopped' ? 'spread ' + e.spread + ' is stopped' : !hasPair(s.scope.cleared, e.item) ? 'it includes ' + e.item.uid + ', which wasn\'t cleared when the spread was added' : hasPair(s.included, e.item) ? e.item.uid + ' is already included' : '';
+    return '';
+  }
+  function spreadReplay(T, e, appId, pid, p) {
+    var s = T.bySpread[e.spread];
+    if (e.op === 'spread-add') {
+      s = { id: e.spread, text: e.text, loopStep: e.loopStep, child: e.child, scope: e.scope, owner: e.owner || '', reason: e.reason || '', state: 'active', stop: null, included: [], binds: Object.create(null), added: appId, request: pid, by: p.by, history: [] };
+      T.bySpread[s.id] = s; T.spreads.push(s);
+    } else if (e.op === 'spread-include') s.included.push({ uid: e.item.uid, attempt: e.item.attempt, application: appId });
+    else if (e.op === 'spread-bind') s.binds[e.item.uid + '#' + e.item.attempt] = { run: e.dest.process + '/' + e.dest.id, application: appId };
+    else { s.state = 'stopped'; s.stop = { reason: e.reason, owed: e.owed, application: appId }; }
+    s.history.push({ op: e.op, application: appId, request: pid });
+  }
+  /* Bindings of one item's attempt settle causally, like every decision (PF.loop.settleIn): two made at once that disagree hold
+     its coverage until one that saw them all, a page of LIMITS.seen at a time. */
+  function bindSettle(c, T, q1, x) {
+    var pk = x.item.uid + '#' + x.item.attempt, bk = x.spread + '\n' + pk, sl = T.bindSlots[bk] || (T.bindSlots[bk] = { spread: x.spread, pair: pk, reqs: [] });
+    sl.reqs.push(x.id); q1.bindSlot = bk;
+    PF.loop.settleIn(c, sl, 'bind', 'bindReview', x, { op: 'bind', dest: x.dest.process + '/' + x.dest.id }, function (a, b) { return a.dest === b.dest; },
+      { both: function (a, b) { return 'Two bindings were made at once: ' + a.dest + ' and ' + b.dest + '.'; }, again: 'Bound again without seeing both earlier bindings.' });
+  }
+  /* Where a loop step is in a run's checklist, or why it can't take a spread. */
+  function loopWhy(map, step) {
+    var x = map && typeof step === 'string' ? PF.map.findStep(map, step) : null;
+    if (!x) return 'step ' + step + ' isn\'t in this run\'s checklist';
+    return x.step.type === 'for.each' ? '' : step + ' isn\'t a loop step';
+  }
+  /* A story's request names its spread on the parent run: an explicit, checked dependency. It holds while any of the parent's
+     to-do records can't be read, when the spread isn't added there, or when it doesn't ask what the spread asks. */
+  function fulfillsWhy(q, deps) {
+    var f = q.fulfills, pr = f.run.process + '/' + f.run.id, mineRun = function (x) { return x && x.run && x.run.process === f.run.process && x.run.id === f.run.id; };
+    if ((deps.unread || []).some(function (u) { return u && (!u.run || mineRun(u)); })) return 'It fulfils a spread on ' + pr + ', whose to-do records can\'t all be read here.';
+    var e = null;
+    (deps.records || []).forEach(function (x) {
+      if (e || !mineRun(x)) return;
+      var ef = x.kind === 'application' ? x.effect : x.kind === 'compound' && x.application ? x.application.effect : null;
+      if (ef && ef.op === 'spread-add' && ef.spread === f.spread) e = ef;
+    });
+    if (!e) return 'It fulfils spread ' + f.spread + ' on ' + pr + ', which isn\'t added there.';
+    if (e.text !== q.text || !q.placement || e.child.beforeGate !== q.placement.beforeGate) return 'It doesn\'t ask what spread ' + f.spread + ' on ' + pr + ' asks for.';
+    return '';
   }
   /* A request's status, in this order: what landed first (an application the head reaches is Applied, whatever authority says
      now), then anything that holds it, then a dispute, a decline, authority (Queued), and otherwise Waiting. */
@@ -486,9 +660,27 @@ PF.todos = (function () {
     if (heldIds[q.id]) return set('held', 'It refers to a record this computer can\'t read yet.');
     if (o.ended) return set('held', 'The run has ended; this is kept as a notice and changes nothing.');
     var x = q.todo ? T.byTodo[q.todo] : null;
-    if (q.op === 'add') {
+    if (isSpreadOp(q.op)) {
+      var sp = T.bySpread[q.spread];
+      if (q.op === 'spread-add') {
+        var lw = map ? loopWhy(map, q.loopStep) : 'its checklist can\'t be read';
+        if (lw) return set('held', 'It needs placement: ' + lw + '.');
+        if (T.spreads.length >= LIMITS.spreads) return set('held', 'This run has ' + LIMITS.spreads + ' spreads, the most it takes. Nothing was cut.');
+      } else if (!sp) return set('held', 'It names spread ' + q.spread + ', which hasn\'t been added to this run' + (Object.keys(T.requests).some(function (id) { return T.requests[id].spread === q.spread && T.requests[id].op === 'spread-add'; }) ? ' yet' : '') + '.');
+      else if (q.op === 'spread-stop' && sp.state === 'stopped') return set('held', 'It no longer fits: the spread is stopped already.');
+      else if (q.op === 'spread-include') {
+        if (sp.state === 'stopped') return set('held', 'It no longer fits: the spread is stopped.');
+        if (!hasPair(sp.scope.cleared, q.item)) return set('held', 'It no longer fits: ' + q.item.uid + ' wasn\'t cleared when the spread was added, so it owes it already.');
+        if (hasPair(sp.included, q.item)) return set('held', 'It no longer fits: ' + q.item.uid + ' is included already.');
+      } else if (q.op === 'spread-bind') {
+        var sl = T.bindSlots[q.bindSlot];
+        if (sl && sl.reqs.some(function (id) { return id !== q.id && T.saw(id, q.id); })) return set('held', 'A later binding of this item replaced it.');
+        if (sl && (sl.bindOut || []).indexOf(q.id) >= 0) return set('disputed', sp.binds[sl.pair] && sp.binds[sl.pair].why || 'Two bindings were made at once.');
+      }
+    } else if (q.op === 'add') {
       var pw = map ? placementWhy(map, q.target, q.placement) : 'its checklist can\'t be read';
       if (pw) return set('held', 'It needs placement: ' + pw + '.');
+      if (q.fulfills) { var dw = o.depWhy ? o.depWhy(q) : 'It fulfils a spread this computer can\'t check here.'; if (dw) return set('held', dw); }
       if (T.added >= LIMITS.todos) return set('held', 'This run has had ' + LIMITS.todos + ' to-dos added, the most it takes. Nothing was cut.');
     } else if (!x) return set('held', 'It names ' + q.todo + ', which hasn\'t been added to this run' + (q.todo && Object.keys(T.requests).some(function (id) { return T.requests[id].todo === q.todo && T.requests[id].op === 'add'; }) ? ' yet' : '') + '.');
     else if (q.op === 'reopen' ? x.state === 'open' : x.state !== 'open') return set('held', 'It no longer fits: ' + x.id + ' is ' + STATE_WORDS[x.state].toLowerCase() + ' now.');
@@ -555,6 +747,17 @@ PF.todos = (function () {
      loop) and whether it releases work (Won't do, Moved). Its fingerprint is what a decision accepts; a different one later
      needs consent again. */
   function consequenceOf(r, map, q, T) {
+    if (isSpreadOp(q.op)) {
+      /* A spread's operations reopen the loop's approval and its phase's gate (adding, including or binding owes work there);
+         stopping one releases work. The consent covers the whole request, its scope snapshot and child gate included. */
+      var sp = T && T.bySpread ? T.bySpread[q.spread] : null, ls = q.op === 'spread-add' ? q.loopStep : sp ? sp.loopStep : '', st = ls ? { step: ls } : null, ro = [];
+      if (q.op !== 'spread-stop' && st && map && !loopWhy(map, ls)) {
+        var SP0 = placeOf(map, st), g0 = r.gates && own(r.gates, SP0.gate) ? r.gates[SP0.gate] : null, a0 = r.steps && own(r.steps, ls) ? r.steps[ls] : null;
+        if (g0 && (g0.s === 'passed' || g0.s === 'waived')) ro.push('gate:' + SP0.gate);
+        if (a0 && a0.s === 'done' && a0.loop) ro.push('loop:' + ls);
+      }
+      return { reopens: ro, releases: q.op === 'spread-stop', fingerprint: fp([q.op, q.spread || '', targetKey(st), ro, q.op === 'spread-stop', fp(effectOf(q))]) };
+    }
     var x = q.todo && T ? T.byTodo[q.todo] : null, t = q.op === 'add' ? q.target : x ? x.target : null, reopens = [], releases = q.op === 'wont' || q.op === 'move';
     if ((q.op === 'add' || q.op === 'reopen') && t && map) {
       var P = placeOf(map, t);
@@ -578,7 +781,7 @@ PF.todos = (function () {
         /* Additions a grant already landed count toward its limit, whoever applies next. */
         use = Object.create(null);
         var byId = Object.create(null); T.records.forEach(function (y) { byId[y.id] = y; });
-        T.chain.forEach(function (id) { var a = byId[id], ap = a && (a.kind === 'compound' ? a.application : a); if (ap && ap.effect.op === 'add' && ap.authority && ap.authority.grant) use[ap.authority.grant] = (use[ap.authority.grant] || 0) + 1; });
+        T.chain.forEach(function (id) { var a = byId[id], ap = a && (a.kind === 'compound' ? a.application : a); if (ap && (ap.effect.op === 'add' || ap.effect.op === 'spread-add') && ap.authority && ap.authority.grant) use[ap.authority.grant] = (use[ap.authority.grant] || 0) + 1; });
       }
       var C = consequenceOf(r, map, q, T), human = C.releases || C.reopens.length > 0, d = q.dec;
       if (d && d.op === 'accept' && !d.contrary) {
@@ -587,17 +790,19 @@ PF.todos = (function () {
       }
       var wordsWhy = C.releases ? 'It releases work, so a person approves it.' : C.reopens.length ? 'It reopens an approval, so a person approves it.' : 'It waits for a person\'s approval or a delegation that covers it.';
       if (human) return { ok: false, why: wordsWhy };
-      var x = q.todo ? T.byTodo[q.todo] : null, tk = targetKey(q.op === 'add' ? q.target : x ? x.target : null), sub = q.by || {};
+      /* A delegation to add on a loop step covers asking for, including and binding a spread there (never stopping one). */
+      var x = q.todo ? T.byTodo[q.todo] : null, sp = isSpreadOp(q.op) ? T.bySpread[q.spread] : null, gop = isSpreadOp(q.op) ? 'add' : q.op, adds = q.op === 'add' || q.op === 'spread-add';
+      var tk = isSpreadOp(q.op) ? targetKey({ step: q.op === 'spread-add' ? q.loopStep : sp ? sp.loopStep : '' }) : targetKey(q.op === 'add' ? q.target : x ? x.target : null), sub = q.by || {};
       /* A delegate who is a person must be in people.json and active now for a delegation to cover what they ask. */
       var gone = sub.person ? activeWhy(sub.person, people) : '';
       if (gone) return { ok: false, why: gone + ', so no delegation covers what they ask; it waits for a person\'s approval.' };
       var gs = Object.keys(T.grants).map(function (id) { return T.grants[id]; }).filter(function (g) {
-        return (g.subject.tool ? g.subject.tool === sub.tool : g.subject.person === sub.person) && g.ops.indexOf(q.op) >= 0 && g.targets.some(function (t) { return targetKey(t) === tk; });
+        return (g.subject.tool ? g.subject.tool === sub.tool : g.subject.person === sub.person) && g.ops.indexOf(gop) >= 0 && g.targets.some(function (t) { return targetKey(t) === tk; });
       });
       var live = gs.filter(function (g) { return g.active && T.saw(q.id, g.id); });
       for (var i = 0; i < live.length; i++) {
         var g = live[i];
-        if (q.op === 'add') { var n = use[g.id] || 0; if (n >= g.limits.adds) continue; use[g.id] = n + 1; }
+        if (adds) { var n = use[g.id] || 0; if (n >= g.limits.adds) continue; use[g.id] = n + 1; }
         return { ok: true, via: { grant: g.id }, why: '' };
       }
       if (gs.length) return { ok: false, why: gs.some(function (g) { return g.revoked.length; }) ? 'The delegation that covered it was revoked, so it waits for a person\'s approval.' : gs.some(function (g) { return !g.active; }) ? 'The delegation that would cover it wasn\'t given by someone who may: ' + gs[0].why + '.' : gs.some(function (g) { return !T.saw(q.id, g.id); }) ? 'It was made without seeing the delegation that would cover it.' : 'Its delegation\'s limit of ' + gs[0].limits.adds + ' additions is used up.' };
@@ -608,7 +813,9 @@ PF.todos = (function () {
   function view(r, o) {
     o = o || {};
     var map = null; try { map = PF.run.mapOf(r); } catch (e) { map = null; }
-    var T = reduce(o.records || [], r, { map: map, ended: !!r.ended, may: mayFor(r, o.people), authority: authorityFor(r, map, o.people) });
+    /* deps: every to-do record and unread file read, for what a story's request depends on (its spread, on the parent run). */
+    var deps = o.deps || { records: o.records || [], unread: o.unread || [] };
+    var T = reduce(o.records || [], r, { map: map, ended: !!r.ended, may: mayFor(r, o.people), authority: authorityFor(r, map, o.people), depWhy: function (q) { return fulfillsWhy(q, deps); } });
     T.map = map;
     (o.unread || []).forEach(function (u) { if (!u.run || (u.run.process === r.process && u.run.id === r.id)) T.unread.push(u); });
     return T;
@@ -617,7 +824,7 @@ PF.todos = (function () {
      scope: { gate, loop } }. all holds every gate (a chain that can't be trusted, a record that can't be read); an open or
      disputed to-do holds its phase's gate, or its loop's approval for an item's work. stale: an approval made before work
      in its scope was added or reopened, or before a dispute on it, by identity (the records its snapshot didn't include). */
-  function holds(T, r) {
+  function holds(T, r, cov) {
     var H = { all: [], phases: Object.create(null), loops: Object.create(null), stale: { gate: Object.create(null), loop: Object.create(null) }, scope: { gate: Object.create(null), loop: Object.create(null) }, open: 0 };
     var map = T.map, push = function (o, k, why) { (o[k] = o[k] || []).push(why); };
     if (r.ended) return H;
@@ -658,6 +865,24 @@ PF.todos = (function () {
       if (!t) return;
       (q.disputedIds || []).forEach(function (pid) { addScope(t, pid); });
     });
+    /* Spreads (4.0 slice 3): every unresolved obligation holds its loop's approval (and so its phase's gate); coverage that
+       can't be worked out here holds too. Their records, and the stories' to-do records coverage counted, are in the scope an
+       approval must have counted, so an approval made before them stays in review. */
+    if (T.spreads.length) {
+      var putLoop = function (step, id) {
+        if (loopWhy(map, step)) return;
+        var P = placeOf(map, { step: step }), put = function (o, k) { (o[k] = o[k] || []).indexOf(id) < 0 && o[k].push(id); };
+        put(H.scope.loop, step); put(H.scope.gate, P.gate);
+      };
+      var covOf = Object.create(null); ((cov && cov.spreads) || []).forEach(function (C) { covOf[C.id] = C; });
+      T.spreads.forEach(function (sp) {
+        var lw = loopWhy(map, sp.loopStep), C = covOf[sp.id], whys = C ? C.unresolved : ['Spread "' + sp.text + '": its coverage can\'t be checked here, so approval waits.'];
+        whys.forEach(function (why) { if (lw) H.all.push(why + ' (' + lw + ')'); else push(H.loops, sp.loopStep, why); });
+        sp.history.forEach(function (h) { putLoop(sp.loopStep, h.application); });
+        (C && C.scope || []).forEach(function (id) { putLoop(sp.loopStep, id); });
+      });
+      requestsOf(T).forEach(function (q) { var sp = isSpreadOp(q.op) && (T.bySpread[q.spread] || (q.op === 'spread-add' ? { loopStep: q.loopStep } : null)); if (sp) (q.disputedIds || []).forEach(function (pid) { putLoop(sp.loopStep, pid); }); });
+    }
     if (!r.living) return H;
     var said = function (ids, cut) { var have = Object.create(null); (cut || []).forEach(function (c) { have[c] = true; }); return ids.filter(function (i) { return !have[i]; }); };
     map.phases.forEach(function (p) {
@@ -682,7 +907,9 @@ PF.todos = (function () {
       if (!r || !r.steps || r._unrunnable) return;
       var mine = recordsFor(o.records, r), un = (o.unread || []).filter(function (u) { return u.run ? u.run.process === r.process && u.run.id === r.id : !!r.living; });
       if (!mine.length && !r.living && !un.length) { delete r._todos; return; }
-      r._todos = holds(view(r, { records: mine, unread: un, people: o.people }), r);
+      var T = view(r, { records: mine, unread: un, people: o.people, deps: { records: o.records || [], unread: o.unread || [] } });
+      var cov = T.spreads.length ? PF.spreads.coverage(r, T, { runs: runs, records: o.records || [], unread: o.unread || [], people: o.people, loops: o.loops }) : null;
+      r._todos = holds(T, r, cov);
     });
   }
   /* What an approval records (a gate's or a loop's): the records in its scope it counted, so later ones are known by identity. */
@@ -786,10 +1013,14 @@ PF.todos = (function () {
     if (r._unrunnable) return { why: 'This run can only be read here.' };
     /* Any authority input that couldn't be read vouches for no one: while people.json is unread, nobody asks as a decider. */
     var people = peopleOf(o);
-    var b = o.body || {}, by = o.by || {}, T = view(r, { records: o.records, unread: o.unread, people: people });
-    if (OPS.indexOf(b.op) < 0) return { why: 'Say what to do: add, done, wont, move or reopen.' };
-    var body = { op: b.op }, x = null;
-    if (b.op === 'add') {
+    var b = o.body || {}, by = o.by || {}, T = view(r, { records: o.records, unread: o.unread, people: people, deps: depsOf(o) });
+    if (ALL_OPS.indexOf(b.op) < 0) return { why: 'Say what to do: add, done, wont, move or reopen (or, for a spread, spread-add, spread-include, spread-bind or spread-stop).' };
+    var body = { op: b.op }, x = null, ful = null, slotFront = [];
+    if (isSpreadOp(b.op)) {
+      var sp = prepSpread(r, map, T, b, o);
+      if (sp.why) return sp;
+      body = sp.body; slotFront = sp.front || [];
+    } else if (b.op === 'add') {
       if (typeof b.text !== 'string' || !b.text.trim()) return { why: 'Say what needs doing.' };
       if (b.text.trim().length > LIMITS.text) return { why: 'A to-do is at most ' + LIMITS.text + ' characters (this is ' + b.text.trim().length + ').' };
       var tgt = b.target || null, P = tgt ? placeOf(map, tgt) : { why: 'Say where it goes: a phase, a step or a loop item.' };
@@ -798,6 +1029,14 @@ PF.todos = (function () {
       if (b.owner) body.owner = b.owner;
       if (b.reason) body.reason = String(b.reason).trim();
       if (T.todos.length >= LIMITS.todos) return { why: 'This run already has ' + LIMITS.todos + ' to-dos, the most a run takes.' };
+      /* A story's request for a spread on its parent: named by its obligation and this run, whoever files it. */
+      if (b.fulfills != null) {
+        var fe = []; ful = cleanFulfills(b.fulfills, fe);
+        if (!ful) return { why: 'What it fulfils is {"run", "spread", "uid", "attempt"}: ' + fe[0] };
+        if (ful.run.process === r.process && ful.run.id === r.id) return { why: 'A spread is on the parent run, never on this one.' };
+        if (!r.parent || !r.parent.item || r.parent.process !== ful.run.process || r.parent.id !== ful.run.id || r.parent.item.uid !== ful.uid || (+r.parent.item.attempt || 1) !== ful.attempt) return { why: 'This run isn\'t ' + ful.uid + '\'s attempt ' + ful.attempt + ' in ' + ful.run.process + '/' + ful.run.id + '.' };
+        body.fulfills = ful;
+      }
     } else {
       x = typeof b.todo === 'string' ? T.byTodo[b.todo] : null;
       if (!x) return { why: 'That to-do isn\'t in this run' + (T.broken || T.unread.length || T.held.length ? ' as this computer can read it now' : '') + '.' };
@@ -824,24 +1063,75 @@ PF.todos = (function () {
       if (aw) return { why: aw + '.' };
       body.requester = b.requester;
     }
-    if (tool && !KEY.test(String(by.key || ''))) return { why: 'A tool\'s request needs its retry key (--key): letters, digits, . _ : -, at most 120.' };
-    if (!tool && !KEY.test(String(o.key || ''))) return { why: 'A request needs its retry key.' };
-    var id = tool ? idFor(tool.name, by.key) : idFor('flightdeck', o.key), head = r.living && typeof r.living.head === 'string' ? r.living.head : '';
+    if (!ful && tool && !KEY.test(String(by.key || ''))) return { why: 'A tool\'s request needs its retry key (--key): letters, digits, . _ : -, at most 120.' };
+    if (!ful && !tool && !KEY.test(String(o.key || ''))) return { why: 'A request needs its retry key.' };
+    var id = ful ? PF.spreads.childRequestId(ful.spread, ful.uid, ful.attempt, { process: r.process, id: r.id }) : tool ? idFor(tool.name, by.key) : idFor('flightdeck', o.key), head = r.living && typeof r.living.head === 'string' ? r.living.head : '';
+    var tkey = ful ? PF.spreads.obligationId(ful.spread, ful.uid, ful.attempt) : by.key;
     var must = []; if (head) must.push(head);
     Object.keys(T.grants).forEach(function (g) { if (T.grants[g].active) must.push(g); });
-    var seen = seenFor(T, must, [], []).seen, decider = !tool && !personWhy(r, person, people), full = Object.assign({ todo: b.op === 'add' ? todoIdFor(id) : x.id }, body);
+    /* A binding first names every outstanding binding of the same item it settles (a page of LIMITS.seen at a time). */
+    var seen = seenFor(T, slotFront.length ? slotFront.concat(must) : must, [], []).seen, decider = !tool && !personWhy(r, person, people);
+    var full = isSpreadOp(b.op) ? Object.assign(b.op === 'spread-add' ? { spread: PF.spreads.idFor(id) } : {}, body) : Object.assign({ todo: b.op === 'add' ? todoIdFor(id) : x.id }, body);
     var C = consequenceOf(r, map, full, T), f;
     if (decider) {
       var eff = effectOf(full);
       f = buildProposal({ kind: 'compound', run: { process: r.process, id: r.id }, id: id, by: person, seen: seen, at: o.at, app: o.app, body: body, decision: { by: person, consequence: C.fingerprint }, application: { previous: head, effect: eff, fingerprint: fp(eff) } });
-    } else f = buildProposal(tool ? { run: { process: r.process, id: r.id }, producer: tool, key: by.key, seen: seen, at: o.at, app: o.app, body: body } : { run: { process: r.process, id: r.id }, id: id, by: person, seen: seen, at: o.at, app: o.app, body: body });
+    } else f = buildProposal(tool ? { run: { process: r.process, id: r.id }, producer: tool, key: tkey, seen: seen, at: o.at, app: o.app, body: body } : { run: { process: r.process, id: r.id }, id: id, by: person, seen: seen, at: o.at, app: o.app, body: body });
     var name = f.id + '.json', fd = filed(name, f);
     if (fd.why) return { why: fd.why };
     /* The request as every window would read it next, with this one in the folder: its status is the preview's. */
-    var V2 = view(r, { records: (o.records || []).concat([fd.record]), unread: o.unread, people: people }), q = V2.requests[f.id] || { status: 'held', why: 'It can\'t be read in order.' };
-    var placement = b.op === 'add' ? body.placement : x.placement, gate = placement ? gateTitle(map, placement.beforeGate) : '', rec = r.recorder && r.recorder.person || '';
+    var dp = depsOf(o), V2 = view(r, { records: (o.records || []).concat([fd.record]), unread: o.unread, people: people, deps: { records: (dp.records || []).concat([fd.record]), unread: dp.unread } }), q = V2.requests[f.id] || { status: 'held', why: 'It can\'t be read in order.' };
+    var placement = b.op === 'add' ? body.placement : x ? x.placement : null, gate = placement ? gateTitle(map, placement.beforeGate) : '', rec = r.recorder && r.recorder.person || '';
     return { id: f.id, name: name, file: f, kind: f.kind, record: fd.record,
-      preview: { op: b.op, todo: full.todo, placement: placement || null, gate: gate, consequence: { reopens: C.reopens.slice(), releases: C.releases }, status: q.status, why: q.why || '', recorder: rec, words: whatWords(map, full, x, C) + ' ' + thenWords(r, q) } };
+      preview: { op: b.op, todo: full.todo || null, spread: full.spread || null, placement: placement || null, gate: gate, consequence: { reopens: C.reopens.slice(), releases: C.releases }, status: q.status, why: q.why || '', recorder: rec, words: whatWords(map, full, x, C, T) + ' ' + thenWords(r, q) } };
+  }
+  /* A spread operation as asked (prepare): the body it files, or why it can't be asked. o.childMap: the checklist the loop's
+     items run (spread-add checks its gate there); a stop names the obligations it keeps (o.body.owed, from coverage). */
+  function prepSpread(r, map, T, b, o) {
+    var body = { op: b.op }, sp = null;
+    if (b.op === 'spread-add') {
+      var lw = loopWhy(map, b.loopStep);
+      if (lw) return { why: 'It can\'t be placed: ' + lw + '.' };
+      if (typeof b.text !== 'string' || !b.text.trim()) return { why: 'Say what every item needs.' };
+      if (b.text.trim().length > LIMITS.text) return { why: 'A requirement is at most ' + LIMITS.text + ' characters (this is ' + b.text.trim().length + ').' };
+      if (T.spreads.length >= LIMITS.spreads) return { why: 'This run already has ' + LIMITS.spreads + ' spreads, the most a run takes. Nothing was cut.' };
+      var gate = b.child && typeof b.child.beforeGate === 'string' ? b.child.beforeGate : '';
+      if (!gate) return { why: 'Say which gate of the items\' checklist it comes before.' };
+      if (!o.childMap) return { why: 'The checklist the loop\'s items run can\'t be read here, so where the requirement goes can\'t be checked.' };
+      if (!PF.spreads.phaseOfGate(o.childMap, gate)) return { why: 'The items\' checklist has no gate ' + gate + '.' };
+      var se = [], sc = cleanScope(b.scope, se);
+      if (!sc) return { why: /most/.test(se[0] || '') ? se[0] + ' Nothing was cut.' : 'The scope it covers can\'t be read: ' + (se[0] || 'none given') };
+      body.loopStep = b.loopStep; body.text = b.text.trim(); body.child = { beforeGate: gate }; body.scope = sc;
+      if (b.owner) body.owner = b.owner;
+      if (b.reason) body.reason = String(b.reason).trim();
+      return { body: body };
+    }
+    sp = typeof b.spread === 'string' ? T.bySpread[b.spread] : null;
+    if (!sp) return { why: 'That spread isn\'t on this run' + (T.broken || T.unread.length || T.held.length ? ' as this computer can read it now' : '') + '.' };
+    body.spread = sp.id;
+    var ie = [], it = b.op === 'spread-stop' ? null : cleanPair(b.item, ie, 'The item');
+    if (b.op !== 'spread-stop' && !it) return { why: 'Say which item and attempt.' };
+    if (b.op === 'spread-include') {
+      if (sp.state === 'stopped') return { why: 'The spread is stopped, so it takes no more items.' };
+      if (!hasPair(sp.scope.cleared, it)) return { why: it.uid + ' (attempt ' + it.attempt + ') wasn\'t cleared when the spread was added, so it owes it already.' };
+      if (hasPair(sp.included, it)) return { why: it.uid + ' is included already.' };
+      body.item = it;
+    } else if (b.op === 'spread-bind') {
+      var de = [], dest = cleanDest(b.dest, de);
+      if (!dest) return { why: 'Say which run covers it, as <process>/<run id>.' };
+      body.item = it; body.dest = dest;
+      var sl = T.bindSlots[sp.id + '\n' + it.uid + '#' + it.attempt];
+      if (b.reason) body.reason = String(b.reason).trim();
+      return { body: body, front: sl ? (sl.bindFront || []).slice().sort(cmpStr) : [] };
+    } else {
+      if (sp.state === 'stopped') return { why: 'The spread is stopped already.' };
+      if (!(typeof b.reason === 'string' && b.reason.trim())) return { why: 'Say why it stops.' };
+      var oe = [], owed = cleanPairs(b.owed || [], LIMITS.items, oe, 'What it is owed on');
+      if (!owed) return { why: oe[0] + ' Nothing was cut.' };
+      body.owed = owed;
+    }
+    if (b.reason != null && String(b.reason).trim()) body.reason = String(b.reason).trim();
+    return { body: body };
   }
   /* A retry under the same key (4.0, flightdeck todo): which of what was asked differs from the request already filed under it,
      judged on the ask itself (never on the run's state now), so the same ask says already, even once it has been applied. */
@@ -850,7 +1140,11 @@ PF.todos = (function () {
     if (!rec || ['proposal', 'compound'].indexOf(rec.kind) < 0) return ['kind'];
     if (!rec.run || rec.run.process !== r.process || rec.run.id !== r.id) d.push('run');
     if (rec.op !== b.op) d.push('op');
-    if (b.op === 'add') {
+    if (isSpreadOp(b.op)) {
+      ['spread', 'loopStep', 'text', 'owner'].forEach(function (k) { if (str(rec[k]) !== str(b[k])) d.push(k); });
+      ['child', 'scope', 'item', 'dest', 'owed'].forEach(function (k) { if (js(canon(rec[k])) !== js(canon(b[k]))) d.push(k); });
+    } else if (b.op === 'add') {
+      if (js(canon(rec.fulfills)) !== js(canon(b.fulfills))) d.push('fulfills');
       if (str(rec.text) !== str(b.text)) d.push('text');
       if (js(rec.target) !== js(b.target)) d.push('target');
       if (str(rec.owner) !== str(b.owner)) d.push('owner');
@@ -863,10 +1157,22 @@ PF.todos = (function () {
     return d;
   }
   /* What a request would do, in words: the operation, the gate it comes before, and what it releases or sends back for review. */
-  function whatWords(map, q, x, C) {
+  function whatWords(map, q, x, C, T) {
+    if (isSpreadOp(q.op)) return spreadWords(map, q, C, T) + (C.releases ? ' This releases work.' : '') + (C.reopens.length ? ' This sends ' + C.reopens.length + ' approval' + (C.reopens.length === 1 ? '' : 's') + ' back for review.' : '');
     var pl = q.op === 'add' ? q.placement : x && x.placement, gate = pl ? gateTitle(map, pl.beforeGate) : '';
     var what = q.op === 'add' ? 'Add "' + q.text + '"' + (gate ? ' before ' + gate : '') : (q.op === 'done' ? 'Check off' : q.op === 'wont' ? 'Mark won\'t do' : q.op === 'move' ? 'Move' : 'Reopen') + ' "' + (x ? x.text : q.todo) + '"' + (q.op === 'move' && q.to ? ' to ' + (q.to.ticket || q.to.run || q.to.link) : '');
     return what + '.' + (C.releases ? ' This releases work.' : '') + (C.reopens.length ? ' This sends ' + C.reopens.length + ' approval' + (C.reopens.length === 1 ? '' : 's') + ' back for review.' : '');
+  }
+  /* A spread's operation in plain words, as the assistant says it to the person: what it asks of whom, later additions included,
+     and what stays unchanged (docs/design.md 45.1). */
+  function spreadWords(map, q, C, T) {
+    var sp = T && T.bySpread ? T.bySpread[q.spread] : null, ls = q.op === 'spread-add' ? q.loopStep : sp ? sp.loopStep : '', st = ls && map ? PF.map.findStep(map, ls) : null;
+    var N = st ? PF.loop.nounOf(st.step.fields || {}) || PF.loop.nounOf({ items: (st.step.fields || {}).items }) : { one: 'item', many: 'items' }, n = function (k) { return PF.loop.count(k, N); };
+    var text = q.op === 'spread-add' ? q.text : sp ? sp.text : q.spread;
+    if (q.op === 'spread-add') return 'Require "' + text + '" on ' + q.scope.open.length + ' open ' + (q.scope.open.length === 1 ? N.one : N.many) + ', and on every ' + N.one + ' that joins later' + (q.scope.cleared.length ? '; ' + n(q.scope.cleared.length) + ' cleared stay' + (q.scope.cleared.length === 1 ? 's' : '') + ' unchanged' : '') + '.';
+    if (q.op === 'spread-include') return 'Include ' + q.item.uid + ' (attempt ' + q.item.attempt + ') in "' + text + '"; it was cleared when the spread was added.';
+    if (q.op === 'spread-bind') return 'Cover "' + text + '" on ' + q.item.uid + ' (attempt ' + q.item.attempt + ') on ' + q.dest.process + '/' + q.dest.id + '.';
+    return 'Stop "' + text + '" for ' + N.many + ' that join later; the ' + n(q.owed.length) + ' it is owed on stay owed.';
   }
   function thenWords(r, q) {
     var rec = r.recorder && r.recorder.person || '';
@@ -874,6 +1180,8 @@ PF.todos = (function () {
   }
   /* people.json as asking and deciding may use it: none while it can't be read (an unread entry names it), so no one vouches. */
   function peopleOf(o) { return (o.unread || []).some(function (u) { return u && u.file === 'people.json'; }) ? null : o.people; }
+  /* Every record and unread file read (for a story's request's dependency on its spread), whatever a caller filtered. */
+  function depsOf(o) { return o.deps || { records: o.records || [], unread: o.unread || [] }; }
   function unreadFor(o, r) { return (o.unread || []).filter(function (u) { return u && (u.run ? u.run.process === r.process && u.run.id === r.id : true); }); }
   /* ---- The inbox (4.0 slice 2): what needs a person. Every request on a run they may decide (PF.todos.personWhy) that waits
      for a decision, or that two decisions disagree on (settled only by a decision that saw every party), once each, with what
@@ -888,7 +1196,7 @@ PF.todos = (function () {
       if (!r || !r.steps || r._unrunnable || r.ended || r.practice) return;
       var mine = recordsFor(o.records, r);
       if (!mine.length || personWhy(r, o.me, people)) return;
-      var T = view(r, { records: mine, unread: unreadFor(o, r), people: people });
+      var T = view(r, { records: mine, unread: unreadFor(o, r), people: people, deps: depsOf(o) });
       if (!T.map || T.unread.length || T.held.length || T.broken) return;
       requestsOf(T).forEach(function (q) {
         if (q.unordered) return;
@@ -898,9 +1206,9 @@ PF.todos = (function () {
         var k = r.process + '/' + r.id + '\n' + q.id;
         if (had[k]) return; had[k] = true;
         var x = q.todo ? T.byTodo[q.todo] : null, C = consequenceOf(r, T.map, q, T);
-        out.push({ run: { process: r.process, id: r.id }, title: String(r.title || r.process), id: q.id, kind: q.kind, op: q.op, todo: q.todo || '', text: q.op === 'add' ? q.text : x ? x.text : '', by: q.by, at: q.at, reason: q.reason || '', to: q.to || null,
+        out.push({ run: { process: r.process, id: r.id }, title: String(r.title || r.process), id: q.id, kind: q.kind, op: q.op, todo: q.todo || '', text: q.op === 'add' || q.op === 'spread-add' ? q.text : x ? x.text : q.spread && T.bySpread[q.spread] ? T.bySpread[q.spread].text : '', by: q.by, at: q.at, reason: q.reason || '', to: q.to || null, spread: q.spread || null, fulfills: q.fulfills || null, placement: q.placement || null,
           status: q.status, why: q.why || '', dispute: dispute, landed: !!q.landed, consequence: { reopens: C.reopens.slice(), releases: C.releases, fingerprint: C.fingerprint },
-          words: q.landed ? whatWords(T.map, q, x, { reopens: [], releases: false }).replace(/\.$/, '') + ': already applied. Your decision settles the disagreement; nothing is applied again.' : whatWords(T.map, q, x, C) });
+          words: q.landed ? whatWords(T.map, q, x, { reopens: [], releases: false }, T).replace(/\.$/, '') + ': already applied. Your decision settles the disagreement; nothing is applied again.' : whatWords(T.map, q, x, C, T) });
       });
     });
     return out;
@@ -915,7 +1223,7 @@ PF.todos = (function () {
       if (!r || !r.steps || r._unrunnable || r.ended || r.practice) return;
       var mine = recordsFor(o.records, r);
       if (!mine.length || personWhy(r, o.me, people)) return;
-      var T = view(r, { records: mine, unread: unreadFor(o, r), people: people });
+      var T = view(r, { records: mine, unread: unreadFor(o, r), people: people, deps: depsOf(o) });
       Object.keys(T.grants).sort(cmpStr).forEach(function (id) {
         var g = T.grants[id];
         if (g.active) out.push({ run: { process: r.process, id: r.id }, title: String(r.title || r.process), id: id, subject: g.subject, ops: g.ops.slice(), targets: g.targets.slice(), adds: g.limits.adds, by: g.by });
@@ -940,11 +1248,11 @@ PF.todos = (function () {
     if (o.op === 'accept' && o.shown !== it.consequence.fingerprint) return { renewed: true, item: it, why: 'What it would do changed since you saw it: ' + it.words + ' Look again, then decide.' };
     var reason = o.reason == null ? '' : String(o.reason).trim();
     if (reason.length > LIMITS.reason) return { why: 'A reason is at most ' + LIMITS.reason + ' characters (this is ' + reason.length + ').' };
-    var T = view(r, { records: recordsFor(o.records, r), unread: unreadFor(o, r), people: people }), q = T.requests[o.request];
+    var T = view(r, { records: recordsFor(o.records, r), unread: unreadFor(o, r), people: people, deps: depsOf(o) }), q = T.requests[o.request];
     var s = buildStatus({ kind: 'decision', proposal: q.id, run: { process: r.process, id: r.id }, seen: seenFor(T, [q.id], [q.id], ['dec', 'raw']).seen, by: o.by, at: o.at, op: o.op, consequence: it.consequence.fingerprint, reason: reason, writer: o.writer, rev: o.rev, app: o.app });
     var fd = filed(s.name, s.file);
     if (fd.why) return { why: fd.why };
-    var after = view(r, { records: recordsFor(o.records, r).concat([fd.record]), unread: unreadFor(o, r), people: people }).requests[q.id];
+    var after = view(r, { records: recordsFor(o.records, r).concat([fd.record]), unread: unreadFor(o, r), people: people, deps: depsOf(o) }).requests[q.id];
     return { name: s.name, file: s.file, record: fd.record, item: it, words: (o.op === 'accept' ? 'Accepted. ' : 'Declined. ') + it.words + ' ' + thenWords(r, after || q) };
   }
   /* Ending a delegation (a revoke): only a person who may decide, only an active grant; what it covered and hasn't landed waits
@@ -956,7 +1264,7 @@ PF.todos = (function () {
     var pw = personWhy(r, o.by, people);
     if (pw) return { why: pw + ', so they can\'t revoke a delegation here.' };
     if (!KEY.test(String(o.key || ''))) return { why: 'A revoke needs its retry key.' };
-    var T = view(r, { records: recordsFor(o.records, r), unread: unreadFor(o, r), people: people }), g = T.grants[o.grant];
+    var T = view(r, { records: recordsFor(o.records, r), unread: unreadFor(o, r), people: people, deps: depsOf(o) }), g = T.grants[o.grant];
     if (!g || !g.active) return { why: 'That isn\'t an active delegation on this run.' };
     var f = buildGrant({ kind: 'revoke', id: idFor('flightdeck', o.key), run: { process: r.process, id: r.id }, seen: seenFor(T, [g.id], [], []).seen, by: o.by, at: o.at, grant: g.id, reason: o.reason ? String(o.reason).trim() : '', app: o.app });
     var fd = filed(f.id + '.json', f);
@@ -980,7 +1288,7 @@ PF.todos = (function () {
     var adds = o.adds == null ? 0 : o.adds;
     if (typeof adds !== 'number' || adds % 1 || adds < 0 || adds > LIMITS.grantAdds) return { why: 'Additions are a whole number from 0 to ' + LIMITS.grantAdds + '.' };
     if (!KEY.test(String(o.key || ''))) return { why: 'A delegation needs its retry key.' };
-    var T = view(r, { records: recordsFor(o.records, r), unread: unreadFor(o, r), people: people });
+    var T = view(r, { records: recordsFor(o.records, r), unread: unreadFor(o, r), people: people, deps: depsOf(o) });
     var f = buildGrant({ kind: 'grant', id: idFor('flightdeck', o.key), run: { process: r.process, id: r.id }, seen: seenFor(T, [], [], []).seen, by: o.by, at: o.at, subject: o.subject, ops: ops, targets: targets, limits: { adds: adds }, app: o.app });
     var fd = filed(f.id + '.json', f);
     return fd.why ? { why: fd.why } : { id: f.id, name: f.id + '.json', file: f, record: fd.record, words: 'Delegated: ' + (o.subject && (o.subject.tool || o.subject.person)) + ' may ' + ops.join(', ') + ' on ' + targets.length + ' place' + (targets.length === 1 ? '' : 's') + (ops.indexOf('add') >= 0 ? ', up to ' + adds + ' addition' + (adds === 1 ? '' : 's') : '') + '. You can revoke it any time.' };
@@ -989,7 +1297,7 @@ PF.todos = (function () {
      before it left it. */
   function nextQueued(T) { return requestsOf(T).filter(function (q) { return q.status === 'queued' && !q.landed; })[0] || null; }
 
-  return { FORMAT: FORMAT, STATUS: STATUS, FEATURE: FEATURE, LIMITS: LIMITS, OPS: OPS, WORDS: WORDS, STATE_WORDS: STATE_WORDS, idFor: idFor, todoIdFor: todoIdFor, statusName: statusName, isTodo: isTodo, claims: claims, familyOf: familyOf,
+  return { SOPS: SOPS, ALL_OPS: ALL_OPS, isSpreadOp: isSpreadOp, hasPair: hasPair, loopWhy: loopWhy, FORMAT: FORMAT, STATUS: STATUS, FEATURE: FEATURE, LIMITS: LIMITS, OPS: OPS, WORDS: WORDS, STATE_WORDS: STATE_WORDS, idFor: idFor, todoIdFor: todoIdFor, statusName: statusName, isTodo: isTodo, claims: claims, familyOf: familyOf,
     targetKey: targetKey, placeOf: placeOf, placementWhy: placementWhy, placementFor: placementFor, effectOf: effectOf, fingerprint: fp, text: text,
     buildProposal: buildProposal, buildGrant: buildGrant, buildStatus: buildStatus, cleanFile: cleanFile, fileWhy: fileWhy, filed: filed, runOf: runOf, recordsFor: recordsFor,
     reduce: reduce, seenFor: seenFor, requestsOf: requestsOf,
