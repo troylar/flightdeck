@@ -163,6 +163,8 @@
     lostDrafts: function () { var k = fsKey() + '\n', ids = processes().map(function (x) { return x.id; }); return Object.keys(state.editors || {}).filter(function (e) { var ed = state.editors[e]; return e.indexOf(k) === 0 && ed.text != null && ids.indexOf(ed.pid) < 0; }).map(function (e) { return state.editors[e].pid; }); },
     findRun: function (key) { return findRun(key); },
     loopMem: function () { return loopMem(); },
+    /* A run's to-dos as every window reads them (PF.todos.view), worked out once per read of the folder and change of the run. */
+    todoView: function (r) { return todoViewFor(r); },
     runOrigin: function (r) { return runOrigin(r); },
     /* A form's (Start a run, Plan a run, Start a test run, Review the plan): whichever screen opened it, else its checklist's page. */
     formOrigin: function (pid) { return originOf(function (loc) { return loc.view !== 'plan' && !loc.sub; }, procFind(pid) ? { view: 'process', process: pid } : { view: 'processes' }); },
@@ -2091,7 +2093,7 @@
     dropBatchRender();
     repHarvest();
     corrHarvest();
-    procCache = null; pplBy = { list: null, len: -1, by: null }; pplSorted = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null;
+    procCache = null; pplBy = { list: null, len: -1, by: null }; pplSorted = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null; tdMemo = null;
     pruneUnapplied();
     var keep = {}, ae = document.activeElement, focusKey = null;
     /* What a person typed or ticked survives a redraw of the same thing: the same screen, run, step and open form. Moving to
@@ -3280,6 +3282,63 @@
   }
   var TODO_PAGES = 20;
   function todoView(r) { return PF.todos.view(r, { records: data.todos || [], unread: data.todosUnread || [], people: data.people }); }
+  /* The screen's copy (ctx.todoView): the same view, kept while the records, unread files, people and the run are the ones it
+     was worked out from. */
+  var tdMemo = null;
+  function todoViewFor(r) {
+    if (!r || r._unrunnable) return null;
+    var k = [r, r.rev || 0, r.living ? r.living.head : '', data.todos, data.todosUnread, data.people, (data.todos || []).length];
+    if (tdMemo && tdMemo.k.length === k.length && tdMemo.k.every(function (x, i) { return x === k[i]; })) return tdMemo.v;
+    var v = null; try { v = todoView(r); } catch (e) { v = null; }
+    tdMemo = { k: k, v: v };
+    return v;
+  }
+  /* Asking (4.0 slice 2): one gesture on the run screen writes exactly one request, by the rule `flightdeck todo` uses
+     (PF.todos.prepare): a person who may decide writes a compound (the request and their decision on exactly its
+     consequence), anyone else a request that waits. Nothing is applied here: only the recorder's window lands it
+     (todoApply), so what this says back is the request's status, never Done. The retry key is kept until the write is known
+     to have happened, so asking again after a failure is the same request, never a second one. */
+  function todoAsk(body, done) {
+    var r = ctx.run();
+    if (!r || !state.me) return;
+    var sig = JSON.stringify([fsKey(), r.process + '/' + r.id, state.me, body]), keep = state.tdKey;
+    var key = keep && keep.sig === sig ? keep.key : 'ui-' + loopHex(20);
+    var P = PF.todos.prepare(r, { body: body, by: { person: state.me }, key: key, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION });
+    if (P.why) { say(P.why + ' Nothing was written.', 'warn'); render(); return; }
+    /* Asked again after a write that may have happened: exactly the bytes of the first ask, so it is found as the same. */
+    if (keep && keep.sig === sig && keep.P && keep.P.id === P.id) P = keep.P;
+    state.tdKey = { sig: sig, key: key, P: P };
+    var cx = loopGuard({ run: r.process + '/' + r.id }), text = PF.todos.text(P.file), endBusy = busyStart(), sg = gen;
+    repo.saveScope(cx.fs, P.name, P.file, { still: function () { return guardOk(cx); } }).then(function (res) {
+      endBusy(); if (sg !== gen) return;
+      if (res && res.dropped) { say('Nothing was written: the folder, the person or the run changed before it was. Ask again if it still needs doing.', 'warn'); render(); return; }
+      if (res && res.conflict && res.theirs !== text) { say('A different request is already saved under that name. Nothing was written; read the folder again, then ask again.', 'bad'); render(); return; }
+      state.tdKey = null;
+      var rec = P.record; rec._file = P.name;
+      if (!(data.todos || []).some(function (x) { return x.id === rec.id; })) data.todos = (data.todos || []).concat([rec]);
+      /* Its status is shown at once; the folder is read soon, which is when the recorder's window lands it. */
+      if (done) done();
+      say(P.preview.words, 'good');
+      lastAll = -Infinity;
+      render();
+    }, function (err) { endBusy(); if (sg !== gen) return; say('Couldn\'t save the request: ' + (err && err.message || err) + ' It may or may not have been saved; asking again is the same request.', 'bad'); render(); });
+  }
+  function tdClear(ids) { ids.forEach(function (id) { var el = document.getElementById(id); if (el) el.value = ''; }); }
+  /* The current phase, where Add something to do sits (views/run.js todoBlock): the first whose gate isn't passed or waived,
+     else the last that is needed. */
+  function tdPhase(r) {
+    var map = R.mapOf(r), at = -1;
+    map.phases.forEach(function (p, pi) { if (at < 0 && !R.gateOk(R.gateStatus(r, map, pi))) at = pi; });
+    if (at < 0) map.phases.forEach(function (p, pi) { if (R.gateStatus(r, map, pi) !== 'skipped') at = pi; });
+    return at < 0 ? '' : map.phases[at].id;
+  }
+  /* What was typed into a to-do box and not asked yet is unsaved work: leaving the run refuses, as for any form. */
+  function tdUnsent() {
+    if (state.view !== 'run') return null;
+    var ids = ['td-add'].concat(state.tdPick ? ['td-why', 'td-to'] : []), hit = null;
+    ids.some(function (id) { var el = document.getElementById(id); if (el && String(el.value || '').trim()) hit = el; return !!hit; });
+    return hit;
+  }
   /* The types fingerprint of a run's own version, for a run/2 its first to-do makes a run/3; '' when the version can't be read. */
   function todoTypes(r) {
     if (r.format === R.FORMAT3) return r.typesHash;
@@ -6591,7 +6650,7 @@
     setTimeout(function () { var f = document.activeElement; if (dbxAc && (!f || f.id !== dbxAc.id)) dbxClose(); }, 0);
   });
 
-  function pendingBox() { var pf = state.obPending && state.obPendingField; return pf ? document.getElementById(pf) || { id: pf } : dirtyControl() || fuPending() || rolesPending() || corrGonePending(); }
+  function pendingBox() { var pf = state.obPending && state.obPendingField; return pf ? document.getElementById(pf) || { id: pf } : dirtyControl() || fuPending() || tdUnsent() || rolesPending() || corrGonePending(); }
   /* An open follow-up form holding a chosen destination, a link or text is unsaved work, even once a redraw has drawn it as the
      page's own (2.11): leaving refuses, as for any changed control. */
   function fuPending() {
@@ -7869,6 +7928,20 @@
     resume: function () { mutate(function (r, map, me, now) { R.resume(r, me, now); }); },
     'start-child': function (id) { startChild(id); },
     'continue-two': function (id) { continueTwo(id); },
+    'td-add': function (id) {
+      var r = ctx.run(); if (!r) return;
+      var phase = id || tdPhase(r), text = val('td-add');
+      todoAsk({ op: 'add', text: text, target: { phase: phase } }, function () { tdClear(['td-add']); state.focus = '#td-add'; });
+    },
+    'td-done': function (id) { todoAsk({ op: 'done', todo: id }); },
+    'td-reopen': function (id) { todoAsk({ op: 'reopen', todo: id }); },
+    'td-pick': function (id, b) { var k = b && b.dataset && b.dataset.kind; if (k !== 'wont' && k !== 'move') return; state.tdPick = { id: id, kind: k }; state.focus = k === 'move' ? '#td-to' : '#td-why'; render(); },
+    'td-unpick': function () { var pk = state.tdPick; state.tdPick = null; tdClear(['td-why', 'td-to']); if (pk) state.focus = '#td-' + cssEsc(pk.id); render(); },
+    'td-save': function (id) {
+      var pk = state.tdPick; if (!pk || pk.id !== id) return;
+      var why = val('td-why'), body = pk.kind === 'wont' ? { op: 'wont', todo: id, reason: why } : { op: 'move', todo: id, to: val('td-to'), reason: why };
+      todoAsk(body, function () { state.tdPick = null; tdClear(['td-why', 'td-to']); });
+    },
     'loop-add': function (id) {
       var r = ctx.run(), V = r && loopView(r, id);
       if (!V) return;

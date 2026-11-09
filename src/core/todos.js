@@ -116,6 +116,16 @@ PF.todos = (function () {
     if (own(to, 'run')) { if (typeof to.run !== 'string' || !/^[a-z0-9][a-z0-9-]{0,59}\/[a-z0-9-]{1,40}$/i.test(to.run)) { errors.push('"to" "run" is <process>/<run id>.'); return null; } return { run: to.run }; }
     errors.push('"to" is a ticket, a link or a run.'); return null;
   }
+  /* A destination as a person types it: a ticket key, an http(s) link, or <process>/<run id>; null when it is none of them. */
+  function toOf(v) {
+    if (isMap(v)) { var e = []; var t = cleanTo(v, e); return e.length ? null : t; }
+    if (typeof v !== 'string') return null;
+    var x = v.trim(); if (!x || x.length > LIMITS.link) return null;
+    if (TICKET.test(x)) return { ticket: x.toUpperCase() };
+    if (/^https?:\/\//i.test(x)) return PF.loop.httpLink(x) ? { link: x } : null;
+    if (/^[a-z0-9][a-z0-9-]{0,59}\/[a-z0-9-]{1,40}$/i.test(x)) return { run: x };
+    return null;
+  }
   /* Moved work goes somewhere else: never to the run the record is for, which would release it while it went nowhere. */
   function selfMove(run, to, errors) { if (run && to && typeof to.run === 'string' && to.run.toLowerCase() === (run.process + '/' + run.id).toLowerCase()) errors.push('"to" names this run itself; moved work goes to another run, a ticket or a link.'); }
   function cleanOrigin(o, errors) {
@@ -751,6 +761,72 @@ PF.todos = (function () {
     }
     return { head: good, dropped: '' };
   }
+  /* ---- Asking (4.0 slice 2): the one rule the run screen and `flightdeck todo` share for making a request, and its preview.
+     o: { body: { op, text?, target?, todo?, reason?, to?, owner? }, by: { person } | { tool, version, key }, key (a person's
+     request: its own retry key), records, unread, people, at, app }. A person who may decide (PF.todos.personWhy) asks in one
+     gesture (a compound: the request, their decision on exactly its consequence, and an application prepared on the head);
+     anyone else makes a request that waits for authority. Returns { why } when nothing can be asked, else { id, name, file,
+     kind, record, preview: { op, todo, placement, gate, consequence: { reopens, releases }, status, why, recorder, words } }.
+     Nothing is written here. */
+  function gateTitle(map, id) { var t = ''; (map && map.phases || []).forEach(function (p) { if (p.gate && p.gate.id === id) t = p.gate.implicit ? p.title + ' confirm' : p.gate.title; }); return t || id; }
+  function prepare(r, o) {
+    o = o || {};
+    var map = null; try { map = PF.run.mapOf(r); } catch (e) { map = null; }
+    if (!map) return { why: 'This run\'s checklist can\'t be read, so nothing can be asked.' };
+    if (r.ended) return { why: 'The run has ended, so it takes no new work.' };
+    if (r._unrunnable) return { why: 'This run can only be read here.' };
+    /* Any authority input that couldn't be read vouches for no one: while people.json is unread, nobody asks as a decider. */
+    var people = (o.unread || []).some(function (u) { return u && u.file === 'people.json'; }) ? null : o.people;
+    var b = o.body || {}, by = o.by || {}, T = view(r, { records: o.records, unread: o.unread, people: people });
+    if (OPS.indexOf(b.op) < 0) return { why: 'Say what to do: add, done, wont, move or reopen.' };
+    var body = { op: b.op }, x = null;
+    if (b.op === 'add') {
+      if (typeof b.text !== 'string' || !b.text.trim()) return { why: 'Say what needs doing.' };
+      if (b.text.trim().length > LIMITS.text) return { why: 'A to-do is at most ' + LIMITS.text + ' characters (this is ' + b.text.trim().length + ').' };
+      var tgt = b.target || null, P = tgt ? placeOf(map, tgt) : { why: 'Say where it goes: a phase, a step or a loop item.' };
+      if (P.why) return { why: 'It can\'t be placed: ' + P.why + '.' };
+      body.text = b.text.trim(); body.target = tgt; body.placement = placementFor(map, tgt);
+      if (b.owner) body.owner = b.owner;
+      if (b.reason) body.reason = String(b.reason).trim();
+      if (T.todos.length >= LIMITS.todos) return { why: 'This run already has ' + LIMITS.todos + ' to-dos, the most a run takes.' };
+    } else {
+      x = typeof b.todo === 'string' ? T.byTodo[b.todo] : null;
+      if (!x) return { why: 'That to-do isn\'t in this run' + (T.broken || T.unread.length || T.held.length ? ' as this computer can read it now' : '') + '.' };
+      body.todo = x.id;
+      if (b.op === 'reopen' ? x.state === 'open' : x.state !== 'open') return { why: b.op === 'reopen' ? 'It is already open.' : 'It is already ' + STATE_WORDS[x.state].toLowerCase() + '.' };
+      if (b.op === 'wont' && !(typeof b.reason === 'string' && b.reason.trim())) return { why: 'Say why it won\'t be done.' };
+      if (b.op === 'move') {
+        var to = toOf(b.to);
+        if (!to) return { why: 'Say where it moved: a ticket key like ABC-123, an https link, or another run as <process>/<run id>.' };
+        if (to.run && to.run.toLowerCase() === (r.process + '/' + r.id).toLowerCase()) return { why: 'That is this run; moved work goes to another run, a ticket or a link.' };
+        body.to = to;
+      }
+      if (b.reason != null && String(b.reason).trim()) body.reason = String(b.reason).trim();
+    }
+    var tool = by.tool ? { name: by.tool, version: by.version || '0' } : null, person = by.person || '';
+    if (!tool && !person) return { why: 'Say who asks: a person in people.json, or a tool.' };
+    if (tool && !KEY.test(String(by.key || ''))) return { why: 'A tool\'s request needs its retry key (--key): letters, digits, . _ : -, at most 120.' };
+    if (!tool && !KEY.test(String(o.key || ''))) return { why: 'A request needs its retry key.' };
+    var id = tool ? idFor(tool.name, by.key) : idFor('flightdeck', o.key), head = r.living && typeof r.living.head === 'string' ? r.living.head : '';
+    var must = []; if (head) must.push(head);
+    Object.keys(T.grants).forEach(function (g) { if (T.grants[g].active) must.push(g); });
+    var seen = seenFor(T, must, [], []).seen, decider = !tool && !personWhy(r, person, people), full = Object.assign({ todo: b.op === 'add' ? todoIdFor(id) : x.id }, body);
+    var C = consequenceOf(r, map, full, T), f;
+    if (decider) {
+      var eff = effectOf(full);
+      f = buildProposal({ kind: 'compound', run: { process: r.process, id: r.id }, id: id, by: person, seen: seen, at: o.at, app: o.app, body: body, decision: { by: person, consequence: C.fingerprint }, application: { previous: head, effect: eff, fingerprint: fp(eff) } });
+    } else f = buildProposal(tool ? { run: { process: r.process, id: r.id }, producer: tool, key: by.key, seen: seen, at: o.at, app: o.app, body: body } : { run: { process: r.process, id: r.id }, id: id, by: person, seen: seen, at: o.at, app: o.app, body: body });
+    var name = f.id + '.json', fd = filed(name, f);
+    if (fd.why) return { why: fd.why };
+    /* The request as every window would read it next, with this one in the folder: its status is the preview's. */
+    var V2 = view(r, { records: (o.records || []).concat([fd.record]), unread: o.unread, people: people }), q = V2.requests[f.id] || { status: 'held', why: 'It can\'t be read in order.' };
+    var placement = b.op === 'add' ? body.placement : x.placement, gate = placement ? gateTitle(map, placement.beforeGate) : '';
+    var rec = r.recorder && r.recorder.person || '', what = b.op === 'add' ? 'Add "' + body.text + '"' + (gate ? ' before ' + gate : '') : (b.op === 'done' ? 'Check off' : b.op === 'wont' ? 'Mark won\'t do' : b.op === 'move' ? 'Move' : 'Reopen') + ' "' + x.text + '"';
+    var also = (C.releases ? ' This releases work.' : '') + (C.reopens.length ? ' This sends ' + C.reopens.length + ' approval' + (C.reopens.length === 1 ? '' : 's') + ' back for review.' : '');
+    var then = q.status === 'queued' ? 'Queued for the recorder' + (rec ? ' (' + rec + ')' : '') + ': it is applied when their window is open.' : q.status === 'waiting' ? 'Waiting for approval: ' + q.why : WORDS[q.status] + (q.why ? ': ' + q.why : '.');
+    return { id: f.id, name: name, file: f, kind: f.kind, record: fd.record,
+      preview: { op: b.op, todo: full.todo, placement: placement || null, gate: gate, consequence: { reopens: C.reopens.slice(), releases: C.releases }, status: q.status, why: q.why || '', recorder: rec, words: what + '.' + also + ' ' + then } };
+  }
   /* The first queued request of a run, in causal order: one lands at a time, so each is checked against the work as the one
      before it left it. */
   function nextQueued(T) { return requestsOf(T).filter(function (q) { return q.status === 'queued' && !q.landed; })[0] || null; }
@@ -759,5 +835,5 @@ PF.todos = (function () {
     targetKey: targetKey, placeOf: placeOf, placementWhy: placementWhy, placementFor: placementFor, effectOf: effectOf, fingerprint: fp, text: text,
     buildProposal: buildProposal, buildGrant: buildGrant, buildStatus: buildStatus, cleanFile: cleanFile, fileWhy: fileWhy, filed: filed, runOf: runOf, recordsFor: recordsFor,
     reduce: reduce, seenFor: seenFor, requestsOf: requestsOf,
-    personWhy: personWhy, mayFor: mayFor, consequenceOf: consequenceOf, authorityFor: authorityFor, view: view, holds: holds, markHolds: markHolds, cutFor: cutFor, cleanCut: cleanCut, cleanLiving: cleanLiving, applyPlan: applyPlan, nextQueued: nextQueued, keepHead: keepHead };
+    personWhy: personWhy, mayFor: mayFor, consequenceOf: consequenceOf, authorityFor: authorityFor, view: view, holds: holds, markHolds: markHolds, cutFor: cutFor, cleanCut: cleanCut, cleanLiving: cleanLiving, applyPlan: applyPlan, nextQueued: nextQueued, keepHead: keepHead, prepare: prepare, gateTitle: gateTitle, toOf: toOf };
 })();

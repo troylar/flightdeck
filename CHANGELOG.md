@@ -6,6 +6,10 @@
 
 Living runs: to-dos a run takes on while it runs.
 
+### New
+
+- **Add, check off, drop or move to-dos on the run screen** (Runs). Under the current phase, Add something to do says the gate it comes before. Check a to-do off, say why it won't be done, move or defer it, or reopen it. Each says Queued for the recorder or Waiting for approval, and shows Done only once the recorder's window applies it. Steps, items and to-dos are each counted on their own line. *Where:* A run's screen
+
 ### Improved
 
 - **Move every computer to 4.0 before anyone adds to-dos to a run** (Updating). A run that has taken on to-dos, and the to-do records in proposals/, use a format only Flightdeck 4.0 reads. Copies before 4.0 show them by name and never change them, and check_folder.py names the version they need. A run without to-dos reads and saves as before. *Where:* Runs, proposals/, check_folder.py

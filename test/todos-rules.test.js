@@ -589,4 +589,64 @@ rule('A run with no to-dos reads and saves exactly as before', () => {
   assert.ok(R.sanitize(o)._unrunnable, 'a run/2 never holds a living marker');
 });
 
+/* ---------- Asking (slice 2): the one rule the run screen and `flightdeck todo` share ---------- */
+const ask = (r, body, by, recs, key) => T.prepare(r, { body, by, key: key || 'k-1', records: recs || [], people: PEOPLE, at: AT, app: '4.0.0' });
+rule('Asking for a person who may decide is one gesture: a compound whose preview says Queued for the recorder, never Done', () => {
+  const { r } = newRun(); r.recorder = { person: 'person-avery' };
+  const a = ask(r, { op: 'add', text: '  Check the screenshots ', target: { phase: 'draft' } }, { person: 'person-avery' });
+  assert.ok(!a.why, a.why);
+  same([a.kind, a.record.text, a.record.target, a.preview.placement, a.preview.status], ['compound', 'Check the screenshots', { phase: 'draft' }, { beforeGate: 'draft-confirm' }, 'queued']);
+  same(a.preview.gate, T.gateTitle(R.mapOf(r), 'draft-confirm'));
+  assert.ok(/^Add "Check the screenshots" before /.test(a.preview.words) && /Queued for the recorder \(person-avery\)/.test(a.preview.words) && !/\bDone\b/.test(a.preview.words), a.preview.words);
+  same(a.name, a.id + '.json');
+  same(V(r, [a.record]).requests[a.id].status, 'queued', 'the preview is what every window reads');
+  same(ask(r, { op: 'add', text: 'Check the screenshots', target: { phase: 'draft' } }, { person: 'person-avery' }).id, a.id, 'the same retry key is the same request');
+});
+rule('Someone who may not decide, or a tool, makes a request that waits for approval, and says why', () => {
+  const { r } = newRun();
+  const c = ask(r, { op: 'add', text: 'From Casey', target: { phase: 'review' } }, { person: 'person-casey' });
+  same([c.kind, c.file.by, c.preview.status], ['proposal', 'person-casey', 'waiting']);
+  assert.ok(/^Add "From Casey" before .*Waiting for approval: /.test(c.preview.words), c.preview.words);
+  const t = ask(r, { op: 'add', text: 'From a tool', target: { phase: 'draft' } }, { tool: 'notes-bot', version: '1.0', key: 'build-77' });
+  same([t.kind, t.id, t.preview.status], ['proposal', T.idFor('notes-bot', 'build-77'), 'waiting']);
+  assert.ok(/retry key/.test(ask(r, { op: 'add', text: 'x', target: { phase: 'draft' } }, { tool: 'notes-bot', version: '1.0' }).why));
+  assert.ok(/who asks/.test(ask(r, { op: 'add', text: 'x', target: { phase: 'draft' } }, {}).why));
+});
+rule('Asking refuses what can\'t be asked, and says why: no text, too long, no place, no reason, nowhere to move, wrong state, ended', () => {
+  const { r, map, p, a, recs } = withTodo();
+  const me = { person: 'person-avery' }, why = (body) => ask(r, body, me, recs).why || '';
+  assert.ok(/what needs doing/.test(why({ op: 'add', text: '  ', target: { phase: 'draft' } })));
+  assert.ok(/at most 200/.test(why({ op: 'add', text: 'x'.repeat(201), target: { phase: 'draft' } })));
+  assert.ok(/can't be placed/.test(why({ op: 'add', text: 'x', target: { phase: 'nope' } })));
+  assert.ok(/Say where it goes/.test(why({ op: 'add', text: 'x' })));
+  assert.ok(/why it won't be done/.test(why({ op: 'wont', todo: p.todo })));
+  assert.ok(/Say where it moved/.test(why({ op: 'move', todo: p.todo, to: 'not a destination' })));
+  assert.ok(/this run/.test(why({ op: 'move', todo: p.todo, to: 'release-notes/r-1' })));
+  assert.ok(/already open/.test(why({ op: 'reopen', todo: p.todo })));
+  assert.ok(/isn't in this run/.test(why({ op: 'done', todo: 'td-000000000000000000000000' })));
+  assert.ok(/Say what to do/.test(why({ op: 'explode' })));
+  const m = ask(r, { op: 'move', todo: p.todo, to: ' abc-123 ', reason: 'Next sprint' }, me, recs);
+  same([m.record.op, m.record.to, m.record.reason], ['move', { ticket: 'ABC-123' }, 'Next sprint']);
+  r.ended = { by: 'person-avery', at: AT, outcome: 'abandoned' }; r.state = 'abandoned';
+  assert.ok(/has ended/.test(why({ op: 'done', todo: p.todo })));
+  same(a.id.length > 0, true);
+});
+rule('A destination reads as a ticket key, an https link or another run, and nothing else', () => {
+  same([T.toOf('abc-12'), T.toOf('https://x.example/a'), T.toOf('deploy/r-9'), T.toOf({ ticket: 'ABC-1' })], [{ ticket: 'ABC-12' }, { link: 'https://x.example/a' }, { run: 'deploy/r-9' }, { ticket: 'ABC-1' }]);
+  same([T.toOf(''), T.toOf('ABC-0'), T.toOf('javascript:alert(1)'), T.toOf('a b'), T.toOf({ ticket: 'x' }), T.toOf(7)], [null, null, null, null, null, null]);
+});
+rule('The preview names what the request would send back for review, before anyone asks', () => {
+  const { r } = newRun(), map = R.mapOf(r); r.recorder = { person: 'person-avery' };
+  R.done(r, map, 'write', 'person-avery', AT); T.markHolds([r], { records: [], people: PEOPLE }); R.pass(r, map, 0, 'person-avery', AT);
+  const a = ask(r, { op: 'add', text: 'Late finding', target: { phase: 'draft' } }, { person: 'person-avery' });
+  same(a.preview.consequence.reopens.length, 1);
+  assert.ok(/sends 1 approval back for review/.test(a.preview.words), a.preview.words);
+});
+
+rule('While people.json can\'t be read, asking vouches for no one: the request waits, never a compound', () => {
+  const { r } = newRun(); r.recorder = { person: 'person-avery' };
+  const a = T.prepare(r, { body: { op: 'add', text: 'x', target: { phase: 'draft' } }, by: { person: 'person-avery' }, key: 'k-9', records: [], unread: [{ file: 'people.json', why: 'unreadable', run: null }], people: PEOPLE, at: AT, app: '4.0.0' });
+  same([a.kind, a.preview.status], ['proposal', 'waiting']);
+});
+
 run();

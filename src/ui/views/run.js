@@ -323,6 +323,9 @@
         else if (st === 'open' || (st === 'review' && (info.left || info.blocked.length))) {
           /* Why it can't pass yet, said next to the button. */
           var why = (info.left ? info.left + ' unanswered step' + (info.left === 1 ? '' : 's') : '') + (info.blocked.length ? (info.left ? ', ' : '') + info.blocked.length + ' blocked' : '');
+          /* Living runs (4.0): an open or disputed to-do, or a to-do record that can't be read, says so here. */
+          var held = P ? null : R.phaseHeld(r, map, pi);
+          if (held) why += (why ? '; ' : '') + held[0] + (held.length > 1 ? ' (and ' + (held.length - 1) + ' more)' : '');
           h += '<button class="btn" disabled aria-describedby="gwhy-' + esc(g.id) + '">' + (g.implicit ? 'Confirm' : 'Pass the gate') + '</button><span class="small" id="gwhy-' + esc(g.id) + '">' + esc(why) + '</span>';
         }
         if (R.canWaive(r, map, pi) && st !== 'ready') h += '<button class="mini" data-act="pick" data-kind="waive" data-id="' + esc(g.id) + '">Waive</button>';
@@ -1010,6 +1013,9 @@
   function railHtml(ctx, r, map, nx, schedN, lateN) {
     var s = ctx.state, cur = -1, h = '';
     map.phases.forEach(function (p, pi) { if (cur < 0 && !R.gateOk(R.gateStatus(r, map, pi))) cur = pi; });
+    /* Where Add something to do sits: the current phase, else (every gate passed) the last phase that is needed. */
+    var at = cur;
+    if (at < 0) map.phases.forEach(function (p, pi) { if (R.gateStatus(r, map, pi) !== 'skipped') at = pi; });
     h += '<ol class="rw-phases">' + map.phases.map(function (p, pi) {
       var gst = R.gateStatus(r, map, pi), info = R.phaseInfo(r, map, pi), done = R.gateOk(gst), ps = done ? 'done' : gst === 'locked' ? 'locked' : pi === cur ? 'current' : 'open';
       return '<li><button class="rw-ph" data-act="goto" data-id="phase-' + esc(p.id) + '" data-s="' + ps + '"' + (pi === cur ? ' aria-current="step"' : '') + '><span class="num" aria-hidden="true">' + (done ? '✓' : pi + 1) + '</span><span class="name">' + esc(p.title) + '</span><span class="count" aria-label="' + info.done + ' of ' + info.total + ' answered">' + info.done + '/' + info.total + '</span></button>' +
@@ -1175,6 +1181,88 @@
     return [c.done ? c.done + ' done' : '', c.na ? c.na + ' N/A' : '', c.other ? c.other + ' not answered' : '', nn.length ? nn.length + ' not needed' : ''].filter(Boolean).join(' · ');
   }
 
+  /* ---------- Living runs (4.0 slice 2): the run screen's easy actions on to-dos ----------
+     A faithful view of the to-dos as every window reads them (PF.todos.view), and one easy action each: add one line under
+     the current phase, check one off, say why it won't be done, move or defer it, reopen it. Each writes one request; what
+     it says back is the request's status (Queued for the recorder, Waiting for approval), never Done: a row shows Done only
+     once the recorder's window applied it. Complex changes (an item's or a step's to-do, delegation) go through the CLI. */
+  var TD_STATE = { open: 'Open', done: 'Done', wont: 'Won\'t do', moved: 'Moved' };
+  var TD_REQ = { waiting: 'Waiting for approval', queued: 'Queued for the recorder', held: 'Held', disputed: 'Disputed', declined: 'Declined' };
+  function tdView(ctx, r) { return ctx.todoView ? ctx.todoView(r) : null; }
+  /* Whether this window may ask anything of the run's to-dos: a person, on a run that hasn't ended and can be changed here. */
+  function tdCan(ctx, r) { return !prOf(ctx) && !!(ctx.state && ctx.state.me) && !r.ended && !r._unrunnable && !r.practice; }
+  function tdDest(to) { return !to ? '' : to.ticket ? to.ticket : to.run ? to.run : to.link ? to.link : ''; }
+  /* The requests not yet landed, by the to-do they change (an addition by its own id), newest last. */
+  function tdPending(TV) {
+    var out = Object.create(null);
+    PF.todos.requestsOf(TV).forEach(function (q) { if (q.landed || q.status === 'applied' || q.status === 'declined') return; (out[q.todo] = out[q.todo] || []).push(q); });
+    return out;
+  }
+  function tdPhaseOf(map, t) { var P = t ? PF.todos.placeOf(map, t) : { why: 'x' }; return P.why ? '' : P.phaseId; }
+  function tdRow(ctx, r, map, x, pend, can) {
+    var s = ctx.state, id = esc(x.id), open = x.state === 'open', mine = (pend[x.id] || []).filter(function (q) { return q.op !== 'add'; }), busy = mine.length > 0;
+    var where = x.target && x.target.item ? ' <span class="small">· ' + esc(x.target.item.loopStep) + ' item</span>' : x.target && x.target.step ? ' <span class="small">· step ' + esc(x.target.step) + '</span>' : '';
+    var h = '<li class="td-row" data-s="' + esc(x.state) + '" id="td-' + id + '">';
+    if (can && open && !busy) h += '<button type="button" class="td-check" data-act="td-done" data-id="' + id + '" role="checkbox" aria-checked="false" aria-label="Done: ' + esc(x.text) + '"></button>';
+    else h += '<span class="td-check" role="img" aria-label="' + esc(TD_STATE[x.state]) + '" data-s="' + esc(x.state) + '">' + (x.state === 'done' ? '✓' : x.state === 'open' ? '' : '–') + '</span>';
+    h += '<span class="td-text">' + esc(x.text) + '</span>' + where;
+    if (x.owner) h += ' <span class="small">· ' + esc(nameOf(ctx, x.owner)) + '</span>';
+    if (!open) h += ' <span class="pill ' + (x.state === 'done' ? 'passed' : 'waived') + '">' + esc(TD_STATE[x.state]) + '</span>' + (x.state === 'moved' && tdDest(x.to) ? ' <span class="small">to ' + esc(tdDest(x.to)) + '</span>' : '') + (x.why ? ' <span class="small">· ' + esc(x.why) + '</span>' : '');
+    if (x.disputed) h += ' <span class="pill review">Decided two ways at once</span>';
+    mine.forEach(function (q) { h += ' <span class="pill review" title="' + esc(q.why || '') + '">' + esc((q.op === 'done' ? 'Done' : q.op === 'wont' ? 'Won\'t do' : q.op === 'move' ? 'Move' : 'Reopen') + ': ' + (TD_REQ[q.status] || q.status)) + '</span>' + (q.why ? ' <span class="small">' + esc(q.why) + '</span>' : ''); });
+    if (can && !busy) {
+      if (open) h += ' <span class="row td-acts"><button type="button" class="mini" data-act="td-pick" data-kind="wont" data-id="' + id + '">Won\'t do…</button><button type="button" class="mini" data-act="td-pick" data-kind="move" data-id="' + id + '">Move or defer…</button></span>';
+      else h += ' <span class="row td-acts"><button type="button" class="mini" data-act="td-reopen" data-id="' + id + '">Reopen</button></span>';
+    }
+    var pk = s.tdPick;
+    if (can && !busy && open && pk && pk.id === x.id) {
+      var wont = pk.kind === 'wont';
+      h += '<div class="td-form" role="group" aria-label="' + (wont ? 'Won\'t do' : 'Move or defer') + '">' +
+        (wont ? '' : '<label class="small" for="td-to">Where it goes: a ticket like ABC-123, a link, or another run as process/run</label><input id="td-to" class="rw-in" maxlength="2048" data-enter="td-save" data-id="' + id + '" autocomplete="off">') +
+        '<label class="small" for="td-why">' + (wont ? 'Why it won\'t be done' : 'Why (optional)') + '</label><input id="td-why" class="rw-in" maxlength="300" data-enter="td-save" data-id="' + id + '" autocomplete="off">' +
+        '<span class="row"><button type="button" class="btn" data-act="td-save" data-id="' + id + '">' + (wont ? 'Ask: won\'t do' : 'Ask: move it') + '</button><button type="button" class="mini" data-act="td-unpick">Cancel</button></span>' +
+        '<p class="small">Releasing work always needs a person\'s approval; the recorder\'s window applies it.</p></div>';
+    }
+    return h + '</li>';
+  }
+  /* A phase's to-dos, its pending additions, and (under the current phase) the box that adds one before its gate. */
+  function todoBlock(ctx, r, map, pi, cur) {
+    var TV = tdView(ctx, r), p = map.phases[pi], can = tdCan(ctx, r);
+    var mine = TV ? TV.todos.filter(function (x) { return tdPhaseOf(map, x.target) === p.id; }) : [];
+    var pend = TV ? tdPending(TV) : Object.create(null), adds = [];
+    Object.keys(pend).forEach(function (k) { pend[k].forEach(function (q) { if (q.op === 'add' && tdPhaseOf(map, q.target) === p.id) adds.push(q); }); });
+    var box = can && pi === cur && !r.paused;
+    if (!mine.length && !adds.length && !box) return '';
+    var h = '<div class="todos" data-scope="todos:' + esc(p.id) + '" aria-label="To-dos in ' + esc(p.title) + '">';
+    if (mine.length || adds.length) {
+      h += '<ul class="td-list">' + mine.map(function (x) { return tdRow(ctx, r, map, x, pend, can); }).join('');
+      h += adds.map(function (q) { return '<li class="td-row" data-s="pending"><span class="td-check" aria-hidden="true"></span><span class="td-text">' + esc(q.text) + '</span> <span class="pill review">' + esc(TD_REQ[q.status] || q.status) + '</span>' + (q.why ? ' <span class="small">' + esc(q.why) + '</span>' : '') + '</li>'; }).join('') + '</ul>';
+    }
+    if (box) {
+      var gt = PF.todos.gateTitle(map, p.gate.id);
+      h += '<div class="td-add row"><label class="sr" for="td-add">Add something to do</label><input id="td-add" class="rw-in" placeholder="Add something to do…" maxlength="200" data-enter="td-add" data-id="' + esc(p.id) + '" autocomplete="off">' +
+        '<button type="button" class="mini" data-act="td-add" data-id="' + esc(p.id) + '">Add</button><span class="small">Before ' + esc(gt) + '</span></div>';
+    }
+    return h + '</div>';
+  }
+  /* Progress, each denominator on its own: this checklist's steps, a loop's items, the run's to-dos; never blended. */
+  function counts(ctx, r, map) {
+    var t = R.totals(r, map), out = ['This checklist: ' + t.done + ' of ' + t.total];
+    var loops = M.steps(map).filter(function (x) { return x.step.type === 'for.each'; });
+    if (loops.length && !prOf(ctx)) {
+      var n = 0, d = 0;
+      loops.forEach(function (x) {
+        var LV = null; try { LV = PF.loop.view(r, x.step.id, { records: (ctx.data && ctx.data.scopes) || [], unread: (ctx.data && ctx.data.scopesUnread) || [], runs: (ctx.data && ctx.data.runs) || [], procOf: ctx.procOf }); } catch (e) { LV = null; }
+        if (!LV) return;
+        LV.rollup.items.forEach(function (i) { n++; if (i.status === 'cleared' || i.status === 'exception') d++; });
+      });
+      if (n) out.push('Items: ' + d + ' of ' + n);
+    }
+    var TV = prOf(ctx) ? null : tdView(ctx, r);
+    if (TV && TV.todos.length) out.push('To-dos: ' + TV.todos.filter(function (x) { return x.state !== 'open'; }).length + ' of ' + TV.todos.length);
+    return '<ul class="rw-counts small" aria-label="Progress">' + out.map(function (o) { return '<li>' + esc(o) + '</li>'; }).join('') + '</ul>';
+  }
+
   /* The phases rail, the checklist with Next up docked at its top, and the selected step: the same for a run and Practice. */
   function panes(ctx, r, map, rec, nx, items, schedBy, late) {
     var s = ctx.state, P = prOf(ctx);
@@ -1182,6 +1270,9 @@
     var row = function (p, pi, open) { return function (st) { return stepRow(ctx, r, map, { phase: p, phaseIndex: pi, step: st, sched: schedBy['step:' + st.id] }, rec, open, nx); }; };
     var cur = -1, deck = '';
     map.phases.forEach(function (p, pi) { if (cur < 0 && !R.gateOk(R.gateStatus(r, map, pi))) cur = pi; });
+    /* Where Add something to do sits: the current phase, else (every gate passed) the last phase that is needed. */
+    var at = cur;
+    if (at < 0) map.phases.forEach(function (p, pi) { if (R.gateStatus(r, map, pi) !== 'skipped') at = pi; });
     map.phases.forEach(function (p, pi) {
       var gst = R.gateStatus(r, map, pi), info = R.phaseInfo(r, map, pi), done = R.gateOk(gst), locked = gst === 'locked';
       /* Finished phases and phases that can't start yet fold to one line, so the current phase gets the attention. */
@@ -1197,6 +1288,7 @@
         if ((done || locked) && s.unfold[p.id]) deck += '<div class="folded"><span>' + (locked ? 'A preview: these open after the gate above.' : tally(r, p, info)) + '</span><button class="mini" data-act="fold" data-id="' + esc(p.id) + '" aria-expanded="true" aria-controls="phase-' + esc(p.id) + '">Hide steps</button></div>';
         deck += stepsHtml(ctx, r, p, row(p, pi, open), map, pi);
       }
+      if (!P) deck += todoBlock(ctx, r, map, pi, at);
       deck += gateBlock(ctx, r, map, pi, rec, schedBy['gate:' + p.gate.id], folded && locked && !(!P && (s.noteCorrs || {})[ctx.fsKey + '\n' + runKey(r) + '|nc:gate:' + p.gate.id])) + '</section>';
     });
     /* A compact Phases picker, timeline and follow-ups for screens too narrow for the rail. */
@@ -1209,7 +1301,7 @@
     } });
     var picker = '<div class="rw-picker">' + ph.box + '<label class="small" for="rw-phase">Phase</label>' + ph.select + ph.more + (P ? '' : utilities(ctx, r, items.length, late, 'picker')) + '</div>';
     return '<div class="fpe-panes rw-panes"><nav class="fpe-pane rw-rail" aria-label="Phases"><h2 class="rw-h2">Phases</h2>' + railHtml(ctx, r, map, nx, items.length, late) + '</nav>' +
-      '<section class="fpe-pane rw-list" id="rw-list" aria-label="Checklist">' + (selOf(ctx) ? '<button class="linkish rw-skip" data-act="to-ins">Skip to the selected step</button>' : '') + '<div class="rw-dock">' + nextBar(ctx, r, map, nx, rec) + picker + '</div>' + (P ? '' : timeline(ctx, r, map, items) + followUps(ctx, r, rec) + (V.reportPanel ? V.reportPanel(ctx, r, map) : '')) + '<div class="deck">' + deck + '</div></section>' +
+      '<section class="fpe-pane rw-list" id="rw-list" aria-label="Checklist">' + (selOf(ctx) ? '<button class="linkish rw-skip" data-act="to-ins">Skip to the selected step</button>' : '') + '<div class="rw-dock">' + nextBar(ctx, r, map, nx, rec) + (P ? '' : counts(ctx, r, map)) + picker + '</div>' + (P ? '' : timeline(ctx, r, map, items) + followUps(ctx, r, rec) + (V.reportPanel ? V.reportPanel(ctx, r, map) : '')) + '<div class="deck">' + deck + '</div></section>' +
       inspector(ctx, r, map, rec) + '</div>';
   }
   /* Practice (2.3): this screen over the draft as it's in the editor. The header and notices are Practice's own
