@@ -254,4 +254,14 @@ rule('A newer to-do record (living-runs, any format version) holds its run as un
   T.markHolds([r], { records: d.todos, unread: d.todosUnread, people: { people: [] } });
   assert.ok(r._todos && r._todos.all.length, 'held');
 });
+rule('A to-do record over 256 KiB in UTF-8 is refused before it is read, and the writer counts bytes', async () => {
+  const p = T.buildProposal({ run: RUN, id: T.idFor('flightdeck', 'f1'), by: 'person-avery', seen: [], at: AT, body: ADD('Big') });
+  const t = T.text(p), pad = t.slice(0, -2) + ' '.repeat(262554 - t.length) + '}\n';
+  const d = await PF.repo.readPlans(memFs({ ['proposals/' + p.id + '.json']: pad }));
+  same([d.todos.length, d.todosUnread.length], [0, 1]);
+  assert.ok(/bytes/.test(d.todosUnread[0].why), d.todosUnread[0].why);
+  const wide = Object.assign({}, p, { text: 'é'.repeat(140000) });
+  assert.ok(/bytes/.test(T.fileWhy(p.id + '.json', wide)), T.fileWhy(p.id + '.json', wide));
+  assert.ok(/bytes/.test(LP.fileWhy('req-x.json', { seen: [], title: '\u00e9'.repeat(140000) })), 'a scope record\'s writer counts bytes too');
+});
 run();

@@ -326,8 +326,8 @@ PF.todos = (function () {
   function fileWhy(name, f) { return filed(name, f).why; }
   /* A record this copy built, as every reader will read it once it is filed: { why: '' , record } or { why }. */
   function filed(name, f) {
-    var t = text(f);
-    if (t.length > LIMITS.bytes) return { why: 'It would be ' + t.length + ' bytes; a to-do record is at most ' + LIMITS.bytes + '.' };
+    var t = text(f), n = PF.util.utf8Bytes(t);
+    if (n > LIMITS.bytes) return { why: 'It would be ' + n + ' bytes; a to-do record is at most ' + LIMITS.bytes + '.' };
     if (Array.isArray(f.seen) && f.seen.length > LIMITS.seen) return { why: 'It would name ' + f.seen.length + ' records it saw; a to-do record names at most ' + LIMITS.seen + '. Settle some open decisions first.' };
     var v = cleanFile(JSON.parse(t), name);
     return v.ok ? { why: '', record: v.record } : { why: 'It wouldn\'t read back: it ' + v.why + '.' };

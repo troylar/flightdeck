@@ -25,8 +25,8 @@
       "reviewed": "loop guard builder for every loop parent and child write, undo on drop; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "4c6204787628d85c699f45e9d30a24f2cc316abf82de3670b047f532de75bb86",
-      "reviewed": "Round 1 E: synced copies of to-do records read under the id they copy; checked for direct writes and unconditional deletes"
+      "sha256": "230232495d8b31037d6edf1e9c60691949d992a05bb627559c1dc862f962639f",
+      "reviewed": "Round 1 F: to-do and scope records are capped in UTF-8 bytes before they are parsed; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -253,8 +253,8 @@
       "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "src/core/loop.js": {
-      "sha256": "c66615af3fce35850d92c3f125a6f91839d79063ab7caee8ee9b78be87a4be9e",
-      "reviewed": "4.0 slice 1, commit 1: to-do records and their reduction (src/core/todos.js), loop settle and paging shared, living-runs feature, design §45"
+      "sha256": "7821bc0689b92a19d19c9746ce310ad0d139936547802b7bf752519805562c18",
+      "reviewed": "Round 1 F: to-do and scope records are capped in UTF-8 bytes before they are parsed; checked for direct writes and unconditional deletes"
     },
     "src/core/map.js": {
       "sha256": "f9eae33f6635cd1b3983fc1c71eb7a3b3c8dc1c70ca3ef8ce8807d5228165d2f",
@@ -345,8 +345,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "99aa04fdf8236913d8cd839d3a5686cafdb9c3e71cacd466c0dee3c774aada74",
-      "reviewed": "Round 1 E: synced copies of to-do records read under the id they copy; checked for direct writes and unconditional deletes"
+      "sha256": "050260e65f4949928996d5b29c9c41bda1bfacc979fc4b25645211afff91ead0",
+      "reviewed": "Round 1 F: to-do and scope records are capped in UTF-8 bytes before they are parsed; checked for direct writes and unconditional deletes"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",
@@ -397,8 +397,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "775c88c0ff9940a7fbed92964a5e2525f16592916ddff91e533632d248e82dbe",
-      "reviewed": "Round 1 C: any record naming living-runs goes to the to-do reader; checked for direct writes and unconditional deletes"
+      "sha256": "c24bb64585b80053632c12113913de1b2d66ff241c7c030dbdfef2d20ff750ba",
+      "reviewed": "Round 1 F: to-do and scope records are capped in UTF-8 bytes before they are parsed; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "ca3d139e6b60686744342b04f435d1bfd99c4e4d2f4fce6d12c6f2c0bf3b9d3e",

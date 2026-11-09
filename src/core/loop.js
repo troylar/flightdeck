@@ -1035,8 +1035,8 @@ PF.loop = (function () {
   /* Why a scope record just built can't be filed ('' when it can): the reader's own check, on the bytes as they'd be
      written, so no writer files what every reader would refuse (one frontier limit, LIMITS.seen, for both). */
   function fileWhy(name, f) {
-    var t = text(f);
-    if (t.length > LIMITS.bytes) return 'It would be ' + t.length + ' bytes; a scope record is at most ' + LIMITS.bytes + '.';
+    var t = text(f), n = PF.util.utf8Bytes(t);
+    if (n > LIMITS.bytes) return 'It would be ' + n + ' bytes; a scope record is at most ' + LIMITS.bytes + '.';
     if (Array.isArray(f.seen) && f.seen.length > LIMITS.seen) return 'It would name ' + f.seen.length + ' records it saw (seen); a scope record names at most ' + LIMITS.seen + '. Resolve some of the loop\'s open decisions first.';
     var v = cleanFile(JSON.parse(t), name);
     return v.ok ? '' : 'It wouldn\'t read back: it ' + v.why + '.';
