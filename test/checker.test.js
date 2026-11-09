@@ -1121,9 +1121,7 @@ rule('The checker reads a 3.0 version whose loop pins its child (version: on {fo
     assert.ok(!kid.blockers, String(kid.blockers));
     const parent = ['---', 'process: rollout', 'title: Rollout', '---', '', '## Stories · DO-CONFIRM {#stories}', '- [!] {for.each} Check every story {#each}',
       '  process: validate-story', '  version: 1', '  items: item', '  noun: story / stories', '  pass: issue=item:key', '  accepts: cleared', ''].join('\n');
-    // repo.publish reads only {run.process} children itself, so the loop's child is handed over as the app lists it.
-    const childProcs = { 'validate-story': await repo.readProcess(d, 'validate-story') };
-    const v = await repo.publish(d, parent, { people, ...EX, childProcs, by: 'person-avery', changes: 'x', existing: [], now: NOW, app: '3.0.0' });
+    const v = await repo.publish(d, parent, { people, ...EX, by: 'person-avery', changes: 'x', existing: [], now: NOW, app: '3.0.0' });
     assert.ok(!v.blockers, String(v.blockers));
     assert.deepStrictEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(root, 'publications', 'rollout', v.folder, 'publication.json'), 'utf8')).payload.pins.children), ['each'], 'set-up: the loop is pinned');
     const app = await repo.loadAll(d, { deep: true }), out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));

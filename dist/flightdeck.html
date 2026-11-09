@@ -5401,10 +5401,11 @@ PF.links = (function () {
     if (!map || typeof children !== 'function') return out;
     PF.map.steps(map).forEach(function (x) {
       var s = x.step, f = s.fields || {};
-      if (s.type !== 'run.process' || !f.process || own(f, 'version')) return;
+      if ((s.type !== 'run.process' && s.type !== 'for.each') || !f.process || own(f, 'version')) return;
       var got = children(f.process, '');
       if (!got || !got.map) return;
-      var st = rows(s, map.meta.context, got.map).stale;
+      /* A loop (3.0.1) passes only its pass: line, by name; a name its child no longer has stops each new item's run. */
+      var st = s.type === 'for.each' ? parse(f.pass, { items: true }).entries.filter(function (e) { return (got.map.meta.context || []).indexOf(e.name) < 0; }) : rows(s, map.meta.context, got.map).stale;
       if (st.length) out.push({ step: s, child: f.process, title: got.title, version: got.version, names: st.map(function (y) { return y.name; }) });
     });
     return out;
@@ -7864,10 +7865,10 @@ PF.library = (function () {
         }
         var sets = PF.map.setNames(s.fields.sets);
         if (sets.length) out.sets.push({ step: s.id, names: sets });
-        if (s.type === 'run.process' && s.fields.process) {
-          var pass = own(s.fields, 'pass') ? PF.links.parse(s.fields.pass).entries || [] : [];
+        if ((s.type === 'run.process' || s.type === 'for.each') && s.fields.process) {
+          var pass = own(s.fields, 'pass') ? PF.links.parse(s.fields.pass, { items: s.type === 'for.each' }).entries || [] : [];
           out.children.push({ step: s.id, process: String(s.fields.process).trim(), version: own(s.fields, 'version') ? +s.fields.version || null : null,
-            pass: pass.map(function (e) { return PF.links.entryText(e); }), carry: PF.links.carryList(s) });
+            pass: pass.map(function (e) { return e.source === 'item' ? e.name + '=item:' + e.item : PF.links.entryText(e); }), carry: PF.links.carryList(s) });
         }
       });
       var g = p.gate;
@@ -21202,12 +21203,12 @@ PF.repo = (function () {
   }
 
   /* Write the map and types first and the publication record last, so a half-synced publication is never mistaken for a complete one. */
-  /* Every process a draft's linked steps run, read from the folder as the app lists them ({ latest, all, clashes, broken }),
+  /* Every process a draft's linked steps and loops ({for.each}, 3.0.1) run, read from the folder as the app lists them ({ latest, all, clashes, broken }),
      so publish.build resolves each version: pin to exactly one usable folder and checks what each step passes (2.8) against
      the child as it is now. What was just read wins over what the caller had in memory. */
   function childProcsFor(fs, parsed) {
     var names = [];
-    PF.map.steps(parsed).forEach(function (x) { var f = x.step.fields || {}; if (x.step.type === 'run.process' && f.process && names.indexOf(f.process) < 0) names.push(f.process); });
+    PF.map.steps(parsed).forEach(function (x) { var f = x.step.fields || {}; if ((x.step.type === 'run.process' || x.step.type === 'for.each') && f.process && names.indexOf(f.process) < 0) names.push(f.process); });
     var out = Object.create(null);
     return Promise.all(names.map(function (name) { return readProcess(fs, name).then(function (p) { if (p) out[name] = p; }); })).then(function () { return out; });
   }

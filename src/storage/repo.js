@@ -1425,12 +1425,12 @@ PF.repo = (function () {
   }
 
   /* Write the map and types first and the publication record last, so a half-synced publication is never mistaken for a complete one. */
-  /* Every process a draft's linked steps run, read from the folder as the app lists them ({ latest, all, clashes, broken }),
+  /* Every process a draft's linked steps and loops ({for.each}, 3.0.1) run, read from the folder as the app lists them ({ latest, all, clashes, broken }),
      so publish.build resolves each version: pin to exactly one usable folder and checks what each step passes (2.8) against
      the child as it is now. What was just read wins over what the caller had in memory. */
   function childProcsFor(fs, parsed) {
     var names = [];
-    PF.map.steps(parsed).forEach(function (x) { var f = x.step.fields || {}; if (x.step.type === 'run.process' && f.process && names.indexOf(f.process) < 0) names.push(f.process); });
+    PF.map.steps(parsed).forEach(function (x) { var f = x.step.fields || {}; if ((x.step.type === 'run.process' || x.step.type === 'for.each') && f.process && names.indexOf(f.process) < 0) names.push(f.process); });
     var out = Object.create(null);
     return Promise.all(names.map(function (name) { return readProcess(fs, name).then(function (p) { if (p) out[name] = p; }); })).then(function () { return out; });
   }
