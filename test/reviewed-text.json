@@ -13,16 +13,16 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "e5423f764e7239746609b0ccad8b37a55c9d80e8c0c99dca2e79dd211f356518",
-      "reviewed": "FB: a fact retry is already only on its own run; suggest-done's already checks the record's run and to-do; checked for direct writes and unconditional deletes"
+      "sha256": "ba9e8692f977cd74ce9c34e56d55b8feeb2f06abede8b17894514a0f6324facf",
+      "reviewed": "FC: unread records a suggestion's evidence depends on are named in every reader's problems (evidenceUnread); checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "cf0a7c0289f08fc6d138b4feaddbdc118b45af451a7732e5ee68c9480c752b38",
       "reviewed": "slice 4 commit 3: facts core (facts.js: records, reduction, freshness, support, de-duplication), todos hooks (fact dispatch, done support, now), Python checker parity; pure code, no direct writes or unconditional deletes"
     },
     "docs/apps.md": {
-      "sha256": "4cae975aed94c54e26880833c863bc690cc37b0ffedd5e9d9dd7d4292b837941",
-      "reviewed": "FB: a fact retry is already only on its own run; suggest-done's already checks the record's run and to-do; checked for direct writes and unconditional deletes"
+      "sha256": "1253ed4cd8d6e9bfb6aa062aaa5f5c9fdaa2b929075a92fe71fdbac6fa243e2b",
+      "reviewed": "FC: unread records a suggestion's evidence depends on are named in every reader's problems (evidenceUnread); checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
       "sha256": "9fc21bb7505dd1782c1d92f37e485f719bda5dbbee6454f14da1904303f81a2e",

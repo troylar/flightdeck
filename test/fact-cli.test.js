@@ -227,6 +227,35 @@ rule('A record that can\'t be read holds sync and suggest-done (exit 4) and writ
   assert.deepStrictEqual(snap(F0.root), before, 'nothing written');
 });
 
+rule('A story\'s suggestion resting on its parent\'s fact: that fact unreadable is every reader\'s problem, named, incomplete, exit 4', async () => {
+  const F0 = await folder(), KID = 'validate-story/k102';
+  const a = json('todo', 'add', F0.root, KID, '--phase', 'assess', '--text', 'Merge the fix', '--key', 'kid-td', '--json', ...TOOL);
+  assert.strictEqual(a.code, 0, JSON.stringify(a));
+  assert.strictEqual(await decideAll(F0.d, KID, 'person-avery'), 1);
+  await land(F0.d, KID);
+  const x = json('todo', 'list', F0.root, KID, '--json').data.todos[0].id;
+  assert.strictEqual(json('fact', 'sync', F0.root, PR, '--from', input({ facts: [prs()] }), '--json', ...TOOL).code, 0);
+  const fid = F.idFor('git-bot', 'prs-102-a'), s = json('todo', 'suggest-done', F0.root, KID, '--todo', x, '--fact', fid, '--json', ...TOOL);
+  assert.deepStrictEqual([s.code, s.data.status], [0, 'requested'], JSON.stringify(s));
+  const ok = json('todo', 'list', F0.root, KID, '--json');
+  assert.deepStrictEqual([ok.code, ok.complete], [0, true], 'set-up: readable');
+  /* The parent's fact is damaged. */
+  const file = path.join(F0.root, 'proposals', fid + '.json'), o = JSON.parse(fs.readFileSync(file, 'utf8'));
+  o.entries = 'broken'; fs.writeFileSync(file, JSON.stringify(o, null, 2));
+  const named = (r, what) => {
+    assert.deepStrictEqual([r.code, r.complete], [4, false], what + ': ' + JSON.stringify(r).slice(0, 600));
+    assert.ok(r.problems.some(p => p.path === 'proposals/' + fid + '.json'), what + ' names the file: ' + JSON.stringify(r.problems));
+  };
+  const l = json('todo', 'list', F0.root, KID, '--json');
+  named(l, 'todo list');
+  assert.strictEqual(l.data.requests.filter(q => q.op === 'done')[0].status, 'held');
+  named(json('run', F0.root, KID, '--contract', '2', '--json'), 'run');
+  named(json('next', F0.root, KID, '--contract', '2', '--json'), 'next');
+  named(json('todo', 'suggest-done', F0.root, KID, '--todo', x, '--fact', fid, '--json', ...TOOL), 'suggest-done');
+  named(json('fact', 'list', F0.root, PR, '--json'), 'fact list');
+  named(json('runs', F0.root, '--contract', '2', '--json'), 'runs');
+});
+
 rule('Importing facts alone changes no run bytes: every run.json and `run --contract 2` read the same before and after', async () => {
   const { root } = await folder();
   const runs0 = runsOf(root), read0 = json('run', root, PR, '--contract', '2', '--json'), kid0 = json('run', root, 'validate-story/k102', '--contract', '2', '--json');

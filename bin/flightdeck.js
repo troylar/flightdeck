@@ -888,6 +888,16 @@ function runCovers(proc, id, r) {
    counts. Returns every to-do record that couldn't be read (and people.json, when it couldn't be). */
 /* loopIn: { runs, loops } a spread's coverage reads (its loop's scope records and every item's run); without it a spread holds
    its loop, fail closed. Only `runs` are marked. */
+/* The unread records a run's requests depend on elsewhere (4.0 slice 4): a suggestion still to be decided or applied rests on
+   facts of the run that has its item's loop (a story's parent); any record of that run that can't be read holds it, so it is
+   the reader's problem too. V: the run's to-do view; unread: every unread record read. */
+function evidenceUnread(PF, r, V, unread) {
+  if (!V) return [];
+  const runs = {};
+  PF.todos.requestsOf(V).forEach((q) => { if (!q.support || q.status === 'applied' || q.status === 'declined') return; const it = PF.facts.itemOfTodo(r, V.byTodo[q.todo]); if (it) runs[it.run.process + '/' + it.run.id] = true; });
+  if (!Object.keys(runs).length) return [];
+  return (unread || []).filter((u) => u && u.file !== 'people.json' && (!u.run || runs[u.run.process + '/' + u.run.id]));
+}
 function markTodos(PF, runs, got, people, peopleBad, loopIn) {
   const T = PF.todos, unread = (got.todosUnread || []).slice();
   if (peopleBad) unread.push({ file: 'people.json', why: 'people.json couldn\'t be read, so no one\'s authority over to-dos can be checked.', run: null });
@@ -971,7 +981,7 @@ async function readData(eng, adapter, req) {
         if (pr.why) L.note('proposals', 'unreadable', pr.why);
         if (gp) {
           const un = markTodos(PF, [r], gp, one.people, !!(one.peopleWhy || pw), loopIn), was = relevant, mine = {};
-          un.filter((u) => u.run ? u.run.process === m[1] && u.run.id === m[2] : !!r.living).forEach((u) => { if (u.file !== 'people.json') { mine['proposals/' + u.file] = true; L.note('proposals/' + u.file, u.kind === 'newer' ? 'newer' : 'malformed', u.kind === 'newer' ? u.why : fileWhy(u.why)); } });
+          un.filter((u) => u.run ? u.run.process === m[1] && u.run.id === m[2] : !!r.living).concat(evidenceUnread(PF, r, r._tdv, un)).forEach((u) => { if (u.file !== 'people.json' && !mine['proposals/' + u.file]) { mine['proposals/' + u.file] = true; L.note('proposals/' + u.file, u.kind === 'newer' ? 'newer' : 'malformed', u.kind === 'newer' ? u.why : fileWhy(u.why)); } });
           relevant = (p) => was(p) || !!mine[p];
         } else if (r.living) { const was = relevant; relevant = (p) => was(p) || p === 'proposals'; }
       }
@@ -3176,6 +3186,9 @@ async function todoMain(argv) {
     const deps = { records: got.todos || [], unread: (got.todosUnread || []).concat(unread.filter((u) => u.file === 'people.json')) };
     const V = T.view(r, { records, unread, people, deps, now: NOW }), nameOf = A.names(people), title = String(r.title || r.process);
     const gateOf = (pl) => (pl ? T.gateTitle(map, pl.beforeGate) : '');
+    /* A record another run's evidence needs that can't be read is this command's problem too, named. */
+    const noteUnread = (list) => list.forEach((u) => { const p = 'proposals/' + u.file; if (u.file !== 'people.json' && !extra.some((e) => e.path === p)) extra.push({ path: p, kind: u.kind === 'newer' ? 'newer' : 'malformed', why: u.kind === 'newer' ? u.why : fileWhy(u.why) }); });
+    noteUnread(evidenceUnread(PF, r, V, deps.unread));
     const evidenceOf = (x) => { if (!x || !x.support) return null; const s = x.support; return { fact: s.fact, domain: s.domain, source: s.source, words: PF.facts.TITLE[s.domain] + ' from ' + [s.source.feed, s.source.site, s.source.account].filter(Boolean).join(' · ') + ' (' + s.fact + ')' }; };
     if (sub === 'list') {
       const open = V.todos.filter((x) => x.state === 'open').length;
@@ -3204,7 +3217,8 @@ async function todoMain(argv) {
         }
         if ((got.todosUnread || []).some((u) => u.file === sid + '.json')) return held('A suggestion on this evidence is in the folder but can\'t be read yet.');
       }
-      if (problems().length || (FV && FV.unread.length)) return held('Part of the team folder this depends on couldn\'t be read.');
+      if (FV) noteUnread(FV.unread);
+      if (problems().length) return held('Part of the team folder this depends on couldn\'t be read.');
       const S = FX.supportFor(r, x, val['--fact'], { records: deps.records, unread: deps.unread, now: NOW });
       if (S.held) return held(S.why);
       if (S.why) return failOut('invalid', S.why + nothing, problems());
