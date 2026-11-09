@@ -2720,8 +2720,10 @@
     pend[r.id] = (pend[r.id] || 0) + 1;
     function settled() { endBusy(); if (g === gen) { pend[r.id]--; if (pend[r.id] <= 0) delete pend[r.id]; } }
     /* Round 10: a loop's parent or child saved without its own guard (any edit, a retry, a restore, a recovery) gets one here,
-       captured now (a recovery's at its click), so nothing lands in a folder that was left or for another person. */
-    var lgx = (opts && typeof opts.still === 'function') || !loopy(r) ? null : (opts && opts.recovery && state.recoverCx && state.recoverCx.key === r.process + '/' + r.id ? state.recoverCx.cx : loopGuard());
+       captured now (a recovery's at its click), so nothing lands in a folder that was left or for another person. Every
+       recovery asks its guard, whatever run it leaves: a kept copy can leave a run that is neither a loop's nor living. */
+    var rcx = opts && opts.recovery && state.recoverCx && state.recoverCx.key === r.process + '/' + r.id ? state.recoverCx.cx : null;
+    var lgx = opts && typeof opts.still === 'function' ? null : opts && opts.recovery ? rcx || loopGuard() : loopy(r) ? loopGuard() : null;
     return queued(function () { return repo.saveRun(fs, r, SESSION, Object.assign({}, opts, { writer: WRITER, lock: LOCKS ? lock : null }, lgx ? { still: function () { return guardOk(lgx); } } : {})); }).then(function (wrote) {
       settled();
       if (g !== gen) return true;

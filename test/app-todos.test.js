@@ -285,6 +285,24 @@ rule('Keeping a living copy over a run/2 writes no backup once the person change
   app.choose('person-casey'); await app.tick(); hold.open(); await app.tick(300);
   assert.deepStrictEqual(app.files('runs/release-notes/').filter(x => /replaced-/.test(x)), [], 'no backup written for someone else');
 });
+/* Holds the first read of run.json made once the replaced version's backup is written: the recovery save's read. */
+function holdRecovery(app) {
+  const fs = app.fs, read = fs.read.bind(fs), hold = gate(); let n = 0;
+  fs.read = (p, o) => n === 0 && /runs\/release-notes\/[^/]*\/run\.json$/.test(p) && app.files('runs/release-notes/').some(x => /replaced-/.test(x)) ? (n++, hold.p.then(() => read(p, o))) : read(p, o);
+  return { hold, seen: () => n };
+}
+rule('Use copy that keeps none of the copy\'s to-dos still writes nothing once the person changed', async () => {
+  const app = await setup();
+  await conflictCopy(app, 'person-blake');
+  await blake(app, true); await refresh(app, 300);
+  const before = app.fs.files[runPath(app)].t, h = holdRecovery(app);
+  app.click('use-copy', 'run-OTHER.json'); await app.tick(200);
+  assert.strictEqual(h.seen(), 1, 'set-up: the recovery save reached its read');
+  app.choose('person-casey'); await app.tick();
+  h.hold.open(); await app.tick(400);
+  assert.strictEqual(app.fs.files[runPath(app)].t, before, 'nothing was written for someone else');
+  assert.ok(app.fs.files[runPath(app).replace('run.json', 'run-OTHER.json')], 'the copy is still there');
+});
 rule('Every save, backup and retry of a living run goes through the run guard: loopy() counts a living run', () => {
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
   const i = src.indexOf('function loopy('), body = src.slice(i, src.indexOf('\n  }', i));
