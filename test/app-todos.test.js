@@ -261,6 +261,30 @@ rule('A role reassigned while the landing save is under way lands nothing the ol
   assert.strictEqual(r.roles.reviewer, 'person-casey', 'set-up: the role changed');
   assert.strictEqual(r.living, undefined, 'nothing the old reviewer approved landed');
 });
+const failRead = (app, re) => { const fs = app.fs, read = fs.read.bind(fs); fs.read = (p, o) => re.test(p) ? Promise.reject(new Error('EIO')) : read(p, o); return () => { fs.read = read; }; };
+rule('While people.json can\'t be read, nothing is landed and a copy\'s unapplied to-dos aren\'t kept', async () => {
+  const app = await setup();
+  await asReviewer(app, 'person-blake');
+  const p = await request(app, { op: 'add', text: 'People unread', target: { phase: 'draft' } }, { decider: 'person-blake' });
+  const h = holdLanding(app, p.id);
+  await refresh(app, 300);
+  assert.strictEqual(h.seen(), 1, 'set-up: the landing reached its read');
+  h.off();
+  await blake(app, true); const back = failRead(app, /^people\.json$/);
+  await refresh(app, 300);
+  h.hold.open(); await app.tick(400);
+  assert.strictEqual(theRun(app).living, undefined, 'landing: nothing');
+  back();
+  const rec = await setup();
+  const { head } = await conflictCopy(rec, 'person-blake');
+  const r0 = theRun(rec); r0.paused = { by: 'person-avery', at: new Date().toISOString(), reason: 'Lunch' }; r0.rev = (r0.rev || 0) + 1;
+  await rec.fs.write(runPath(rec), JSON.stringify(r0, null, 2));
+  await refresh(rec, 300);
+  failRead(rec, /^people\.json$/); await refresh(rec, 300);
+  rec.click('use-copy', 'run-OTHER.json'); await rec.tick(400);
+  const r = theRun(rec);
+  assert.ok(!r.living || r.living.head !== head, 'recovery: the copy\'s head isn\'t kept: ' + JSON.stringify(r.living));
+});
 rule('Keeping a copy whose head names an application this run never landed asks its authority again first', async () => {
   const app = await setup();
   const { head } = await conflictCopy(app, 'person-blake');

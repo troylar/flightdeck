@@ -806,7 +806,10 @@
        flightdeck run and next do (PF.loop.markStale); a loop is never judged on part of its list. */
     if (d.failed && 'proposals' in d.failed) d.scopesUnread = (data.scopesUnread || []).filter(function (u) { return u.file !== 'proposals/'; }).concat([{ file: 'proposals/', why: 'The loop\'s scope records couldn\'t be read.', loop: null }]);
     /* Living runs (4.0) the same way: the to-do records read before are kept, and every living run is held until they're read. */
-    if (d.failed && 'proposals' in d.failed) d.todosUnread = (data.todosUnread || []).filter(function (u) { return u.file !== 'proposals/'; }).concat([{ file: 'proposals/', why: 'The to-do records couldn\'t be read.', run: null }]);
+    if (d.failed && 'proposals' in d.failed) d.todosUnread = (data.todosUnread || []).filter(function (u) { return u.file !== 'proposals/' && u.file !== 'people.json'; }).concat([{ file: 'proposals/', why: 'The to-do records couldn\'t be read.', run: null }]);
+    /* ...and people.json, every authority's source: while it can't be read (or is refused), the list kept from before vouches
+       for no one, so every living run is held and no to-do is prepared, landed or kept from a copy until it reads. */
+    if (d.failed && 'people' in d.failed) d.todosUnread = (d.todosUnread || []).concat([{ file: 'people.json', why: 'people.json couldn\'t be read, so no one\'s authority over to-dos can be checked.', run: null }]);
     todoBodies(d);
     /* Versions kept from before because publications/ couldn't be read now: their bytes weren't checked against their stage
        this time, so none of a stage's test runs or sign-offs count for them until they are (2.1). */
