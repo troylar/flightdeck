@@ -424,6 +424,24 @@ rule('An unread or held record for the run stops preparing and landing', () => {
   assert.ok(W2.held.length, 'set-up: held');
   assert.ok(T.applyPlan(r, W2, W2.requests[p.id]).skip, 'held');
 });
+rule('A second application imported after one landed keeps the work disputed until a settling record, and is never replayed', () => {
+  const { r } = newRun(), map = R.mapOf(r), p = prop('p1', add('Check', { phase: 'draft' })), a = applied(p, '', { decision: p.id + '.status-w1-00000000' });
+  R.todoLand(r, map, a, { who: 'person-avery', now: AT, typesHash: r.typesHash });
+  R.done(r, map, 'write', 'person-avery', AT);
+  const dn = prop('p2', { op: 'done', todo: p.todo }, [a.id]), dd = dn.id + '.status-w1-00000000';
+  const a1 = applied(dn, a.id, { decision: dd }, [dn.id, a.id]), a2 = applied(dn, 'req-x-000000000000000000000000', { decision: dd }, [dn.id]);
+  R.todoLand(r, map, a1, { who: 'person-avery', now: AT });
+  mark(r, [p, a, dn, a1]); R.pass(r, map, 0, 'person-avery', AT);
+  const recs = [p, a, dn, a1, a2], W = V(r, recs);
+  same([W.requests[dn.id].status, W.byTodo[p.todo].disputed, W.requests[dn.id].disputedIds.length > 0], ['applied', true, true]);
+  mark(r, recs); same([R.gateStatus(r, map, 0), R.canPass(r, map, 0)], ['review', false]);
+  const plan = T.applyPlan(r, W, W.requests[dn.id]);
+  assert.ok(plan.settle, JSON.stringify(plan));
+  const s = T.buildStatus(Object.assign({}, plan.settle, { by: 'person-avery', at: AT, writer: 'rec', rev: rev() })), st = clean(s.file, s.name);
+  const W2 = V(r, recs.concat([st]));
+  same([W2.requests[dn.id].status, W2.byTodo[p.todo].disputed, W2.chain, W2.todos[0].state], ['applied', false, [a.id, a1.id], 'done']);
+  same(T.applyPlan(r, W2, W2.requests[dn.id]), { landed: a1.id });
+});
 /* ---------- The run file ---------- */
 const reread = (r) => R.sanitize(JSON.parse(JSON.stringify(Object.assign({}, r, { _todos: undefined }))));
 rule('A living run reads back with its head, its feature and its approvals\' cuts; a malformed marker is read-only', () => {

@@ -3221,7 +3221,7 @@
       if (applying[gk]) return;
       var V = todoView(r);
       if (!V || V.broken) return;
-      var q = PF.todos.nextQueued(V) || PF.todos.requestsOf(V).filter(function (y) { return y.status === 'disputed' && y.appOnly && y.via; })[0];
+      var q = PF.todos.nextQueued(V) || PF.todos.requestsOf(V).filter(function (y) { return (y.status === 'disputed' && y.appOnly && y.via) || (y.landed && (y.appOut || []).length); })[0];
       if (!q) return;
       applying[gk] = true;
       var cx = loopGuard({ run: key });
@@ -3251,7 +3251,7 @@
     if (plan.adopt) prepared = Promise.resolve(plan.adopt);
     else {
       if (!guardOk(cx)) return Promise.resolve(false);
-      var s = PF.todos.buildStatus(Object.assign({}, plan.write, { by: cx.me, at: new Date().toISOString(), writer: 'w' + loopHex(10), rev: loopHex(8), app: APP_VERSION }));
+      var s = PF.todos.buildStatus(Object.assign({}, plan.write || plan.settle, { by: cx.me, at: new Date().toISOString(), writer: 'w' + loopHex(10), rev: loopHex(8), app: APP_VERSION }));
       var fw = PF.todos.filed(s.name, s.file); if (fw.why) return Promise.reject(new Error(fw.why));
       var rec = fw.record;
       /* Written in the folder and generation it was prepared in; once the window has moved on (another folder, a new read),
@@ -3260,6 +3260,8 @@
     }
     return prepared.then(function (a) {
       if (!a || !guardOk(cx)) return false;
+      /* A settlement of applications made after one landed is written, never landed: the landed effect isn't replayed. */
+      if (plan.settle) return true;
       /* A settlement page that leaves others outstanding is written, never landed: the next read writes the next page. */
       var V1 = todoView(r), q1 = V1.requests[q.id], p1 = q1 ? PF.todos.applyPlan(r, V1, q1) : { skip: 'gone' };
       if (p1.write) return 'again';

@@ -163,6 +163,19 @@ rule('Two disconnected recorders prepared the same request: the next one sees bo
   const V = T.view(app.PF.run.sanitize(theRun(app)), { records: (await app.PF.repo.loadAll(app.fs, {})).todos, people: JSON.parse(app.fs.files['people.json'].t) });
   assert.deepStrictEqual([V.requests[p.id].status, V.todos.length], ['applied', 1], 'applied once');
 });
+rule('Another application of a request found after it landed is settled by a record that saw both, and nothing lands again', async () => {
+  const app = await setup();
+  const T = app.PF.todos;
+  const p = await request(app, { op: 'add', text: 'Ten', target: { phase: 'draft' } });
+  await refresh(app);
+  const first = apps(app, p.id)[0], r = theRun(app);
+  assert.strictEqual(r.living.head, first.id, 'set-up: landed');
+  const s = T.buildStatus({ kind: 'application', proposal: p.id, run: { process: r.process, id: r.id }, seen: [p.id], by: 'person-avery', at: new Date().toISOString(), authority: first.authority, previous: 'req-x-000000000000000000000000', effect: first.effect, writer: 'rec2', rev: 'abcdef13', app: '4.0.0' });
+  await app.fs.write('proposals/' + s.name, T.text(s.file));
+  await refresh(app, 400);
+  const V = T.view(app.PF.run.sanitize(theRun(app)), { records: (await app.PF.repo.loadAll(app.fs, {})).todos, people: JSON.parse(app.fs.files['people.json'].t) });
+  assert.deepStrictEqual([theRun(app).living.head, V.requests[p.id].status, V.todos[0].disputed, apps(app, p.id).length], [first.id, 'applied', false, 3]);
+});
 rule('An addition landing in a passed phase sends its gate to review, logged, in the saved run', async () => {
   const app = await setup();
   const R = app.PF.run, path = runPath(app), r0 = theRun(app), rr = R.sanitize(JSON.parse(JSON.stringify(r0))), m = R.mapOf(rr), at = new Date().toISOString();

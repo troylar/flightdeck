@@ -419,7 +419,7 @@ PF.todos = (function () {
         if (no) { q0.ignored.push({ record: x.id, why: no }); return; }
         q0.decisions.push(x.id);
         settleDecision(q0, x, { op: x.op, by: x.by.person, consequence: x.consequence, record: x.id });
-      } else { q0.candidates.push(x.id); if (!landed[x.proposal]) settleApp(q0, x, x); }
+      } else { q0.candidates.push(x.id); settleApp(q0, x, x); }
     });
     /* Every record that ever took part in a dispute on a request, kept after it settles: an approval made before it never
        counts it, so settling a dispute never quietly restores that approval. */
@@ -455,9 +455,10 @@ PF.todos = (function () {
         status: '', why: '', landed: '', candidates: [], decisions: [], dec: null, decReview: [], rawReview: [], app: null, appReview: [], ignored: [], disputedIds: [], unordered: true };
     });
     Object.keys(reqs).forEach(function (id) { statusOf(T, reqs[id], o, map, heldIds); });
-    /* Work is disputed while any request on it is, and while any decision on it is unsettled, whatever the request's status:
-       a contrary decision made after an application landed holds the work until a record that saw both settles it. */
-    T.todos.forEach(function (x) { x.requests = Object.keys(reqs).filter(function (id) { return reqs[id].todo === x.id; }); x.disputed = x.requests.some(function (id) { var q1 = reqs[id]; return q1.status === 'disputed' || (q1.decOut || []).length > 0; }); });
+    /* Work is disputed while any request on it is, and while any decision or application on it is unsettled, whatever the
+       request's status: a contrary decision, or another application prepared at once, holds the work after one landed until
+       a record that saw them all settles it. */
+    T.todos.forEach(function (x) { x.requests = Object.keys(reqs).filter(function (id) { return reqs[id].todo === x.id; }); x.disputed = x.requests.some(function (id) { var q1 = reqs[id]; return q1.status === 'disputed' || (q1.decOut || []).length > 0 || (q1.appOut || []).length > 0; }); });
     return T;
   }
   /* A request's status, in this order: what landed first (an application the head reaches is Applied, whatever authority says
@@ -681,11 +682,21 @@ PF.todos = (function () {
   function sameVia(a, b) { return !!a && !!b && JSON.stringify(canon(a)) === JSON.stringify(canon(b)); }
   function applyPlan(r, T, q) {
     if (!q) return { skip: 'There is no such request.' };
-    if (q.landed) return { landed: q.landed };
+    var unsettled = (q.appOut || []).length > 0;
+    if (q.landed && !unsettled) return { landed: q.landed };
     /* Nothing is prepared or landed while any of the run's records can't be read or read in order: what it says isn't known. */
     if (T.broken) return { skip: T.broken.why };
     if (T.unread.length) return { skip: 'A to-do record (' + String(T.unread[0].file || '').slice(0, 120) + ') can\'t be read yet, so nothing is applied until it is.' };
     if (T.held.length) return { skip: 'A to-do record (' + T.held[0].record + ') can\'t be read in order yet, so nothing is applied until it is.' };
+    /* Landed, with other applications of it prepared at once still outstanding: a record that saw them settles them. It is an
+       application like the landed one (the same head before it, effect and authority) that is never landed itself: the
+       landed effect is never replayed. */
+    if (q.landed) {
+      var la = null; T.records.forEach(function (y) { if (y.id === q.landed) la = y; });
+      var lap = la && (la.kind === 'compound' ? la.application : la), lpr = null; T.records.forEach(function (y) { if (y.id === q.id) lpr = y; });
+      if (!lap || !lpr) return { skip: 'Its landed application can\'t be read.' };
+      return { settle: { kind: 'application', proposal: q.id, run: { process: T.run.process, id: T.run.id }, seen: seenFor(T, [q.id, q.landed], [q.id], ['app']).seen, authority: la.kind === 'compound' ? { compound: la.id } : la.authority, previous: lap.previous || '', effect: effectOf(lpr) } };
+    }
     /* Two applications prepared at once (two windows, neither landed) block nothing: a new one that saw both settles them. */
     var appOnly = q.status === 'disputed' && q.appOnly && q.via;
     if (q.status !== 'queued' && !appOnly) return { skip: q.why || 'It is ' + q.status + '.' };

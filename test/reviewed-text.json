@@ -25,8 +25,8 @@
       "reviewed": "loop guard builder for every loop parent and child write, undo on drop; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "f5edd27b8e1d6d8d2e395ff0d8e0b3bf35a41868deec21a834e49b1f3166bf73",
-      "reviewed": "Round 2 O: an item's work counts in its loop's and its phase gate's scope; checked for direct writes and unconditional deletes"
+      "sha256": "cb1da22cf5ced2e49dc89e644554294d3cfc563a9fe34d1083618cc2ae05ce69",
+      "reviewed": "Round 2 P: applications prepared at once stay disputed after one lands until settled; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -345,8 +345,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "1f855c3c03f68988d606b2e2e2ecc819ab5f13439730b5ee1bde9b27b1c479e7",
-      "reviewed": "Round 2 O: an item's work counts in its loop's and its phase gate's scope; checked for direct writes and unconditional deletes"
+      "sha256": "6bfbca5e0999484ebbdbfbf70d4feff7f74a1e935a22ce02d35eb8b524501ee7",
+      "reviewed": "Round 2 P: applications prepared at once stay disputed after one lands until settled; checked for direct writes and unconditional deletes"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",
@@ -401,8 +401,8 @@
       "reviewed": "Round 2 U: only to-do records are capped in bytes; scope records read and write as in 3.0; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "dd3e274f0bcbc70413eb36ea089a320e46d2058c28d5513933732b6bd4b38832",
-      "reviewed": "Round 1 M: a prepared application enters the window's records only in its own folder and read; checked for direct writes and unconditional deletes"
+      "sha256": "22dc8b068f05ce916c45f3609c2a692d5c2d41858a177ed2fb36451f647444b7",
+      "reviewed": "Round 2 P: applications prepared at once stay disputed after one lands until settled; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
