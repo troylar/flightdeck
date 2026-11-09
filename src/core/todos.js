@@ -14,6 +14,17 @@ PF.todos = (function () {
   var TOOL = /^[a-z0-9][a-z0-9-]{0,29}$/, VERSION = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,39}$/, KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$/;
   var REQ = /^req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24}$/, TD = /^td-[0-9a-f]{24}$/, FP = /^[0-9a-f]{16}$/;
   var DNAME = /^(req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})\.status-([a-z0-9][a-z0-9-]{0,39})-([0-9a-f]{8})\.json$/;
+  /* A synced copy's name (OneDrive): the record's own name with " (n)" or a dash suffix that has a capital letter (a
+     computer's name) before .json. A record's own names are lowercase, so a copy never reads as another record. */
+  var DCOPY = /^(req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})\.status-([a-z0-9][a-z0-9-]{0,39})-([0-9a-f]{8})( \([0-9]{1,3}\)|-[A-Za-z0-9-]{1,63})?\.json$/;
+  function copyMark(m) { return m === undefined || m === '' || /^ \([0-9]{1,3}\)$/.test(m) || (/^-[A-Za-z0-9-]{1,63}$/.test(m) && /[A-Z]/.test(m)); }
+  /* The name a status file stands for (its own, or the record a synced copy copies), or '' when it isn't one. */
+  function statusFile(name) {
+    var m = typeof name === 'string' && name.length <= 240 ? DCOPY.exec(name) : null;
+    return m && copyMark(m[4]) ? m[1] + '.status-' + m[2] + '-' + m[3] + '.json' : '';
+  }
+  /* Whether a request's file name is its id's, or a synced copy of it. */
+  function requestFile(name, id) { return typeof name === 'string' && name.length <= 240 && name.indexOf(id) === 0 && /\.json$/.test(name) && copyMark(name.slice(id.length, -5) || undefined); }
   var UID = /^[a-z][a-z0-9.-]{0,19}:(key:)?[A-Za-z0-9_-]{1,40}$/, TICKET = /^[A-Za-z][A-Za-z0-9_]{0,19}-[1-9][0-9]{0,8}$/;
   var ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/, CONTROL = /[\u0000-\u001f\u007f\u2028\u2029]/;
   var WORDS = { waiting: 'Waiting for approval', queued: 'Queued for the recorder', applied: 'Applied', declined: 'Declined', held: 'Held', disputed: 'Disputed' };
@@ -230,11 +241,11 @@ PF.todos = (function () {
     if (bad) return bad;
     var errors = [];
     if (st) {
-      var m = DNAME.exec(String(name || ''));
+      var sname = statusFile(name), m = sname ? DNAME.exec(sname) : null;
       if (!m || m[1] !== o.proposal) return mal('is a to-do decision or application whose name doesn\'t say its request');
       if (SKINDS.indexOf(o.kind) < 0) return mal('is a to-do status that isn\'t a decision or an application');
       only(o, COMMON.concat(['proposal', 'op', 'consequence', 'reason', 'authority', 'previous', 'effect', 'fingerprint']).filter(function (k) { return k !== 'id' && k !== 'producer' && k !== 'key'; }), 'It', errors);
-      var rec = { id: name.slice(0, -5), kind: o.kind, proposal: o.proposal, run: cleanRun(o.run, errors), seen: cleanSeen(o.seen, errors), by: null, at: '' };
+      var rec = { id: sname.slice(0, -5), kind: o.kind, proposal: o.proposal, run: cleanRun(o.run, errors), seen: cleanSeen(o.seen, errors), by: null, at: '' };
       if (typeof o.by !== 'string' || !PERSON.test(o.by)) errors.push('"by" is the ID from people.json of who made it.'); else rec.by = { person: o.by };
       if (typeof o.at !== 'string' || !ISO.test(o.at)) errors.push('"at" is a date and time.'); else rec.at = o.at;
       if (o.kind === 'decision') {
@@ -256,7 +267,7 @@ PF.todos = (function () {
     }
     if (PKINDS.indexOf(o.kind) < 0) return mal('is a to-do record that isn\'t a proposal, a compound, a grant or a revoke');
     if (typeof o.id !== 'string' || !REQ.test(o.id)) return mal('is a to-do record without a request id');
-    if (typeof name === 'string' && name !== o.id + '.json') return mal('is a to-do record whose name isn\'t its id');
+    if (typeof name === 'string' && !requestFile(name, o.id)) return mal('is a to-do record whose name isn\'t its id');
     var r = { id: o.id, kind: o.kind, run: cleanRun(o.run, errors), seen: cleanSeen(o.seen, errors), by: cleanBy(o, errors), at: '' };
     if (typeof o.at !== 'string' || !ISO.test(o.at)) errors.push('"at" is a date and time.'); else r.at = o.at;
     if (r.by && r.by.tool && o.id !== idFor(r.by.tool, o.key)) errors.push('Its id isn\'t the one its tool and key give.');

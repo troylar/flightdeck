@@ -25,8 +25,8 @@
       "reviewed": "loop guard builder for every loop parent and child write, undo on drop; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "adf44f15d84cfd31151d0132da72b580f1e266f05bab5647b376d7ea3ac098ee",
-      "reviewed": "Round 1 D: wide application disputes settle a page at a time; only the settling application lands; checked for direct writes and unconditional deletes"
+      "sha256": "4c6204787628d85c699f45e9d30a24f2cc316abf82de3670b047f532de75bb86",
+      "reviewed": "Round 1 E: synced copies of to-do records read under the id they copy; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -345,8 +345,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "c150c08e945c048efae2fe2ef72c99d41fc921c0738193e34506bfed6bb8843b",
-      "reviewed": "Round 1 D: wide application disputes settle a page at a time; only the settling application lands; checked for direct writes and unconditional deletes"
+      "sha256": "99aa04fdf8236913d8cd839d3a5686cafdb9c3e71cacd466c0dee3c774aada74",
+      "reviewed": "Round 1 E: synced copies of to-do records read under the id they copy; checked for direct writes and unconditional deletes"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",

@@ -40,6 +40,7 @@ function decide(q, op, by, consequence, seen) { const s = T.buildStatus({ kind: 
 function applied(p, previous, authority, seen) { const s = T.buildStatus({ kind: 'application', proposal: p.id, run: RUN, seen: seen || [p.id].concat(previous ? [previous] : []), by: 'person-avery', at: AT, authority, previous: previous || '', effect: T.effectOf(p), writer: 'rec', rev: rev() }); return clean(s.file, s.name); }
 function grant(key, ops, targets, adds, by, seen) { return clean(T.buildGrant({ kind: 'grant', id: T.idFor('flightdeck', key), run: RUN, seen: seen || [], by: by || 'person-avery', at: AT, subject: { tool: 'notes-bot' }, ops, targets, limits: { adds: adds == null ? 10 : adds } })); }
 function revoke(key, g, seen) { return clean(T.buildGrant({ kind: 'revoke', id: T.idFor('flightdeck', key), run: RUN, seen: seen || [g.id], by: 'person-avery', at: AT, grant: g.id })); }
+const memFs = (files) => { const m = new PF.fs.MemoryFS('rules-' + Math.random(), null); Object.keys(files).forEach(p => { m.files[p] = { t: files[p], m: 1 }; }); return m; };
 const V = (r, recs) => T.view(r, { records: recs, people: PEOPLE });
 const mark = (r, recs) => { T.markHolds([r], { records: recs, people: PEOPLE }); return r; };
 const st = (r, recs, id) => V(r, recs).requests[id];
@@ -318,6 +319,24 @@ rule('A dispute among more than 50 prepared applications settles a page at a tim
   }
   assert.ok(plan.adopt, JSON.stringify(plan)); assert.ok(rounds >= 2 && rounds <= 3, rounds);
   same(W.requests[p.id].status, 'queued');
+});
+rule('Identical OneDrive copies reduce as one record under their id; different ones hold it', async () => {
+  const { r } = newRun(), map = R.mapOf(r), body = add('Copy', { phase: 'draft' });
+  const p = T.buildProposal({ run: RUN, id: T.idFor('flightdeck', 'e1'), by: 'person-avery', seen: [], at: AT, body }), pr = clean(p);
+  const C = T.consequenceOf(r, map, pr, V(r, [pr])).fingerprint;
+  const s = T.buildStatus({ kind: 'decision', proposal: p.id, run: RUN, seen: [p.id], by: 'person-avery', at: AT, op: 'accept', consequence: C, writer: 'w1', rev: '0000abcd' });
+  const base = s.name.slice(0, -5), files = { ['proposals/' + p.id + '.json']: T.text(p), ['proposals/' + p.id + '-LAPTOP.json']: T.text(p), ['proposals/' + s.name]: T.text(s.file), ['proposals/' + base + '-DESKTOP-7Q2.json']: T.text(s.file), ['proposals/' + base + ' (1).json']: T.text(s.file) };
+  let d = await PF.repo.readPlans(memFs(files));
+  same([d.todosUnread.length, d.todos.length], [0, 5], JSON.stringify(d.todosUnread));
+  same(d.todos.map(x => x.id).sort(), [p.id, p.id, base, base, base].sort());
+  same(V(r, d.todos).requests[p.id].status, 'queued');
+  const other = Object.assign({}, p, { text: 'Different' });
+  files['proposals/' + p.id + '-LAPTOP.json'] = T.text(other);
+  d = await PF.repo.readPlans(memFs(files));
+  const W = V(r, d.todos);
+  same(W.requests[p.id].status, 'held');
+  mark(r, d.todos); assert.ok(r._todos.all.some(w => /two different copies/.test(w)), JSON.stringify(r._todos.all));
+  same(T.cleanFile(JSON.parse(T.text(p)), p.id + '-laptop.json').ok, false, 'a lowercase suffix is not a copy name');
 });
 /* ---------- The run file ---------- */
 const reread = (r) => R.sanitize(JSON.parse(JSON.stringify(Object.assign({}, r, { _todos: undefined }))));
