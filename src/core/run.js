@@ -1486,6 +1486,8 @@ PF.run = (function () {
     var retired = [cur, copy].map(function (v) { var o = Object.create(null); Object.keys(v.steps || {}).forEach(function (k) { var c = v.steps[k] && v.steps[k].child; if (c && c.retired) o[k] = c.process + '/' + c.id; }); return o; });
     ['steps', 'gates', 'fields', 'details', 'roles', 'followUps', 'title', 'state', 'ended', 'tz', 'shotsFrozen', 'paused', 'pauses', 'jira', 'parent'].forEach(function (k) { cur[k] = JSON.parse(JSON.stringify(copy[k] == null ? (k === 'ended' || k === 'paused' || k === 'parent' ? null : cur[k]) : copy[k])); });
     Object.keys(cur.steps || {}).forEach(function (k) { var c = cur.steps[k] && cur.steps[k].child; if (c && retired.some(function (o) { return o[k] === c.process + '/' + c.id; })) retire(c); });
+    /* Verified promotion first (4.0), so every run/3 branch below (migrations, pins, the living head) takes the copy's. */
+    if (promote) { cur.format = FORMAT3; cur.features = []; if (PF.envelope.semver(copy.app)) cur.app = copy.app; cur.typesHash = o.typesHash; }
     /* A run/3's migration records come with the copy taken over (they sit before its steps). */
     if (cur.format === FORMAT3 && (copy.migrations || cur.migrations)) { if (Array.isArray(copy.migrations)) cur.migrations = JSON.parse(JSON.stringify(copy.migrations)); else delete cur.migrations; }
     /* A child pinned when it first started (linkChild) is in only the version that started it: the copy's pins win for the
@@ -1500,7 +1502,6 @@ PF.run = (function () {
     }
     /* Living runs (4.0): a kept copy never drops landed to-dos. Its head is kept, or this version's when it has none; an approval
        either made without counting the work lands back in review (PF.todos.markHolds), never quietly kept. */
-    if (promote) { cur.format = FORMAT3; cur.features = []; if (PF.envelope.semver(copy.app)) cur.app = copy.app; cur.typesHash = o.typesHash; }
     var lv = cur.format === FORMAT3 ? copy.living || cur.living : null;
     if (lv) { cur.living = { head: lv.head }; addFeature(cur, PF.todos.FEATURE); var lo = order3(cur); Object.keys(cur).forEach(function (k) { delete cur[k]; }); Object.keys(lo).forEach(function (k) { cur[k] = lo[k]; }); }
     if (cur.format === FORMAT3) { var re = withPins(cur); Object.keys(cur).forEach(function (k) { delete cur[k]; }); Object.keys(re).forEach(function (k) { cur[k] = re[k]; }); }

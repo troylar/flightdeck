@@ -735,4 +735,23 @@ rule('Slice 2 part 2 registers pinned-children and pinned-skills (checklist/2, p
   assert.ok(!E.judge('flightdeck-plan', { format: 'flightdeck-plan/5' }).ok);
 });
 
+rule('Keeping a copy a to-do made a run/3, with a child pinned since, over its run/2 keeps the head, the pins and their feature', () => {
+  const T = PF.todos, parent = linked(childProc(['A']), [], {});
+  const cur = R.create(parent, { id: 'r-9', by: 'person-avery', session: 'w', now: AT, app: '2.0.0', details: { ticket: 'ABC-1' } });
+  assert.strictEqual(cur.format, 'preflight-run/2', 'set-up: a run/2');
+  const map = R.mapOf(cur), RUN = { process: cur.process, id: cur.id }, tgt = { phase: map.phases[0].id };
+  const pv = T.cleanFile(JSON.parse(T.text(T.buildProposal({ run: RUN, id: T.idFor('flightdeck', 'q1'), by: 'person-avery', seen: [], at: AT, body: { op: 'add', text: 'One', target: tgt, placement: T.placementFor(map, tgt) } }))), T.idFor('flightdeck', 'q1') + '.json').record;
+  const s = T.buildStatus({ kind: 'application', proposal: pv.id, run: RUN, seen: [pv.id], by: 'person-avery', at: AT, authority: { decision: pv.id + '.status-w1-00000000' }, previous: '', effect: T.effectOf(pv), writer: 'rec', rev: '0000abcd' });
+  const a = T.cleanFile(JSON.parse(T.text(s.file)), s.name).record;
+  const copy = plain(cur), types = parent.info.typesHash;
+  R.todoLand(copy, map, a, { who: 'person-avery', now: AT, typesHash: types, app: '4.0.0' });
+  const kids = childProc(['A']), procs = { verify: proc(kids) };
+  const kid1 = R.create(kids[0], { id: 'kid1', by: 'a', session: 'w', now: AT, details: { ticket: 'ABC-1' } });
+  R.linkChild(copy, R.mapOf(copy), 'verify', { process: 'verify', id: 'kid1', inputs: { ticket: 'ABC-1' }, folder: kids[0].info.folder, format: 'preflight-run/2' }, 'person-avery', AT, { run: kid1, procOf: (id) => procs[id] || null });
+  assert.ok(copy.pins && copy.pins.children.verify, 'set-up: pinned');
+  const kept = plain(cur);
+  R.adopt(kept, R.sanitize(plain(copy)), 'person-avery', AT, { typesHash: types });
+  assert.deepStrictEqual(plain([kept.living, kept.pins || null, kept.features.indexOf('pinned-children') >= 0, kept.features.indexOf("living-runs") >= 0]), plain([{ head: a.id }, copy.pins, true, true]));
+  const back = R.sanitize(plain(kept)); assert.ok(!back._unrunnable, back._unrunnable);
+});
 run();
