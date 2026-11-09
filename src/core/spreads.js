@@ -84,7 +84,7 @@ PF.spreads = (function () {
   /* One obligation's state: where it is fulfilled (a binding, else the one run the loop counts for that attempt) and how its
      request and to-do stand there. */
   function itemOf(r, s, V, row, p, o, deps, childView, scope) {
-    var it = { uid: p.uid, key: row ? row.key : '', attempt: p.attempt, owed: true, arrival: !hasPair(s.scope.open, p.uid, p.attempt), run: '', request: '', todo: '', state: '', words: '', why: '', resolved: false };
+    var it = { uid: p.uid, key: row ? row.key : '', attempt: p.attempt, owed: true, arrival: !hasPair(s.scope.open, p.uid, p.attempt) && !hasPair(s.scope.cleared, p.uid, p.attempt), run: '', request: '', requested: false, todo: '', state: '', words: '', why: '', resolved: false };
     var set = function (st, why) { it.state = st; it.words = STATE[st]; it.why = why || ''; it.resolved = !!RESOLVED[st]; return it; };
     var name = nameOf(row, p.uid);
     var mine = (V.runs || []).filter(function (c) { return c.parent.item.uid === p.uid && (+c.parent.item.attempt || 1) === p.attempt; });
@@ -116,6 +116,8 @@ PF.spreads = (function () {
     var rid = childRequestId(s.id, p.uid, p.attempt, { process: dest.process, id: dest.id }), q = CT.requests[rid];
     it.request = rid; it.todo = PF.todos.todoIdFor(rid);
     if (!q) return set(dest.ended ? 'ended' : 'owed', dest.ended ? it.run + ' ended before it was requested.' : '');
+    /* request is the id it would have; requested says a request is there, as checked here. */
+    it.requested = true;
     (q.disputedIds || []).forEach(function (id) { scope[id] = true; });
     if (!q.landed) {
       if (dest.ended) return set('ended', it.run + ' ended before it was applied.');
@@ -139,7 +141,7 @@ PF.spreads = (function () {
       if (i.resolved) n.resolved++;
       if (i.arrival) n.arrivals++;
       if (!i.resolved) C.unresolved.push('Spread "' + C.text + '" on ' + (i.key || i.uid) + ': ' + i.words.toLowerCase() + (i.why ? ' (' + i.why + ')' : '') + '.');
-      if (i.arrival) C.notices.push((i.key || i.uid) + (i.attempt > 1 ? ' started attempt ' + i.attempt + '.' : ' joined.') + ' ' + C.text + (i.request && i.state !== 'owed' ? ' requested.' : ' is owed; not requested yet.'));
+      if (i.arrival) C.notices.push((i.key || i.uid) + (i.attempt > 1 ? ' started attempt ' + i.attempt + '.' : ' joined.') + ' ' + C.text + (i.requested ? ' requested.' : ' is owed; not requested yet.'));
     });
     C.counts = n;
     var N = C.noun || { one: 'item', many: 'items' }, word = function (k) { return k === 1 ? N.one : N.many; };

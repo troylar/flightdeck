@@ -716,4 +716,20 @@ rule('UB: a delayed contrary decision on a story\'s Done holds the parent, and s
   W.mark();
   same(R.answered(W.r, step), false, 'settling it restores nothing: a person approves again');
 });
+/* Review round 3 (UD): an arrival notice says "requested" only when a request is there, and an item included one by one
+   (cleared when the spread was added) never "joined". */
+rule('UD: an item that joined and ended before it was asked is announced as not requested; an included cleared item never joined', () => {
+  const W = world([101]); W.kid(101);
+  W.spreadAdd(); W.land(W.r);
+  W.scopes.push(scope('s2', [101, 104], [W.scopes[0].id])); W.kid(104, { cleared: true });
+  const C = W.one(), it = C.items.filter(i => i.key === 'ABC-104')[0];
+  same([it.state, it.arrival, it.requested], ['ended', true, false], 'set-up: joined, ended, never asked');
+  same(C.notices, ['ABC-104 joined. Security sign-off is owed; not requested yet.']);
+  const W2 = world([101, 102]); W2.kid(101, { cleared: true }); W2.kid(102);
+  W2.spreadAdd(); W2.land(W2.r);
+  W2.ask(W2.r, { op: 'spread-include', spread: spreadOf(W2).id, item: { uid: uid(101), attempt: 1 } }, { person: 'person-morgan' }); W2.land(W2.r);
+  const i1 = W2.one().items.filter(i => i.key === 'ABC-101')[0];
+  same([i1.owed, i1.arrival], [true, false], 'included, not an arrival');
+  same(W2.one().notices, []);
+});
 run();

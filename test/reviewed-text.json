@@ -13,16 +13,16 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "7eeee0e0d2673461cc797f93521366ddb3e0de93dd202d11cc61b33737f89948",
-      "reviewed": "parent run, next and spread commands name every unreadable coverage dependency; no writes or deletes"
+      "sha256": "61105e4bb837612a557dcd034aaa77aec96f29b970daa1509d5e449e73f07ff2",
+      "reviewed": "arrival notices say requested only when a request exists; included cleared items are not arrivals; no writes or deletes"
     },
     "build.py": {
       "sha256": "1dce012e7269422f84c2c2aeb7b327b242a28e4990a5c5c95a22dc98228122dc",
       "reviewed": "slice 3 commit 1: spreads core (spreads.js), todos reduction and holds, run.js todoLand, app wiring, Python checker parity; no direct writes or unconditional deletes"
     },
     "docs/apps.md": {
-      "sha256": "3c2b717950f084fb719f931bd04e029b3e9099a38027577c0687e38cac179b26",
-      "reviewed": "every spread subcommand and list hold with exit 4 on incomplete coverage; no writes or deletes"
+      "sha256": "96c0b0485daf4bfe84347d452b1c3e188c4d881dd78eff5f9a2e7ac1d89d83f8",
+      "reviewed": "arrival notices say requested only when a request exists; included cleared items are not arrivals; no writes or deletes"
     },
     "docs/design.md": {
       "sha256": "037c23aa808634be79cc230009e0c4f5625706772c7c6efacae837e6767d5c20",
@@ -337,8 +337,8 @@
       "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
     },
     "src/core/spreads.js": {
-      "sha256": "4e8466c9eeb7a2033698c9399a281d0a463ae5a6bc88c68dd5c6ffef1b04efa8",
-      "reviewed": "coverage keeps dispute participants from every request on a covered to-do; no writes or deletes"
+      "sha256": "56bb99e5e100bd7a4a62b26262e87f6dd55347e5a181631610a365107b8c7ab2",
+      "reviewed": "arrival notices say requested only when a request exists; included cleared items are not arrivals; no writes or deletes"
     },
     "src/core/staging.js": {
       "sha256": "d01a3204178bd0b055c05524916f55774c4404cca10f86fbb10a2ca675bd6b07",

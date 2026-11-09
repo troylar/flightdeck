@@ -2861,7 +2861,7 @@ async function spreadMain(argv) {
     const V = T.view(r, { records, unread, people, deps }), title = String(r.title || r.process);
     const cov = S.coverage(r, V, { runs, records, unread, people, loops: { records: got.scopes || [], unread: sunread, procOf } });
     const shape = (C) => ({ id: C.id, complete: !!C.complete, text: C.text, loop: C.loopStep, beforeGate: C.child.beforeGate, state: C.state, row: C.row, summary: C.summary, preview: C.preview, counts: C.counts ? { owed: C.counts.owed, done: C.counts.resolved, unchanged: C.counts.exempt, arrivals: C.counts.arrivals } : null,
-      items: C.items.map((i) => ({ uid: i.uid, key: i.key || null, attempt: i.attempt, state: i.state, words: i.words, why: i.why || null, owed: i.owed, resolved: i.resolved, arrival: !!i.arrival, run: i.run || null, request: i.request || null, todo: i.todo || null })),
+      items: C.items.map((i) => ({ uid: i.uid, key: i.key || null, attempt: i.attempt, state: i.state, words: i.words, why: i.why || null, owed: i.owed, resolved: i.resolved, arrival: !!i.arrival, run: i.run || null, request: i.request || null, requested: !!i.requested, todo: i.todo || null })),
       notices: C.notices, holds: C.unresolved, stop: C.stop ? { reason: C.stop.reason } : null });
     const spreadReqs = T.requestsOf(V).filter((q) => T.isSpreadOp(q.op)).map((q) => ({ id: q.id, op: q.op, spread: q.spread || null, status: q.status, statusWords: T.WORDS[q.status] || q.status, why: q.why || null, by: q.by || null, at: q.at || null }));
     /* Coverage that can't all be read is never empty coverage: list says so and exits 4, and every write holds with the reason. */
