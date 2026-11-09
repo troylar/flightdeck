@@ -3377,23 +3377,24 @@
     keep[slot] = { sig: sig, seed: seed, made: made };
     return made;
   }
-  function tdSettled(slot) { var keep = loopMem().tdKeep; if (keep) delete keep[slot]; }
+  /* Retry state is settled only in the folder and read it was kept in (m, captured when the write was asked). */
+  function tdSettled(slot, m) { var keep = (m || loopMem()).tdKeep; if (keep) delete keep[slot]; }
   function tdWrite(r, made, words, slot, tok) {
     var mem = loopMem(), un = runUnread(r);
     if (un) { mem.tdSaid = un + ' Nothing was written.'; render(); return Promise.resolve(false); }
     /* Said in the dialog it came from while that is still open; once it was closed or opened again, said on the page. */
     var said = function (t, how) { if (!tok || tok === tdTok(tok.split(':')[0])) mem.tdSaid = t; else say(t, how); };
-    var cx = loopGuard({ run: r.process + '/' + r.id, readable: true }), endBusy = busyStart(), sg = gen;
+    var cx = loopGuard({ run: r.process + '/' + r.id, readable: true }), endBusy = busyStart(), sg = gen, fk = fsKey(), gone = function () { return sg !== gen || fsKey() !== fk; };
     return repo.saveScope(cx.fs, made.name, made.file, { still: function () { return guardOk(cx); } }).then(function (res) {
-      endBusy(); if (sg !== gen) return false;
+      endBusy(); if (gone()) return false;
       if (res && res.dropped) { said('Nothing was written: the folder, the person or the run changed before it was.', 'warn'); render(); return false; }
-      if (slot) tdSettled(slot);
+      if (slot) tdSettled(slot, mem);
       if (res && res.conflict && res.theirs !== PF.todos.text(made.file)) { said('A different record is already saved under that name. Nothing was written; read the folder again.', 'bad'); render(); return false; }
       var rec = made.record; rec._file = made.name;
       if (!(data.todos || []).some(function (x) { return x.id === rec.id; })) data.todos = (data.todos || []).concat([rec]);
       said(words, 'good'); lastAll = -Infinity; render();
       return true;
-    }, function (err) { endBusy(); if (sg !== gen) return false; said('Couldn\'t save it: ' + (err && err.message || err) + ' It may or may not have been saved; read the folder again before deciding again.', 'bad'); render(); return false; });
+    }, function (err) { endBusy(); if (gone()) return false; said('Couldn\'t save it: ' + (err && err.message || err) + ' It may or may not have been saved; read the folder again before deciding again.', 'bad'); render(); return false; });
   }
   function tdDecide(key, id, op, shown, reason) {
     var r = findRun(key), mem = loopMem();
@@ -3413,7 +3414,7 @@
     if (!state.me) return;
     /* The batch is the clicking person's, in the folder and read of the click: asked again before every decision, and the rest
        stop once any of them changed. Never continued as someone else. */
-    var me = state.me, fk = fsKey(), g0 = gen, stopped = 0, same = function () { return state.me === me && fsKey() === fk && gen === g0; };
+    var me = state.me, fk = fsKey(), g0 = gen, stopped = 0, here = function () { return fsKey() === fk && gen === g0; }, same = function () { return state.me === me && here(); };
     var list = String(triples || '').split(' ').filter(Boolean).map(function (t) { var p = t.split('|'); return { run: p[0], id: p[1], fp: p[2] }; });
     var ok = 0, changed = [], failed = [], unsure = [], n = list.length;
     /* A decision written whose read-back failed is unconfirmed, not unsaved: read again before saying anything; still unknown,
@@ -3421,14 +3422,18 @@
     var settle = function () {
       if (!unsure.length) { said(); return; }
       var u = unsure.shift();
+      /* Every completion asks again first: once the folder or its read changed, nothing of this batch touches what is shown
+         now (records, retry state or messages); the folder it was made in reads its own file next time. */
       u.fs.read('proposals/' + u.made.name).then(function (f) {
-        if (f && f.text === PF.todos.text(u.made.file)) { tdSettled(u.slot); var rec = u.made.record; rec._file = u.made.name; if (!(data.todos || []).some(function (y) { return y.id === rec.id; })) data.todos = (data.todos || []).concat([rec]); ok++; lastAll = -Infinity; }
+        if (!here()) return;
+        if (f && f.text === PF.todos.text(u.made.file)) { tdSettled(u.slot, mem); var rec = u.made.record; rec._file = u.made.name; if (!(data.todos || []).some(function (y) { return y.id === rec.id; })) data.todos = (data.todos || []).concat([rec]); ok++; lastAll = -Infinity; }
         else if (!f) failed.push({ why: 'Your acceptance of ' + u.x.id + ' isn\'t in the folder.' });
         else u.left = true;
         if (u.left) left.push(u); settle();
-      }, function () { left.push(u); settle(); });
+      }, function () { if (!here()) return; left.push(u); settle(); });
     }, left = [];
     var said = function () {
+      if (!here()) return;
       var t = ok === n && !left.length ? 'Accepted ' + n + ' addition' + (n === 1 ? '' : 's') + '. Each run\'s recorder applies its own.' : 'Accepted ' + ok + ' of ' + n + ' additions.';
       if (failed.length) t += ' ' + failed.length + ' couldn\'t be saved (' + failed.slice(0, 5).map(function (f) { return f.why; }).join(' ') + '); they still need you.';
       if (changed.length) t += ' ' + changed.length + ' changed since you saw ' + (changed.length === 1 ? 'it and is' : 'them and are') + ' shown again for your decision.';
@@ -3447,14 +3452,14 @@
       if (made.why) { if (made.renewed) changed.push(x); else failed.push({ why: made.why }); step(i + 1); return; }
       var cx = loopGuard({ run: r.process + '/' + r.id, readable: true }), endBusy = busyStart(), sg = gen;
       repo.saveScope(cx.fs, made.name, made.file, { still: function () { return same() && guardOk(cx); } }).then(function (res) {
-        endBusy(); if (sg !== gen) { stopped = list.length - i; said(); return; }
+        endBusy(); if (sg !== gen || !here()) return;
         if (res && res.dropped) { failed.push({ why: 'The folder, the person or the run changed before it was written.' }); step(i + 1); return; }
-        tdSettled(slot);
+        tdSettled(slot, mem);
         if (res && res.conflict && res.theirs !== PF.todos.text(made.file)) { failed.push({ why: 'A different record is already saved under its name.' }); step(i + 1); return; }
         var rec = made.record; rec._file = made.name;
         if (!(data.todos || []).some(function (y) { return y.id === rec.id; })) data.todos = (data.todos || []).concat([rec]);
         ok++; lastAll = -Infinity; step(i + 1);
-      }, function () { endBusy(); unsure.push({ x: x, made: made, slot: slot, fs: cx.fs }); if (sg !== gen) { stopped = list.length - i - 1; settle(); return; } step(i + 1); });
+      }, function () { endBusy(); if (sg !== gen || !here()) return; unsure.push({ x: x, made: made, slot: slot, fs: cx.fs }); step(i + 1); });
     };
     step(0);
   }

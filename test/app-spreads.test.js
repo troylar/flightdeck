@@ -229,4 +229,37 @@ rule('SF: a batch decision that was written but couldn\'t be read back is read a
   app2.click('td-accept-all', /data-id="([^"]*)"/.exec(bt2[0])[1], d2); await app2.tick(300);
   assert.ok(/Accepted 2 additions/.test(txt(app2.html() + ov(app2))), txt(ov(app2)).slice(0, 400));
 });
+/* Review round 2 (TF): a batch's confirmation read finishing after the folder changed touches nothing there: no record, no
+   retry state, no message. */
+rule('TF: a batch decision\'s reread that finishes after the folder changed never enters the folder opened next', async () => {
+  const app = await setup();
+  await landedSpread(app);
+  const ps = await sync(app, ['ABC-102', 'ABC-103']);
+  await refresh(app, 300);
+  const fs = app.fs, write = fs.write.bind(fs), read = fs.read.bind(fs); let first = null, firstText = null, reads = 0, release = null;
+  const held = new Promise((res) => { release = res; });
+  fs.write = (p, t, o) => { if (!first && /^proposals\/req-.*status-/.test(p)) { first = p; firstText = t; } return write(p, t, o); };
+  fs.read = (p, o) => {
+    if (p !== first) return read(p, o);
+    reads++;
+    if (reads === 1) return Promise.reject(new Error('EIO'));
+    return held.then(() => ({ text: firstText }));
+  };
+  app.click('td-inbox', ''); await app.tick(20);
+  const bt = /<button[^>]*data-act="td-accept-all"[^>]*>/.exec(ov(app)), d = {};
+  bt[0].replace(/data-(ids)="([^"]*)"/g, (x, k, v) => { d[k] = v.replace(/&quot;/g, '"').replace(/&amp;/g, '&'); });
+  app.click('td-accept-all', /data-id="([^"]*)"/.exec(bt[0])[1], d); await app.tick(300);
+  assert.ok(first && reads >= 2, 'set-up: the read-back failed and the reread waits (' + reads + ')');
+  const which = ps.filter(q => first.indexOf(q.id) >= 0)[0];
+  /* Another folder: a copy of this one without that acceptance. */
+  app.click('close-overlay'); await app.tick();
+  fs.id = (fs.id || 'f') + '-copy'; delete fs.files[first];
+  await refresh(app, 300);
+  const h0 = await homeCount(app);
+  assert.strictEqual(h0, 1, 'set-up: the copy still needs a decision on ' + which.id);
+  release(); await app.tick(300);
+  assert.strictEqual(await homeCount(app), 1, 'the old folder\'s acceptance never enters the copy');
+  const shown = txt(app.html() + ov(app) + app.live());
+  assert.ok(!/Accepted \d|Couldn't confirm/i.test(shown), 'nothing said here about the old folder\'s batch: ' + shown.slice(0, 400));
+});
 run();
