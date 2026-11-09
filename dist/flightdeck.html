@@ -8695,10 +8695,11 @@ PF.run = (function () {
     if (e.op !== 'add' && e.op !== 'reopen') return;
     var t = e.op === 'add' ? e.target : x && x.target, P = t ? PF.todos.placeOf(map, t) : null, did = e.op === 'add' ? 'added' : 'reopened';
     if (!P || P.why) return;
+    /* An item's work is governed by its loop's approval and by its phase's gate: both are sent back, the gate whether or not
+       the loop was ever approved (an optional loop's phase may have been waived without it). */
     if (t.item && P.loop) {
       var la = r.steps[P.loop];
       if (la && la.s === 'done' && la.loop) unsettleLoop(r, map, P.loop, ['A to-do was ' + did + ' on one of its items after this approval: "' + text + '".'], o.who, o.now);
-      return;
     }
     var g = r.gates[P.gate];
     if (g && (g.s === 'passed' || g.s === 'waived')) {
@@ -18339,7 +18340,13 @@ PF.todos = (function () {
     });
     /* The records an approval in each scope must have counted: additions and reopenings that landed, and every participant
        of a dispute on work there. */
-    var addScope = function (t, id) { var P = placeOf(map, t); if (P.why) return; var o = t.item ? H.scope.loop : H.scope.gate, k = t.item ? P.loop : P.gate; (o[k] = o[k] || []).indexOf(id) < 0 && o[k].push(id); };
+    /* An item's records count in both approvals that govern it: its loop's and its phase gate's. */
+    var addScope = function (t, id) {
+      var P = placeOf(map, t); if (P.why) return;
+      var put = function (o, k) { if (k) (o[k] = o[k] || []).indexOf(id) < 0 && o[k].push(id); };
+      if (t.item) put(H.scope.loop, P.loop);
+      put(H.scope.gate, P.gate);
+    };
     var recOf = Object.create(null); T.records.forEach(function (y) { recOf[y.id] = y; });
     T.chain.forEach(function (id) {
       var a = recOf[id], e = a && (a.kind === 'compound' ? a.application.effect : a.effect);

@@ -276,6 +276,29 @@ rule('An optional loop\'s open item to-do holds its phase gate for waiving as fo
   same([R.canWaive(r, map, 0), R.canPass(r, map, 0)], [false, false]);
   assert.throws(() => R.waive(r, map, 0, 'Not needed', 'person-avery', AT));
 });
+const LOOPMD = ['---', 'process: release-notes', 'title: Release', '---', '', '## Stories · DO-CONFIRM {#stories}', '- [ ] {for.each} Validate every story {#each}', '  process: validate-story', '  items: jira.issue', '  pass: issue=item:key', '  accepts: cleared', '',
+  '## Ship · READ-DO {#ship}', '- [!] {confirm} Ship it {#ship1}', ''].join('\n');
+function loopRun() {
+  const kid = ['---', 'process: validate-story', 'title: Validate a story', 'context: issue, disposition:choice(cleared|needs-work)', 'result: disposition', '---', '',
+    '## Assess · DO-CONFIRM {#assess}', '- [!] {decide} Record the validation result {#verdict}', '  options: cleared, needs-work', '  sets: disposition=decision', ''].join('\n');
+  const kp = publishMd(kid), procs = { 'validate-story': { latest: kp, all: [kp], clashes: [], broken: [] } }, procOf = (id) => procs[id] || null;
+  const pp = publishMd(LOOPMD, { childProcs: procs });
+  return R.create(pp, { id: 'r-1', by: 'person-avery', session: 'w', now: AT, app: '4.0.0', pins: PF.pins.atStart(pp.map, pp.info.payload ? pp.info.payload.pins : null, procOf) });
+}
+rule('An item\'s work landing in a waived phase sends its gate to review, and resolving it never restores the waiver', () => {
+  const r = loopRun(), map = R.mapOf(r);
+  mark(r, []); R.waive(r, map, 0, 'Not this time', 'person-avery', AT);
+  same(R.gateStatus(r, map, 0), 'waived', 'set-up');
+  const it = { item: { loopStep: 'each', uid: 'jira:10101', attempt: 1 } };
+  const p = prop('o1', add('Security sign-off', it, LOOPMD)), a = applied(p, '', { decision: p.id + '.status-w1-00000000' });
+  R.todoLand(r, map, a, { who: 'person-avery', now: AT });
+  same(r.gates['stories-confirm'].s, 'review', 'landing sends it to review, approved loop or not');
+  const d = prop('o2', { op: 'done', todo: p.todo }, [a.id]), ad = applied(d, a.id, { decision: d.id + '.status-w1-00000001' });
+  R.todoLand(r, map, ad, { who: 'person-avery', now: AT });
+  r.gates['stories-confirm'] = { s: 'waived', by: 'person-avery', at: AT, reason: 'x', approved: {} };
+  mark(r, [p, a, d, ad]);
+  same(R.gateStatus(r, map, 0), 'review', 'a waiver made without counting the item\'s work stays in review');
+});
 rule('A to-do on a phase that isn\'t needed in this run still holds it until the work is resolved', () => {
   const md = ['---', 'process: release-notes', 'title: Release notes', 'context: kind:choice(minor|major)', '---', '',
     '## Draft · DO-CONFIRM {#draft}', '- [!] {confirm} Write the notes {#write}', '',

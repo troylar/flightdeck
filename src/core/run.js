@@ -394,10 +394,11 @@ PF.run = (function () {
     if (e.op !== 'add' && e.op !== 'reopen') return;
     var t = e.op === 'add' ? e.target : x && x.target, P = t ? PF.todos.placeOf(map, t) : null, did = e.op === 'add' ? 'added' : 'reopened';
     if (!P || P.why) return;
+    /* An item's work is governed by its loop's approval and by its phase's gate: both are sent back, the gate whether or not
+       the loop was ever approved (an optional loop's phase may have been waived without it). */
     if (t.item && P.loop) {
       var la = r.steps[P.loop];
       if (la && la.s === 'done' && la.loop) unsettleLoop(r, map, P.loop, ['A to-do was ' + did + ' on one of its items after this approval: "' + text + '".'], o.who, o.now);
-      return;
     }
     var g = r.gates[P.gate];
     if (g && (g.s === 'passed' || g.s === 'waived')) {

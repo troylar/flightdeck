@@ -615,7 +615,13 @@ PF.todos = (function () {
     });
     /* The records an approval in each scope must have counted: additions and reopenings that landed, and every participant
        of a dispute on work there. */
-    var addScope = function (t, id) { var P = placeOf(map, t); if (P.why) return; var o = t.item ? H.scope.loop : H.scope.gate, k = t.item ? P.loop : P.gate; (o[k] = o[k] || []).indexOf(id) < 0 && o[k].push(id); };
+    /* An item's records count in both approvals that govern it: its loop's and its phase gate's. */
+    var addScope = function (t, id) {
+      var P = placeOf(map, t); if (P.why) return;
+      var put = function (o, k) { if (k) (o[k] = o[k] || []).indexOf(id) < 0 && o[k].push(id); };
+      if (t.item) put(H.scope.loop, P.loop);
+      put(H.scope.gate, P.gate);
+    };
     var recOf = Object.create(null); T.records.forEach(function (y) { recOf[y.id] = y; });
     T.chain.forEach(function (id) {
       var a = recOf[id], e = a && (a.kind === 'compound' ? a.application.effect : a.effect);
