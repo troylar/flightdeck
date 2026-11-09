@@ -89,11 +89,12 @@ PF.spreads = (function () {
     var mine = (V.runs || []).filter(function (c) { return c.parent.item.uid === p.uid && (+c.parent.item.attempt || 1) === p.attempt; });
     var bind = s.binds[pairKey(p.uid, p.attempt)] || null, dest = null;
     if (bind && bind.disputed) return set('disputed', bind.why);
+    /* Approved without a run for this attempt, settled in the loop: resolved, whether or not the item has a run. */
+    if (row && row.exception && row.attempt === p.attempt && row.status === 'exception') return set('excepted', name + ' was approved without a run.');
     if (bind && bind.run) {
       dest = mine.filter(function (c) { return c.process + '/' + c.id === bind.run; })[0] || null;
       if (!dest) return set('rebind', name + ' is bound to ' + bind.run + ', which isn\'t a run of attempt ' + p.attempt + ' here.');
-    } else if (!mine.length && row && row.exception && row.attempt === p.attempt) return set('excepted', name + ' was approved without a run.');
-    else if (!mine.length) return set('no-run', name + ' has no run for attempt ' + p.attempt + ' yet; it is requested when one starts.');
+    } else if (!mine.length) return set('no-run', name + ' has no run for attempt ' + p.attempt + ' yet; it is requested when one starts.');
     else if (mine.length > 1) {
       var ch = row && row.chosen && row.attempt === p.attempt ? mine.filter(function (c) { return c.id === row.chosen; })[0] : null;
       if (!ch) return set('competing', name + ' has ' + mine.length + ' runs for attempt ' + p.attempt + '; choose which one counts.');

@@ -508,4 +508,18 @@ rule('SC: settling two bindings made at once never restores an approval made bef
   assert.ok(W.r._todos.stale.loop.each, 'and settling them doesn\'t restore it');
   same(R.answered(W.r, R.mapOf(W.r).phases[0].steps[0]), false);
 });
+/* Review round 1 (SE): an item approved without a run resolves its obligation, whether or not it has a run. */
+rule('SE: an exception settled for the current attempt resolves coverage even when the item already has a run', () => {
+  const W = world([101]); W.kid(101);
+  W.spreadAdd(); W.land(W.r);
+  same(W.one().items[0].state, 'owed');
+  const intent = { loop: LOOPT, observation: null, changes: [{ op: 'exception', item: { key: 'ABC-101' }, reason: 'Docs only', approver: 'person-morgan' }] };
+  const c = LP.cleanIntent(intent, 'ex-1', { name: 'release-helper', version: '1.0' });
+  same(c.errors, []);
+  const f = LP.buildRequest(c.intent, { seen: [W.scopes[0].id], children: [], now: AT, app: '3.0.0' });
+  W.scopes.push(LP.cleanRequest(JSON.parse(LP.text(f)), f.id + '.json').record);
+  same(W.loopView().rollup.items[0].status, 'exception', 'set-up: the loop says exception');
+  same([W.one().items[0].state, W.one().items[0].resolved], ['excepted', true]);
+  same(W.mark().loops.each || [], []);
+});
 run();

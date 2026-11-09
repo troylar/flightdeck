@@ -337,8 +337,8 @@
       "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
     },
     "src/core/spreads.js": {
-      "sha256": "f05d9e5e1c6d899ce4182a86d93b25b1b33987a6a07d6f9b677780faf6036941",
-      "reviewed": "s3 review SA: a stale or incomplete spread stop is refused at prepare, decision and application; no direct writes or unconditional deletes"
+      "sha256": "df08444ba999fe652f91f76bf27b6de2074b2900a9ee99d2e50560cc491e3839",
+      "reviewed": "s3 review SE: settled exceptions resolve coverage; no direct writes or unconditional deletes"
     },
     "src/core/staging.js": {
       "sha256": "d01a3204178bd0b055c05524916f55774c4404cca10f86fbb10a2ca675bd6b07",
