@@ -225,6 +225,28 @@ rule('A save that finishes late clears only what it sent: newer typing in the bo
   await release();
   assert.strictEqual(app.draft('td-why'), 'Second thoughts', 'the newer reason is never wiped by the earlier save');
 });
+rule('A reason or destination belongs to its own to-do and action: switching away from one typed in is refused, and nothing carries over', async () => {
+  const app = await setup();
+  await added(app, 'First'); await added(app, 'Second');
+  const d = await app.PF.repo.loadAll(app.fs, {}), ids = app.PF.todos.view(app.PF.run.sanitize(theRun(app)), { records: d.todos, people: JSON.parse(app.fs.files['people.json'].t) }).todos.map(x => x.id);
+  const [a, b] = ids, before = recs(app);
+  app.click('td-pick', a, { kind: 'move' }); await app.tick(10);
+  app.set('td-to', 'ABC-123'); app.set('td-why', 'Next sprint');
+  app.click('td-pick', b, { kind: 'move' }); await app.tick(10);
+  assert.ok(new RegExp('data-act="td-save" data-id="' + a + '"').test(app.html()) && !new RegExp('data-act="td-save" data-id="' + b + '"').test(app.html()), 'still on the first, which has unsent input');
+  assert.ok(/Finish or cancel/.test(app.html()), 'said why');
+  app.click('td-unpick'); await app.tick(10);
+  app.click('td-pick', b, { kind: 'move' }); await app.tick(10);
+  assert.deepStrictEqual([app.draft('td-to'), app.draft('td-why')], ['', ''], 'nothing carried to the second');
+  app.click('td-pick', b, { kind: 'wont' }); await app.tick(10);
+  assert.strictEqual(app.draft('td-why'), '', 'empty, switching is fine');
+  app.set('td-why', 'Covered elsewhere');
+  app.click('td-pick', b, { kind: 'move' }); await app.tick(10);
+  assert.ok(new RegExp('data-act="td-save" data-id="' + b + '">Ask: won').test(app.html()), 'nor from one action to another on the same to-do');
+  app.click('td-save', b); await app.tick(60);
+  const w = one(app, before);
+  assert.deepStrictEqual([w.op, w.todo, w.reason, w.to || null], ['wont', b, 'Covered elsewhere', null]);
+});
 rule('A write that may have happened, asked again, is the same request: never a second one', async () => {
   const app = await setup();
   const fs = app.fs, write = fs.write.bind(fs);

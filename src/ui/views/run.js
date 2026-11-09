@@ -1215,9 +1215,10 @@
       else h += ' <span class="row td-acts"><button type="button" class="mini" data-act="td-reopen" data-id="' + id + '">Reopen</button></span>';
     }
     var pk = s.tdPick;
-    if (can && !busy && open && pk && pk.id === x.id) {
+    if (can && !busy && open && pk && pk.id === x.id && pk.fs === ctx.fsKey && pk.run === r.process + '/' + r.id) {
       var wont = pk.kind === 'wont';
-      h += '<div class="td-form" role="group" aria-label="' + (wont ? 'Won\'t do' : 'Move or defer') + '">' +
+      /* Its own scope (folder, run, to-do, action): what was typed in one form is never carried into another. */
+      h += '<div class="td-form" data-scope="td:' + esc(K.domKey(pk.fs + '|' + pk.run + '|' + x.id + '|' + pk.kind)) + '" role="group" aria-label="' + (wont ? 'Won\'t do' : 'Move or defer') + '">' +
         (wont ? '' : '<label class="small" for="td-to">Where it goes: a ticket like ABC-123, a link, or another run as process/run</label><input id="td-to" class="rw-in" maxlength="2048" data-enter="td-save" data-id="' + id + '" autocomplete="off">') +
         '<label class="small" for="td-why">' + (wont ? 'Why it won\'t be done' : 'Why (optional)') + '</label><input id="td-why" class="rw-in" maxlength="300" data-enter="td-save" data-id="' + id + '" autocomplete="off">' +
         '<span class="row"><button type="button" class="btn" data-act="td-save" data-id="' + id + '">' + (wont ? 'Ask: won\'t do' : 'Ask: move it') + '</button><button type="button" class="mini" data-act="td-unpick">Cancel</button></span>' +

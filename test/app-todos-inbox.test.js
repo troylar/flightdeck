@@ -154,6 +154,20 @@ rule('A delegation, revoke or decision that may have been saved, made again unch
   app.click('td-accept', it.id, { run: it.run, fp: it.fp }); await app.tick(60);
   assert.deepStrictEqual(fresh(app, b2).map(x => [x.kind, x.proposal]), [['decision', p.id]], 'one decision');
 });
+rule('A decline\'s reason belongs to its request: picking another with a reason typed is refused, and nothing carries over', async () => {
+  const app = await setup();
+  await asked(app, 2);
+  await refresh(app, 400);
+  app.click('td-inbox', ''); await app.tick(20);
+  const [x, y] = accepts(ov(app));
+  app.click('td-decline-pick', x.id, { run: x.run }); await app.tick(10);
+  app.set('td-dec-why', 'Not this one');
+  app.click('td-decline-pick', y.id, { run: y.run }); await app.tick(10);
+  assert.ok(new RegExp('data-act="td-decline" data-id="' + x.id + '"').test(ov(app)) && /Finish or cancel/.test(ov(app)), 'still on the first');
+  app.click('td-decline-cancel'); await app.tick(10);
+  app.click('td-decline-pick', y.id, { run: y.run }); await app.tick(10);
+  assert.strictEqual(app.draft('td-dec-why'), '', 'nothing carried');
+});
 rule('More than ten wait: ten at a time, and Show more brings the rest', async () => {
   const app = await setup();
   await asked(app, 12);

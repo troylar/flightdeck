@@ -3383,6 +3383,9 @@
   function tdClear(ids) { ids.forEach(function (id) { var el = document.getElementById(id); if (el) el.value = ''; }); }
   /* A to-do form's boxes as sent (tdSent), and clearing them when its save finishes (tdClearIf): only while every box still
      holds exactly what was sent, so typing done meanwhile is never wiped; true when cleared. */
+  /* The open Won't do or Move form, only on the run and folder it was opened in (folder, run, to-do and action). */
+  function tdPickHere(r) { var pk = state.tdPick; return pk && r && pk.fs === fsKey() && pk.run === r.process + '/' + r.id ? pk : null; }
+  function tdUnsentPick() { return ['td-why', 'td-to'].some(function (id) { var el = document.getElementById(id); return !!(el && String(el.value || '').trim()); }); }
   function tdSent(ids) { var o = {}; ids.forEach(function (id) { var el = document.getElementById(id); o[id] = el ? String(el.value == null ? '' : el.value) : ''; }); return o; }
   function tdClearIf(sent) {
     var same = Object.keys(sent).every(function (id) { var el = document.getElementById(id); return !el || String(el.value == null ? '' : el.value) === sent[id]; });
@@ -3400,7 +3403,7 @@
   /* What was typed into a to-do box and not asked yet is unsaved work: leaving the run refuses, as for any form. */
   function tdUnsent() {
     if (state.view !== 'run') return null;
-    var ids = ['td-add'].concat(state.tdPick ? ['td-why', 'td-to'] : []), hit = null;
+    var ids = ['td-add'].concat(tdPickHere(ctx.run()) ? ['td-why', 'td-to'] : []), hit = null;
     ids.some(function (id) { var el = document.getElementById(id); if (el && String(el.value || '').trim()) hit = el; return !!hit; });
     return hit;
   }
@@ -8000,7 +8003,12 @@
     },
     'td-inbox': function (id) { var mem = loopMem(); mem.tdInboxRun = id || ''; mem.tdSaid = ''; mem.tdDec = null; state.overlayFocus = '#tdi-h'; openOverlay({ tdInbox: true, html: function () { return V.todoInbox(ctx); }, held: function () { return !!loopMem().tdDec && !!String(val('td-dec-why') || '').trim(); } }); },
     'td-accept': function (id, b) { tdDecide(b.dataset.run, id, 'accept', b.dataset.fp, ''); },
-    'td-decline-pick': function (id, b) { loopMem().tdDec = { run: b.dataset.run, id: id }; state.focus = '#td-dec-why'; render(); },
+    'td-decline-pick': function (id, b) {
+      var mem = loopMem(), was = mem.tdDec, el = document.getElementById('td-dec-why');
+      if (was && was.run === b.dataset.run && was.id === id) return;
+      if (was && el && String(el.value || '').trim()) { mem.tdSaid = 'Finish or cancel the decline you started first: its reason isn\'t saved yet.'; state.focus = '#td-dec-why'; render(); return; }
+      tdClear(['td-dec-why']); mem.tdDec = { run: b.dataset.run, id: id }; state.focus = '#td-dec-why'; render();
+    },
     'td-decline-cancel': function () { loopMem().tdDec = null; tdClear(['td-dec-why']); render(); },
     'td-decline': function (id, b) { var d = loopMem().tdDec, run = (b && b.dataset && b.dataset.run) || (d && d.run); if (!run) return; tdDecide(run, id, 'decline', '', val('td-dec-why')); },
     'td-revoke': function (id, b) {
@@ -8024,10 +8032,17 @@
     },
     'td-done': function (id) { todoAsk({ op: 'done', todo: id }); },
     'td-reopen': function (id) { todoAsk({ op: 'reopen', todo: id }); },
-    'td-pick': function (id, b) { var k = b && b.dataset && b.dataset.kind; if (k !== 'wont' && k !== 'move') return; state.tdPick = { id: id, kind: k }; state.focus = k === 'move' ? '#td-to' : '#td-why'; render(); },
+    'td-pick': function (id, b) {
+      var k = b && b.dataset && b.dataset.kind, r = ctx.run(); if ((k !== 'wont' && k !== 'move') || !r) return;
+      var pk = { fs: fsKey(), run: r.process + '/' + r.id, id: id, kind: k }, was = tdPickHere(r);
+      if (was && JSON.stringify(was) === JSON.stringify(pk)) return;
+      /* A reason or destination typed for one to-do and action is never carried to another, nor dropped unasked. */
+      if (was && tdUnsentPick()) { say('Finish or cancel the ' + (was.kind === 'move' ? 'Move' : 'Won\'t do') + ' you started first: what you typed there isn\'t asked yet.', 'warn'); state.focus = '#td-why'; render(); return; }
+      tdClear(['td-why', 'td-to']); state.tdPick = pk; state.focus = k === 'move' ? '#td-to' : '#td-why'; render();
+    },
     'td-unpick': function () { var pk = state.tdPick; state.tdPick = null; tdClear(['td-why', 'td-to']); if (pk) state.focus = '#td-' + cssEsc(pk.id); render(); },
     'td-save': function (id) {
-      var pk = state.tdPick; if (!pk || pk.id !== id) return;
+      var r = ctx.run(), pk = r && tdPickHere(r); if (!pk || pk.id !== id) return;
       var why = val('td-why'), body = pk.kind === 'wont' ? { op: 'wont', todo: id, reason: why } : { op: 'move', todo: id, to: val('td-to'), reason: why };
       var sent = tdSent(['td-why', 'td-to']);
       todoAsk(body, function () { if (state.tdPick === pk && tdClearIf(sent)) state.tdPick = null; });

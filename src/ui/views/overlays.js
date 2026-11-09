@@ -342,7 +342,7 @@
         var x = y.x, rk = x.run.process + '/' + x.run.id, open = dec && dec.run === rk && dec.id === x.id;
         var b = '<li class="todo" id="tdi-' + K.domKey(y.key) + '" tabindex="-1"><div><b>' + esc(x.title) + '</b>: ' + esc(x.words) +
           '<div class="small">Asked by ' + esc(tdWho(ctx, x.by)) + (x.reason ? ' · ' + esc(x.reason) : '') + (x.dispute ? ' · <b>Decided two ways at once</b>: your decision settles it.' : x.why ? ' · ' + esc(x.why) : '') + '</div></div>';
-        if (open) b += '<div class="td-form"><label class="small" for="td-dec-why">Why decline it (optional)</label><input id="td-dec-why" class="rw-in" maxlength="300" data-enter="td-decline" data-id="' + esc(x.id) + '" autocomplete="off">' +
+        if (open) b += '<div class="td-form" data-scope="tdd:' + esc(K.domKey(rk + '|' + x.id)) + '"><label class="small" for="td-dec-why">Why decline it (optional)</label><input id="td-dec-why" class="rw-in" maxlength="300" data-enter="td-decline" data-id="' + esc(x.id) + '" autocomplete="off">' +
           '<span class="row"><button type="button" class="btn" data-act="td-decline" data-id="' + esc(x.id) + '" data-run="' + esc(rk) + '">Decline</button><button type="button" class="mini" data-act="td-decline-cancel">Cancel</button></span></div>';
         else b += '<span class="row"><button type="button" class="btn go" data-act="td-accept" data-id="' + esc(x.id) + '" data-run="' + esc(rk) + '" data-fp="' + esc(x.consequence.fingerprint) + '">Accept</button><button type="button" class="mini" data-act="td-decline-pick" data-id="' + esc(x.id) + '" data-run="' + esc(rk) + '">Decline…</button></span>';
         return b + '</li>';
