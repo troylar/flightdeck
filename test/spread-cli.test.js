@@ -263,4 +263,23 @@ rule('SA: stop is refused (exit 4, nothing written) while a scope record of the 
   assert.deepStrictEqual(snap(root), before, 'nothing written');
 });
 
+/* A story's run made living: its recorder adds and lands a plain to-do of its own. */
+async function living(d, key) {
+  const W = await read(d), x = W.runs.find(y => y.process + '/' + y.id === key);
+  const P = T.prepare(x, { body: { op: 'add', text: 'Own work', target: { phase: 'assess' } }, by: { person: 'person-avery' }, key: 'own-' + hex(), records: W.records, unread: W.unread, people: PEOPLE, at: AT, app: '4.0.0' });
+  assert.ok(!P.why, P.why);
+  await d.write('proposals/' + P.name, T.text(P.file));
+  await land(d, key);
+}
+rule('SG: run on a living story reads its spread request as every window does: waiting, never held for a dependency it can read', async () => {
+  const { root, d, sp } = await spread();
+  await living(d, 'validate-story/k102');
+  const s = json('spread', 'sync', root, PR, '--spread', sp.id, '--json', ...TOOL);
+  const q = s.data.items.filter(i => i.key === 'ABC-102')[0];
+  const r = json('run', root, 'validate-story/k102', '--contract', '2', '--json');
+  assert.strictEqual(r.code, 0, JSON.stringify(r).slice(0, 400));
+  const got = r.data.run.todoRequests.filter(x => x.id === q.request)[0];
+  assert.deepStrictEqual([got && got.status, got && got.why], ['waiting', got && got.why], JSON.stringify(r.data.run.todoRequests));
+});
+
 run();

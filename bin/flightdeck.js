@@ -893,7 +893,8 @@ function markTodos(PF, runs, got, people, peopleBad, loopIn) {
   if (peopleBad) unread.push({ file: 'people.json', why: 'people.json couldn\'t be read, so no one\'s authority over to-dos can be checked.', run: null });
   const others = loopIn ? loopIn.runs.filter((c) => runs.indexOf(c) < 0) : [];
   T.markHolds(runs, { records: got.todos || [], unread, people, loops: loopIn ? loopIn.loops : undefined, also: others });
-  runs.forEach((r) => { if (r && r.living && !r._unrunnable) r._tdv = T.view(r, { records: T.recordsFor(got.todos || [], r), unread: unread.filter((u) => (u.run ? u.run.process === r.process && u.run.id === r.id : true)), people }); });
+  /* deps: every checked record and every unread one, so a story's request that fulfils a spread reads its parent's records as in every window. */
+  runs.forEach((r) => { if (r && r.living && !r._unrunnable) r._tdv = T.view(r, { records: T.recordsFor(got.todos || [], r), unread: unread.filter((u) => (u.run ? u.run.process === r.process && u.run.id === r.id : true)), people, deps: { records: got.todos || [], unread } }); });
   return unread;
 }
 /* The checked publication reader the screen gives a loop (procOf): a process's versions as loadAll indexed them. */

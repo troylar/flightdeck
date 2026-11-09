@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "40492086e554e3268049230a0ed185ffee26f9adc7f66209d7be93591d56cb4d",
-      "reviewed": "s3 review SA: a stale or incomplete spread stop is refused at prepare, decision and application; no direct writes or unconditional deletes"
+      "sha256": "3de0bff961662b71ae4a0e57717067457cdb1a60f2c56415cb1a30239e4d5abe",
+      "reviewed": "s3 review SG: CLI run views get full deps; no direct writes or unconditional deletes"
     },
     "build.py": {
       "sha256": "1dce012e7269422f84c2c2aeb7b327b242a28e4990a5c5c95a22dc98228122dc",
