@@ -264,4 +264,13 @@ rule('A to-do record over 256 KiB in UTF-8 is refused before it is read, and the
   assert.ok(/bytes/.test(T.fileWhy(p.id + '.json', wide)), T.fileWhy(p.id + '.json', wide));
   assert.ok(/bytes/.test(LP.fileWhy('req-x.json', { seen: [], title: '\u00e9'.repeat(140000) })), 'a scope record\'s writer counts bytes too');
 });
+rule('An application\'s effect with a field its op doesn\'t have, or one out of its limit, is refused, never dropped', () => {
+  const p = cleanOf(prop('s1', ADD('One'))), d = cleanOf(prop('s2', { op: 'done', todo: p.todo }, [p.id]));
+  const s = T.buildStatus({ kind: 'application', proposal: d.id, run: RUN, seen: [d.id], by: 'person-avery', at: AT, authority: { decision: d.id + '.status-w1-00000000' }, previous: '', effect: T.effectOf(d), writer: 'rec', rev: '0000abcd' });
+  same(T.cleanFile(JSON.parse(T.text(s.file)), s.name).ok, true, 'set-up');
+  [['text', 'x'.repeat(201)], ['text', 'Fine'], ['target', { phase: 'draft' }], ['owner', 'person-avery'], ['origin', { step: 'write' }], ['to', { ticket: 'ABC-1' }], ['placement', { beforeGate: 'draft-confirm' }]].forEach(([k, v]) => {
+    const f = JSON.parse(T.text(s.file)); f.effect[k] = v;
+    same(T.cleanFile(f, s.name).ok, false, k);
+  });
+});
 run();

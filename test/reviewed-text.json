@@ -25,8 +25,8 @@
       "reviewed": "loop guard builder for every loop parent and child write, undo on drop; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "14eebef65e159f66897dc530af6d4db5e6b20a2f279db2ce4209b6ab332d1e91",
-      "reviewed": "Round 1 M: a prepared application enters the window's records only in its own folder and read; checked for direct writes and unconditional deletes"
+      "sha256": "1f70f6b6b8452c3c544d3ef4382e0973dfbd24c86a2cc47ce2bfee00f3c149cb",
+      "reviewed": "Round 2 S: an effect with a field its op doesn't have is refused; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -345,8 +345,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "7d05eeccc14905e72087a791775b9d218590e7640beefdcad77ef24a3ebe1d4d",
-      "reviewed": "Round 1 K: a person delegate must be in people.json and active; checked for direct writes and unconditional deletes"
+      "sha256": "ac089f9f9c7f76d29aed7eabb2f5e894818b36d5b65707f6b0fe81e3527e7aff",
+      "reviewed": "Round 2 S: an effect with a field its op doesn't have is refused; checked for direct writes and unconditional deletes"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",

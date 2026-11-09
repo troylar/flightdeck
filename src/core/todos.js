@@ -168,11 +168,16 @@ PF.todos = (function () {
     if (p.op === 'move') e.to = p.to;
     return e;
   }
+  /* The fields an effect of each op may have; any other is refused, never dropped (so a fingerprint is checked on exactly
+     what the file says). Every field is type-checked before it is used. */
+  var EFIELDS = { add: ['op', 'todo', 'text', 'target', 'placement', 'owner', 'reason', 'origin'], done: ['op', 'todo', 'reason'], reopen: ['op', 'todo', 'reason'], wont: ['op', 'todo', 'reason'], move: ['op', 'todo', 'to', 'reason'] };
   function cleanEffect(e, errors) {
     if (!isMap(e)) { errors.push('"effect" is the change it made.'); return null; }
-    only(e, ['op', 'todo', 'text', 'target', 'placement', 'owner', 'reason', 'origin', 'to'], '"effect"', errors);
+    if (typeof e.op !== 'string' || OPS.indexOf(e.op) < 0) { errors.push('"effect" "op" is one of ' + OPS.join(', ') + '.'); return null; }
+    var n0 = errors.length;
+    only(e, EFIELDS[e.op], '"effect" of ' + e.op, errors);
+    if (errors.length > n0) return null;
     var out = { op: e.op };
-    if (OPS.indexOf(e.op) < 0) { errors.push('"effect" "op" is one of ' + OPS.join(', ') + '.'); return null; }
     if (typeof e.todo !== 'string' || !TD.test(e.todo)) { errors.push('"effect" "todo" is a to-do id.'); return null; }
     out.todo = e.todo;
     if (e.op === 'add') { out.text = line(e.text, LIMITS.text, '"effect" "text"', errors); out.target = cleanTarget(e.target, errors, '"effect" "target"'); out.placement = cleanPlacement(e.placement, errors); if (e.owner != null) { if (!PERSON.test(String(e.owner))) errors.push('"effect" "owner" is a person\'s ID.'); else out.owner = e.owner; } if (e.origin != null) out.origin = cleanOrigin(e.origin, errors); }
