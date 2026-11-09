@@ -53,8 +53,8 @@
       "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "8c94e9dc43a91798bc4fc0930a841b4dbbaf43aeedfb583fb2937431954c904d",
-      "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
+      "sha256": "a018d7a97662ff2bc32ad7f8fbfcf2e2f4c1e22fa3ed0667da1ea07a3c59a676",
+      "reviewed": "AZ: the checker leaves a to-do destination or origin link on an international domain name unchecked (uncheckedLinks), as 3.0.1 does for scope records; checked for direct writes and unconditional deletes (none)"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
       "sha256": "197779e5fb047d6137527db0211659a2db320470f3086d61b5126d6e868b0cf8",
@@ -109,8 +109,8 @@
       "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
     },
     "example-folder/.flightdeck/skills/flightdeck-status/SKILL.md": {
-      "sha256": "4ff8cc83e7baaed97d01d8248145522eadc6a4dea41a5447aa2db645b600a521",
-      "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
+      "sha256": "33b4d2a65ddf84162520337ae2799b074e5fd310db42520e403858f1501c2777",
+      "reviewed": "AZ: the checker leaves a to-do destination or origin link on an international domain name unchecked (uncheckedLinks), as 3.0.1 does for scope records; checked for direct writes and unconditional deletes (none)"
     },
     "example-folder/AGENTS.md": {
       "sha256": "f90af155a7b13dfe95dc04f498b4c83d32035b225a39edee26c90383b9b6cc39",
@@ -197,8 +197,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "d3821adb878d1d7d711041fd4e660618100806f904e8ab57b85d098aed3f48a5",
-      "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
+      "sha256": "382ab2581cb3eabc0dffcf72ba01ed965372a5bddfecd8ae6efccf1dc4aebd89",
+      "reviewed": "AZ: baselines for the checker and status skill text; checked for direct writes and unconditional deletes (none)"
     },
     "src/core/appjson.js": {
       "sha256": "b22146ed72188c14a5eae51d97a9c1da567e8276c6881cbc11ac010c38066255",

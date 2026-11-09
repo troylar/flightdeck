@@ -31,6 +31,9 @@ const LINKS = ['https://abc.123', 'https://abc.0x1f', 'https://0x7f.1', 'https:/
   'https://1.2.3', 'https://08.1.1.1', 'https://abc.08', 'https://abc.0', 'https://abc.1a', 'https://a-.b', 'https://-a.b', 'https://abc.09x', 'https://0x.0x.0x.0x',
   'https://0x100000000', 'https://4294967295', 'https://abc.4294967296', 'https://a.0X1', 'https://1.2.3.4.5', 'https://1.2.3.4', 'https://example.com:0',
   'https://example.com:65536', 'https://example.com:443/a?b#c', 'http://0377.0.0.1', 'http://0x7f.0x0.0.01', 'http://1.0x100.1', 'http://00x1.a'];
+/* International domain names (an xn-- label): whether the URL parser takes one rests on Unicode's IDNA tables, which the
+   checker doesn't have, so it never judges one: it says the link is unchecked and leaves the verdict to Flightdeck (3.0.1). */
+const IDN = ['https://xn--a.com', 'https://xn--abc.com', 'https://example.xn--a', 'https://xn--ls8h.la', 'https://XN--A.com', 'https://a.xn--.b'];
 function corpus() {
   const out = [], seen = Object.create(null);
   const put = (name, o, label) => { const text = typeof o === 'string' ? o : JSON.stringify(o); const k = name + '\n' + text; if (seen[k]) return; seen[k] = 1; out.push({ name, text, label }); };
@@ -63,7 +66,8 @@ function corpus() {
     put(name.replace(/\.json$/, '-LAPTOP.json'), o, 'a laptop copy\'s name');
     put(name, '﻿' + JSON.stringify(o), 'byte-order mark');
     /* Links as a browser's URL parser reads them: a host ending in a number is an IPv4 address or nothing. */
-    if (o.op === 'move') LINKS.forEach((v) => put(name, Object.assign({}, o, { to: { link: v } }), 'link ' + v));
+    if (o.op === 'move') LINKS.concat(IDN).forEach((v) => put(name, Object.assign({}, o, { to: { link: v } }), 'link ' + v));
+    if (o.op === 'add' && o.kind === 'proposal') LINKS.concat(IDN).forEach((v) => put(name, Object.assign({}, o, { origin: { link: v } }), 'origin link ' + v));
     put(name, JSON.stringify(o, null, 2) + ' '.repeat(T.LIMITS.bytes), 'over the size limit');
   });
   return out;
@@ -89,7 +93,9 @@ const DRIVER = [
   '        out.append("not JSON"); continue',
   '    if not isinstance(o, dict) or not C.todo_claims(o):',
   '        out.append("not a to-do record"); continue',
-  '    out.append(C.todo_why(o, c["name"], len(c["text"].encode("utf-8"))) or "")',
+  '    un = []',
+  '    why = C.todo_why(o, c["name"], len(c["text"].encode("utf-8")), un) or ""',
+  '    out.append([why, un])',
   'print(json.dumps(out))'].join('\n');
 
 rule('The checker refuses exactly the to-do records the app refuses, over every kind of record and every damaged field', () => {
@@ -99,8 +105,15 @@ rule('The checker refuses exactly the to-do records the app refuses, over every 
   assert.ok(cs.length > 400, 'a corpus of ' + cs.length);
   const pyOut = JSON.parse(cp.execFileSync(py, ['-I', '-B', '-c', DRIVER, DIR], { input: JSON.stringify(cs), encoding: 'utf8', maxBuffer: 256 * 1048576 }));
   const off = [];
-  cs.forEach((c, i) => { const j = jsRefuses(c), p = pyOut[i]; if (!!j !== !!p || (j === 'not a to-do record') !== (p === 'not a to-do record')) off.push(c.name + ' · ' + c.label + ' · app: ' + (j || 'reads it') + ' · checker: ' + (p || 'reads it')); });
+  const idn = (c) => IDN.some((v) => c.label === 'link ' + v || c.label === 'origin link ' + v), un = [];
+  cs.forEach((c, i) => {
+    const j = jsRefuses(c), x = pyOut[i], p = Array.isArray(x) ? x[0] : x, notes = Array.isArray(x) ? x[1] : [];
+    if (idn(c)) { if (notes.length !== 1) un.push(c.label + ' · unchecked: ' + JSON.stringify(notes)); return; }
+    if (notes.length) un.push(c.label + ' · unchecked: ' + JSON.stringify(notes));
+    if (!!j !== !!p || (j === 'not a to-do record') !== (p === 'not a to-do record')) off.push(c.name + ' · ' + c.label + ' · app: ' + (j || 'reads it') + ' · checker: ' + (p || 'reads it'));
+  });
   assert.deepStrictEqual(off, [], off.length + ' disagreements');
+  assert.deepStrictEqual(un, [], 'an international domain name, and only one, is left unchecked, never judged');
   assert.ok(cs.filter((c, i) => c.label === 'valid').every((c) => !jsRefuses(c)), 'every valid record reads');
   assert.ok(cs.filter((c) => c.label !== 'valid').some((c) => jsRefuses(c)), 'damage is refused');
 });
@@ -116,5 +129,16 @@ rule('In a folder, a refused to-do record is listed under refused as the app nam
   const refused = res.refused.map((x) => x.file);
   assert.deepStrictEqual(refused, ['proposals/' + bad], JSON.stringify(res.refused));
   assert.ok(/at most 200/.test(res.refused[0].why) || /too long/.test(res.refused[0].why), res.refused[0].why);
+});
+rule('In a folder, a to-do destination or origin on an international domain name is reported as unchecked and never judged', () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-todo-idn-'));
+  fs.mkdirSync(path.join(root, 'proposals'));
+  const mv = valid().filter(([n, f]) => f.op === 'move')[0], o = JSON.parse(T.text(mv[1]));
+  fs.writeFileSync(path.join(root, 'proposals', mv[0]), JSON.stringify(Object.assign({}, o, { to: { link: 'https://xn--a.com/x' } })));
+  const res = JSON.parse(cp.execFileSync(py, ['-I', path.join(DIR, 'check_folder.py'), root], { encoding: 'utf8' }));
+  assert.deepStrictEqual(res.refused, [], 'never refused for it');
+  assert.deepStrictEqual(res.uncheckedLinks, [{ file: 'proposals/' + mv[0], linkUnchecked: '"to" "link": an international domain name; Flightdeck decides whether it reads' }]);
 });
 run();

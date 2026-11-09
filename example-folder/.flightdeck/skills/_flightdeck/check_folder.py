@@ -1840,7 +1840,8 @@ def _tsha(v):
 
 
 def todo_http_link(v):
-    """PF.loop.httpLink: its pattern, then what new URL() does with the ASCII host it lets through (_url_host_ok)."""
+    """PF.loop.httpLink: its pattern, then what new URL() does with the ASCII host it lets through (_url_host_ok). A host
+    with an xn-- label gives SCOPE_IDN, as a scope record's link does (3.0.1): this check doesn't judge it."""
     if not _tstr(v) or js_len(v) > 2048 or T_CONTROL.search(v) or re.search(r"[\s\ufeff]", v):
         return False
     m = re.match(r"^https?://([A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?)(?::([0-9]{1,5}))?(?:[/?#][\x21-\x7e]*)?\Z", v)
@@ -1872,7 +1873,7 @@ def _url_host_ok(host):
     parts = host.split(".")
     last = parts[-1]
     if not (last != "" and (re.fullmatch(r"[0-9]+", last) or _ipv4_number(last) is not None)):
-        return True
+        return SCOPE_IDN if any(x[:4].lower() == "xn--" for x in parts) else True
     if len(parts) > 4 or any(x == "" for x in parts):
         return False
     nums = [_ipv4_number(x) for x in parts]
@@ -1908,8 +1909,9 @@ def _todo_td(proposal):
     return "td-" + hashlib.sha256(js_json(["td", proposal]).encode("utf-8")).hexdigest()[:24]
 
 
-def todo_why(o, name, nbytes=None):
-    """'' when the app reads this to-do record, else why it refuses it (PF.todos.cleanFile's reason)."""
+def todo_why(o, name, nbytes=None, unchecked=None):
+    """'' when the app reads this to-do record, else why it refuses it (PF.todos.cleanFile's reason). A link on an
+    international domain name isn't judged (todo_http_link gives SCOPE_IDN): its place is added to unchecked, never a reason."""
     if nbytes is not None and nbytes > TODO_LIMITS["bytes"]:
         return "is " + str(nbytes) + " bytes; a to-do record is at most " + str(TODO_LIMITS["bytes"])
     st = isinstance(o, dict) and o.get("format") == TODO_STATUS
@@ -1995,7 +1997,11 @@ def todo_why(o, name, nbytes=None):
                 return None
             return {"ticket": to["ticket"]}
         if "link" in to:
-            if not todo_http_link(to["link"]):
+            ok = todo_http_link(to["link"])
+            if ok == SCOPE_IDN:
+                if unchecked is not None:
+                    unchecked.append('"to" "link"')
+            elif not ok:
                 err("to link")
                 return None
             return {"link": to["link"]}
@@ -2023,7 +2029,10 @@ def todo_why(o, name, nbytes=None):
             else:
                 out["step"] = og["step"]
         if og.get("link") is not None:
-            if not todo_http_link(og["link"]):
+            ok = todo_http_link(og["link"])
+            if ok == SCOPE_IDN and unchecked is not None:
+                unchecked.append('"origin" "link"')
+            if not ok:
                 err("origin link")
             else:
                 out["link"] = og["link"]
@@ -3453,6 +3462,7 @@ def main():
     prop_dir = os.path.join(root, "proposals")
     plans, decisions, torn, refused_decisions = {}, {}, [], []
     out["scopes"] = []
+    todo_unchecked = []
     for name in sorted(os.listdir(prop_dir)) if os.path.isdir(prop_dir) else []:
         if not name.lower().endswith(".json") or not os.path.isfile(os.path.join(prop_dir, name)):
             continue
@@ -3471,10 +3481,15 @@ def main():
         # A to-do record (4.0, PF.todos.claims): read by its own reader first, as the app does, and never a plan or a decision.
         # One it refuses is named with the app's reason; one it reads is a living run's record, not this checker's to report.
         if todo_claims(obj):
-            bad = todo_why(obj, name, os.path.getsize(os.path.join(prop_dir, name)))
+            un = []
+            bad = todo_why(obj, name, os.path.getsize(os.path.join(prop_dir, name)), un)
+            note = (un[0] + ": an international domain name; Flightdeck decides whether it reads") if un else ""
             if bad:
-                out["refused"].append({"file": "proposals/" + name, "why": bad})
+                out["refused"].append(dict({"file": "proposals/" + name, "why": bad}, **({"linkUnchecked": note} if note else {})))
                 refused_decisions.append((name, "newer" if " newer Flightdeck" in bad else "malformed", ""))
+            elif note:
+                # Read by this check apart from a link it doesn't judge: named, so whether Flightdeck reads it is left to Flightdeck.
+                todo_unchecked.append({"file": "proposals/" + name, "linkUnchecked": note})
             continue
         # A loop's scope record goes to its own reader first and never reaches the plan reader (repo.readPlans).
         if obj.get("format") in (SCOPE_REQUEST, SCOPE_DECISION):
@@ -3573,6 +3588,8 @@ def main():
             return True
         return any(n.startswith(pid) and n[len(pid):len(pid) + 1] in (".", " ", "-", "(") for pid in plans if isinstance(pid, str) and pid)
     out["unreadablePlans"] = [{"file": "proposals/" + n, "unnamed": not named(n)} for n in torn]
+    if todo_unchecked:
+        out["uncheckedLinks"] = todo_unchecked
     if out["scopes"] or any(n.startswith("req-") for n in torn):
         out["scopeNote"] = SCOPE_NOTE
 
