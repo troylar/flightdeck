@@ -1473,6 +1473,24 @@ PF.run = (function () {
      in the log. Refuses a copy of another run or of another map version. The caller keeps the displaced version.
      o.typesHash (4.0): the types fingerprint of the run's own version, as the folder's publication says it; a run/2 whose
      copy a to-do made a run/3 is made a run/3 with it, so the copy's landed to-dos are never dropped. */
+  /* A kept copy with no head left (4.0): its approvals' cuts counted to-dos the run no longer holds, so each approval made with
+     one goes to review (a loop back for review, a passed or waived gate to review) and the cuts go, since a run without a head
+     can't hold them and still be read. */
+  function dropCuts(r, who, now) {
+    var map = null, why = 'Its approval counted to-dos the kept copy doesn\'t keep.';
+    Object.keys(r.steps || {}).forEach(function (k) {
+      var a = r.steps[k]; if (!a || a.todos === undefined) return;
+      delete a.todos;
+      if (a.s === 'done' && a.loop) unsettleLoop(r, map || (map = mapOf(r)), k, [why], who, now);
+    });
+    Object.keys(r.gates || {}).forEach(function (k) {
+      var g = r.gates[k]; if (!g || g.todos === undefined) return;
+      delete g.todos;
+      if (g.s !== 'passed' && g.s !== 'waived') return;
+      r.gates[k] = { s: 'review', was: g.s, by: g.by, at: g.at, reason: 'It counted to-dos the kept copy doesn\'t keep', approved: g.approved };
+      addLog(r, who, now, 'Gate needs review: it counted to-dos the kept copy doesn\'t keep');
+    });
+  }
   function adopt(cur, copy, who, now, o) {
     if (!copy || copy.id !== cur.id || copy.process !== cur.process) throw new Error('That copy belongs to a different run.');
     if (copy._unrunnable) throw new Error(copy._unrunnable + ' That copy can only be read here, so it wasn\'t kept.');
@@ -1505,7 +1523,7 @@ PF.run = (function () {
     /* o.head (4.0): the head to keep, as the caller checked it (PF.todos.keepHead: a copy's head is kept only as far as its
        applications this run never landed are still authorized; '' keeps none). */
     var lv = cur.format !== FORMAT3 ? null : o && typeof o.head === 'string' ? (o.head ? { head: o.head } : null) : copy.living || cur.living;
-    if (!lv) { delete cur.living; if (cur.features) cur.features = cur.features.filter(function (f) { return f !== PF.todos.FEATURE; }); }
+    if (!lv) { delete cur.living; if (cur.features) cur.features = cur.features.filter(function (f) { return f !== PF.todos.FEATURE; }); dropCuts(cur, who, now); }
     if (lv) { cur.living = { head: lv.head }; addFeature(cur, PF.todos.FEATURE); var lo = order3(cur); Object.keys(cur).forEach(function (k) { delete cur[k]; }); Object.keys(lo).forEach(function (k) { cur[k] = lo[k]; }); }
     if (cur.format === FORMAT3) { var re = withPins(cur); Object.keys(cur).forEach(function (k) { delete cur[k]; }); Object.keys(re).forEach(function (k) { cur[k] = re[k]; }); }
     /* Deviation marks record what happened in this run in either version, so keeping a copy keeps both versions' marks;

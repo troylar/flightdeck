@@ -25,8 +25,8 @@
       "reviewed": "loop guard builder for every loop parent and child write, undo on drop; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "ef94267ed35306e0fbf875b5f0807c6e56cc8db51ffa5442104b19085bbc48da",
-      "reviewed": "Slice 1 round 3 Z: to-do reader copies into a map with no prototype"
+      "sha256": "164b6bc07d1bc5f9cdaf1860d0b89c3ddfb2c28955e3132ac320a784159c76ec",
+      "reviewed": "Slice 1 round 3 X: a copy kept with no head drops its cuts; recovery saves must read back"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -305,8 +305,8 @@
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "src/core/run.js": {
-      "sha256": "ec6d0f248f603888ce9a313dd4d50d6ba9c6b84498182f7b4402f447e925dc06",
-      "reviewed": "Round 2 R: keeping a copy asks again for the applications this run never landed; checked for direct writes and unconditional deletes"
+      "sha256": "5128ce2232e2149e5cdcf8960c1c312ecfff9255418b25bfd0f3ddf4cbb2e16f",
+      "reviewed": "Slice 1 round 3 X: a copy kept with no head drops its cuts; recovery saves must read back"
     },
     "src/core/save.js": {
       "sha256": "096b8282d8dd62623b608ad2a9ae6a8f78e5a8260615eaf74aa9c9fb9c3a3f26",
@@ -401,8 +401,8 @@
       "reviewed": "Slice 1 round 3 Z: to-do reader copies into a map with no prototype"
     },
     "src/ui/app.js": {
-      "sha256": "d7b729d6bf7394d0ec77b12181e5d671895e5eb1d9fb0a30ff368e2fa3b8aa30",
-      "reviewed": "Round 2 V: the recovery guard is captured at the click for every run; checked for direct writes and unconditional deletes"
+      "sha256": "d84d0e45d4dfad8e0ac2b6cb8f83d5e427ec726ccbc70dd9beefb676da6141ca",
+      "reviewed": "Slice 1 round 3 X: a copy kept with no head drops its cuts; recovery saves must read back"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
@@ -501,8 +501,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. A maintainer tool, not shipped. Not read line by line."
     },
     "tools/readers.js": {
-      "sha256": "1390bfdeb3229d1a03995a466e848c4df8f0ab7a324cf6926639988244bef8d2",
-      "reviewed": "4.0 slice 1, commit 1: to-do records and their reduction (src/core/todos.js), loop settle and paging shared, living-runs feature, design §45"
+      "sha256": "4ec6a1c511ce1d6c40aee1a5ece0616dfa84e8f345cf45fd2cf5475792b1578b",
+      "reviewed": "Slice 1 round 3 X: a copy kept with no head drops its cuts; recovery saves must read back"
     },
     "tools/scale-limits.js": {
       "sha256": "23e06ee46d6b4ff44216f92c530578f714aa05bcecd7a2b0458515287d554ec1",

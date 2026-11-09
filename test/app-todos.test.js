@@ -260,6 +260,20 @@ rule('Keeping a copy whose head names an application this run never landed asks 
   ok.click('use-copy', 'run-OTHER.json'); await ok.tick(400);
   assert.strictEqual(theRun(ok).living.head, c.head, 'still authorized: kept');
 });
+rule('Use copy keeping none of the copy\'s to-dos sends the approval that counted them to review and saves a run that reads back', async () => {
+  const app = await setup();
+  const { head } = await conflictCopy(app, 'person-blake');
+  const R = app.PF.run, cp = runPath(app).replace('run.json', 'run-OTHER.json'), o = JSON.parse(app.fs.files[cp].t), at = new Date().toISOString();
+  const rr = R.sanitize(JSON.parse(JSON.stringify(o))), m = R.mapOf(rr);
+  o.steps.write = { s: 'done', by: 'person-avery', at }; o.gates['draft-confirm'] = { s: 'passed', by: 'person-avery', at, approved: R.gateInputs(rr, m, m.phases[0].gate), todos: { cut: [head] } };
+  await app.fs.write(cp, JSON.stringify(o, null, 2));
+  await blake(app, true); await refresh(app, 300);
+  app.click('use-copy', 'run-OTHER.json'); await app.tick(400);
+  const r = theRun(app), g = r.gates['draft-confirm'];
+  assert.strictEqual(R.sanitize(JSON.parse(JSON.stringify(r)))._unrunnable, undefined, 'it reads back');
+  assert.deepStrictEqual([r.living, g.s, g.was, 'todos' in g], [undefined, 'review', 'passed', false]);
+  assert.ok(!app.fs.files[cp], 'kept: the copy is gone');
+});
 rule('Keeping a living copy over a run/2 writes no backup once the person changed', async () => {
   const app = await setup();
   await conflictCopy(app, 'person-blake');

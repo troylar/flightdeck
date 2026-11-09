@@ -8875,11 +8875,19 @@
           var extra = c._overflow || [];
           /* A copy's to-dos this run never landed are kept only while they would land now (PF.todos.keepHead); the rest are
              prepared again. */
-          var kh = PF.todos.keepHead(run, c, { records: data.todos || [], unread: data.todosUnread || [], people: data.people });
-          R.adopt(run, c, me, now, { typesHash: todoTypes(run), head: kh.head });
-          if (kh.dropped) R.log(run, me, now, 'Kept the copy without its to-dos from ' + kh.dropped.slice(0, 120) + ' on: they aren\'t authorized now, so they will be prepared again');
+          var kh = PF.todos.keepHead(run, c, { records: data.todos || [], unread: data.todosUnread || [], people: data.people }), ko = { typesHash: todoTypes(run), head: kh.head };
+          var keep = function (t) {
+            R.adopt(t, c, me, now, ko);
+            if (kh.dropped) R.log(t, me, now, 'Kept the copy without its to-dos from ' + kh.dropped.slice(0, 120) + ' on: they aren\'t authorized now, so they will be prepared again');
+            R.log(t, me, now, logPrefix + where.split('/').pop());
+          };
+          /* The run about to be saved must read back as a run this copy can change: tried on a copy of it first, so one that
+             wouldn't is never saved, this run stays as it is and the conflict copy is kept. */
+          var trial = JSON.parse(snapshot(run)); keep(trial);
+          var back = R.sanitize(JSON.parse(JSON.stringify(trial)));
+          if (!back || back._unrunnable) throw new Error('Keeping that copy would save a run this copy of Flightdeck can\'t read back' + (back && back._unrunnable ? ' (' + String(back._unrunnable).slice(0, 200) + ')' : '') + ', so nothing was replaced.');
+          keep(run);
           if (extra.length) run._overflow = (run._overflow || []).concat(extra);
-          R.log(run, me, now, logPrefix + where.split('/').pop());
         }, { recovery: true, expect: cur, expectText: text });
       }).then(function (ok) {
         if (!ok || g !== gen) return;

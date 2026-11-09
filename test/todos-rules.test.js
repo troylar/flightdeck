@@ -363,6 +363,25 @@ rule('Keeping a copy keeps its head only as far as the applications this run nev
   assert.ok(!R.sanitize(plain(kept))._unrunnable);
 });
 /* ---------- Application (commit 3) ---------- */
+rule('Keeping a copy without any of its to-dos sends the approvals that counted them to review, and the run reads back', () => {
+  const { r } = newRun(), map = R.mapOf(r), p = prop('x1', add('One', { phase: 'draft' }), [], 'person-avery');
+  const a = applied(p, '', { decision: p.id + '.status-w1-00000000' });
+  const copy = plain(r); land(copy, a);
+  copy.steps.write = { s: 'done', by: 'person-avery', at: AT };
+  copy.gates['draft-confirm'] = { s: 'passed', by: 'person-avery', at: AT, approved: R.gateInputs(R.sanitize(plain(copy)), map, map.phases[0].gate), todos: { cut: [a.id] } };
+  assert.strictEqual(reread(copy)._unrunnable, undefined, 'set-up: the copy reads');
+  const kept = plain(r); R.adopt(kept, R.sanitize(plain(copy)), 'person-avery', AT, { head: '' });
+  const g = kept.gates['draft-confirm'];
+  same([reread(kept)._unrunnable, g.s, g.was, 'todos' in g], [undefined, 'review', 'passed', false]);
+  const lr = loopRun(), lm = R.mapOf(lr), it = { item: { loopStep: 'each', uid: 'jira:10101', attempt: 1 } };
+  const lp = prop('x2', add('Security sign-off', it, LOOPMD)), la = applied(lp, '', { decision: lp.id + '.status-w1-00000000' });
+  const lc = plain(lr); land(lc, la);
+  lc.steps.each = { s: 'done', by: 'person-avery', at: AT, loop: { by: 'person-avery', at: AT, onBehalf: '', records: [], summary: '0 in scope', counts: {}, items: [] }, todos: { cut: [la.id] } };
+  assert.strictEqual(reread(lc)._unrunnable, undefined, 'set-up: the loop copy reads');
+  const lk = plain(lr); R.adopt(lk, R.sanitize(plain(lc)), 'person-avery', AT, { head: '' });
+  same([reread(lk)._unrunnable, lk.steps.each.s, 'todos' in lk.steps.each], [undefined, 'recheck', false]);
+  assert.ok(lm, 'set-up');
+});
 rule('The recorder\'s next step for a request reads what is there first: landed is done, a prepared application that still fits is landed as it is, otherwise one is prepared on the head', () => {
   const { r } = newRun(), map = R.mapOf(r), p = prop('ap1', add('Check the links', { phase: 'draft' }), [], 'person-avery');
   const C = T.consequenceOf(r, map, p, V(r, [p])).fingerprint, d = decide(p, 'accept', 'person-avery', C), recs = [p, d];

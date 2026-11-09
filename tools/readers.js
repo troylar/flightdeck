@@ -51,6 +51,7 @@ const RAW = [
   { file: 'src/ui/app.js', has: 'return JSON.parse(text); });', why: 'a baseline of the text this window just saved' },
   { file: 'src/ui/app.js', has: 'return JSON.parse(landedText)', why: 'a baseline of the run this window just saved (R.sanitize read it first)' },
   { file: 'src/ui/app.js', has: 'return JSON.parse(baseText)', why: 'a baseline of a run already in memory' },
+  { file: 'src/ui/app.js', has: 'var trial = JSON.parse(snapshot(run));', why: 'recover: a copy of the run already in memory (text this window made itself), the copy kept into it on trial, then read back through R.sanitize before anything is saved' },
   { file: 'src/ui/app.js', has: 'var i = text.indexOf(\'\\n\'), d = JSON.parse(', why: 'a step-type draft this window kept in its own browser storage' },
   { file: 'src/ui/app.js', has: "o = f ? JSON.parse(f.text) : null; } catch (e) { o = null; }", why: 'the step-type editor\'s conflict: PF.types.checkCustom before the form shows it' },
   { file: 'src/ui/app.js', has: "o = JSON.parse(f.conflict.theirs || 'null')", why: 'the step-type editor\'s conflict: PF.types.checkCustom before it\'s used' },
