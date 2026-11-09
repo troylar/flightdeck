@@ -1193,6 +1193,9 @@
   function tdCan(ctx, r) { return !prOf(ctx) && !!(ctx.state && ctx.state.me) && !r.ended && !r._unrunnable && !r.practice; }
   function tdDest(to) { return !to ? '' : to.ticket ? to.ticket : to.run ? to.run : to.link ? to.link : ''; }
   /* The requests not yet landed, by the to-do they change (an addition by its own id), newest last. */
+  /* Unsent to-do typing's key and what is kept under it (app.js tdDrafts); a host without them keeps none. */
+  function tdKeyOf(ctx, run, at, op) { return ctx.tdDraftKey ? ctx.tdDraftKey(run, at, op) : ''; }
+  function tdDraftOf(ctx, key) { return key && ctx.tdDraft ? ctx.tdDraft(key) : null; }
   function tdPending(TV) {
     var out = Object.create(null);
     PF.todos.requestsOf(TV).forEach(function (q) { if (q.landed || q.status === 'applied' || q.status === 'declined') return; (out[q.todo] = out[q.todo] || []).push(q); });
@@ -1214,16 +1217,27 @@
       if (open) h += ' <span class="row td-acts"><button type="button" class="mini" data-act="td-pick" data-kind="wont" data-id="' + id + '">Won\'t do…</button><button type="button" class="mini" data-act="td-pick" data-kind="move" data-id="' + id + '">Move or defer…</button></span>';
       else h += ' <span class="row td-acts"><button type="button" class="mini" data-act="td-reopen" data-id="' + id + '">Reopen</button></span>';
     }
-    var pk = s.tdPick;
-    if (can && !busy && open && pk && pk.id === x.id && pk.fs === ctx.fsKey && pk.run === r.process + '/' + r.id) {
-      var wont = pk.kind === 'wont';
+    var pk = s.tdPick, rk = r.process + '/' + r.id, shown = '';
+    if (can && !busy && open && pk && pk.id === x.id && pk.fs === ctx.fsKey && pk.run === rk) {
+      var wont = pk.kind === 'wont', dk = tdKeyOf(ctx, rk, x.id, pk.kind);
+      shown = pk.kind;
       /* Its own scope (folder, run, to-do, action): what was typed in one form is never carried into another. */
       h += '<div class="td-form" data-scope="td:' + esc(K.domKey(pk.fs + '|' + pk.run + '|' + x.id + '|' + pk.kind)) + '" role="group" aria-label="' + (wont ? 'Won\'t do' : 'Move or defer') + '">' +
-        (wont ? '' : '<label class="small" for="td-to">Where it goes: a ticket like ABC-123, a link, or another run as process/run</label><input id="td-to" class="rw-in" maxlength="2048" data-enter="td-save" data-id="' + id + '" autocomplete="off">') +
-        '<label class="small" for="td-why">' + (wont ? 'Why it won\'t be done' : 'Why (optional)') + '</label><input id="td-why" class="rw-in" maxlength="300" data-enter="td-save" data-id="' + id + '" autocomplete="off">' +
+        (wont ? '' : '<label class="small" for="td-to">Where it goes: a ticket like ABC-123, a link, or another run as process/run</label><input id="td-to" class="rw-in" maxlength="2048" data-enter="td-save" data-id="' + id + '" data-draft="' + esc(dk) + '" autocomplete="off">') +
+        '<label class="small" for="td-why">' + (wont ? 'Why it won\'t be done' : 'Why (optional)') + '</label><input id="td-why" class="rw-in" maxlength="300" data-enter="td-save" data-id="' + id + '" data-draft="' + esc(dk) + '" autocomplete="off">' +
         '<span class="row"><button type="button" class="btn" data-act="td-save" data-id="' + id + '">' + (wont ? 'Ask: won\'t do' : 'Ask: move it') + '</button><button type="button" class="mini" data-act="td-unpick">Cancel</button></span>' +
         '<p class="small">Releasing work always needs a person\'s approval; the recorder\'s window applies it.</p></div>';
     }
+    /* A Won't do or Move typed and not asked, its form hidden now (a pending request, the to-do resolved, another form open):
+       shown here until it is asked or discarded; it is back in the form when that opens again. */
+    ['wont', 'move'].forEach(function (op) {
+      var kd = tdKeyOf(ctx, rk, x.id, op), kept = op !== shown && tdDraftOf(ctx, kd);
+      if (!kept) return;
+      var again = can && !busy && open ? '<button type="button" class="mini" data-act="td-pick" data-kind="' + op + '" data-id="' + id + '">Open it</button>' : '';
+      h += '<div class="small td-kept" role="note">Not asked yet' + (busy ? ' (a request on this to-do waits first)' : '') + ': ' + (op === 'wont' ? 'Won\'t do' : 'Move') +
+        (op === 'move' && kept.to.trim() ? ' to <q>' + esc(kept.to) + '</q>' : '') + (kept.why.trim() ? ' · <q>' + esc(kept.why) + '</q>' : '') + ' ' + again +
+        '<button type="button" class="mini" id="tdk-' + K.domKey(kd) + '" data-act="td-kept-drop" data-key="' + esc(kd) + '">Discard</button></div>';
+    });
     return h + '</li>';
   }
   /* A phase's to-dos, its pending additions, and (under the current phase) the box that adds one before its gate. */
@@ -1232,16 +1246,19 @@
     var mine = TV ? TV.todos.filter(function (x) { return tdPhaseOf(map, x.target) === p.id; }) : [];
     var pend = TV ? tdPending(TV) : Object.create(null), adds = [];
     Object.keys(pend).forEach(function (k) { pend[k].forEach(function (q) { if (q.op === 'add' && tdPhaseOf(map, q.target) === p.id) adds.push(q); }); });
-    var box = can && pi === cur && !r.paused;
-    if (!mine.length && !adds.length && !box) return '';
+    var box = can && pi === cur && !r.paused, rk = r.process + '/' + r.id, ak = tdKeyOf(ctx, rk, p.id, 'add');
+    /* Add text typed and not added, its box hidden now (paused, the phase passed): shown under its phase until discarded. */
+    var keptAdd = !box && tdDraftOf(ctx, ak);
+    if (!mine.length && !adds.length && !box && !keptAdd) return '';
     var h = '<div class="todos" data-scope="todos:' + esc(p.id) + '" aria-label="To-dos in ' + esc(p.title) + '">';
     if (mine.length || adds.length) {
       h += '<ul class="td-list">' + mine.map(function (x) { return tdRow(ctx, r, map, x, pend, can); }).join('');
       h += adds.map(function (q) { return '<li class="td-row" data-s="pending"><span class="td-check" aria-hidden="true"></span><span class="td-text">' + esc(q.text) + '</span> <span class="pill review">' + esc(TD_REQ[q.status] || q.status) + '</span>' + (q.why ? ' <span class="small">' + esc(q.why) + '</span>' : '') + '</li>'; }).join('') + '</ul>';
     }
+    if (keptAdd) h += '<div class="small td-kept" role="note">Not added yet: <q>' + esc(keptAdd.text) + '</q> <button type="button" class="mini" id="tdk-' + K.domKey(ak) + '" data-act="td-kept-drop" data-key="' + esc(ak) + '">Discard</button></div>';
     if (box) {
       var gt = PF.todos.gateTitle(map, p.gate.id);
-      h += '<div class="td-add row"><label class="sr" for="td-add">Add something to do</label><input id="td-add" class="rw-in" placeholder="Add something to do…" maxlength="200" data-enter="td-add" data-id="' + esc(p.id) + '" autocomplete="off">' +
+      h += '<div class="td-add row"><label class="sr" for="td-add">Add something to do</label><input id="td-add" class="rw-in" placeholder="Add something to do…" maxlength="200" data-enter="td-add" data-id="' + esc(p.id) + '" data-draft="' + esc(ak) + '" autocomplete="off">' +
         '<button type="button" class="mini" data-act="td-add" data-id="' + esc(p.id) + '">Add</button><span class="small">Before ' + esc(gt) + '</span></div>';
     }
     return h + '</div>';

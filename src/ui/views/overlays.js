@@ -328,6 +328,9 @@
      again as it is now, for consent again. Decline takes an optional reason. Delegations on runs you may decide can be
      revoked here; what a revoked one covered and hasn't been applied waits for a person again. Paging, the open decline and
      what was said belong to this folder (ctx.loopMem). */
+  /* Unsent to-do typing's key and what is kept under it (app.js tdDrafts); a host without them keeps none. */
+  function tdKeyOf(ctx, run, at, op) { return ctx.tdDraftKey ? ctx.tdDraftKey(run, at, op) : ''; }
+  function tdDraftOf(ctx, key) { return key && ctx.tdDraft ? ctx.tdDraft(key) : null; }
   function tdWho(ctx, by) { return !by ? '' : by.tool ? by.tool + ' (a tool)' : nameOf(ctx, by.person); }
   function todoInbox(ctx) {
     var mem = ctx.loopMem(), only = mem.tdInboxRun || '', all = ctx.todoInbox ? ctx.todoInbox() : [];
@@ -337,12 +340,19 @@
     var h = '<div class="overlay" data-act="close-overlay"><div class="help tdi" role="dialog" aria-modal="true" aria-labelledby="tdi-h"><h2 id="tdi-h" tabindex="-1">To-do requests that need you</h2>';
     h += '<p class="small">' + (items.length ? items.length + ' request' + (items.length === 1 ? '' : 's') + ' wait' + (items.length === 1 ? 's' : '') + ' for your decision' + (only ? ' on this run' : '') + '. Accepting queues it for the run\'s recorder; their window applies it.' : 'Nothing waits for your decision' + (only ? ' on this run' : '') + '.') + '</p>';
     if (mem.tdSaid) h += '<p class="small" role="status">' + esc(mem.tdSaid) + '</p>';
+    /* A decline reason typed and not sent whose form isn't open (its request decided elsewhere, or another one open):
+       shown until it is sent or discarded, and the dialog doesn't close over it (held). */
+    var keptDec = (ctx.tdKept ? ctx.tdKept('', true) : []).filter(function (d) { return !(dec && dec.run === d.run && dec.id === d.at && rows.some(function (y) { return y.key === d.run + '|' + d.at; })); });
+    if (keptDec.length) h += '<ul class="todos">' + keptDec.map(function (d) {
+      return '<li class="small td-kept" role="note">Not sent: your reason to decline a request on ' + esc(d.run) + ': <q>' + esc(d.why) + '</q> <button type="button" class="mini" id="tdk-' + K.domKey(d.key) + '" data-act="td-kept-drop" data-key="' + esc(d.key) + '">Discard</button></li>';
+    }).join('') + '</ul>';
     if (rows.length) h += K.list(ctx.state, 'td-inbox:' + mem.g, rows, { page: 10, keyOf: function (y) { return y.key; }, focusOf: function (k) { return '#tdi-' + K.domKey(k); }, draw: function (shown) {
       return '<ul class="todos">' + shown.map(function (y) {
         var x = y.x, rk = x.run.process + '/' + x.run.id, open = dec && dec.run === rk && dec.id === x.id;
         var b = '<li class="todo" id="tdi-' + K.domKey(y.key) + '" tabindex="-1"><div><b>' + esc(x.title) + '</b>: ' + esc(x.words) +
           '<div class="small">Asked by ' + esc(tdWho(ctx, x.by)) + (x.reason ? ' · ' + esc(x.reason) : '') + (x.dispute ? ' · <b>Decided two ways at once</b>: your decision settles it.' : x.why ? ' · ' + esc(x.why) : '') + '</div></div>';
-        if (open) b += '<div class="td-form" data-scope="tdd:' + esc(K.domKey(rk + '|' + x.id)) + '"><label class="small" for="td-dec-why">Why decline it (optional)</label><input id="td-dec-why" class="rw-in" maxlength="300" data-enter="td-decline" data-id="' + esc(x.id) + '" autocomplete="off">' +
+        var dk = tdKeyOf(ctx, rk, x.id, 'decline');
+        if (open) b += '<div class="td-form" data-scope="tdd:' + esc(K.domKey(rk + '|' + x.id)) + '"><label class="small" for="td-dec-why">Why decline it (optional)</label><input id="td-dec-why" class="rw-in" maxlength="300" data-enter="td-decline" data-id="' + esc(x.id) + '" data-draft="' + esc(dk) + '" autocomplete="off">' +
           '<span class="row"><button type="button" class="btn" data-act="td-decline" data-id="' + esc(x.id) + '" data-run="' + esc(rk) + '">Decline</button><button type="button" class="mini" data-act="td-decline-cancel">Cancel</button></span></div>';
         else b += '<span class="row"><button type="button" class="btn go" data-act="td-accept" data-id="' + esc(x.id) + '" data-run="' + esc(rk) + '" data-fp="' + esc(x.consequence.fingerprint) + '">Accept</button><button type="button" class="mini" data-act="td-decline-pick" data-id="' + esc(x.id) + '" data-run="' + esc(rk) + '">Decline…</button></span>';
         return b + '</li>';

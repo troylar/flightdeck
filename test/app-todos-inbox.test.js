@@ -154,6 +154,90 @@ rule('A delegation, revoke or decision that may have been saved, made again unch
   app.click('td-accept', it.id, { run: it.run, fp: it.fp }); await app.tick(60);
   assert.deepStrictEqual(fresh(app, b2).map(x => [x.kind, x.proposal]), [['decision', p.id]], 'one decision');
 });
+/* Someone else accepting a request already in the folder, written as their window would. */
+async function acceptedOutside(app, p, by) {
+  const T = app.PF.todos, r = theRun(app), RUN = { process: r.process, id: r.id }, at = new Date().toISOString();
+  const d = await app.PF.repo.loadAll(app.fs, {}), V = T.view(app.PF.run.sanitize(r), { records: d.todos || [], people: JSON.parse(app.fs.files['people.json'].t) });
+  const C = T.consequenceOf(app.PF.run.sanitize(r), V.map, V.requests[p.id], V).fingerprint;
+  const s = T.buildStatus({ kind: 'decision', proposal: p.id, run: RUN, seen: [p.id], by, at, op: 'accept', consequence: C, writer: 'w9', rev: hex(8), app: '4.0.0' });
+  await app.fs.write('proposals/' + s.name, T.text(s.file));
+}
+async function landed(app, text) {
+  await request(app, { op: 'add', text, target: { phase: 'draft' } });
+  for (let i = 0; i < 4; i++) await refresh(app, 300);
+  const d = await app.PF.repo.loadAll(app.fs, {}), t = app.PF.todos.view(app.PF.run.sanitize(theRun(app)), { records: d.todos, people: JSON.parse(app.fs.files['people.json'].t) }).todos.find(x => x.text === text);
+  assert.ok(t, 'set-up: the to-do landed');
+  return t.id;
+}
+rule('A Move typed and not asked is kept when a pending request hides its form: shown with its to-do, leaving asks first, and it is back in the form after', async () => {
+  const app = await setup();
+  const id = await landed(app, 'Resolve me');
+  app.click('td-pick', id, { kind: 'move' }); await app.tick(10);
+  app.set('td-to', 'ABC-123'); app.set('td-why', 'Next sprint');
+  const p = await request(app, { op: 'done', todo: id }, { by: 'person-casey', decide: false });
+  await refresh(app, 400);
+  let h = app.html();
+  assert.ok(!new RegExp('data-act="td-save" data-id="' + id + '"').test(h), 'set-up: the pending request hides the form');
+  assert.ok(/Not asked yet/.test(h) && /ABC-123/.test(h) && /Next sprint/.test(h), 'what was typed is shown with its to-do');
+  app.click('go', '', { view: 'home' }); await app.tick(20);
+  assert.ok(/id="rw"/.test(app.html()) && /Not asked yet/.test(app.html()) && /Finish or cancel/.test(app.html()), 'leaving the run asks first');
+  app.click('td-inbox', ''); await app.tick(20);
+  const it = accepts(ov(app)).find(x => x.id === p.id);
+  app.click('td-decline-pick', it.id, { run: it.run }); await app.tick(10);
+  app.click('td-decline', it.id, { run: it.run }); await app.tick(60);
+  app.click('close-overlay'); await app.tick();
+  await refresh(app, 400);
+  assert.ok(new RegExp('data-act="td-save" data-id="' + id + '"').test(app.html()), 'the form is back');
+  assert.deepStrictEqual([app.draft('td-to'), app.draft('td-why')], ['ABC-123', 'Next sprint'], 'with what was typed');
+  const before = recs(app);
+  app.click('td-save', id); await app.tick(60);
+  const w = fresh(app, before);
+  assert.deepStrictEqual([w.length, w[0].op, w[0].to, w[0].reason], [1, 'move', { ticket: 'ABC-123' }, 'Next sprint']);
+});
+rule('A Won\'t do reason the to-do\'s own Done hides is kept until discarded', async () => {
+  const app = await setup();
+  const id = await landed(app, 'Resolve me');
+  app.click('td-pick', id, { kind: 'wont' }); await app.tick(10);
+  app.set('td-why', 'Covered by the script');
+  app.click('td-done', id); await app.tick(60);
+  assert.ok(/Not asked yet/.test(app.html()) && /Covered by the script/.test(app.html()), 'shown');
+  app.click('go', '', { view: 'home' }); await app.tick(20);
+  assert.ok(/id="rw"/.test(app.html()) && /Not asked yet/.test(app.html()), 'leaving asks first');
+  const k = /data-act="td-kept-drop" data-key="([^"]+)"/.exec(app.html());
+  assert.ok(k, 'Discard offered');
+  app.click('td-kept-drop', '', { key: k[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&') }); await app.tick();
+  assert.ok(!/Not asked yet/.test(app.html()), 'discarded');
+  app.click('go', '', { view: 'home' }); await app.tick(20);
+  assert.ok(!/id="rw"/.test(app.html()), 'then leaving is fine');
+});
+rule('Add text the box hides is kept: shown under its phase while paused, back in the box after', async () => {
+  const app = await setup();
+  app.set('td-add', 'Half typed');
+  app.click('pick', 'run', { kind: 'pause' }); await app.tick(); app.set('pick-input', 'Waiting'); app.click('pause', 'run'); await app.tick(40);
+  assert.ok(!/id="td-add"/.test(app.html()), 'set-up: paused, no box');
+  assert.ok(/Not added yet/.test(app.html()) && /Half typed/.test(app.html()), 'shown');
+  app.click('resume', 'run'); await app.tick(40);
+  assert.strictEqual(app.draft('td-add'), 'Half typed', 'back in the box');
+});
+rule('A decline reason is kept when the request is decided elsewhere first: shown in the dialog until discarded', async () => {
+  const app = await setup();
+  const [p] = await asked(app, 1);
+  await refresh(app, 400);
+  app.click('td-inbox', ''); await app.tick(20);
+  const it = accepts(ov(app))[0];
+  app.click('td-decline-pick', it.id, { run: it.run }); await app.tick(10);
+  app.set('td-dec-why', 'Not in this release');
+  await acceptedOutside(app, p, 'person-blake');
+  await refresh(app, 400);
+  assert.strictEqual(accepts(ov(app)).length, 0, 'set-up: decided elsewhere, gone from the list');
+  assert.ok(/Not sent/.test(ov(app)) && /Not in this release/.test(ov(app)), 'what was typed is shown');
+  app.click('close-overlay'); await app.tick();
+  app.click('td-inbox', ''); await app.tick(20);
+  assert.ok(/Not sent/.test(ov(app)) && /Not in this release/.test(ov(app)), 'still there when the dialog opens again');
+  const k = /data-act="td-kept-drop" data-key="([^"]+)"/.exec(ov(app));
+  app.click('td-kept-drop', '', { key: k[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&') }); await app.tick();
+  assert.ok(!/Not sent/.test(ov(app)), 'until discarded');
+});
 rule('A decline\'s reason belongs to its request: picking another with a reason typed is refused, and nothing carries over', async () => {
   const app = await setup();
   await asked(app, 2);

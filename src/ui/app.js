@@ -163,6 +163,10 @@
     lostDrafts: function () { var k = fsKey() + '\n', ids = processes().map(function (x) { return x.id; }); return Object.keys(state.editors || {}).filter(function (e) { var ed = state.editors[e]; return e.indexOf(k) === 0 && ed.text != null && ids.indexOf(ed.pid) < 0; }).map(function (e) { return state.editors[e].pid; }); },
     findRun: function (key) { return findRun(key); },
     loopMem: function () { return loopMem(); },
+    /* Unsent to-do typing (tdDrafts): the key a box draws, what is kept under it, and what is kept with no box drawn. */
+    tdDraftKey: function (run, at, op) { return tdDraftKey(run, at, op); },
+    tdDraft: function (key) { return tdDrafts().get(key) || null; },
+    tdKept: function (run, decline) { return tdDrafts().size ? Array.from(tdDrafts().values()).filter(function (d) { return decline ? d.op === 'decline' : d.op !== 'decline' && d.run === run; }) : []; },
     /* A run's to-dos as every window reads them (PF.todos.view), worked out once per read of the folder and change of the run. */
     todoView: function (r) { return todoViewFor(r); },
     /* What needs this person on every run (PF.todos.inbox), and the delegations they may end: worked out once per draw. */
@@ -2098,6 +2102,7 @@
     dropBatchRender();
     repHarvest();
     corrHarvest();
+    tdHarvest();
     procCache = null; pplBy = { list: null, len: -1, by: null }; pplSorted = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null; tdMemo = null; tdBox = null;
     pruneUnapplied();
     var keep = {}, ae = document.activeElement, focusKey = null;
@@ -2226,6 +2231,7 @@
       /* Focus asked for on a dialog whose content didn't change still goes there. */
       var to = overlayEl.querySelector(state.overlayFocus); state.overlayFocus = null; if (to && document.activeElement !== to) to.focus();
     }
+    tdFill();
     if (state.overlay) {
       /* If focus was lost (the focused control disappeared), it goes to the dialog's close button rather than the page. */
       var c = overlayEl.querySelector('#tab-only-ok, #lb-close, #rel-close, #ob-sheet-close, #tp-close, #ca-close, #ev-close, .help [data-act="close-overlay"]');
@@ -3389,6 +3395,8 @@
     var ops = dg.ops || { add: true }; dg.ops = { add: !!ops.add, done: !!ops.done, reopen: !!ops.reopen };
     ['add', 'done', 'reopen'].forEach(function (k) { var el = box('tdg-' + k); if (el) dg.ops[k] = !!el.checked; });
   }
+  /* The dialog closes only once no decline reason is left unsent: in its box, or kept after its request left the list. */
+  function tdDeclineHeld() { return (!!loopMem().tdDec && !!String(val('td-dec-why') || '').trim()) || tdHidden('', true).length > 0; }
   function tdClear(ids) { ids.forEach(function (id) { var el = document.getElementById(id); if (el) el.value = ''; }); }
   /* A to-do form's boxes as sent (tdSent), and clearing them when its save finishes (tdClearIf): only while every box is
      still the same form (its screen, folder, run and generation, and its own scope: phase, to-do and action, as redraws
@@ -3396,13 +3404,54 @@
      run, is never wiped or focused; true when cleared. */
   /* The open Won't do or Move form, only on the run and folder it was opened in (folder, run, to-do and action). */
   function tdPickHere(r) { var pk = state.tdPick; return pk && r && pk.fs === fsKey() && pk.run === r.process + '/' + r.id ? pk : null; }
-  function tdUnsentPick() { return ['td-why', 'td-to'].some(function (id) { var el = document.getElementById(id); return !!(el && String(el.value || '').trim()); }); }
+  function tdUnsentPick() { return ['td-why', 'td-to'].some(function (id) { var el = document.getElementById(id); return !!(tdBoxKey(id) && el && String(el.value || '').trim()); }); }
   function tdFormOf(el) { var z = el.closest('[data-scope]'); return (app.dataset.scope || '') + '|' + (z ? z.dataset.scope : ''); }
-  function tdSent(ids) { return ids.map(function (id) { var el = document.getElementById(id); return { id: id, v: el ? String(el.value == null ? '' : el.value) : '', form: el ? tdFormOf(el) : null }; }); }
+  function tdSent(ids) { return ids.map(function (id) { var el = document.getElementById(id); return { id: id, v: el ? String(el.value == null ? '' : el.value) : '', form: el ? tdFormOf(el) : null, key: el && el.getAttribute ? el.getAttribute('data-draft') : null }; }); }
   function tdClearIf(sent) {
+    /* What was sent is no longer unsent, wherever its box is now: its kept copy goes while it still says exactly that. */
+    sent.forEach(function (x) { if (x.key) tdDraftSent(x.key, tdFieldOf(x.id), x.v); });
     var same = sent.every(function (x) { var el = document.getElementById(x.id); return el ? x.form !== null && tdFormOf(el) === x.form && String(el.value == null ? '' : el.value) === x.v : x.form === null; });
     if (same) tdClear(sent.map(function (x) { return x.id; }));
     return same;
+  }
+  /* Unsent to-do typing (Add text, a Won't do reason, a Move's destination and reason, a decline's reason) is kept per
+     folder (ctx.loopMem) under its run, place (phase or to-do) and action, as each box draws it (data-draft, tdDraftKey).
+     Each redraw takes what the boxes on the page hold first (tdHarvest), so a box a pending request, a pause or a decision
+     made elsewhere hides takes its typing with it: it is shown where it was (Not asked yet), the box draws it again when it
+     returns, and leaving the run or closing the dialog asks first until it is asked or discarded. */
+  function tdDrafts() { var mem = loopMem(); return mem.tdDrafts || (mem.tdDrafts = new Map()); }
+  function tdDraftKey(run, at, op) { return [fsKey(), run, at, op].map(function (x) { return encodeURIComponent(String(x)); }).join('|'); }
+  function tdFieldOf(id) { return id === 'td-add' ? 'text' : id === 'td-to' ? 'to' : 'why'; }
+  function tdDraftGet(d, f) { return f === 'text' ? d.text : f === 'to' ? d.to : d.why; }
+  function tdDraftSet(key, f, v) {
+    var m = tdDrafts(), d = m.get(key);
+    if (!d) {
+      if (!v.trim()) return;
+      var k = String(key).split('|'); try { k = k.map(decodeURIComponent); } catch (e) { return; }
+      if (k.length !== 4 || k[0] !== fsKey()) return;
+      d = { key: key, run: k[1], at: k[2], op: k[3], text: '', to: '', why: '' }; m.set(key, d);
+    }
+    if (f === 'text') d.text = v; else if (f === 'to') d.to = v; else d.why = v;
+    if (!d.text.trim() && !d.to.trim() && !d.why.trim()) m.delete(key);
+  }
+  function tdDraftSent(key, f, v) { var d = tdDrafts().get(key); if (d && tdDraftGet(d, f) === v) tdDraftSet(key, f, ''); }
+  var TD_BOXES = ['td-add', 'td-why', 'td-to', 'td-dec-why'];
+  /* A to-do box drawn on the page now, and the key it was drawn with (data-draft); null when it isn't drawn. */
+  function tdBoxKey(id) { var el = document.getElementById(id), k = el && el.getAttribute ? el.getAttribute('data-draft') : null; return k || null; }
+  function tdOnPage() { return TD_BOXES.map(function (id) { return { id: id, key: tdBoxKey(id) }; }).filter(function (b) { return !!b.key; }); }
+  /* Run before a redraw, so each box is read with the key the page it is on drew. */
+  function tdHarvest() {
+    tdOnPage().forEach(function (b) { var el = document.getElementById(b.id); tdDraftSet(b.key, tdFieldOf(b.id), String(el.value == null ? '' : el.value)); });
+  }
+  /* After a redraw: an empty box drawn again gets what was kept under its key, as typed, so it still counts as unsent. */
+  function tdFill() {
+    tdOnPage().forEach(function (b) { var el = document.getElementById(b.id), d = tdDrafts().get(b.key); if (el && d && !String(el.value || '')) el.value = tdDraftGet(d, tdFieldOf(b.id)); });
+  }
+  /* Kept typing whose box isn't on the page now: on this run (the run screen), or decline reasons (the dialog). */
+  function tdHidden(run, decline) {
+    var on = tdOnPage().map(function (b) { return b.key; }), out = [];
+    tdDrafts().forEach(function (d) { if (on.indexOf(d.key) < 0 && (decline ? d.op === 'decline' : d.op !== 'decline' && d.run === run)) out.push(d); });
+    return out;
   }
   /* The current phase, where Add something to do sits (views/run.js todoBlock): the first whose gate isn't passed or waived,
      else the last that is needed. */
@@ -3415,9 +3464,11 @@
   /* What was typed into a to-do box and not asked yet is unsaved work: leaving the run refuses, as for any form. */
   function tdUnsent() {
     if (state.view !== 'run') return null;
-    var ids = ['td-add'].concat(tdPickHere(ctx.run()) ? ['td-why', 'td-to'] : []), hit = null;
-    ids.some(function (id) { var el = document.getElementById(id); if (el && String(el.value || '').trim()) hit = el; return !!hit; });
-    return hit;
+    var r = ctx.run(), ids = ['td-add'].concat(tdPickHere(r) ? ['td-why', 'td-to'] : []), hit = null;
+    ids.some(function (id) { var el = document.getElementById(id); if (tdBoxKey(id) && el && String(el.value || '').trim()) hit = el; return !!hit; });
+    if (hit || !r) return hit;
+    var kept = tdHidden(r.process + '/' + r.id, false)[0];
+    return kept ? { id: 'tdk-' + PF.vk.domKey(kept.key) } : null;
   }
   /* The types fingerprint of a run's own version, for a run/2 its first to-do makes a run/3; '' when the version can't be read. */
   function todoTypes(r) {
@@ -8013,9 +8064,9 @@
       var phase = id || tdPhase(r), text = val('td-add'), sent = tdSent(['td-add']);
       todoAsk({ op: 'add', text: text, target: { phase: phase } }, function () { if (tdClearIf(sent)) state.focus = '#td-add'; });
     },
-    'td-inbox': function (id) { var mem = loopMem(); mem.tdInboxRun = id || ''; mem.tdSaid = ''; mem.tdDec = null; state.overlayFocus = '#tdi-h'; openOverlay({ tdInbox: true, html: function () { return V.todoInbox(ctx); }, held: function () { return !!loopMem().tdDec && !!String(val('td-dec-why') || '').trim(); } }); },
+    'td-inbox': function (id) { var mem = loopMem(); mem.tdInboxRun = id || ''; mem.tdSaid = ''; mem.tdDec = null; state.overlayFocus = '#tdi-h'; openOverlay({ tdInbox: true, html: function () { return V.todoInbox(ctx); }, held: tdDeclineHeld }); },
     /* The same dialog, opened at its delegations: any active one can be ended whether or not a request waits. */
-    'td-grants': function (id) { var mem = loopMem(); mem.tdInboxRun = id || ''; mem.tdSaid = ''; mem.tdDec = null; state.overlayFocus = '#tdi-g'; openOverlay({ tdInbox: true, html: function () { return V.todoInbox(ctx); }, held: function () { return !!loopMem().tdDec && !!String(val('td-dec-why') || '').trim(); } }); },
+    'td-grants': function (id) { var mem = loopMem(); mem.tdInboxRun = id || ''; mem.tdSaid = ''; mem.tdDec = null; state.overlayFocus = '#tdi-g'; openOverlay({ tdInbox: true, html: function () { return V.todoInbox(ctx); }, held: tdDeclineHeld }); },
     'td-accept': function (id, b) { tdDecide(b.dataset.run, id, 'accept', b.dataset.fp, ''); },
     'td-decline-pick': function (id, b) {
       var mem = loopMem(), was = mem.tdDec, el = document.getElementById('td-dec-why');
@@ -8023,6 +8074,7 @@
       if (was && el && String(el.value || '').trim()) { mem.tdSaid = 'Finish or cancel the decline you started first: its reason isn\'t saved yet.'; state.focus = '#td-dec-why'; render(); return; }
       tdClear(['td-dec-why']); mem.tdDec = { run: b.dataset.run, id: id }; state.focus = '#td-dec-why'; render();
     },
+    'td-kept-drop': function (id, b) { var k = b && b.dataset && b.dataset.key; if (!k) return; tdDrafts().delete(k); render(); },
     'td-decline-cancel': function () { loopMem().tdDec = null; tdClear(['td-dec-why']); render(); },
     'td-decline': function (id, b) { var d = loopMem().tdDec, run = (b && b.dataset && b.dataset.run) || (d && d.run); if (!run) return; tdDecide(run, id, 'decline', '', val('td-dec-why')); },
     'td-revoke': function (id, b) {
