@@ -235,6 +235,31 @@ rule('Authority lost while the landing save is under way lands nothing (an appro
     assert.strictEqual(theRun(app).living, undefined, how + ': nothing landed');
   }
 });
+async function conflictCopy(app, decider) {
+  await asReviewer(app, 'person-blake');
+  const before = app.fs.files[runPath(app)].t;
+  const p = await request(app, { op: 'add', text: 'Landed in a copy', target: { phase: 'draft' } }, { decider });
+  await refresh(app, 400);
+  const landed = app.fs.files[runPath(app)].t, head = JSON.parse(landed).living.head;
+  await app.fs.write(runPath(app).replace('run.json', 'run-OTHER.json'), landed);
+  const r0 = JSON.parse(before); r0.rev = (JSON.parse(landed).rev || 0) + 1;
+  await app.fs.write(runPath(app), JSON.stringify(r0, null, 2));
+  return { p, head };
+}
+rule('Keeping a copy whose head names an application this run never landed asks its authority again first', async () => {
+  const app = await setup();
+  const { head } = await conflictCopy(app, 'person-blake');
+  await blake(app, true); await refresh(app, 300);
+  assert.ok(/data-act="use-copy"/.test(app.html()), 'set-up: the copy is offered');
+  app.click('use-copy', 'run-OTHER.json'); await app.tick(400);
+  const r = theRun(app);
+  assert.ok(!r.living || r.living.head !== head, 'the unauthorized head isn\'t kept: ' + JSON.stringify(r.living));
+  const ok = await setup();
+  const c = await conflictCopy(ok, 'person-blake');
+  await refresh(ok, 300);
+  ok.click('use-copy', 'run-OTHER.json'); await ok.tick(400);
+  assert.strictEqual(theRun(ok).living.head, c.head, 'still authorized: kept');
+});
 rule('Every save, backup and retry of a living run goes through the run guard: loopy() counts a living run', () => {
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
   const i = src.indexOf('function loopy('), body = src.slice(i, src.indexOf('\n  }', i));

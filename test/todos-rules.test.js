@@ -350,6 +350,18 @@ rule('Keeping a run/3 copy with landed to-dos over a run/2 makes this one a run/
   same([c2.format, c2.living], ['preflight-run/3', { head: a.id }]);
   assert.ok(!R.sanitize(plain(c2))._unrunnable);
 });
+rule('Keeping a copy keeps its head only as far as the applications this run never landed would land now', () => {
+  const { r } = newRun(), map = R.mapOf(r), p = prop('kh1', add('One', { phase: 'draft' }), [], 'person-avery');
+  const C = T.consequenceOf(r, map, p, V(r, [p])).fingerprint, d = decide(p, 'accept', 'person-blake', C), a = applied(p, '', { decision: d.id }, [p.id, d.id]);
+  const copy = plain(r); land(copy, a);
+  const recs = [p, d, a], OFF = { people: PEOPLE.people.map(x => x.id === 'person-blake' ? Object.assign({}, x, { inactive: true }) : x) };
+  same(T.keepHead(r, copy, { records: recs, people: PEOPLE }), { head: a.id, dropped: '' });
+  same(T.keepHead(r, copy, { records: recs, people: OFF }), { head: '', dropped: a.id });
+  same(T.keepHead(r, copy, { records: recs, unread: [{ file: 'x', run: null }], people: PEOPLE }), { head: '', dropped: a.id });
+  const kept = plain(r); R.adopt(kept, R.sanitize(plain(copy)), 'person-avery', AT, { head: '' });
+  same(['living' in kept, kept.features.indexOf('living-runs')], [false, -1]);
+  assert.ok(!R.sanitize(plain(kept))._unrunnable);
+});
 /* ---------- Application (commit 3) ---------- */
 rule('The recorder\'s next step for a request reads what is there first: landed is done, a prepared application that still fits is landed as it is, otherwise one is prepared on the head', () => {
   const { r } = newRun(), map = R.mapOf(r), p = prop('ap1', add('Check the links', { phase: 'draft' }), [], 'person-avery');

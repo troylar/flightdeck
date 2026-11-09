@@ -1502,7 +1502,10 @@ PF.run = (function () {
     }
     /* Living runs (4.0): a kept copy never drops landed to-dos. Its head is kept, or this version's when it has none; an approval
        either made without counting the work lands back in review (PF.todos.markHolds), never quietly kept. */
-    var lv = cur.format === FORMAT3 ? copy.living || cur.living : null;
+    /* o.head (4.0): the head to keep, as the caller checked it (PF.todos.keepHead: a copy's head is kept only as far as its
+       applications this run never landed are still authorized; '' keeps none). */
+    var lv = cur.format !== FORMAT3 ? null : o && typeof o.head === 'string' ? (o.head ? { head: o.head } : null) : copy.living || cur.living;
+    if (!lv) { delete cur.living; if (cur.features) cur.features = cur.features.filter(function (f) { return f !== PF.todos.FEATURE; }); }
     if (lv) { cur.living = { head: lv.head }; addFeature(cur, PF.todos.FEATURE); var lo = order3(cur); Object.keys(cur).forEach(function (k) { delete cur[k]; }); Object.keys(lo).forEach(function (k) { cur[k] = lo[k]; }); }
     if (cur.format === FORMAT3) { var re = withPins(cur); Object.keys(cur).forEach(function (k) { delete cur[k]; }); Object.keys(re).forEach(function (k) { cur[k] = re[k]; }); }
     /* Deviation marks record what happened in this run in either version, so keeping a copy keeps both versions' marks;

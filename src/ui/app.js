@@ -8871,7 +8871,11 @@
         if (g !== gen) return false;
         return mutateRun(key, g, function (run, map, me, now) {
           var extra = c._overflow || [];
-          R.adopt(run, c, me, now, { typesHash: todoTypes(run) });
+          /* A copy's to-dos this run never landed are kept only while they would land now (PF.todos.keepHead); the rest are
+             prepared again. */
+          var kh = PF.todos.keepHead(run, c, { records: data.todos || [], unread: data.todosUnread || [], people: data.people });
+          R.adopt(run, c, me, now, { typesHash: todoTypes(run), head: kh.head });
+          if (kh.dropped) R.log(run, me, now, 'Kept the copy without its to-dos from ' + kh.dropped.slice(0, 120) + ' on: they aren\'t authorized now, so they will be prepared again');
           if (extra.length) run._overflow = (run._overflow || []).concat(extra);
           R.log(run, me, now, logPrefix + where.split('/').pop());
         }, { recovery: true, expect: cur, expectText: text });

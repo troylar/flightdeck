@@ -713,6 +713,35 @@ PF.todos = (function () {
     var must = [q.id]; if (head) must.push(head); if (q.via && q.via.decision) must.push(q.via.decision); if (q.via && q.via.grant) must.push(q.via.grant);
     return { write: { kind: 'application', proposal: q.id, run: { process: T.run.process, id: T.run.id }, seen: seenFor(T, must, [q.id], ['app']).seen, authority: q.via, previous: head, effect: eff } };
   }
+  /* Keeping a conflict copy (4.0): which head to keep. cur is this run, copy the copy, o: { records, unread, people }. The
+     copy's head is kept only as far as each application on its chain past this run's head would be landed now (applyPlan on
+     this run as it stood before it: authority, revokes, unread and held records asked again); the first that wouldn't is
+     dropped with everything after it, and is prepared again. A copy whose chain doesn't pass through this run's head keeps
+     this run's. Returns { head, dropped }. */
+  function keepHead(cur, copy, o) {
+    o = o || {};
+    var mine = cur.living && typeof cur.living.head === 'string' ? cur.living.head : '', theirs = copy.living && typeof copy.living.head === 'string' ? copy.living.head : '';
+    if (!theirs || theirs === mine) return { head: mine || theirs, dropped: '' };
+    var byId = Object.create(null); (o.records || []).forEach(function (y) { byId[y.id] = y; });
+    var extra = [], at = theirs, seen = Object.create(null);
+    while (at && at !== mine) {
+      if (seen[at] || !byId[at]) return { head: mine, dropped: theirs };
+      seen[at] = true; extra.unshift(byId[at]);
+      var ap = byId[at].kind === 'compound' ? byId[at].application : byId[at];
+      if (!ap || ap.previous == null) return { head: mine, dropped: theirs };
+      at = ap.previous;
+    }
+    if (at !== mine) return { head: mine, dropped: theirs };
+    var good = mine;
+    for (var i = 0; i < extra.length; i++) {
+      var a = extra[i], t = JSON.parse(JSON.stringify(cur, function (k, v) { return this === cur && k.charAt(0) === '_' ? undefined : v; }));
+      if (good) t.living = { head: good }; else delete t.living;
+      var V = view(t, { records: o.records, unread: o.unread, people: o.people }), q = V.requests[a.kind === 'compound' ? a.id : a.proposal], plan = q ? applyPlan(t, V, q) : null;
+      if (!(plan && plan.adopt && plan.adopt.id === a.id)) return { head: good, dropped: a.id };
+      good = a.id;
+    }
+    return { head: good, dropped: '' };
+  }
   /* The first queued request of a run, in causal order: one lands at a time, so each is checked against the work as the one
      before it left it. */
   function nextQueued(T) { return requestsOf(T).filter(function (q) { return q.status === 'queued' && !q.landed; })[0] || null; }
@@ -721,5 +750,5 @@ PF.todos = (function () {
     targetKey: targetKey, placeOf: placeOf, placementWhy: placementWhy, placementFor: placementFor, effectOf: effectOf, fingerprint: fp, text: text,
     buildProposal: buildProposal, buildGrant: buildGrant, buildStatus: buildStatus, cleanFile: cleanFile, fileWhy: fileWhy, filed: filed, runOf: runOf, recordsFor: recordsFor,
     reduce: reduce, seenFor: seenFor, requestsOf: requestsOf,
-    personWhy: personWhy, mayFor: mayFor, consequenceOf: consequenceOf, authorityFor: authorityFor, view: view, holds: holds, markHolds: markHolds, cutFor: cutFor, cleanCut: cleanCut, cleanLiving: cleanLiving, applyPlan: applyPlan, nextQueued: nextQueued };
+    personWhy: personWhy, mayFor: mayFor, consequenceOf: consequenceOf, authorityFor: authorityFor, view: view, holds: holds, markHolds: markHolds, cutFor: cutFor, cleanCut: cleanCut, cleanLiving: cleanLiving, applyPlan: applyPlan, nextQueued: nextQueued, keepHead: keepHead };
 })();
