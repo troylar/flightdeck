@@ -40433,10 +40433,11 @@ PF.examples = (function () {
             if (kh.dropped) R.log(t, me, now, 'Kept the copy without its to-dos from ' + kh.dropped.slice(0, 120) + ' on: they aren\'t authorized now, so they will be prepared again');
             R.log(t, me, now, logPrefix + where.split('/').pop());
           };
-          /* The run about to be saved must read back as a run this copy can change: tried on a copy of it first, so one that
-             wouldn't is never saved, this run stays as it is and the conflict copy is kept. */
+          /* The run about to be saved must read back as a run this copy can change: tried on a copy of it first, in the field
+             order the save writes (R.testLast), so one that wouldn't is never saved, this run stays as it is and the conflict
+             copy is kept. */
           var trial = JSON.parse(snapshot(run)); keep(trial);
-          var back = R.sanitize(JSON.parse(JSON.stringify(trial)));
+          var back = R.sanitize(JSON.parse(JSON.stringify(R.testLast(trial))));
           if (!back || back._unrunnable) throw new Error('Keeping that copy would save a run this copy of Flightdeck can\'t read back' + (back && back._unrunnable ? ' (' + String(back._unrunnable).slice(0, 200) + ')' : '') + ', so nothing was replaced.');
           keep(run);
           if (extra.length) run._overflow = (run._overflow || []).concat(extra);

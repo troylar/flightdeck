@@ -401,8 +401,8 @@
       "reviewed": "Slice 1 round 3 Z: to-do reader copies into a map with no prototype"
     },
     "src/ui/app.js": {
-      "sha256": "bdb219da56da72b235ce004956e13391589191476c45d34e3cb9447fcbe29a99",
-      "reviewed": "Slice 1 round 3 Y: every recovery save asks its captured guard"
+      "sha256": "194a6994bd3bb138c3aaeccee49473da10f06300ad7dbaa9fd207c930a0e9edc",
+      "reviewed": "Slice 1 round 3 X: recovery read-back check uses the save's field order"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
