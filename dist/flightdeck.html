@@ -34243,6 +34243,11 @@ PF.examples = (function () {
           return false;
         });
       }
+      /* A change derived from the folder (loopEdit's redo) is put back and read again, never saved later as it was. */
+      if (opts && opts.undoFailed && opts.undoFailed()) {
+        if (state.unsaved[r.id] === r && edits(r.id) === rev) { delete state.unsaved[r.id]; delete state.saveErr[r.id]; if (state.saveOpts) delete state.saveOpts[r.id]; }
+        say('A to-do wasn\'t applied: the run couldn\'t be saved (' + String(e && e.message || e).slice(0, 200) + '). It is checked again on the next read.', 'warn'); render(); return false;
+      }
       if (e.missing) runOutcome(r.process + '/' + r.id, 'missing');
       else if (e.unreadable) runOutcome(r.process + '/' + r.id, 'unread', 'isn\'t a run this copy can read');
       /* The run object holding the newest change is what's shown and what Try again saves. */
@@ -34471,7 +34476,11 @@ PF.examples = (function () {
     /* Bound to the very run object it changed, in the folder and generation it changed it in (round 11): never a run found by
        key, which in another folder can be another run of the same name. */
     var undo = function () { if (undone || !after || !target) return; undone = true; if (gen !== g0 || state.fs !== fs0 || findRun(key) !== target) return; back(target, before, after, false); bump(target.id); };
-    return { fn: wrapped, opts: Object.assign({}, opts || {}, { still: function () { if (guardOk(cx)) return true; undo(); return false; }, dropUndone: function () { return undone; } }) };
+    /* opts.redo: a change derived from the folder (a to-do's landing) whose save fails is put back, never kept for Try again:
+       the next read derives it again, with its authority asked again on the run as it is then. */
+    var extra = { still: function () { if (guardOk(cx)) return true; undo(); return false; }, dropUndone: function () { return undone; } };
+    if (opts && opts.redo) extra.undoFailed = function () { undo(); return undone; };
+    return { fn: wrapped, opts: Object.assign({}, opts || {}, extra) };
   }
   /* Keeping a copy of a loop's parent or child (recover, unchanged) is guarded from its click: the backup and the run's save
      both ask this guard (the repo wrapper above, and save()). Only the folder and the person: the recovery itself may take
@@ -34736,7 +34745,7 @@ PF.examples = (function () {
         if (!plan2.adopt) throw new Error('The to-do request changed while it was carried out.');
         var x = V2.byTodo[(a.kind === 'compound' ? a.application : a).effect.todo] || null;
         R.todoLand(rr, m, a, { who: me, now: now, typesHash: types, app: APP_VERSION, todo: x });
-      }, { background: true });
+      }, { background: true, redo: true });
       return mutateRun(key, cx.g, ed.fn, ed.opts).then(function (ok) { return ok !== false; });
     });
   }

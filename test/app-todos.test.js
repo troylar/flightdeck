@@ -47,6 +47,7 @@ async function request(app, body, o) {
   return p;
 }
 const refresh = async (app, ms) => { app.click('refresh'); await app.tick(ms || 250); };
+const setPeople = async (app, f) => { const ppl = JSON.parse(app.fs.files['people.json'].t), list = Array.isArray(ppl) ? ppl : ppl.people, next = list.map(f); await app.fs.write('people.json', JSON.stringify(Array.isArray(ppl) ? next : { people: next }, null, 2) + '\n'); };
 const failing = (app, re) => { const fs = app.fs, write = fs.write.bind(fs); fs.write = (p, t, o) => re.test(p) ? Promise.reject(new Error('EIO')) : write(p, t, o); return () => { fs.write = write; }; };
 
 rule('The recorder\'s window applies a queued request: the application first, then the run names it, takes the living-runs feature and logs it', async () => {
@@ -181,6 +182,21 @@ rule('A to-do record that can\'t be read yet stops the recorder from preparing o
   assert.deepStrictEqual([apps(app, p.id).length, theRun(app).living], [0, undefined], 'nothing prepared, nothing landed');
   delete app.fs.files[torn]; await refresh(app, 400);
   assert.strictEqual(theRun(app).living.head, apps(app, p.id)[0].id, 'read, it lands');
+});
+rule('A landing whose run save failed is put back; retrying never saves it blindly, the next read asks authority again', async () => {
+  const app = await setup();
+  const r0 = theRun(app); await app.fs.write(runPath(app), JSON.stringify(Object.assign({}, r0, { roles: Object.assign({}, r0.roles, { reviewer: 'person-blake' }), rev: (r0.rev || 0) + 1 }), null, 2)); await refresh(app);
+  const p = await request(app, { op: 'add', text: 'Retry me', target: { phase: 'draft' } }, { decider: 'person-blake' });
+  const undo = failing(app, /^runs\//);
+  await refresh(app);
+  assert.deepStrictEqual([apps(app, p.id).length, theRun(app).living], [1, undefined], 'set-up: prepared, not landed');
+  undo();
+  await setPeople(app, x => x.id === 'person-blake' ? Object.assign({}, x, { inactive: true }) : x);
+  app.click('retry-save'); await app.tick(250); await refresh(app, 400);
+  assert.strictEqual(theRun(app).living, undefined, 'the decider is inactive now: nothing lands');
+  await setPeople(app, x => x.id === 'person-blake' ? Object.assign({}, x, { inactive: false }) : x);
+  await refresh(app, 400);
+  assert.deepStrictEqual([apps(app, p.id).length, theRun(app).living], [1, { head: apps(app, p.id)[0].id }], 'active again: the same application lands');
 });
 rule('Every save, backup and retry of a living run goes through the run guard: loopy() counts a living run', () => {
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
