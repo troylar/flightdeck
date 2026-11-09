@@ -464,4 +464,23 @@ rule('SA: a stop asked before an item joined is refused at the decision and at e
   same(W.one().items.map(i => i.key), ['ABC-101', 'ABC-102', 'ABC-103']);
   assert.ok(it, 'set-up');
 });
+/* Review round 1 (SB): a spread's request decided two ways holds its loop, before and after it landed. */
+rule('SB: contrary decisions on an applied spread hold its loop and its phase\'s gate until a person settles them', () => {
+  const W = world([101]); const k = W.kid(101);
+  const P = W.spreadAdd('Security sign-off', { tool: 'release-helper', version: '1.0', key: 'sb-1' });
+  W.decide(W.r, P.id, 'person-morgan'); W.land(W.r);
+  W.fulfil(k, spreadOf(W)); W.clear(k);
+  same(W.mark().loops.each || [], [], 'set-up: covered');
+  const V = W.view(), C = T.consequenceOf(W.r, V.map, V.requests[P.id], V).fingerprint;
+  const st = T.buildStatus({ kind: 'decision', proposal: P.id, run: { process: 'release-readiness', id: 'r-41' }, seen: [P.id], by: 'person-morgan', at: AT, op: 'decline', consequence: C, writer: 'wz', rev: rev(), app: '4.0.0' });
+  W.push(T.filed(st.name, st.file).record, st.name);
+  assert.ok((W.view().requests[P.id].decOut || []).length > 0, 'set-up: decided two ways');
+  has(W.mark().loops.each, /two ways/);
+  const map = R.mapOf(W.r), V2 = W.loopView();
+  same(T.inbox([W.r], Object.assign({ me: 'person-morgan' }, W.inputs())).filter(x => x.id === P.id).map(x => x.dispute), [true]);
+  /* Settled by a decision that saw both: the loop is free again. */
+  W.decide(W.r, P.id, 'person-morgan');
+  same(W.mark().loops.each || [], []);
+  assert.ok(map && V2, 'set-up');
+});
 run();

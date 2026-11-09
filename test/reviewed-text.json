@@ -353,8 +353,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "7a35cb21a87a7641afbee760ab842b194928dadbebd9fc691791973b3f66aeca",
-      "reviewed": "s3 review SA: a stale or incomplete spread stop is refused at prepare, decision and application; no direct writes or unconditional deletes"
+      "sha256": "2d783380a35136967527c8c64c445249532c2c41842e01815162e1aa0cb5f873",
+      "reviewed": "s3 review SB: disputes on spread requests hold the loop and gate; no direct writes or unconditional deletes"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",

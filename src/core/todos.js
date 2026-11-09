@@ -824,6 +824,7 @@ PF.todos = (function () {
      scope: { gate, loop } }. all holds every gate (a chain that can't be trusted, a record that can't be read); an open or
      disputed to-do holds its phase's gate, or its loop's approval for an item's work. stale: an approval made before work
      in its scope was added or reopened, or before a dispute on it, by identity (the records its snapshot didn't include). */
+  var WORDS_OP = { 'spread-add': 'add', 'spread-include': 'include', 'spread-bind': 'binding', 'spread-stop': 'stop' };
   function holds(T, r, cov) {
     var H = { all: [], phases: Object.create(null), loops: Object.create(null), stale: { gate: Object.create(null), loop: Object.create(null) }, scope: { gate: Object.create(null), loop: Object.create(null) }, open: 0 };
     var map = T.map, push = function (o, k, why) { (o[k] = o[k] || []).push(why); };
@@ -881,7 +882,16 @@ PF.todos = (function () {
         sp.history.forEach(function (h) { putLoop(sp.loopStep, h.application); });
         (C && C.scope || []).forEach(function (id) { putLoop(sp.loopStep, id); });
       });
-      requestsOf(T).forEach(function (q) { var sp = isSpreadOp(q.op) && (T.bySpread[q.spread] || (q.op === 'spread-add' ? { loopStep: q.loopStep } : null)); if (sp) (q.disputedIds || []).forEach(function (pid) { putLoop(sp.loopStep, pid); }); });
+      requestsOf(T).forEach(function (q) {
+        var sp = isSpreadOp(q.op) && (T.bySpread[q.spread] || (q.op === 'spread-add' ? { loopStep: q.loopStep, text: q.text } : null));
+        if (!sp) return;
+        (q.disputedIds || []).forEach(function (pid) { putLoop(sp.loopStep, pid); });
+        /* Decided two ways (or applied two ways) is held like any to-do's work, landed or not, until a record that saw them all. */
+        if (q.status === 'disputed' || (q.decOut || []).length || (q.appOut || []).length) {
+          var why = 'Spread "' + (sp.text || q.spread) + '": its ' + (WORDS_OP[q.op] || q.op) + ' request ' + ((q.decOut || []).length || q.decReview.length ? 'was decided two ways at once; a person who may decide settles it.' : 'was applied two ways at once; the recorder settles it.'), lw = loopWhy(map, sp.loopStep);
+          if (lw) H.all.push(why + ' (' + lw + ')'); else push(H.loops, sp.loopStep, why);
+        }
+      });
     }
     if (!r.living) return H;
     var said = function (ids, cut) { var have = Object.create(null); (cut || []).forEach(function (c) { have[c] = true; }); return ids.filter(function (i) { return !have[i]; }); };
