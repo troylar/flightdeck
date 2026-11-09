@@ -9,7 +9,7 @@ Create or change a step type for this Flightdeck team folder.
 
 The person's request says what the step type is for.
 
-Read `AGENTS.md` in this team folder first, then *Team step types* in the checklist format (the reference file above). Check the built-in types in the checklist format's table, and reuse or change an existing type rather than adding a near-duplicate.
+Read `AGENTS.md` in this team folder first, then *Team step types* in the checklist format (the reference file above). Check the built-in types in the checklist format's table, and reuse or change an existing type rather than adding a near-duplicate. Run `flightdeck library inspect <team folder> --json` and read `stepTypes`: which checklists use each type. A new type needs the reason in *When a step type earns its place* in `../_flightdeck/good-checklists.md` and the folder owner's yes; say both before you save.
 
 ## Use the commands, never the files
 
@@ -53,7 +53,7 @@ Before you tell the person a change is complete, handle every entry in `problems
 
 ## When you change an existing type
 
-`type read` it, change the definition, and `type save --expect <rev>` with the rev you read. Keep its `id`. Adding a field, or `text`, `url` or `choice` evidence, is safe. Adding `number`, `yes-no` or `date` evidence makes it a 2.0 step type: teammates on Flightdeck 1.x can no longer use it, and checklists that use it publish versions they can't run, so do it only when the person confirms the team uses 2.0. Renaming or removing a field or evidence breaks checklists that use it: `type save` warns about drafts that still name it, so update those drafts in the same change. Published versions are never affected: each froze its own copy of the type.
+`type read` it, change the definition, and `type save --expect <rev>` with the rev you read. Keep its `id`. First list the checklists that use it (`stepTypes` in `flightdeck library inspect`), and tell the person which ones the change reaches. Adding a field, or `text`, `url` or `choice` evidence, is safe. Adding `number`, `yes-no` or `date` evidence makes it a 2.0 step type: teammates on Flightdeck 1.x can no longer use it, and checklists that use it publish versions they can't run, so do it only when the person confirms the team uses 2.0. Renaming or removing a field or evidence breaks checklists that use it: `type save` warns about drafts that still name it, so update those drafts in the same change. Published versions are never affected: each froze its own copy of the type.
 
 ## What to do after each outcome
 

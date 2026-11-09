@@ -38,7 +38,7 @@ If the folder has `step-types/` or `jira/workflows.json`, read them too: use the
 
 - Whether the draft was written or your change waits as a proposal (and why: `open`, `changed`), so the person knows to apply it on the process page.
 - What changed, as a short list: added, reworded, moved, removed, retyped (with IDs).
-- Anything that changes how runs behave: new must-dos, new required evidence, new `^detail` ties, gates added or removed.
+- Anything that changes how runs behave: new must-dos, new required evidence, new `^detail` ties, gates added or removed, and for results and loops a changed `result:` or its options, `accepts:`, an `=result` import, a loop's `items:`, `source:`, `from:` or `noun:`, and a `version:` pin, with what it means for the checklists that link to this one. If the change adds a result or a loop, say it needs Flightdeck 3.0 on every computer before anyone publishes it.
 - Which checks ran (`flightdeck draft check`, the offline checker, or "Flightdeck checks not run"), any blockers you couldn't clear and why, and the design tips you kept and why.
 - The checklists that link to this one, when the change could reach them. If the library showed overlap with another checklist, a realignment proposal for its owner: never change another checklist in this task.
 - A one-line change note the person can paste when publishing, such as "Deploy phase: Jenkins job now records the build number."

@@ -884,4 +884,52 @@ rule('3b: the slice 3 races on generic items: three decisions at once and a choi
   same(RO(LP.reduce([b, ch('c-1', 'k-prod'), ch('c-2', 'k-prod-b')], IOPT), two).ok, false, 'two choices at once hold');
 });
 
+
+/* 3.0.1: Publish loads a {for.each} step's child itself, as it does a {run.process} step's (repo.publish -> childProcsFor), so
+   a loop pinned with version: publishes and its child checks (what it passes, what it accepts) run at publish. No childProcs
+   are handed in: the folder is all publish gets. */
+const pubFolder = async () => {
+  const m = new PF.fs.MemoryFS('loops-pub:' + Math.random(), null), opts = { people: [], customTypes: {}, workflows: {}, by: 'person-avery', changes: 'First', existing: [], now: '2026-11-09T12:00:00.000Z', app: '3.0.1' };
+  const kid = await PF.repo.publish(m, CHILD, opts);
+  assert.ok(kid && !kid.blockers, 'set-up: the child publishes: ' + JSON.stringify(kid && kid.blockers));
+  return { m, opts };
+};
+const LOOPED = (fields) => ['---', 'process: release-readiness', 'title: Release readiness', '---', '', '## Stories · DO-CONFIRM {#stories}', '- [!] {for.each} Validate every story {#each}',
+  '  process: validate-story', '  items: item', '  noun: story / stories', '  pass: issue=item:key'].concat(fields, ['']).join('\n');
+rule('3.0.1: Publish reads a loop\'s child from the folder: a loop pinned with version: publishes, pinned', async () => {
+  const { m, opts } = await pubFolder();
+  const res = await PF.repo.publish(m, LOOPED(['  version: 1', '  accepts: cleared']), opts);
+  assert.ok(res && !res.blockers, 'publishes: ' + JSON.stringify(res && res.blockers));
+  const pub = JSON.parse(m.files['publications/release-readiness/' + res.folder + '/publication.json'].t);
+  same(Object.keys(pub.payload.pins.children), ['each'], 'the loop is pinned');
+});
+rule('3.0.1: Publish runs a loop\'s child checks: a result its child never returns, or a detail it doesn\'t have, stops it', async () => {
+  const { m, opts } = await pubFolder();
+  let res = await PF.repo.publish(m, LOOPED(['  accepts: shipped']), opts);
+  assert.ok(res && res.blockers, 'stopped: ' + JSON.stringify(res));
+  has(res.blockers, /accepts "shipped", which isn't a result/);
+  res = await PF.repo.publish(m, LOOPED(['  version: 1', '  accepts: cleared']).replace('pass: issue=item:key', 'pass: ticket=item:key'), opts);
+  assert.ok(res && res.blockers, 'stopped: ' + JSON.stringify(res));
+  has(res.blockers, /has no run detail ticket/);
+});
+rule('3.0.1: The library lists a loop\'s child under Used by, as it does a linked step\'s', () => {
+  const pubOf = (text, version) => ({ info: { version, folder: 'v' + version + '-abcd' }, map: M.parse(text), types: {} });
+  const lib = PF.library.inspect([
+    { id: 'release-readiness', latest: pubOf(LOOPED(['  version: 1', '  accepts: cleared']), 2), draft: null, draftChanged: false, skills: [] },
+    { id: 'validate-story', latest: pubOf(CHILD, 1), draft: null, draftChanged: false, skills: [] }], []);
+  same(lib.usedBy, [{ process: 'validate-story', by: { process: 'release-readiness', source: 'publication', step: 'each', version: 1 } }], 'the loop is a user of its child');
+  same(lib.checklists[0].children, [{ step: 'each', process: 'validate-story', version: 1, pass: ['issue=item:key'], carry: [] }], 'the loop\'s child, with what it passes');
+  same(PF.library.forProcess(lib, 'validate-story').usedBy.map(e => e.by.process + '#' + e.by.step), ['release-readiness#each'], 'and the child\'s page says so');
+});
+
+rule('3.0.1: A loop at Latest that passes a detail its child no longer has is listed like a linked step (Folder health, the checklist page, draft check)', () => {
+  const parent = M.parse(LOOPED(['  accepts: cleared'])), renamed = M.parse(CHILD.replace('context: issue,', 'context: ticket,'));
+  const kids = (map) => PF.links.childrenFrom({ 'validate-story': { latest: { map, info: { version: 2 } }, all: [], clashes: [], broken: [] } });
+  same(PF.links.broken(parent, kids(M.parse(CHILD))).map(b => b.step.id), [], 'set-up: the child has every detail it passes');
+  same(PF.links.broken(parent, kids(renamed)).map(b => [b.step.id, b.child, b.names]), [['each', 'validate-story', ['issue']]], 'the loop is listed');
+  same(PF.links.broken(M.parse(LOOPED(['  version: 1', '  accepts: cleared'])), kids(renamed)), [], 'a pinned loop keeps its version');
+  const c = M.check(renamed, { parents: [{ id: 'release-readiness', latest: { map: parent } }] });
+  has(c.suggestions, /Release readiness \(published\) .*passes \^issue to this checklist/);
+});
+
 run();

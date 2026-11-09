@@ -1,16 +1,16 @@
 {
   "texts": {
     "CHANGELOG.md": {
-      "sha256": "e33f748fa9506981647758ed12a63165fb86b937c3d80366caa9349da0c62760",
-      "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
+      "sha256": "4f7c4a12e81bcc80a8a626a0c875e3ef7e1b0b70e2c3e3fadc7e48bf14235b79",
+      "reviewed": "3.0.1 release: version, notes (with the loop publish fix), waiver and baselines; no instruction wording changed; checked for direct writes and unconditional deletes"
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1: a license text, shipped unchanged; no instruction."
     },
     "README.md": {
-      "sha256": "8688bd9f224d72e92aed8f7e3d58baa649ff7326e4b234dab78b2a935438231e",
-      "reviewed": "fold design tips and the library panel; own-key reads; checked for direct writes and unconditional deletes"
+      "sha256": "11ee265fb07dc050bc05d9374d75171797464fd636bc4e1171ada3300da7e255",
+      "reviewed": "3.0.1 release: version, notes (with the loop publish fix), waiver and baselines; no instruction wording changed; checked for direct writes and unconditional deletes"
     },
     "bin/flightdeck.js": {
       "sha256": "1c19f0abd8237f2122a6a4562c3632b66a0d029cb71a5ddffc43e7d211947755",
@@ -33,8 +33,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 0 sentences here, each read by hand: none."
     },
     "docs/map-format.md": {
-      "sha256": "9342f4f95f3122e2a3d6fbb62229401243f85ba52d31373b2c76282706561264",
-      "reviewed": "run screen and app: loop noun on every part of the box, raw keys and title/link for items, escaped http(s)-only link; writes only through repo.saveScope with the guard, checked for direct writes and unconditional deletes"
+      "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
+      "reviewed": "3.0.1: assistant files match 3.0 (results, loops, scope records, every computer on 3.0, complete loop command templates); map-format result example publishes; checked for direct writes and unconditional deletes: loop changes only through flightdeck loop, no hand-written run.json, scope requests or decisions"
     },
     "docs/onedrive.md": {
       "sha256": "e11b0fc58b4abf3ba2057f922a35599951384be2c68674f55432c0bfaaf232c5",
@@ -53,64 +53,64 @@
       "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "44d32f259593c1ce7d9d2b43ae657f3833896fdc7ea0c9119cd7320497f04c64",
-      "reviewed": "whole-set tip points to for.each; checked for direct writes and unconditional deletes"
+      "sha256": "24c5a846ef74e5b1d549fd6039dafee044d13f9be55b22b693c87d85df3c3192",
+      "reviewed": "check_folder.py leaves an international domain name in a scope record's link unjudged and says so"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
-      "sha256": "49d0d083e46b366224edb2e93df3927ede63a2efebc57a2990810460bbe7d7b7",
-      "reviewed": "run screen and app: loop noun on every part of the box, raw keys and title/link for items, escaped http(s)-only link; writes only through repo.saveScope with the guard, checked for direct writes and unconditional deletes"
+      "sha256": "197779e5fb047d6137527db0211659a2db320470f3086d61b5126d6e868b0cf8",
+      "reviewed": "3.0.1: assistant files match 3.0 (results, loops, scope records, every computer on 3.0, complete loop command templates); map-format result example publishes; checked for direct writes and unconditional deletes: loop changes only through flightdeck loop, no hand-written run.json, scope requests or decisions"
     },
     "example-folder/.flightdeck/skills/_flightdeck/command-guide.md": {
-      "sha256": "f53b4cd91cbf8ab4ebd6a211dfef36c1062925095760bd7782caaca7b1fe0e11",
-      "reviewed": "run screen and app: loop noun on every part of the box, raw keys and title/link for items, escaped http(s)-only link; writes only through repo.saveScope with the guard, checked for direct writes and unconditional deletes"
+      "sha256": "6b481b41848a4d32bbe57076f65769724aad85bce47af23fd01e3bb2f3849dad",
+      "reviewed": "3.0.1: assistant files match 3.0 (results, loops, scope records, every computer on 3.0, complete loop command templates, field paths as the JSON gives them); checked for direct writes and unconditional deletes: loop changes only through flightdeck loop, no hand-written run.json, scope requests or decisions"
     },
     "example-folder/.flightdeck/skills/_flightdeck/file-formats.md": {
       "sha256": "3e696299bc5971a578831ad4c25330bcb87a4036c10666469e39b794a9a1bba3",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed check g (every write to a protected path listed in DIRECT_WRITES as a prohibition or allowed with why) and the delete guard (no unconditional delete of AGENTS.md or a staged copy) as of f2888f5."
     },
     "example-folder/.flightdeck/skills/_flightdeck/good-checklists.md": {
-      "sha256": "31b2fd1da0a4f806962490ab2b43911772a1990565fe364145474b52d5423c1d",
-      "reviewed": "run screen and app: loop noun on every part of the box, raw keys and title/link for items, escaped http(s)-only link; writes only through repo.saveScope with the guard, checked for direct writes and unconditional deletes"
+      "sha256": "e242f8b86e5ee9578bdbec9f4ebf08402f2e494a89ecdcfdbe1062e857987713",
+      "reviewed": "3.0.1: assistant files match 3.0 (results, loops, scope records, every computer on 3.0, complete loop command templates); map-format result example publishes; checked for direct writes and unconditional deletes: loop changes only through flightdeck loop, no hand-written run.json, scope requests or decisions"
     },
     "example-folder/.flightdeck/skills/_flightdeck/map-format.md": {
-      "sha256": "9342f4f95f3122e2a3d6fbb62229401243f85ba52d31373b2c76282706561264",
-      "reviewed": "run screen and app: loop noun on every part of the box, raw keys and title/link for items, escaped http(s)-only link; writes only through repo.saveScope with the guard, checked for direct writes and unconditional deletes"
+      "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
+      "reviewed": "3.0.1: assistant files match 3.0 (results, loops, scope records, every computer on 3.0, complete loop command templates); map-format result example publishes; checked for direct writes and unconditional deletes: loop changes only through flightdeck loop, no hand-written run.json, scope requests or decisions"
     },
     "example-folder/.flightdeck/skills/flightdeck-edit-checklist/SKILL.md": {
-      "sha256": "5559b74cc42be964c92384675c449efe7bfe2b855abc1891344f24bbc798b0ce",
-      "reviewed": "run screen and app: loop noun on every part of the box, raw keys and title/link for items, escaped http(s)-only link; writes only through repo.saveScope with the guard, checked for direct writes and unconditional deletes"
+      "sha256": "6a46e0d61b6d12c316ae81a62d0b01667adefa8df80a30de49a39d4fe3854284",
+      "reviewed": "3.0.1: assistant files match 3.0 (results, loops, scope records, every computer on 3.0, complete loop command templates); map-format result example publishes; checked for direct writes and unconditional deletes: loop changes only through flightdeck loop, no hand-written run.json, scope requests or decisions"
     },
     "example-folder/.flightdeck/skills/flightdeck-learn-from-runs/SKILL.md": {
-      "sha256": "2a47e763da23c3bcc8d198fef351366f5e5383eecf4550e96eca0f32ecb946e2",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "23218b1cfcb218c7dc1a414c5255e90e8100c0fb02144b55589722c25857fc2d",
+      "reviewed": "3.0.1: assistant files match 3.0 (results, loops, scope records, every computer on 3.0, complete loop command templates); map-format result example publishes; checked for direct writes and unconditional deletes: loop changes only through flightdeck loop, no hand-written run.json, scope requests or decisions"
     },
     "example-folder/.flightdeck/skills/flightdeck-new-checklist/SKILL.md": {
-      "sha256": "0151cf5cc5653087588f111755db5b3a978f48523fcda5a1028f316958ed5c77",
-      "reviewed": "loop docs: every conflict holds approval, Jira query binding, fileWhy, for.each in the new-checklist brief; checked for direct writes and unconditional deletes"
+      "sha256": "3a6eb58e264583f36fb072835912f61bbb9a3fcf619f5932b2f0bdea2cfa6099",
+      "reviewed": "3.0.1: assistant files match 3.0 (results, loops, scope records, every computer on 3.0, complete loop command templates); map-format result example publishes; checked for direct writes and unconditional deletes: loop changes only through flightdeck loop, no hand-written run.json, scope requests or decisions"
     },
     "example-folder/.flightdeck/skills/flightdeck-new-step-type/SKILL.md": {
-      "sha256": "ebc4c1ec9435236eea4e59744940ab403cb9446fdaa90fce67b15915099a9c25",
-      "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed check g (every write to a protected path listed in DIRECT_WRITES as a prohibition or allowed with why) and the delete guard (no unconditional delete of AGENTS.md or a staged copy) as of f2888f5."
+      "sha256": "93a792da09f9cbb58c9275e75dff4ef9f1bdb87160f2e4a06c9259e8c7227f1b",
+      "reviewed": "3.0.1: assistant files match 3.0 (results, loops, scope records, every computer on 3.0, complete loop command templates); map-format result example publishes; checked for direct writes and unconditional deletes: loop changes only through flightdeck loop, no hand-written run.json, scope requests or decisions"
     },
     "example-folder/.flightdeck/skills/flightdeck-plan-run/SKILL.md": {
       "sha256": "624fe547667068aa127a1a51ebb07eca85fb37f77f17fd14258c8e05f68227e6",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed check g (every write to a protected path listed in DIRECT_WRITES as a prohibition or allowed with why) and the delete guard (no unconditional delete of AGENTS.md or a staged copy) as of f2888f5."
     },
     "example-folder/.flightdeck/skills/flightdeck-review-checklist/SKILL.md": {
-      "sha256": "9340c4002852af26936abc374e248faa2751e612363deac5b46367a187ffd07c",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "df3203443ea1a144cf18a6646f9f67e80ce988e1b6c04cee9a8d483ea7f827a5",
+      "reviewed": "3.0.1: assistant files match 3.0 (results, loops, scope records, every computer on 3.0, complete loop command templates); map-format result example publishes; checked for direct writes and unconditional deletes: loop changes only through flightdeck loop, no hand-written run.json, scope requests or decisions"
     },
     "example-folder/.flightdeck/skills/flightdeck-skill-brief/SKILL.md": {
-      "sha256": "0230a7f082c1d9ff4bcbefab69ab19502ec125b2bd2dee502d29983a49fb1727",
-      "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed check g (every write to a protected path listed in DIRECT_WRITES as a prohibition or allowed with why) and the delete guard (no unconditional delete of AGENTS.md or a staged copy) as of f2888f5."
+      "sha256": "bf3494f1d7d8d3b5a6a2b612c0021adcfd6483be525eab2e85491525d2d1b6a2",
+      "reviewed": "3.0.1: assistant files match 3.0 (results, loops, scope records, every computer on 3.0, complete loop command templates); map-format result example publishes; checked for direct writes and unconditional deletes: loop changes only through flightdeck loop, no hand-written run.json, scope requests or decisions"
     },
     "example-folder/.flightdeck/skills/flightdeck-status/SKILL.md": {
-      "sha256": "0da69b1478df6ae90abe10e8142cf228ecd8f31c3af1714297f1a21f031bf2b6",
-      "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed check g (every write to a protected path listed in DIRECT_WRITES as a prohibition or allowed with why) and the delete guard (no unconditional delete of AGENTS.md or a staged copy) as of f2888f5."
+      "sha256": "f4489f459cf189d3087f29af0a6091465e97e5f38b35470513ee8828b9d29bc0",
+      "reviewed": "flightdeck-status says a scope record with an international domain name carries linkUnchecked"
     },
     "example-folder/AGENTS.md": {
-      "sha256": "bd472ee1c07978fce4b9a14cabcfebec61ef1362fb79405a311e12cc4b5ffaac",
-      "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
+      "sha256": "b90f3820b5fb6c08d1beda55af911a37cdc40a452158df723172b743a3fe0af8",
+      "reviewed": "3.0.1: assistant files match 3.0 (results, loops, scope records, every computer on 3.0, complete loop command templates); map-format result example publishes; checked for direct writes and unconditional deletes: loop changes only through flightdeck loop, no hand-written run.json, scope requests or decisions"
     },
     "example-folder/jira/workflows.json": {
       "sha256": "b5a29ccf5b1a5e5c9b0e464d1d3b380a4e4dac04eea81608e90d5ae142f9eb99",
@@ -173,8 +173,8 @@
       "reviewed": "Round 20, at 64e1c01: the file list npm packs (npm pack --dry-run on a mirror of the tree), read in full: CHANGELOG.md, LICENSE, README.md, bin/flightdeck.js, the two dist files, package.json. Each is pinned whole or checked by parity. No new text."
     },
     "package.json": {
-      "sha256": "b7078416ee1a6e3c542b8c6e28d5957eb920ec52edcc8e02d31cb7587d99d4f7",
-      "reviewed": "fold design tips and the library panel; own-key reads; checked for direct writes and unconditional deletes"
+      "sha256": "4d3a698a86e416d80d833b1a2eeb1637577fa9624e32164b816e05ec68bd0a90",
+      "reviewed": "3.0.1 release: version, notes (with the loop publish fix), waiver and baselines; no instruction wording changed; checked for direct writes and unconditional deletes"
     },
     "rendered: the merge README, AGENTS.md held": {
       "sha256": "587c6fe0a4080614f1661c880aa058e9dd8180b5595d72bfaaf90b9f297f8d95",
@@ -193,8 +193,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "93ae9bb7e54a1f92f75ffba5cb38f2c30ab01b58e123aefd3cdc4141bdf9ce14",
-      "reviewed": "baselines for the whole-set tip in check_folder.py; checked for direct writes and unconditional deletes"
+      "sha256": "986b88645d6a398267e853dc1427ed799b27e60bbf5815d65024648fa20f9479",
+      "reviewed": "Record 3.0.1's baselines"
     },
     "src/core/appjson.js": {
       "sha256": "4baa465110a534478bbeaf2d9d1cc6a8ce846ab9a911da62298ce1dce9fc4729",
@@ -245,12 +245,12 @@
       "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/library.js": {
-      "sha256": "e16297822824ba6170ef5aaf3c73360ae7b3fb8b424870be38b87bab6f09cb20",
-      "reviewed": "whole-set tip points to for.each; checked for direct writes and unconditional deletes"
+      "sha256": "5c8555ff9b8bc67aa90ea4f556bddebbe47d17ae37e296d44b815187d776bd44",
+      "reviewed": "3.0.1: Publish reads a {for.each} step's child (repo.childProcsFor); the library and linked-step warnings list loops; reads only, no new writes; checked for direct writes and unconditional deletes"
     },
     "src/core/links.js": {
-      "sha256": "1a64ba0b3c5c72bab9a8fee1ce0fba9d217cc378dacf879959e64e0bcc9168bb",
-      "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
+      "sha256": "15a21bc4ebf6f1a353f8f56e9591ff03f558f1b689d72b800b86631c9c8f7118",
+      "reviewed": "3.0.1: Publish reads a {for.each} step's child (repo.childProcsFor); the library and linked-step warnings list loops; reads only, no new writes; checked for direct writes and unconditional deletes"
     },
     "src/core/loop.js": {
       "sha256": "3f136b27fdded0f766601ad5d9348bc7b46c335d3f415ca6b59a1527fa0d0179",
@@ -385,16 +385,16 @@
       "reviewed": "release notes left to release time; checked for direct writes and unconditional deletes"
     },
     "src/releases.json": {
-      "sha256": "08c69c574eccf180f7abe69563f4afbb342e9c2f4f2de6b69a37dac4a6235763",
-      "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
+      "sha256": "bbc776606644796a2b353e5adcd6b57e83135acdef106e99c7c8c58171aa320e",
+      "reviewed": "3.0.1 release: version, notes (with the loop publish fix), waiver and baselines; no instruction wording changed; checked for direct writes and unconditional deletes"
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "6587fdf8dda56936d593a39d3be93c5c769f2e1a8352f05313b4c4386c53d39c",
-      "reviewed": "loop saves carry the click's guard, rechecked before each further write; kept candidate on drop; checked for direct writes and unconditional deletes"
+      "sha256": "f4711445fd43c0072c071b8324b85ff321b6f36659d2e63ab21e5812101effaa",
+      "reviewed": "3.0.1: Publish reads a {for.each} step's child (repo.childProcsFor); the library and linked-step warnings list loops; reads only, no new writes; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "f16c16de44df8146c3650685056bd35fe379d5b5c1f0c83886809e7f0bfda411",

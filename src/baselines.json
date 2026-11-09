@@ -73,6 +73,9 @@
       ],
       "44d32f259593c1ce7d9d2b43ae657f3833896fdc7ea0c9119cd7320497f04c64": [
         "3.0.0"
+      ],
+      "24c5a846ef74e5b1d549fd6039dafee044d13f9be55b22b693c87d85df3c3192": [
+        "3.0.1"
       ]
     },
     ".flightdeck/skills/_flightdeck/checklist-essentials.md": {
@@ -83,6 +86,9 @@
       ],
       "49d0d083e46b366224edb2e93df3927ede63a2efebc57a2990810460bbe7d7b7": [
         "3.0.0"
+      ],
+      "197779e5fb047d6137527db0211659a2db320470f3086d61b5126d6e868b0cf8": [
+        "3.0.1"
       ]
     },
     ".flightdeck/skills/_flightdeck/command-guide.md": {
@@ -93,6 +99,9 @@
       ],
       "f53b4cd91cbf8ab4ebd6a211dfef36c1062925095760bd7782caaca7b1fe0e11": [
         "3.0.0"
+      ],
+      "6b481b41848a4d32bbe57076f65769724aad85bce47af23fd01e3bb2f3849dad": [
+        "3.0.1"
       ]
     },
     ".flightdeck/skills/_flightdeck/file-formats.md": {
@@ -104,7 +113,8 @@
         "2.16.0",
         "2.16.1",
         "2.16.2",
-        "3.0.0"
+        "3.0.0",
+        "3.0.1"
       ]
     },
     ".flightdeck/skills/_flightdeck/good-checklists.md": {
@@ -160,6 +170,9 @@
       ],
       "31b2fd1da0a4f806962490ab2b43911772a1990565fe364145474b52d5423c1d": [
         "3.0.0"
+      ],
+      "e242f8b86e5ee9578bdbec9f4ebf08402f2e494a89ecdcfdbe1062e857987713": [
+        "3.0.1"
       ]
     },
     ".flightdeck/skills/_flightdeck/map-format.md": {
@@ -237,6 +250,9 @@
       ],
       "9342f4f95f3122e2a3d6fbb62229401243f85ba52d31373b2c76282706561264": [
         "3.0.0"
+      ],
+      "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9": [
+        "3.0.1"
       ]
     },
     ".flightdeck/skills/flightdeck-edit-checklist/SKILL.md": {
@@ -294,6 +310,9 @@
       ],
       "5559b74cc42be964c92384675c449efe7bfe2b855abc1891344f24bbc798b0ce": [
         "3.0.0"
+      ],
+      "6a46e0d61b6d12c316ae81a62d0b01667adefa8df80a30de49a39d4fe3854284": [
+        "3.0.1"
       ]
     },
     ".flightdeck/skills/flightdeck-learn-from-runs/SKILL.md": {
@@ -355,6 +374,9 @@
         "2.16.1",
         "2.16.2",
         "3.0.0"
+      ],
+      "23218b1cfcb218c7dc1a414c5255e90e8100c0fb02144b55589722c25857fc2d": [
+        "3.0.1"
       ]
     },
     ".flightdeck/skills/flightdeck-new-checklist/SKILL.md": {
@@ -414,6 +436,9 @@
       ],
       "0151cf5cc5653087588f111755db5b3a978f48523fcda5a1028f316958ed5c77": [
         "3.0.0"
+      ],
+      "3a6eb58e264583f36fb072835912f61bbb9a3fcf619f5932b2f0bdea2cfa6099": [
+        "3.0.1"
       ]
     },
     ".flightdeck/skills/flightdeck-new-step-type/SKILL.md": {
@@ -469,6 +494,9 @@
         "2.16.1",
         "2.16.2",
         "3.0.0"
+      ],
+      "93a792da09f9cbb58c9275e75dff4ef9f1bdb87160f2e4a06c9259e8c7227f1b": [
+        "3.0.1"
       ]
     },
     ".flightdeck/skills/flightdeck-plan-run/SKILL.md": {
@@ -521,7 +549,8 @@
         "2.16.0",
         "2.16.1",
         "2.16.2",
-        "3.0.0"
+        "3.0.0",
+        "3.0.1"
       ]
     },
     ".flightdeck/skills/flightdeck-review-checklist/SKILL.md": {
@@ -583,6 +612,9 @@
         "2.16.1",
         "2.16.2",
         "3.0.0"
+      ],
+      "df3203443ea1a144cf18a6646f9f67e80ce988e1b6c04cee9a8d483ea7f827a5": [
+        "3.0.1"
       ]
     },
     ".flightdeck/skills/flightdeck-skill-brief/SKILL.md": {
@@ -638,6 +670,9 @@
         "2.16.1",
         "2.16.2",
         "3.0.0"
+      ],
+      "bf3494f1d7d8d3b5a6a2b612c0021adcfd6483be525eab2e85491525d2d1b6a2": [
+        "3.0.1"
       ]
     },
     ".flightdeck/skills/flightdeck-status/SKILL.md": {
@@ -693,6 +728,9 @@
         "2.16.1",
         "2.16.2",
         "3.0.0"
+      ],
+      "f4489f459cf189d3087f29af0a6091465e97e5f38b35470513ee8828b9d29bc0": [
+        "3.0.1"
       ]
     },
     "AGENTS.md#flightdeck": {
@@ -782,6 +820,9 @@
       ],
       "7d0f79e5d6df363b64ede7f11d5cdfac616bf3af13183da33b85b5e205a8623d": [
         "3.0.0"
+      ],
+      "1c4e7710f2a73d36814c12d1d5f9d864f07087dcd647668a1b8faeeb9d70cc8a": [
+        "3.0.1"
       ]
     }
   }

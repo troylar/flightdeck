@@ -1107,4 +1107,318 @@ rule('check_folder.py --draft: a checklist\'s result and its bindings get the ap
   assert.deepStrictEqual([later.ok, later.kind, later.needs], [false, 'newer', '3.1']);
 });
 
+/* 3.0.1: a {for.each} step's version: is a pin, as on {run.process}, so the checker compares its pins as PF.publish does. */
+rule('The checker reads a 3.0 version whose loop pins its child (version: on {for.each}) like the app: complete, not edited by hand', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-looppin-'));
+  try {
+    const d = new DiskFS(root);
+    await d.write('people.json', JSON.stringify(people));
+    const child = ['---', 'process: validate-story', 'title: Validate a story', 'context: issue, disposition:choice(cleared|needs-work)', 'result: disposition', '---', '',
+      '## Assess · DO-CONFIRM {#assess}', '- [!] {decide} Record the validation result {#verdict}', '  options: cleared, needs-work', '  sets: disposition=decision', ''].join('\n');
+    const kid = await repo.publish(d, child, { people, ...EX, by: 'person-avery', changes: 'x', existing: [], now: NOW, app: '3.0.0' });
+    assert.ok(!kid.blockers, String(kid.blockers));
+    const parent = ['---', 'process: rollout', 'title: Rollout', '---', '', '## Stories · DO-CONFIRM {#stories}', '- [!] {for.each} Check every story {#each}',
+      '  process: validate-story', '  version: 1', '  items: item', '  noun: story / stories', '  pass: issue=item:key', '  accepts: cleared', ''].join('\n');
+    const v = await repo.publish(d, parent, { people, ...EX, by: 'person-avery', changes: 'x', existing: [], now: NOW, app: '3.0.0' });
+    assert.ok(!v.blockers, String(v.blockers));
+    assert.deepStrictEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(root, 'publications', 'rollout', v.folder, 'publication.json'), 'utf8')).payload.pins.children), ['each'], 'set-up: the loop is pinned');
+    const app = await repo.loadAll(d, { deep: true }), out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
+    const theirs = app.processes.find(p => p.process === 'rollout').pubs.find(x => x.folder === v.folder), mine = out.publications.rollout.versions.find(x => x.folder === v.folder);
+    assert.ok(theirs.ok, 'set-up: the app reads it: ' + theirs.why);
+    assert.strictEqual(mine.status, 'complete', 'the checker agrees: ' + mine.why);
+    assert.strictEqual(out.publications.rollout.current, v.folder);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+/* 3.0.1: scope requests and decisions (flightdeck-plan/3, flightdeck-plan-status/3) go to their own reader before the plan
+   reader, as repo.readPlans does: never a plan, never a malformed plan decision; one this copy can't read is refused with the
+   app's reason. */
+rule('The checker reads a loop\'s scope requests and decisions like the app: listed apart, never plans or malformed plan decisions', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const LP = PF.loop, root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-scopes-'));
+  try {
+    const d = new DiskFS(root);
+    await d.write('people.json', JSON.stringify(people));
+    const loop = { process: 'release-readiness', run: 'r-41', step: 'each' };
+    const obs = { source: { system: 'jira' }, generation: 'g1', query: 'fixVersion = 4.1', observedAt: '2026-11-07T09:00:00Z',
+      items: [{ id: '10101', key: 'ABC-101', title: 'One' }, { id: '10102', key: 'ABC-102', title: 'Two' }], reported: 2, fetched: 2, complete: true, errors: [] };
+    const c = LP.cleanIntent({ loop, observation: obs, changes: [] }, 'import-1', { name: 'release-helper', version: '1.0' });
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(c.errors)), []);
+    const f = LP.buildRequest(c.intent, { seen: [], children: [], now: NOW, app: '3.0.0' });
+    const dec = LP.buildDecision({ proposal: f.id, loop, op: 'keep', items: ['jira:10101'], seen: [f.id], by: 'person-morgan', writer: 'w1', rev: '0a0b0c0d', now: NOW, app: '3.0.0' });
+    await d.write('proposals/' + f.id + '.json', LP.text(f));
+    await d.write('proposals/' + dec.name, LP.text(dec.file));
+    // A request whose name isn't its id, one from a newer Flightdeck, and a decision whose name doesn't say its request.
+    const other = 'req-release-helper-' + 'c'.repeat(24);
+    await d.write('proposals/' + other + '.json', LP.text(Object.assign({}, f)));
+    const later = 'req-release-helper-' + 'd'.repeat(24);
+    await d.write('proposals/' + later + '.json', LP.text(Object.assign({}, f, { id: later, features: ['loops', 'later-thing'], app: '3.1.0' })));
+    await d.write('proposals/' + f.id + '.status-w2-0a0b0c0e.json', LP.text(Object.assign({}, dec.file, { proposal: other })));
+    // A request whose loop isn't one, a decision that isn't accept or keep, and one without the loops feature.
+    const noLoop = 'req-release-helper-' + 'e'.repeat(24), noFeat = 'req-release-helper-' + 'f'.repeat(24);
+    await d.write('proposals/' + noLoop + '.json', LP.text(Object.assign({}, f, { id: noLoop, loop: { process: 'release-readiness', run: 'r-41' } })));
+    await d.write('proposals/' + f.id + '.status-w3-0a0b0c0f.json', LP.text(Object.assign({}, dec.file, { op: 'shrug' })));
+    await d.write('proposals/' + noFeat + '.json', LP.text(Object.assign({}, f, { id: noFeat, features: [] })));
+    await d.write('proposals/plan-abc.json', JSON.stringify({ kind: 'plan', id: 'plan-abc', process: 'release-readiness', version: 1, title: 'Release', details: {}, roles: {} }));
+
+    const app = await repo.loadAll(d, { deep: true }), out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(app.plans.map(p => p.id))), ['plan-abc'], 'set-up: the app reads one plan');
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(app.scopes.map(r => r._file).sort())), [f.id + '.json', dec.name].sort(), 'set-up: the app reads two scope records');
+    assert.deepStrictEqual(out.plans.map(p => p.id + ':' + p.status), ['plan-abc:pending'], 'no scope record is a plan, and none holds one');
+    assert.deepStrictEqual((out.scopes || []).map(s => s.file).sort(), JSON.parse(JSON.stringify(app.scopes.map(r => 'proposals/' + r._file).sort())), 'the same scope records, listed apart');
+    assert.deepStrictEqual((out.scopes || []).map(s => s.type).sort(), ['decision', 'request']);
+    const appRefused = JSON.parse(JSON.stringify(app.refused)).filter(r => /^proposals\//.test(r.path)).map(r => r.path + ' ' + r.why).sort();
+    const mineRefused = (out.refused || []).filter(r => /^proposals\//.test(r.file)).map(r => r.file + ' ' + r.why).sort();
+    assert.deepStrictEqual(mineRefused, appRefused, 'the same files refused, in the app\'s words');
+    assert.ok(!mineRefused.some(x => /plan decision/.test(x)), 'never a malformed plan decision: ' + mineRefused.join('; '));
+    assert.ok(/flightdeck loop read/.test(out.scopeNote || ''), 'it says where a loop\'s state is read');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+
+/* 3.0.1 (review): a scope request's observation, changes and planned children are checked as PF.loop.cleanRequest checks
+   them, with its first refusal reason; each malformed case beside a sibling the app reads. */
+rule('The checker refuses a malformed scope request\'s observation, changes and planned children with the app\'s first reason, and reads their valid siblings', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const LP = PF.loop, root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-scopebody-'));
+  try {
+    const d = new DiskFS(root);
+    await d.write('people.json', JSON.stringify(people));
+    const loop = { process: 'release-readiness', run: 'r-41', step: 'each' }, tool = { name: 'release-helper', version: '1.0' };
+    const obs = { source: { system: 'jira', site: 'https://jira.example.com' }, generation: 'g1', query: 'fixVersion = 4.1', observedAt: '2026-11-07T09:00:00Z',
+      items: [{ id: '10101', key: 'ABC-101', title: 'One' }, { id: '10102', key: 'ABC-102', title: 'Two', status: 'Open', assignee: 'Avery' }], reported: 2, fetched: 2, complete: true, errors: [] };
+    const iobs = { source: { feed: 'deploy-targets', site: 'ops' }, generation: 'g1', query: '', observedAt: '2026-11-07T09:00:00Z',
+      items: [{ key: 'staging', title: 'Staging', link: 'https://ops.example.com/staging' }], reported: 1, fetched: 1, complete: true, errors: [] };
+    const cj = LP.cleanIntent({ loop, observation: obs, changes: [] }, 'k-j', tool), ci = LP.cleanIntent({ loop, observation: iobs, changes: [] }, 'k-i', tool, 'item');
+    assert.deepStrictEqual(JSON.parse(JSON.stringify([cj.errors, ci.errors])), [[], []], 'set-up: both intents are clean');
+    const kid = { item: { id: '10101', key: 'ABC-101' }, attempt: 1, inputs: { issue: 'ABC-101' }, owner: '' };
+    const J = LP.buildRequest(cj.intent, { seen: [], children: [kid], now: NOW, app: '3.0.0' }), I = LP.buildRequest(ci.intent, { seen: [], children: [], now: NOW, app: '3.0.0' });
+    const clone = (x) => JSON.parse(JSON.stringify(x));
+    const O = (patch) => (f) => { f.observation = Object.assign(f.observation, patch); };
+    const IT = (i, patch) => (f) => { f.observation.items[i] = Object.assign({}, f.observation.items[i], patch); };
+    const CH = (list) => (f) => { f.changes = list; };
+    const KID = (patch) => (f) => { f.children = [Object.assign({}, kid, patch)]; };
+    const ji = { id: '10101', key: 'ABC-101' }, ii = { key: 'staging' };
+    const cases = [
+      ['valid', 'J', () => {}], ['valid', 'I', () => {}],
+      ['no observation', 'J', (f) => { f.observation = null; f.changes = [{ op: 'add', item: ji }]; }],
+      ['observation {}', 'J', (f) => { f.observation = {}; }], ['observation []', 'J', (f) => { f.observation = []; }], ['observation text', 'J', (f) => { f.observation = 'x'; }],
+      ['extra key', 'J', O({ extra: 1 })], ['source not jira', 'J', O({ source: { system: 'other' } })], ['source extra', 'J', O({ source: { system: 'jira', feed: 'x' } })],
+      ['site not text', 'J', O({ source: { system: 'jira', site: 5 } })], ['no generation', 'J', O({ generation: '' })], ['long generation', 'J', O({ generation: 'g'.repeat(81) })],
+      ['control generation', 'J', O({ generation: 'g ' })], ['no query (Jira)', 'J', O({ query: '' })], ['long query', 'J', O({ query: 'q'.repeat(501) })],
+      ['bad date', 'J', O({ observedAt: '2026-13-01T00:00Z' })], ['Feb 30', 'J', O({ observedAt: '2026-02-30T00:00Z' })], ['24:00', 'J', O({ observedAt: '2026-01-01T24:00Z' })],
+      ['24:01', 'J', O({ observedAt: '2026-01-01T24:01Z' })], ['offset 24', 'J', O({ observedAt: '2026-01-01T00:00+24:00' })], ['no zone', 'J', O({ observedAt: '2026-01-01T00:00' })],
+      ['reported -1', 'J', O({ reported: -1 })], ['reported 1.5', 'J', O({ reported: 1.5 })], ['reported true', 'J', O({ reported: true })], ['fetched text', 'J', O({ fetched: '2' })],
+      ['complete text', 'J', O({ complete: 'yes' })], ['incomplete', 'J', O({ complete: false })], ['errors not list', 'J', O({ errors: 'x' })],
+      ['21 errors', 'J', O({ errors: Array(21).fill('e') })], ['error not text', 'J', O({ errors: [5] })], ['error control', 'J', O({ errors: ['a\nb'] })], ['an error', 'J', O({ errors: ['timeout'] })],
+      ['items not list', 'J', O({ items: {} })], ['501 items', 'J', O({ items: Array.from({ length: 501 }, (x, i) => ({ id: String(20000 + i), key: 'ABC-' + (1000 + i) })) })],
+      ['item null', 'J', O({ items: [null] })], ['item extra', 'J', IT(0, { color: 'red' })], ['item id letters', 'J', IT(0, { id: '10a' })], ['item id number', 'J', IT(0, { id: 10101 })],
+      ['item key bad', 'J', IT(0, { key: 'abc-1' })], ['item no id', 'J', IT(0, { id: '' })], ['item twice', 'J', IT(1, { id: '10103', key: 'ABC-101' })],
+      ['title long', 'J', IT(0, { title: 't'.repeat(201) })], ['title control', 'J', IT(0, { title: 'a\u0007' })], ['status number', 'J', IT(1, { status: 3 })], ['assignee blank', 'J', IT(1, { assignee: ' ' })],
+      ['feed bad', 'I', O({ source: { feed: 'Deploy Targets' } })], ['feed extra', 'I', O({ source: { feed: 'deploy-targets', system: 'jira' } })], ['feed account empty', 'I', O({ source: { feed: 'deploy-targets', account: '' } })],
+      ['item query omitted', 'I', (f) => { delete f.observation.query; }], ['item kind no key', 'I', IT(0, { key: '' })], ['item key reserved', 'I', IT(0, { key: 'constructor' })],
+      ['item key toString', 'I', IT(0, { key: 'toString' })], ['item extra key', 'I', IT(0, { id: '1' })], ['link javascript', 'I', IT(0, { link: 'javascript:alert(1)' })],
+      ['link ip short', 'I', IT(0, { link: 'http://1.2.3/' })], ['link ends in number', 'I', IT(0, { link: 'http://foo.123/' })], ['link hex ip', 'I', IT(0, { link: 'http://0x7f.1/' })],
+      ['link ends hex', 'I', IT(0, { link: 'http://foo.0x1f/' })], ['link port', 'I', IT(0, { link: 'https://ops.example.com:70000/' })], ['link port ok', 'I', IT(0, { link: 'https://ops.example.com:8443/x?y=1#z' })],
+      ['link quote', 'I', IT(0, { link: 'https://ops.example.com/a"b' })], ['link space', 'I', IT(0, { link: 'https://ops.example.com/a b' })], ['link empty', 'I', IT(0, { link: '' })],
+      ['changes not list', 'J', CH({})], ['501 changes', 'J', CH(Array.from({ length: 501 }, (x, i) => ({ op: 'add', item: { key: 'ABC-' + (1000 + i) } })))],
+      ['change null', 'J', CH([null])], ['change bogus', 'J', CH([{ op: 'bogus' }])], ['change extra', 'J', CH([{ op: 'add', item: ji, color: 1 }])],
+      ['add twice', 'J', CH([{ op: 'add', item: ji }, { op: 'add', item: ji }])], ['exclude no reason', 'J', CH([{ op: 'exclude', item: ji }])], ['exclude', 'J', CH([{ op: 'exclude', item: ji, reason: 'gone' }])],
+      ['restore long reason', 'J', CH([{ op: 'restore', item: ji, reason: 'r'.repeat(301) }])], ['owner bad', 'J', CH([{ op: 'owner', item: ji, owner: 'a b' }])], ['owner none', 'J', CH([{ op: 'owner', item: ji, owner: '' }])],
+      ['exception no approver', 'J', CH([{ op: 'exception', item: ji, reason: 'x' }])], ['exception onBehalf text', 'J', CH([{ op: 'exception', item: ji, reason: 'x', approver: 'person-morgan', onBehalf: 'yes' }])],
+      ['exception', 'J', CH([{ op: 'exception', item: ji, reason: 'x', approver: 'person-morgan', onBehalf: true }])], ['withdraw', 'J', CH([{ op: 'withdraw', item: ji }])],
+      ['choose one', 'J', CH([{ op: 'choose', item: ji, run: 'k-1', attempt: 1, candidates: ['k-1'] }])], ['choose', 'J', CH([{ op: 'choose', item: ji, run: 'k-1', attempt: 1, candidates: ['k-2', 'k-1'] }])],
+      ['choose run bad', 'J', CH([{ op: 'choose', item: ji, run: 'k 1', attempt: 1, candidates: ['k-2', 'k-1'] }])], ['plan attempt 0', 'J', CH([{ op: 'plan', item: ji, attempt: 0, record: J.id }])],
+      ['plan record bad', 'J', CH([{ op: 'plan', item: ji, attempt: 1, record: 'plan-x' }])], ['run on add', 'J', CH([{ op: 'add', item: ji, run: 'k-1' }])],
+      ['start', 'J', CH([{ op: 'start', item: ji, as: 'person-morgan' }])], ['start all', 'J', CH([{ op: 'start', item: ji, all: true, as: 'person-morgan' }])],
+      ['start all false', 'J', CH([{ op: 'start', item: ji, all: false, as: 'person-morgan' }])], ['start no item', 'J', CH([{ op: 'start', as: 'person-morgan' }])],
+      ['approve with item', 'J', CH([{ op: 'approve', item: ji, as: 'person-morgan' }])], ['approve no as', 'J', CH([{ op: 'approve' }])], ['send-back', 'J', CH([{ op: 'send-back', as: 'person-morgan', reason: 'not yet' }])],
+      ['resolve bad', 'J', CH([{ op: 'resolve', as: 'person-morgan', record: 'x', outcome: 'maybe' }])], ['resolve', 'J', CH([{ op: 'resolve', as: 'person-morgan', record: J.id, outcome: 'applied' }])],
+      ['item change bad item', 'I', CH([{ op: 'add', item: { key: 'prod', link: 'ftp://x' } }])], ['item add', 'I', CH([{ op: 'add', item: { key: 'prod', title: 'Prod' } }])],
+      ['child null', 'J', (f) => { f.children = [null]; }], ['child attempt 0', 'J', KID({ attempt: 0 })], ['child inputs list', 'J', KID({ inputs: [] })],
+      ['child 41 inputs', 'J', KID({ inputs: Object.fromEntries(Array.from({ length: 41 }, (x, i) => ['d' + i, 'v'])) })], ['child input number', 'J', KID({ inputs: { issue: 5 } })],
+      ['child input long', 'J', KID({ inputs: { issue: 'x'.repeat(241) } })], ['child input reserved', 'J', KID({ inputs: { toString: 'x' } })], ['child owner bad', 'J', KID({ owner: 'a b' })],
+      ['child owner missing', 'J', (f) => { f.children = [{ item: ji, attempt: 1, inputs: {} }]; }], ['child owner null', 'J', KID({ owner: null })], ['child owner object', 'J', KID({ owner: {} })],
+      ['child owner person', 'J', KID({ owner: 'person-morgan' })], ['child item bad', 'J', KID({ item: { key: 'nope' } })], ['child item null', 'J', KID({ item: null })],
+      ['seen bad then child', 'J', (f) => { f.seen = ['x']; f.children = [null]; }], ['change then seen', 'J', (f) => { f.changes = [null]; f.seen = 'x'; }],
+      ['observation then change', 'J', (f) => { f.observation.generation = ''; f.changes = [{ op: 'bogus' }]; }]
+    ];
+    const ids = [];
+    for (let i = 0; i < cases.length; i++) {
+      const [what, k, edit] = cases[i], f = clone(k === 'J' ? J : I);
+      f.id = 'req-release-helper-' + (0x100000 + i).toString(16).padStart(24, '0');
+      edit(f); ids.push([f.id, k + ': ' + what]);
+      await d.write('proposals/' + f.id + '.json', JSON.stringify(f, null, 2) + '\n');
+    }
+    const app = await repo.loadAll(d, { deep: true }), out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8', maxBuffer: 64 << 20 }));
+    const label = Object.fromEntries(ids);
+    const appSays = Object.fromEntries(ids.map(([id]) => [id, 'read'])), mine = Object.fromEntries(ids.map(([id]) => [id, 'missing']));
+    JSON.parse(JSON.stringify(app.refused)).forEach(r => { const m = /^proposals\/(req-[^.]+)\.json$/.exec(r.path); if (m && m[1] in appSays) appSays[m[1]] = 'refused: ' + r.why; });
+    (out.scopes || []).forEach(s => { const m = /^proposals\/(req-[^.]+)\.json$/.exec(s.file); if (m && m[1] in mine) mine[m[1]] = 'read'; });
+    (out.refused || []).forEach(r => { const m = /^proposals\/(req-[^.]+)\.json$/.exec(r.file); if (m && m[1] in mine) mine[m[1]] = 'refused: ' + r.why; });
+    const diff = ids.filter(([id]) => appSays[id] !== mine[id]).map(([id]) => label[id] + '\n    app:     ' + appSays[id] + '\n    checker: ' + mine[id]);
+    assert.deepStrictEqual(diff, [], 'the checker reads each request as the app does');
+    const read = ids.filter(([id]) => appSays[id] === 'read').length;
+    assert.ok(read >= 20 && read <= ids.length - 60, 'set-up: both valid siblings and malformed cases (' + read + ' of ' + ids.length + ' read)');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+
+/* 3.0.1 (recheck): the scope validators read text as JavaScript does: ASCII regex classes (no Unicode digits, no case folding
+   to ſ or K), lengths in UTF-16 units, every name a plain object keeps for itself (prototype too), String() on a value
+   that isn't text, and the URL parser's numeric last label. Each case beside a sibling the app reads. */
+rule('The checker reads scope records\' text as the app does: ASCII classes, UTF-16 lengths, reserved names, String() words and URL hosts', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const LP = PF.loop, root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-scopetext-'));
+  try {
+    const d = new DiskFS(root);
+    await d.write('people.json', JSON.stringify(people));
+    const loop = { process: 'release-readiness', run: 'r-41', step: 'each' }, tool = { name: 'release-helper', version: '1.0' };
+    const iobs = { source: { feed: 'deploy-targets' }, generation: 'g1', query: '', observedAt: '2026-11-07T09:00:00Z',
+      items: [{ key: 'staging', title: 'Staging', link: 'https://ops.example.com/staging' }], reported: 1, fetched: 1, complete: true, errors: [] };
+    const ci = LP.cleanIntent({ loop, observation: iobs, changes: [] }, 'k-i', tool, 'item');
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(ci.errors)), [], 'set-up: the intent is clean');
+    const kid = { item: { key: 'staging' }, attempt: 1, inputs: { environment: 'staging' }, owner: '' };
+    const I = LP.buildRequest(ci.intent, { seen: [], children: [kid], now: NOW, app: '3.0.0' });
+    const clone = (x) => JSON.parse(JSON.stringify(x)), astral = (n) => '\u{1F680}'.repeat(n);
+    const O = (patch) => (f) => { f.observation = Object.assign(f.observation, patch); };
+    const IT = (patch) => (f) => { f.observation.items[0] = Object.assign({}, f.observation.items[0], patch); };
+    const KID = (patch) => (f) => { f.children = [Object.assign({}, kid, patch)]; };
+    const reqs = [
+      ['valid', () => {}],
+      ['item key prototype', IT({ key: 'prototype' })], ['item key constructor', IT({ key: 'constructor' })], ['item key protot', IT({ key: 'protot' })],
+      ['change key prototype', (f) => { f.changes = [{ op: 'add', item: { key: 'prototype' } }]; }], ['change key prod', (f) => { f.changes = [{ op: 'add', item: { key: 'prod' } }]; }],
+      ['child key prototype', KID({ item: { key: 'prototype' } })], ['child input prototype', KID({ inputs: { prototype: 'x' } })], ['child input valueOf', KID({ inputs: { valueOf: 'x' } })],
+      ['child input proto', KID({ inputs: { proto: 'x' } })],
+      ['fullwidth date', O({ observedAt: '２０２６-01-01T00:00Z' })], ['arabic digit date', O({ observedAt: '2026-01-0١T00:00Z' })],
+      ['run long s', (f) => { f.loop = Object.assign({}, f.loop, { run: 'ſ' }); }], ['run Kelvin', (f) => { f.loop = Object.assign({}, f.loop, { run: 'r-K' }); }],
+      ['run upper', (f) => { f.loop = Object.assign({}, f.loop, { run: 'R-41' }); }], ['step long s', (f) => { f.loop = Object.assign({}, f.loop, { step: 'eachſ' }); }],
+      ['process true', (f) => { f.loop = Object.assign({}, f.loop, { process: true }); }], ['run number', (f) => { f.loop = Object.assign({}, f.loop, { run: 41 }); }],
+      ['run list', (f) => { f.loop = Object.assign({}, f.loop, { run: ['r', 41] }); }], ['step null', (f) => { f.loop = Object.assign({}, f.loop, { step: null }); }],
+      ['title astral 100', IT({ title: astral(100) })], ['title astral 101', IT({ title: astral(101) })],
+      ['input astral 120', KID({ inputs: { environment: astral(120) } })], ['input astral 121', KID({ inputs: { environment: astral(121) } })],
+      ['link foo.09', IT({ link: 'https://foo.09/' })], ['link foo.9', IT({ link: 'https://foo.9/' })], ['link foo.0x', IT({ link: 'https://foo.0x/' })],
+      ['link foo.0xg', IT({ link: 'https://foo.0xg/' })], ['link 0x7f.0.0.1', IT({ link: 'https://0x7f.0.0.1/' })], ['link 0x100.1', IT({ link: 'https://0x100.1/' })],
+      ['link a.b.c.d.1', IT({ link: 'https://a.b.c.d.1/' })], ['link 08.example', IT({ link: 'https://08.example/' })], ['link nbsp', IT({ link: 'https://ops.example.com/ ' })],
+      ['kind list', (f) => { f.kind = ['item']; }], ['kind object', (f) => { f.kind = {}; }], ['kind number', (f) => { f.kind = 5; }], ['kind true', (f) => { f.kind = true; }],
+      ['kind long', (f) => { f.kind = 'k'.repeat(39) + '\u{1F680}x'; }], ['kind nested list', (f) => { f.kind = [1, [2, null], {}]; }],
+      ['fullwidth format', (f) => { f.format = 'flightdeck-plan/３'; }], ['feature fullwidth', (f) => { f.features = ['loops', 'x１']; }],
+      ['owner Kelvin', KID({ owner: 'person-K' })], ['as long s', (f) => { f.changes = [{ op: 'approve', as: 'person-ſ' }]; }]
+    ];
+    const ids = [];
+    for (let i = 0; i < reqs.length; i++) {
+      const f = clone(I); f.id = 'req-release-helper-' + (0x200000 + i).toString(16).padStart(24, '0');
+      reqs[i][1](f); ids.push([f.id + '.json', 'request: ' + reqs[i][0]]);
+      await d.write('proposals/' + f.id + '.json', JSON.stringify(f, null, 2) + '\n');
+    }
+    const decs = [['valid', {}], ['item 80', { items: [astral(40)] }], ['item 82', { items: [astral(41)] }], ['by long s', { by: 'person-ſ' }],
+      ['fullwidth format', { format: 'flightdeck-plan-status/３' }], ['loop run long s', { loop: Object.assign({}, loop, { run: 'ſ' }) }], ['loop process true', { loop: Object.assign({}, loop, { process: true }) }]];
+    for (let i = 0; i < decs.length; i++) {
+      const dec = LP.buildDecision({ proposal: I.id, loop, op: 'keep', items: ['item:key:staging'], seen: [I.id], by: 'person-morgan', writer: 'w' + i, rev: '0a0b0c0d', now: NOW, app: '3.0.0' });
+      ids.push([dec.name, 'decision: ' + decs[i][0]]);
+      await d.write('proposals/' + dec.name, JSON.stringify(Object.assign(dec.file, decs[i][1]), null, 2) + '\n');
+    }
+    await d.write('proposals/' + I.id + '.json', JSON.stringify(I, null, 2) + '\n');
+    const app = await repo.loadAll(d, { deep: true }), out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8', maxBuffer: 64 << 20 }));
+    const appSays = Object.fromEntries(ids.map(([n]) => [n, 'read'])), mine = Object.fromEntries(ids.map(([n]) => [n, 'missing']));
+    JSON.parse(JSON.stringify(app.refused)).forEach(r => { const n = r.path.replace(/^proposals\//, ''); if (n in appSays) appSays[n] = 'refused: ' + r.why; });
+    (out.scopes || []).forEach(x => { const n = x.file.replace(/^proposals\//, ''); if (n in mine) mine[n] = 'read'; });
+    (out.refused || []).forEach(r => { const n = r.file.replace(/^proposals\//, ''); if (n in mine) mine[n] = 'refused: ' + r.why; });
+    const diff = ids.filter(([n]) => appSays[n] !== mine[n]).map(([n, what]) => what + '\n    app:     ' + appSays[n] + '\n    checker: ' + mine[n]);
+    assert.deepStrictEqual(diff, [], 'the checker reads each record as the app does');
+    const read = ids.filter(([n]) => appSays[n] === 'read').length;
+    assert.ok(read >= 12 && read <= ids.length - 20, 'set-up: both valid siblings and malformed cases (' + read + ' of ' + ids.length + ' read)');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+rule('The checker reads overflowing JSON numbers and Unicode version digits in scope records as the app does, and leaves an international domain name unjudged', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const LP = PF.loop, root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-scopenum-'));
+  try {
+    const d = new DiskFS(root);
+    await d.write('people.json', JSON.stringify(people));
+    const loop = { process: 'release-readiness', run: 'r-41', step: 'each' }, tool = { name: 'release-helper', version: '1.0' };
+    const iobs = { source: { feed: 'deploy-targets' }, generation: 'g1', query: '', observedAt: '2026-11-07T09:00:00Z',
+      items: [{ key: 'staging', title: 'Staging', link: 'https://ops.example.com/staging' }], reported: 1, fetched: 1, complete: true, errors: [] };
+    const ci = LP.cleanIntent({ loop, observation: iobs, changes: [] }, 'k-n', tool, 'item');
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(ci.errors)), [], 'set-up: the intent is clean');
+    const kid = { item: { key: 'staging' }, attempt: 1, inputs: { environment: 'staging' }, owner: '' };
+    const I = LP.buildRequest(ci.intent, { seen: [], children: [kid], now: NOW, app: '3.0.0' });
+    const clone = (x) => JSON.parse(JSON.stringify(x));
+    // Written as literal JSON tokens: JSON.stringify would write Infinity as null and hide what a hand-written file can hold.
+    const TOKENS = { '"@@INF@@"': '1e309', '"@@NINF@@"': '-1e309', '"@@BIG@@"': '1e400' }, INF = '@@INF@@', NINF = '@@NINF@@', BIG = '@@BIG@@';
+    const literal = (o) => Object.keys(TOKENS).reduce((t, k) => t.split(k).join(TOKENS[k]), JSON.stringify(o, null, 2) + '\n');
+    const L = (patch) => (f) => { f.loop = Object.assign({}, f.loop, patch); };
+    const IT = (patch) => (f) => { f.observation.items[0] = Object.assign({}, f.observation.items[0], patch); };
+    const KID = (patch) => (f) => { f.children = [Object.assign({}, kid, patch)]; };
+    const reqs = [
+      ['valid', () => {}],
+      ['loop process 1e309', L({ process: INF })], ['loop process -1e309', L({ process: NINF })], ['loop run 1e309', L({ run: INF })],
+      ['loop run -1e309', L({ run: NINF })], ['loop run 1e400', L({ run: BIG })], ['loop step 1e309', L({ step: INF })], ['loop step -1e309', L({ step: NINF })],
+      ['kind 1e309', (f) => { f.kind = INF; }], ['kind -1e309', (f) => { f.kind = NINF; }], ['kind [1e309, -1e309]', (f) => { f.kind = [INF, NINF]; }],
+      ['kind [[1e309], 1]', (f) => { f.kind = [[INF], 1]; }],
+      ['item key 1e309', IT({ key: INF })], ['item title 1e309', IT({ title: INF })], ['item link 1e309', IT({ link: INF })],
+      ['child owner 1e309', KID({ owner: INF })], ['child input 1e309', KID({ inputs: { environment: INF } })], ['child attempt 1e309', KID({ attempt: INF })],
+      ['observation reported 1e309', (f) => { f.observation.reported = INF; }], ['observation generation -1e309', (f) => { f.observation.generation = NINF; }],
+      ['change as -1e309', (f) => { f.changes = [{ op: 'approve', as: NINF }]; }],
+      ['app 3.1.0, a newer feature', (f) => { f.app = '3.1.0'; f.features = (f.features || []).concat('zz-new'); }],
+      ['app fullwidth 3.1.0, a newer feature', (f) => { f.app = '３.１.0'; f.features = (f.features || []).concat('zz-new'); }],
+      ['app arabic-digit 3.1.0, a newer feature', (f) => { f.app = '3.١.0'; f.features = (f.features || []).concat('zz-new'); }]
+    ];
+    // An international domain name (an xn-- label) isn't judged: whether the URL parser takes one rests on Unicode's IDNA
+    // tables. The record is read or refused on everything else, with a note that names the link.
+    const IDN = ['xn--a-egb.example', 'xn--psd.example', 'xn--mgba3gch31f060k.example', 'xn--caf-dma.example', 'xn--a.example', 'ops.XN--CAF-DMA.example'];
+    IDN.forEach((h) => reqs.push(['idn ' + h, IT({ link: 'https://' + h + '/' })]));
+    reqs.push(['idn change link xn--psd.example', (f) => { f.changes = [{ op: 'add', item: { key: 'prod', link: 'https://xn--psd.example/' } }]; }]);
+    reqs.push(['idn link and a bad title', IT({ link: 'https://xn--psd.example/', title: 5 })]);
+    reqs.push(['idn host that ends in a number', IT({ link: 'https://xn--caf-dma.09/' })]);
+    const UNJUDGED = { 'idn change link xn--psd.example': 'Change 1 item "link"', 'idn link and a bad title': 'Item 1 "link"' };
+    IDN.forEach((h) => { UNJUDGED['idn ' + h] = 'Item 1 "link"'; });
+    const ids = [], unjudged = {};
+    for (let i = 0; i < reqs.length; i++) {
+      const f = clone(I); f.id = 'req-release-helper-' + (0x300000 + i).toString(16).padStart(24, '0');
+      reqs[i][1](f); ids.push([f.id + '.json', 'request: ' + reqs[i][0]]);
+      if (reqs[i][0] in UNJUDGED) unjudged[f.id + '.json'] = UNJUDGED[reqs[i][0]];
+      await d.write('proposals/' + f.id + '.json', literal(f));
+    }
+    const decs = [['valid', {}], ['loop process 1e309', { loop: Object.assign({}, loop, { process: INF }) }], ['loop run -1e309', { loop: Object.assign({}, loop, { run: NINF }) }],
+      ['loop step 1e309', { loop: Object.assign({}, loop, { step: INF }) }], ['by 1e309', { by: INF }], ['items [1e309]', { items: [INF] }],
+      ['app fullwidth 3.1.0, a newer feature', { app: '３.１.0', features: ['loops', 'zz-new'] }], ['app 3.1.0, a newer feature', { app: '3.1.0', features: ['loops', 'zz-new'] }]];
+    for (let i = 0; i < decs.length; i++) {
+      const dec = LP.buildDecision({ proposal: I.id, loop, op: 'keep', items: ['item:key:staging'], seen: [I.id], by: 'person-morgan', writer: 'n' + i, rev: '0a0b0c0d', now: NOW, app: '3.0.0' });
+      ids.push([dec.name, 'decision: ' + decs[i][0]]);
+      await d.write('proposals/' + dec.name, literal(Object.assign(dec.file, decs[i][1])));
+    }
+    await d.write('proposals/' + I.id + '.json', JSON.stringify(I, null, 2) + '\n');
+    const app = await repo.loadAll(d, { deep: true }), text = cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8', maxBuffer: 64 << 20 });
+    let out;
+    assert.doesNotThrow(() => { out = JSON.parse(text); }, 'the checker writes JSON, never Infinity or NaN');
+    const appSays = Object.fromEntries(ids.map(([n]) => [n, 'read'])), mine = Object.fromEntries(ids.map(([n]) => [n, 'missing']));
+    JSON.parse(JSON.stringify(app.refused)).forEach(r => { const n = r.path.replace(/^proposals\//, ''); if (n in appSays) appSays[n] = 'refused: ' + r.why; });
+    (out.scopes || []).forEach(x => { const n = x.file.replace(/^proposals\//, ''); if (n in mine) mine[n] = 'read'; });
+    (out.refused || []).forEach(r => { const n = r.file.replace(/^proposals\//, ''); if (n in mine) mine[n] = 'refused: ' + r.why; });
+    // The bad-title record is refused for its title by both; the others are compared only where no link is left unjudged.
+    const compared = ids.filter(([n, what]) => !(n in unjudged) || what === 'request: idn link and a bad title');
+    const diff = compared.filter(([n]) => appSays[n] !== mine[n]).map(([n, what]) => what + '\n    app:     ' + appSays[n] + '\n    checker: ' + mine[n]);
+    assert.deepStrictEqual(diff, [], 'the checker reads each record as the app does');
+    const notes = {};
+    (out.scopes || []).concat(out.refused || []).forEach(x => { const n = x.file.replace(/^proposals\//, ''); if (n in mine) notes[n] = x.linkUnchecked; });
+    const noted = ids.filter(([n]) => notes[n] !== (n in unjudged ? unjudged[n] + ': an international domain name; Flightdeck decides whether it reads' : undefined)).map(([n, what]) => what + ': ' + notes[n]);
+    assert.deepStrictEqual(noted, [], 'each record with an international domain name, and only those, says its link is unchecked');
+    const verdicts = ids.filter(([n]) => n in unjudged).map(([n, what]) => what + ': ' + mine[n]);
+    assert.deepStrictEqual(verdicts, ids.filter(([n]) => n in unjudged).map(([n, what]) => what + ': ' + (what === 'request: idn link and a bad title' ? appSays[n] : 'read')), 'an unjudged link never decides a verdict');
+    const appScopes = Object.fromEntries(JSON.parse(JSON.stringify(app.scopes)).map(r => ['proposals/' + r._file, r.loop]));
+    const loops = (out.scopes || []).filter(x => x.file in appScopes).filter(x => JSON.stringify(x.loop) !== JSON.stringify(appScopes[x.file])).map(x => x.file);
+    assert.deepStrictEqual(loops, [], 'each read record names its loop as the app writes it');
+    const read = compared.filter(([n]) => appSays[n] === 'read').length;
+    assert.ok(read >= 4 && read <= compared.length - 15, 'set-up: both valid siblings and malformed cases (' + read + ' of ' + compared.length + ' read)');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 run();

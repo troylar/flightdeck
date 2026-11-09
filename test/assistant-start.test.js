@@ -44,7 +44,7 @@ rule('AGENTS.md as shipped is at most 28 KiB, so Team notes have room before a t
 
 /* 2.15.0: AGENTS.md keeps the rules and points to the how. Its ceiling is the measured text plus a 66-byte margin; a later slice
    that adds a Commands or Skills row raises it by that row's bytes, with the reason stated. 3.0: +141 for the `flightdeck library inspect` row. */
-const ROOM_CEILING = 19688 + 141 + 358, INDEX_ROW = 300; /* 3.0: the loop row and the scope-records rule (loops, design section 44) */
+const ROOM_CEILING = 19688 + 141 + 358 + 1029, INDEX_ROW = 300; /* 3.0: the loop row and the scope-records rule (loops, design section 44); 3.0.1: the loop row in What you may write, scope decisions, the 3.0-on-every-computer rule, the test-run readiness note and reading results and loops */
 /* The rows of the Commands and Skills tables: each names a command or a skill and where its how is, in at most 300 bytes. */
 function indexRows(t) {
   const out = [];
@@ -702,18 +702,18 @@ rule('A folder installed by 2.12.0\'s own command, with Team notes, upgrades wit
   assert.ok(back.code === 1 && back.out.includes('is a newer version (' + VER + ') than this one (2.12.0)'), '2.12.0\'s own command sees a newer folder: ' + back.out);
 });
 
-rule('This release is dated 2026-11-08 in the entry, the waiver and the list, and each text in the entry is under 400 characters', () => {
+rule('This release is dated 2026-11-09 in the entry, the waiver and the list, and each text in the entry is under 400 characters', () => {
   const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')).find(r => r.version === VER);
-  assert.strictEqual(VER, '3.0.0');
-  assert.strictEqual(rel.date, '2026-11-08');
+  assert.strictEqual(VER, '3.0.1');
+  assert.strictEqual(rel.date, '2026-11-09');
   for (const c of rel.changes) for (const f of ['now', 'before']) if (c[f] != null) assert.ok(c[f].length < 400, c.title + ': ' + f + ' is ' + c[f].length);
-  const at = path.join(ROOT, 'docs', 'rehearsals', '3.0.0-2026-11-08-waiver.md');
-  assert.ok(fs.existsSync(at) && /Version: 3\.0\.0/.test(fs.readFileSync(at, 'utf8')) && /Date: 2026-11-08/.test(fs.readFileSync(at, 'utf8')), 'the waiver');
+  const at = path.join(ROOT, 'docs', 'rehearsals', '3.0.1-2026-11-09-waiver.md');
+  assert.ok(fs.existsSync(at) && /Version: 3\.0\.1/.test(fs.readFileSync(at, 'utf8')) && /Date: 2026-11-09/.test(fs.readFileSync(at, 'utf8')), 'the waiver');
   const list = fs.readFileSync(path.join(ROOT, 'docs', 'rehearsals', 'README.md'), 'utf8');
-  assert.ok(list.includes('[3.0.0, 2026-11-08](3.0.0-2026-11-08-waiver.md)'), 'the list');
+  assert.ok(list.includes('[3.0.1, 2026-11-09](3.0.1-2026-11-09-waiver.md)'), 'the list');
   const n = fs.readdirSync(path.join(ROOT, 'docs', 'rehearsals')).filter(f => /-waiver\.md$/.test(f)).length;
-  assert.strictEqual(n, 19);
-  assert.ok(list.includes('All nineteen are waivers'), 'the count');
+  assert.strictEqual(n, 20);
+  assert.ok(list.includes('All twenty are waivers'), 'the count');
 });
 
 /* ---------------- the first prompt ---------------- */
