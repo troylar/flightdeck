@@ -1,5 +1,43 @@
 [
   {
+    "version": "3.0.1",
+    "date": "2026-11-09",
+    "headline": "AI assistant files that match 3.0, and a folder check that reads loops",
+    "changes": [
+      {
+        "kind": "improved",
+        "area": "AI assistant files",
+        "title": "The AI assistant files match what 3.0 does",
+        "now": "AGENTS.md, the command guide and the skills now cover results and loops: an assistant reports a run as Completed · <result>, reads a held step as waiting, says a loop's counts in its noun, asks for a loop change only through flightdeck loop with every option it needs, and never writes a scope record. Every computer must be on 3.0 before anyone publishes a result or a loop.",
+        "where": "AGENTS.md, command-guide.md, the checklist skills"
+      },
+      {
+        "kind": "fixed",
+        "area": "Checks",
+        "title": "check_folder.py reads loops as Flightdeck does",
+        "before": "check_folder.py ignored a {for.each} step's version: pin, so a loop that pins its child read as edited by hand, and it reported a loop's scope decisions as broken plan decisions.",
+        "now": "It checks {for.each} pins as Flightdeck does and lists a loop's scope records apart from plans, refusing only a broken one, with the reason Flightdeck gives. For a loop's state, it points to flightdeck loop read.",
+        "where": "check_folder.py"
+      },
+      {
+        "kind": "fixed",
+        "area": "AI assistant files",
+        "title": "The Module results example publishes",
+        "before": "The result example in map-format.md used a detail kind Flightdeck doesn't have and a role it didn't list, so it couldn't publish.",
+        "now": "It lists its role and uses a plain detail, and publishes with no blockers.",
+        "where": "map-format.md"
+      },
+      {
+        "kind": "fixed",
+        "area": "Checks",
+        "title": "A loop pinned to its checklist's version publishes",
+        "before": "Publish never read the checklist a {for.each} step runs, so a loop with version: couldn't publish (its checklist read as not published), and what a loop passes and accepts went unchecked at publish.",
+        "now": "Publish reads it like a linked step's: a pinned loop publishes, and a result the checklist never returns or a detail it doesn't have stops publishing. Used by, Folder health and draft check also list a loop that runs a checklist.",
+        "where": "Publish, a checklist's page, Folder health, flightdeck draft check"
+      }
+    ]
+  },
+  {
     "version": "3.0.0",
     "date": "2026-11-08",
     "headline": "Thoughtful checklists, results that mean ready, and loops for any list",

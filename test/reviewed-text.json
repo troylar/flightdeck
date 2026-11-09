@@ -1,16 +1,16 @@
 {
   "texts": {
     "CHANGELOG.md": {
-      "sha256": "e33f748fa9506981647758ed12a63165fb86b937c3d80366caa9349da0c62760",
-      "reviewed": "3.0.1: Publish reads a {for.each} step's child (repo.childProcsFor); the library and linked-step warnings list loops; reads only, no new writes; checked for direct writes and unconditional deletes"
+      "sha256": "4f7c4a12e81bcc80a8a626a0c875e3ef7e1b0b70e2c3e3fadc7e48bf14235b79",
+      "reviewed": "3.0.1 release: version, notes (with the loop publish fix), waiver and baselines; no instruction wording changed; checked for direct writes and unconditional deletes"
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1: a license text, shipped unchanged; no instruction."
     },
     "README.md": {
-      "sha256": "8688bd9f224d72e92aed8f7e3d58baa649ff7326e4b234dab78b2a935438231e",
-      "reviewed": "3.0.1: Publish reads a {for.each} step's child (repo.childProcsFor); the library and linked-step warnings list loops; reads only, no new writes; checked for direct writes and unconditional deletes"
+      "sha256": "11ee265fb07dc050bc05d9374d75171797464fd636bc4e1171ada3300da7e255",
+      "reviewed": "3.0.1 release: version, notes (with the loop publish fix), waiver and baselines; no instruction wording changed; checked for direct writes and unconditional deletes"
     },
     "bin/flightdeck.js": {
       "sha256": "1c19f0abd8237f2122a6a4562c3632b66a0d029cb71a5ddffc43e7d211947755",
@@ -173,8 +173,8 @@
       "reviewed": "Round 20, at 64e1c01: the file list npm packs (npm pack --dry-run on a mirror of the tree), read in full: CHANGELOG.md, LICENSE, README.md, bin/flightdeck.js, the two dist files, package.json. Each is pinned whole or checked by parity. No new text."
     },
     "package.json": {
-      "sha256": "b7078416ee1a6e3c542b8c6e28d5957eb920ec52edcc8e02d31cb7587d99d4f7",
-      "reviewed": "3.0.1: Publish reads a {for.each} step's child (repo.childProcsFor); the library and linked-step warnings list loops; reads only, no new writes; checked for direct writes and unconditional deletes"
+      "sha256": "4d3a698a86e416d80d833b1a2eeb1637577fa9624e32164b816e05ec68bd0a90",
+      "reviewed": "3.0.1 release: version, notes (with the loop publish fix), waiver and baselines; no instruction wording changed; checked for direct writes and unconditional deletes"
     },
     "rendered: the merge README, AGENTS.md held": {
       "sha256": "587c6fe0a4080614f1661c880aa058e9dd8180b5595d72bfaaf90b9f297f8d95",
@@ -193,8 +193,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "93ae9bb7e54a1f92f75ffba5cb38f2c30ab01b58e123aefd3cdc4141bdf9ce14",
-      "reviewed": "3.0.1: Publish reads a {for.each} step's child (repo.childProcsFor); the library and linked-step warnings list loops; reads only, no new writes; checked for direct writes and unconditional deletes"
+      "sha256": "986b88645d6a398267e853dc1427ed799b27e60bbf5815d65024648fa20f9479",
+      "reviewed": "Record 3.0.1's baselines"
     },
     "src/core/appjson.js": {
       "sha256": "4baa465110a534478bbeaf2d9d1cc6a8ce846ab9a911da62298ce1dce9fc4729",
@@ -385,8 +385,8 @@
       "reviewed": "release notes left to release time; checked for direct writes and unconditional deletes"
     },
     "src/releases.json": {
-      "sha256": "08c69c574eccf180f7abe69563f4afbb342e9c2f4f2de6b69a37dac4a6235763",
-      "reviewed": "3.0.1: Publish reads a {for.each} step's child (repo.childProcsFor); the library and linked-step warnings list loops; reads only, no new writes; checked for direct writes and unconditional deletes"
+      "sha256": "bbc776606644796a2b353e5adcd6b57e83135acdef106e99c7c8c58171aa320e",
+      "reviewed": "3.0.1 release: version, notes (with the loop publish fix), waiver and baselines; no instruction wording changed; checked for direct writes and unconditional deletes"
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",

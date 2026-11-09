@@ -68,8 +68,8 @@ rule('skills ships the checklist skills with their names and generic frontmatter
     assert.deepStrictEqual(fm[1].split('\n').map((l) => l.split(':')[0]), ['name', 'description'], v + ': only name and description');
     assert.ok(/^Reference: .*`\.\.\/_flightdeck\/map-format\.md`/m.test(t), v + ': names its reference files');
   });
-  // Read-only, and the only commands it may run (draft check, draft read) only read (2.6.1, 2.13).
-  assert.ok(/^Read-only: don't create, edit or delete files\. The only commands you may run are `flightdeck draft check` and `flightdeck draft read`, below, which only read\.$/m.test(fs.readFileSync(path.join(root, 'flightdeck-review-checklist', 'SKILL.md'), 'utf8')), 'the review skill says it is read-only');
+  // Read-only, and the only commands it may run (draft check, draft read; 3.0.1: library inspect, check_folder.py --draft) only read (2.6.1, 2.13).
+  assert.ok(/^Read-only: don't create, edit or delete files\. The only commands you may run are `flightdeck draft check`, `flightdeck draft read`, `flightdeck library inspect` and `check_folder\.py --draft`, below, which only read\.$/m.test(fs.readFileSync(path.join(root, 'flightdeck-review-checklist', 'SKILL.md'), 'utf8')), 'the review skill says it is read-only');
   ['new', 'edit', 'review'].forEach((v) => assert.ok(!fs.existsSync(path.join(root, 'flightdeck-' + v + '-map')), 'no old ' + v + '-map alias'));
 });
 
