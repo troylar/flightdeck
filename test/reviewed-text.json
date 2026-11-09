@@ -405,8 +405,8 @@
       "reviewed": "AY: the folder reader keeps a file's own _file/_bytes apart from the loader's and validates to-do and scope records as written; checked for direct writes and unconditional deletes (none)"
     },
     "src/ui/app.js": {
-      "sha256": "4b9ce175a62ce37cc7df7c8dda473904c486a693ea060e1e6fd2e33f9fab7940",
-      "reviewed": "unsent to-do typing kept per folder, run, place and action; key without JSON parsing; views tolerate hosts without drafts; checked for direct writes and unconditional deletes"
+      "sha256": "d5546b9d81b1ea4a92ad1ab38ad2b921c09f558012efe9a02808a820cbf8ac7a",
+      "reviewed": "to-do completions bound to a form-instance token renewed on leave and reopen; draft key built without an uncapped join; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

@@ -244,6 +244,42 @@ rule('A save that finishes late touches only the form it came from: never the sa
   assert.strictEqual(app.draft('td-add'), 'Same text', 'the other run\'s box keeps its text');
   assert.notStrictEqual(app.focused(), '#td-add', 'nor is focus moved there');
 });
+rule('A save that finishes late touches only the form it came from: not the same run\'s box opened again after leaving', async () => {
+  const app = await setup({ replace: true });
+  const fs = app.fs, write = fs.write.bind(fs), held = [];
+  const hold = () => { fs.write = (p, t, o) => /^proposals\/req-/.test(p) ? new Promise((res, rej) => held.push(() => write(p, t, o).then(res, rej))) : write(p, t, o); };
+  const release = async () => { fs.write = write; held.splice(0).forEach(f => f()); await app.tick(80); };
+  const a = theRun(app);
+  hold();
+  app.set('td-add', 'Same text'); app.click('td-add'); await app.tick(20);
+  app.set('td-add', '');
+  app.click('go', '', { view: 'home' }); await app.tick(20);
+  assert.ok(!/id="rw"/.test(app.html()), 'set-up: left the run');
+  app.click('open-process', a.process); await app.tick(20);
+  app.click('open-run', a.process + '/' + a.id); await app.settle();
+  assert.ok(/id="td-add"/.test(app.html()), 'set-up: back on the same run and phase');
+  app.set('td-add', 'Same text');
+  await release();
+  assert.strictEqual(app.draft('td-add'), 'Same text', 'the reopened box keeps its text');
+  assert.notStrictEqual(app.focused(), '#td-add', 'nor is focus moved there');
+  app.click('go', '', { view: 'home' }); await app.tick(20);
+  assert.ok(/id="rw"/.test(app.html()), 'and it still counts as unsent');
+});
+rule('A late Won\'t do or decline touches only the form it came from: not one opened again after closing', async () => {
+  const app = await setup();
+  const fs = app.fs, write = fs.write.bind(fs), held = [];
+  const hold = () => { fs.write = (p, t, o) => /^proposals\//.test(p) ? new Promise((res, rej) => held.push(() => write(p, t, o).then(res, rej))) : write(p, t, o); };
+  const release = async () => { fs.write = write; held.splice(0).forEach(f => f()); await app.tick(80); };
+  const id = await withTodo(app);
+  app.click('td-pick', id, { kind: 'wont' }); await app.tick(10);
+  hold();
+  app.set('td-why', 'Same reason'); app.click('td-save', id); await app.tick(20);
+  app.set('td-why', ''); app.click('td-unpick'); await app.tick(10);
+  app.click('td-pick', id, { kind: 'wont' }); await app.tick(10);
+  app.set('td-why', 'Same reason');
+  await release();
+  assert.strictEqual(app.draft('td-why'), 'Same reason', 'the reopened form keeps its reason');
+});
 rule('A reason or destination belongs to its own to-do and action: switching away from one typed in is refused, and nothing carries over', async () => {
   const app = await setup();
   await added(app, 'First'); await added(app, 'Second');

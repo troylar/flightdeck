@@ -35403,29 +35403,31 @@ PF.examples = (function () {
     return made;
   }
   function tdSettled(slot) { var keep = loopMem().tdKeep; if (keep) delete keep[slot]; }
-  function tdWrite(r, made, words, slot) {
+  function tdWrite(r, made, words, slot, tok) {
     var mem = loopMem(), un = runUnread(r);
     if (un) { mem.tdSaid = un + ' Nothing was written.'; render(); return Promise.resolve(false); }
+    /* Said in the dialog it came from while that is still open; once it was closed or opened again, said on the page. */
+    var said = function (t, how) { if (!tok || tok === tdTok(tok.split(':')[0])) mem.tdSaid = t; else say(t, how); };
     var cx = loopGuard({ run: r.process + '/' + r.id, readable: true }), endBusy = busyStart(), sg = gen;
     return repo.saveScope(cx.fs, made.name, made.file, { still: function () { return guardOk(cx); } }).then(function (res) {
       endBusy(); if (sg !== gen) return false;
-      if (res && res.dropped) { mem.tdSaid = 'Nothing was written: the folder, the person or the run changed before it was.'; render(); return false; }
+      if (res && res.dropped) { said('Nothing was written: the folder, the person or the run changed before it was.', 'warn'); render(); return false; }
       if (slot) tdSettled(slot);
-      if (res && res.conflict && res.theirs !== PF.todos.text(made.file)) { mem.tdSaid = 'A different record is already saved under that name. Nothing was written; read the folder again.'; render(); return false; }
+      if (res && res.conflict && res.theirs !== PF.todos.text(made.file)) { said('A different record is already saved under that name. Nothing was written; read the folder again.', 'bad'); render(); return false; }
       var rec = made.record; rec._file = made.name;
       if (!(data.todos || []).some(function (x) { return x.id === rec.id; })) data.todos = (data.todos || []).concat([rec]);
-      mem.tdSaid = words; lastAll = -Infinity; render();
+      said(words, 'good'); lastAll = -Infinity; render();
       return true;
-    }, function (err) { endBusy(); if (sg !== gen) return false; mem.tdSaid = 'Couldn\'t save it: ' + (err && err.message || err) + ' It may or may not have been saved; read the folder again before deciding again.'; render(); return false; });
+    }, function (err) { endBusy(); if (sg !== gen) return false; said('Couldn\'t save it: ' + (err && err.message || err) + ' It may or may not have been saved; read the folder again before deciding again.', 'bad'); render(); return false; });
   }
   function tdDecide(key, id, op, shown, reason) {
     var r = findRun(key), mem = loopMem();
     if (!r || !state.me) return;
     if (runUnread(r)) { mem.tdSaid = runUnread(r) + ' Nothing was decided.'; render(); return; }
-    var sent = op === 'decline' ? tdSent(['td-dec-why']) : null, open = mem.tdDec, slot = 'dec', sig = JSON.stringify([key, id, op, shown || '', reason == null ? '' : String(reason), state.me]);
+    var sent = op === 'decline' ? tdSent(['td-dec-why'], 'dec') : null, tok = tdTok('dec'), open = mem.tdDec, slot = 'dec', sig = JSON.stringify([key, id, op, shown || '', reason == null ? '' : String(reason), state.me]);
     var made = tdKept(slot, sig, function (seed) { return PF.todos.decide(r, { request: id, op: op, by: state.me, shown: shown, reason: reason, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION, writer: seed.writer, rev: seed.rev }); });
     if (made.why) { mem.tdSaid = made.why; render(); return; }
-    tdWrite(r, made, made.words, slot).then(function (ok) { if (ok && mem.tdDec === open && (!sent || tdClearIf(sent))) { mem.tdDec = null; render(); } });
+    tdWrite(r, made, made.words, slot, tok).then(function (ok) { if (ok && mem.tdDec === open && tok === tdTok('dec') && (!sent || tdClearIf(sent))) { mem.tdDec = null; render(); } });
   }
   /* The delegation dialog's choices, as drawn now, into its state (mem.tdDelegate), so every redraw draws them again. */
   function tdDelegateKeep() {
@@ -35447,8 +35449,19 @@ PF.examples = (function () {
   function tdPickHere(r) { var pk = state.tdPick; return pk && r && pk.fs === fsKey() && pk.run === r.process + '/' + r.id ? pk : null; }
   function tdUnsentPick() { return ['td-why', 'td-to'].some(function (id) { var el = document.getElementById(id); return !!(tdBoxKey(id) && el && String(el.value || '').trim()); }); }
   function tdFormOf(el) { var z = el.closest('[data-scope]'); return (app.dataset.scope || '') + '|' + (z ? z.dataset.scope : ''); }
-  function tdSent(ids) { return ids.map(function (id) { var el = document.getElementById(id); return { id: id, v: el ? String(el.value == null ? '' : el.value) : '', form: el ? tdFormOf(el) : null, key: el && el.getAttribute ? el.getAttribute('data-draft') : null }; }); }
+  /* Each to-do form's instance (Add, Won't do or Move, a decline, the delegation dialog): renewed when it is left and opened
+     again (leaving the run or screen, picking or cancelling, opening the dialog), kept through ordinary redraws. A completion
+     touches its box, its kept typing, its message or focus only while the instance it was sent from is still the one open. */
+  var tdEpAdd = 0, tdEpPick = 0, tdEpDec = 0, tdEpDg = 0;
+  function tdTok(kind) { return kind + ':' + (kind === 'add' ? tdEpAdd : kind === 'pick' ? tdEpPick : kind === 'dec' ? tdEpDec : tdEpDg); }
+  function tdRenew(kind) { if (!kind || kind === 'add') tdEpAdd++; if (!kind || kind === 'pick') tdEpPick++; if (!kind || kind === 'dec') tdEpDec++; if (!kind || kind === 'dg') tdEpDg++; }
+  function tdSent(ids, kind) {
+    var out = ids.map(function (id) { var el = document.getElementById(id); return { id: id, v: el ? String(el.value == null ? '' : el.value) : '', form: el ? tdFormOf(el) : null, key: el && el.getAttribute ? el.getAttribute('data-draft') : null }; });
+    out.kind = kind; out.tok = tdTok(kind);
+    return out;
+  }
   function tdClearIf(sent) {
+    if (sent.tok !== tdTok(sent.kind)) return false;
     /* What was sent is no longer unsent, wherever its box is now: its kept copy goes while it still says exactly that. */
     sent.forEach(function (x) { if (x.key) tdDraftSent(x.key, tdFieldOf(x.id), x.v); });
     var same = sent.every(function (x) { var el = document.getElementById(x.id); return el ? x.form !== null && tdFormOf(el) === x.form && String(el.value == null ? '' : el.value) === x.v : x.form === null; });
@@ -35461,7 +35474,7 @@ PF.examples = (function () {
      made elsewhere hides takes its typing with it: it is shown where it was (Not asked yet), the box draws it again when it
      returns, and leaving the run or closing the dialog asks first until it is asked or discarded. */
   function tdDrafts() { var mem = loopMem(); return mem.tdDrafts || (mem.tdDrafts = new Map()); }
-  function tdDraftKey(run, at, op) { return [fsKey(), run, at, op].map(function (x) { return encodeURIComponent(String(x)); }).join('|'); }
+  function tdDraftKey(run, at, op) { var e = function (x) { return encodeURIComponent(String(x)); }; return e(fsKey()) + '|' + e(run) + '|' + e(at) + '|' + e(op); }
   function tdFieldOf(id) { return id === 'td-add' ? 'text' : id === 'td-to' ? 'to' : 'why'; }
   function tdDraftGet(d, f) { return f === 'text' ? d.text : f === 'to' ? d.to : d.why; }
   function tdDraftSet(key, f, v) {
@@ -38397,7 +38410,7 @@ PF.examples = (function () {
   var corrSeq = 0;
   function corrKey(f) { return draftKey(f.key, f.step + '#' + f.mode); }
   function stashCorr() { var f = state.corrForm; if (!f) return; f._at = ++corrSeq; (state.corrDrafts = state.corrDrafts || {})[corrKey(f)] = f; state.corrForm = null; }
-  function leaveContext() { leaveFillIn(); stashCorr(); repHarvest(); }
+  function leaveContext() { leaveFillIn(); stashCorr(); repHarvest(); tdRenew(); }
   /* The open Fill in, kept with its folder, run and step: what's typed (harvest) and the choices that decide its fields. */
   function leaveFillIn() {
     harvest();
@@ -40102,30 +40115,30 @@ PF.examples = (function () {
     'continue-two': function (id) { continueTwo(id); },
     'td-add': function (id) {
       var r = ctx.run(); if (!r) return;
-      var phase = id || tdPhase(r), text = val('td-add'), sent = tdSent(['td-add']);
+      var phase = id || tdPhase(r), text = val('td-add'), sent = tdSent(['td-add'], 'add');
       todoAsk({ op: 'add', text: text, target: { phase: phase } }, function () { if (tdClearIf(sent)) state.focus = '#td-add'; });
     },
-    'td-inbox': function (id) { var mem = loopMem(); mem.tdInboxRun = id || ''; mem.tdSaid = ''; mem.tdDec = null; state.overlayFocus = '#tdi-h'; openOverlay({ tdInbox: true, html: function () { return V.todoInbox(ctx); }, held: tdDeclineHeld }); },
+    'td-inbox': function (id) { tdRenew('dec'); var mem = loopMem(); mem.tdInboxRun = id || ''; mem.tdSaid = ''; mem.tdDec = null; state.overlayFocus = '#tdi-h'; openOverlay({ tdInbox: true, html: function () { return V.todoInbox(ctx); }, held: tdDeclineHeld }); },
     /* The same dialog, opened at its delegations: any active one can be ended whether or not a request waits. */
-    'td-grants': function (id) { var mem = loopMem(); mem.tdInboxRun = id || ''; mem.tdSaid = ''; mem.tdDec = null; state.overlayFocus = '#tdi-g'; openOverlay({ tdInbox: true, html: function () { return V.todoInbox(ctx); }, held: tdDeclineHeld }); },
+    'td-grants': function (id) { tdRenew('dec'); var mem = loopMem(); mem.tdInboxRun = id || ''; mem.tdSaid = ''; mem.tdDec = null; state.overlayFocus = '#tdi-g'; openOverlay({ tdInbox: true, html: function () { return V.todoInbox(ctx); }, held: tdDeclineHeld }); },
     'td-accept': function (id, b) { tdDecide(b.dataset.run, id, 'accept', b.dataset.fp, ''); },
     'td-decline-pick': function (id, b) {
       var mem = loopMem(), was = mem.tdDec, el = document.getElementById('td-dec-why');
       if (was && was.run === b.dataset.run && was.id === id) return;
       if (was && el && String(el.value || '').trim()) { mem.tdSaid = 'Finish or cancel the decline you started first: its reason isn\'t saved yet.'; state.focus = '#td-dec-why'; render(); return; }
-      tdClear(['td-dec-why']); mem.tdDec = { run: b.dataset.run, id: id }; state.focus = '#td-dec-why'; render();
+      tdClear(['td-dec-why']); tdRenew('dec'); mem.tdDec = { run: b.dataset.run, id: id }; state.focus = '#td-dec-why'; render();
     },
     'td-kept-drop': function (id, b) { var k = b && b.dataset && b.dataset.key; if (!k) return; tdDrafts().delete(k); render(); },
-    'td-decline-cancel': function () { loopMem().tdDec = null; tdClear(['td-dec-why']); render(); },
+    'td-decline-cancel': function () { tdRenew('dec'); loopMem().tdDec = null; tdClear(['td-dec-why']); render(); },
     'td-decline': function (id, b) { var d = loopMem().tdDec, run = (b && b.dataset && b.dataset.run) || (d && d.run); if (!run) return; tdDecide(run, id, 'decline', '', val('td-dec-why')); },
     'td-revoke': function (id, b) {
       var r = findRun(b.dataset.run); if (!r || !state.me) return;
       var sig = JSON.stringify([b.dataset.run, id, state.me]);
       var made = tdKept('revoke', sig, function (seed) { return PF.todos.revokeOf(r, { grant: id, by: state.me, key: seed.key, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION }); });
       if (made.why) { loopMem().tdSaid = made.why; render(); return; }
-      tdWrite(r, made, made.words, 'revoke');
+      tdWrite(r, made, made.words, 'revoke', tdTok('dec'));
     },
-    'td-delegate': function () { var r = ctx.run(); if (!r) return; var mem = loopMem(); mem.tdDelegate = { run: r.process + '/' + r.id, phase: tdPhase(r) }; mem.tdSaid = ''; state.overlayFocus = '#tdg-h'; openOverlay({ tdDelegate: true, html: function () { return V.todoDelegate(ctx); } }); },
+    'td-delegate': function () { var r = ctx.run(); if (!r) return; tdRenew('dg'); var mem = loopMem(); mem.tdDelegate = { run: r.process + '/' + r.id, phase: tdPhase(r) }; mem.tdSaid = ''; state.overlayFocus = '#tdg-h'; openOverlay({ tdDelegate: true, html: function () { return V.todoDelegate(ctx); } }); },
     'td-delegate-save': function () {
       var mem = loopMem(), dg = mem.tdDelegate, r = dg && findRun(dg.run); if (!r || !state.me) return;
       tdDelegateKeep();
@@ -40136,7 +40149,7 @@ PF.examples = (function () {
       var subject = ppl ? { person: who } : { tool: who }, sig = JSON.stringify([dg.run, subject, ops, dg.phase, adds, state.me]);
       var made = tdKept('grant', sig, function (seed) { return PF.todos.grantOf(r, { subject: subject, ops: ops, targets: [{ phase: dg.phase }], adds: adds, by: state.me, key: seed.key, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION }); });
       if (made.why) { mem.tdSaid = made.why + ' Nothing was written.'; render(); return; }
-      tdWrite(r, made, made.words, 'grant');
+      tdWrite(r, made, made.words, 'grant', tdTok('dg'));
     },
     'td-done': function (id) { todoAsk({ op: 'done', todo: id }); },
     'td-reopen': function (id) { todoAsk({ op: 'reopen', todo: id }); },
@@ -40146,13 +40159,13 @@ PF.examples = (function () {
       if (was && JSON.stringify(was) === JSON.stringify(pk)) return;
       /* A reason or destination typed for one to-do and action is never carried to another, nor dropped unasked. */
       if (was && tdUnsentPick()) { say('Finish or cancel the ' + (was.kind === 'move' ? 'Move' : 'Won\'t do') + ' you started first: what you typed there isn\'t asked yet.', 'warn'); state.focus = '#td-why'; render(); return; }
-      tdClear(['td-why', 'td-to']); state.tdPick = pk; state.focus = k === 'move' ? '#td-to' : '#td-why'; render();
+      tdClear(['td-why', 'td-to']); tdRenew('pick'); state.tdPick = pk; state.focus = k === 'move' ? '#td-to' : '#td-why'; render();
     },
-    'td-unpick': function () { var pk = state.tdPick; state.tdPick = null; tdClear(['td-why', 'td-to']); if (pk) state.focus = '#td-' + cssEsc(pk.id); render(); },
+    'td-unpick': function () { tdRenew('pick'); var pk = state.tdPick; state.tdPick = null; tdClear(['td-why', 'td-to']); if (pk) state.focus = '#td-' + cssEsc(pk.id); render(); },
     'td-save': function (id) {
       var r = ctx.run(), pk = r && tdPickHere(r); if (!pk || pk.id !== id) return;
       var why = val('td-why'), body = pk.kind === 'wont' ? { op: 'wont', todo: id, reason: why } : { op: 'move', todo: id, to: val('td-to'), reason: why };
-      var sent = tdSent(['td-why', 'td-to']);
+      var sent = tdSent(['td-why', 'td-to'], 'pick');
       todoAsk(body, function () { if (state.tdPick === pk && tdClearIf(sent)) state.tdPick = null; });
     },
     'loop-add': function (id) {
