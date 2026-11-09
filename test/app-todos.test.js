@@ -205,4 +205,11 @@ rule('Every save, backup and retry of a living run goes through the run guard: l
   assert.ok(/function todoApply\(/.test(src) && /todoApply\(\)/.test(src.slice(src.indexOf('function syncChildren('), src.indexOf('function syncChildren(') + 2000)), 'applied beside loops');
 });
 
+rule('A prepared application finishing after the folder changed never enters the next folder\'s records', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
+  const i = src.indexOf('function todoCarry('), body = src.slice(i, src.indexOf('\n  }', i)), at = body.indexOf('data.todos');
+  assert.ok(at > 0, 'set-up');
+  const before = body.slice(body.lastIndexOf('.then(', at), at);
+  assert.ok(/guardOk\(cx\)/.test(before), before);
+});
 run();

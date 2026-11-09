@@ -3254,7 +3254,9 @@
       var s = PF.todos.buildStatus(Object.assign({}, plan.write, { by: cx.me, at: new Date().toISOString(), writer: 'w' + loopHex(10), rev: loopHex(8), app: APP_VERSION }));
       var fw = PF.todos.filed(s.name, s.file); if (fw.why) return Promise.reject(new Error(fw.why));
       var rec = fw.record;
-      prepared = repo.saveScope(cx.fs, s.name, s.file, { still: function () { return guardOk(cx); } }).then(function (res) { if (res && res.dropped) return null; rec._file = s.name; (data.todos = (data.todos || []).slice()).push(rec); return rec; });
+      /* Written in the folder and generation it was prepared in; once the window has moved on (another folder, a new read),
+         the record never enters what is shown now: the next read of its own folder finds it. */
+      prepared = repo.saveScope(cx.fs, s.name, s.file, { still: function () { return guardOk(cx); } }).then(function (res) { if ((res && res.dropped) || !guardOk(cx)) return null; rec._file = s.name; (data.todos = (data.todos || []).slice()).push(rec); return rec; });
     }
     return prepared.then(function (a) {
       if (!a || !guardOk(cx)) return false;
