@@ -380,6 +380,23 @@ rule('The recorder\'s next step for a request reads what is there first: landed 
   W = V(r, recs.concat([a, q, dq, stale])); plan = T.applyPlan(r, W, W.requests[q.id]);
   same([!!plan.write, plan.write && plan.write.previous, plan.write && plan.write.seen.indexOf(stale.id) >= 0], [true, a.id, true], 'one prepared on another head is seen, and a new one written');
 });
+rule('An application that didn\'t see the head before it, or its request, is never landed as it is: a fresh one is prepared', () => {
+  const { r } = newRun(), map = R.mapOf(r), p = prop('aa1', add('One', { phase: 'draft' }), [], 'person-avery');
+  const d = decide(p, 'accept', 'person-avery', T.consequenceOf(r, map, p, V(r, [p])).fingerprint), a = applied(p, '', { decision: d.id }, [p.id, d.id]);
+  R.todoLand(r, map, a, { who: 'person-avery', now: AT, typesHash: 'abcdef12', app: '4.0.0' });
+  const q = prop('aa2', add('Two', { phase: 'draft' }), [], 'person-avery'), recs = [p, d, a, q];
+  const dq = decide(q, 'accept', 'person-avery', T.consequenceOf(r, map, q, V(r, recs)).fingerprint);
+  const blind = applied(q, a.id, { decision: dq.id }, [q.id, dq.id]);
+  let W = V(r, recs.concat([dq, blind])), plan = T.applyPlan(r, W, W.requests[q.id]);
+  assert.ok(!plan.adopt && plan.write, 'not seeing the head: ' + JSON.stringify(plan));
+  same([plan.write.previous, plan.write.seen.indexOf(a.id) >= 0], [a.id, true]);
+  const noReq = applied(q, a.id, { decision: dq.id }, [a.id]);
+  W = V(r, recs.concat([dq, noReq])); plan = T.applyPlan(r, W, W.requests[q.id]);
+  assert.ok(!plan.adopt && plan.write, 'not seeing its request: ' + JSON.stringify(plan));
+  const good = applied(q, a.id, { decision: dq.id }, [q.id, a.id, dq.id]);
+  W = V(r, recs.concat([dq, good])); plan = T.applyPlan(r, W, W.requests[q.id]);
+  same(plan.adopt && plan.adopt.id, good.id, 'one that saw both is landed as it is');
+});
 rule('Landing names the application, stamps the feature, makes a run/2 a run/3 and refuses one prepared on another head', () => {
   const { r: r2 } = newRun(MD), map = R.mapOf(r2), p = prop('ld1', add('One', { phase: 'draft' }), [], 'person-avery'), a = applied(p, '', { decision: p.id + '.status-w1-00000000' });
   same(r2.format, 'preflight-run/2');

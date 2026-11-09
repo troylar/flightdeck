@@ -25,8 +25,8 @@
       "reviewed": "loop guard builder for every loop parent and child write, undo on drop; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "2c87ed27f742b7b7708092c2d781b8b3fbb07dedeb162a792abff68c9c4fd0b2",
-      "reviewed": "Round 2 V: the recovery guard is captured at the click for every run; checked for direct writes and unconditional deletes"
+      "sha256": "71c298371b415dcefc62000140f7c32ed38a59847f7b907905e16d523885fb0b",
+      "reviewed": "Slice 1 round 3 AA: adoption checks replay's causal preconditions"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -345,8 +345,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "da6cb208465553f4017499e8d3c9946ad8029a9570b815a679f751f05474018d",
-      "reviewed": "Round 2 R: keeping a copy asks again for the applications this run never landed; checked for direct writes and unconditional deletes"
+      "sha256": "6fb343e307aab50e46beec27a4c389f310aa8542b897a7898c3331f97af499ea",
+      "reviewed": "Slice 1 round 3 AA: adoption checks replay's causal preconditions"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",
