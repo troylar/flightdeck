@@ -211,6 +211,30 @@ rule('A landing whose run save failed is put back; retrying never saves it blind
   await refresh(app, 400);
   assert.deepStrictEqual([apps(app, p.id).length, theRun(app).living], [1, { head: apps(app, p.id)[0].id }], 'active again: the same application lands');
 });
+const asReviewer = async (app, who) => { const r0 = theRun(app); await app.fs.write(runPath(app), JSON.stringify(Object.assign({}, r0, { roles: Object.assign({}, r0.roles, { reviewer: who }), rev: (r0.rev || 0) + 1 }), null, 2)); await refresh(app); };
+const blake = (app, inactive) => setPeople(app, x => x.id === 'person-blake' ? Object.assign({}, x, { inactive }) : x);
+/* Holds the first read of run.json made once the request's application is in the folder: the landing save's read. */
+function holdLanding(app, id) {
+  const fs = app.fs, read = fs.read.bind(fs), hold = gate(); let n = 0, on = true;
+  fs.read = (p, o) => on && n === 0 && /runs\/release-notes\/.*run\.json$/.test(p) && apps(app, id).length ? (n++, hold.p.then(() => read(p, o))) : read(p, o);
+  return { hold, seen: () => n, off: () => { on = false; } };
+}
+rule('Authority lost while the landing save is under way lands nothing (an approver made inactive, or a record that can\'t be read)', async () => {
+  for (const how of ['inactive', 'unread']) {
+    const app = await setup();
+    await asReviewer(app, 'person-blake');
+    const p = await request(app, { op: 'add', text: 'Late ' + how, target: { phase: 'draft' } }, { decider: 'person-blake' });
+    const h = holdLanding(app, p.id);
+    await refresh(app, 300);
+    assert.strictEqual(h.seen(), 1, how + ' set-up: the landing reached its read');
+    h.off();
+    if (how === 'inactive') await blake(app, true);
+    else app.fs.files['proposals/' + app.PF.todos.idFor('flightdeck', 'torn-n') + '.json'] = { t: '{"format": "flightdeck-plan/4", "ki', m: Date.now() };
+    await refresh(app, 300);
+    h.hold.open(); await app.tick(400);
+    assert.strictEqual(theRun(app).living, undefined, how + ': nothing landed');
+  }
+});
 rule('Every save, backup and retry of a living run goes through the run guard: loopy() counts a living run', () => {
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
   const i = src.indexOf('function loopy('), body = src.slice(i, src.indexOf('\n  }', i));

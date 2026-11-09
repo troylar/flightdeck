@@ -34465,7 +34465,18 @@ PF.examples = (function () {
     var r = findRun(cx.run);
     if (!r || runSig(r) !== cx.sig) return false;
     if (cx.view && viewSig(r, cx.step) !== cx.vsig) return false;
+    if (cx.todo && !todoStill(cx.todo)) return false;
     return !(cx.q && cx.step && PF.loop.askerWhy(r, loopView(r, cx.step), cx.q, data.people));
+  }
+  /* A to-do landing (4.0), asked before every write of it (candidate, final, backup): on the run as it was before the landing
+     (its tentative head never counts), with the records, people and unread files as this window reads them now, the same
+     application is still the one to land: authority, revokes, unread and held records all asked again. */
+  function todoStill(t) {
+    if (!t.pre) return true;
+    var pre; try { pre = R.sanitize(JSON.parse(t.pre)); } catch (e) { return false; }
+    if (!pre || pre._unrunnable) return false;
+    var V = todoView(pre), q = V && V.requests[t.q], plan = q ? PF.todos.applyPlan(pre, V, q) : null;
+    return !!(plan && plan.adopt && plan.adopt.id === t.a);
   }
   /* Whether a run is a loop's parent (its checklist has a {for.each} step) or a loop's child. */
   function loopy(r) {
@@ -34764,8 +34775,10 @@ PF.examples = (function () {
       var V1 = todoView(r), q1 = V1.requests[q.id], p1 = q1 ? PF.todos.applyPlan(r, V1, q1) : { skip: 'gone' };
       if (p1.write) return 'again';
       if (!p1.adopt || p1.adopt.id !== a.id) return false;
-      var types = todoTypes(r);
-      var ed = loopEdit(loopGuard({ run: key }), key, function (rr, m, me, now) {
+      var types = todoTypes(r), lcx = loopGuard({ run: key });
+      var ed = loopEdit(lcx, key, function (rr, m, me, now) {
+        /* The write guard asks again before every write, on the run as it is now, before this landing. */
+        lcx.todo = { q: q.id, a: a.id, pre: JSON.stringify(rr, function (k, v) { return this === rr && k.charAt(0) === '_' ? undefined : v; }) };
         /* Asked again in the write queue, on the run as it is: still queued (or only its prepared applications disagree), the
            same head, the same authority. */
         var V2 = todoView(rr), q2 = V2 && V2.requests[q.id], plan2 = q2 ? PF.todos.applyPlan(rr, V2, q2) : { skip: 'gone' };
