@@ -3,7 +3,7 @@ name: flightdeck-review-checklist
 description: "Use when asked to review, check or proofread a Flightdeck checklist (or all of them) before it's published: reports format errors and quality problems, read-only"
 ---
 
-Read-only: don't create, edit or delete files. The only commands you may run are `flightdeck draft check` and `flightdeck draft read`, below, which only read.
+Read-only: don't create, edit or delete files. The only commands you may run are `flightdeck draft check`, `flightdeck draft read`, `flightdeck library inspect` and `check_folder.py --draft`, below, which only read.
 
 Reference: `../_flightdeck/map-format.md` and `../_flightdeck/good-checklists.md` (relative to this skill's folder). Read them before you start.
 
@@ -15,7 +15,7 @@ Read `AGENTS.md` in this team folder, then the draft from `maps/drafts/` (for "a
 
 This is a careful manual review. **Flightdeck's own checks on the checklist's page are the authority**: if they disagree with you, they win.
 
-When `flightdeck` is installed, also run `flightdeck draft check <team folder> <process> --json` for each draft and read `data.checks.blockers`, `data.checks.suggestions` and `data.publish.blockers`: they're Flightdeck's own verdict, the one the Publish dialog gives, checked against the team's people, step types, Jira workflows, published versions and team values, with screenshots and `version:` pins. To review the published version when there's no draft, run `flightdeck draft read <team folder> <process> --or-latest --json` and read its `checks`. If `complete` is false, the parts named in `problems` weren't read or checked: check those yourself and say so. Never call valid use of a team step type an error. On an older install without `draft check`, `draft read`'s checks don't load people, step types, Jira workflows or which processes are published, so check those yourself.
+When `flightdeck` is installed, also run `flightdeck draft check <team folder> <process> --json` for each draft and read `data.checks.blockers`, `data.checks.suggestions` and `data.publish.blockers`: they're Flightdeck's own verdict, the one the Publish dialog gives, checked against the team's people, step types, Jira workflows, published versions and team values, with screenshots and `version:` pins. Read `data.design.tips` too: advice on the checklist's shape, never a blocker. Run `flightdeck library inspect <team folder> --process <process> --json` to see which checklists link to this one (`usedBy`) and what looks alike; say so if `completeness.complete` is false. Without the command, run `python3 .flightdeck/skills/_flightdeck/check_folder.py <team folder> --draft <file>` and report its `notRun` list: it runs only some checks. To review the published version when there's no draft, run `flightdeck draft read <team folder> <process> --or-latest --json` and read its `checks`. If `complete` is false, the parts named in `problems` weren't read or checked: check those yourself and say so. Never call valid use of a team step type an error. On an older install without `draft check`, `draft read`'s checks don't load people, step types, Jira workflows or which processes are published, so check those yourself.
 
 ## Check, in this order
 
@@ -31,6 +31,8 @@ When `flightdeck` is installed, also run `flightdeck draft check <team folder> <
    - `sets:` naming a detail that isn't in `context`; two `sets:` names too alike to tell apart
    - a `{run.process}` step running its own process, carrying a detail that isn't in `context`, or both carrying and setting the same detail; a `version:` that isn't a whole number, or names a version that isn't there, is published twice or can't be used
    - a `skillVersion:` that isn't a version like `1.2.0`, or one on a step without `skill:`
+   - a `result:` that isn't a choice in `context`, set by no `{decide}` step or by more than one (`sets: <detail>=decision`), or whose decision's `options:` aren't the choice's options in the same order; `accepts:` naming a result the child doesn't return; `sets: <detail>=result` into a detail that isn't a choice holding every result
+   - a `{for.each}` without `process:`, `items:` (`item` or `jira.issue`) or `accepts:`, or whose child gives no `result:`; `from:` on a list of items or not naming a `{jira.search}` step; `source:` on a Jira loop; `noun:` that isn't one / many; `carry:` or `sets: <detail>=result` on a loop
    - with `jira/workflows.json` present: a transition to a status the issue type doesn't have or no transition reaches, or a workflow file that can't be read
    - a screenshot path outside `images/` or with characters other than letters, numbers, `_`, `-`, `.` and `/`, or one that isn't in the folder
    - `only when`: a line that can't be read; one testing a detail not in `context`; `is`, `is not`, `is one of`, `is at least` or `is at most` on a plain-text detail (only `is set` and `is not set` work there), or a test the detail's kind doesn't allow; more than 4 on one step or phase; one on a gate or a track; one testing a detail set (`sets:`) in the same phase or a later one
@@ -44,9 +46,11 @@ When `flightdeck` is installed, also run `flightdeck draft check <team folder> <
    - a one-person routine without `runs: solo`, or team wording in a solo checklist
    - tracks for work that is really one after another; times on steps that have no real clock
    - a `{run.process}` without `process:` (only a tip: it publishes, but the recorder has to fill in which process to start), or one that names a process with no published version yet (it publishes, but can't start the child)
+   - one `{confirm}` over a whole set ("every environment is ready") where a `{for.each}` or one step per item fits; a linked step to a checklist with a result but no `accepts:`
+   - a result or a loop while the team isn't on Flightdeck 3.0 everywhere: every computer must be on 3.0 before anyone publishes one
    - secrets, tokens, customer data or real credentials anywhere
 3. **Tips:** usual fields left out (fine if the value varies per run), missing `>` notes on tricky steps.
 
 ## Report
 
-For each checklist, a table: **Level** (Blocks / Fix / Tip), **Where** (line and ID), **What**, **Replacement** (the exact replacement line when you can). End with a one-line verdict: "Ready to publish", "Publishable, with fixes worth making", or "Won't publish yet". Suggest `/flightdeck-edit-checklist` to apply the fixes. When it's ready, the person's next step is in Flightdeck: **Practice** the draft on the real run screen (nothing is recorded), then **Publish vN…**, or **Stage for testing instead** in that dialog.
+Say which checks ran (`flightdeck draft check`, the offline checker with its `notRun` list, or "Flightdeck checks not run"). For each checklist, a table: **Level** (Blocks / Fix / Tip), **Where** (line and ID), **What**, **Replacement** (the exact replacement line when you can). End with a one-line verdict: "Ready to publish", "Publishable, with fixes worth making", or "Won't publish yet". Suggest `/flightdeck-edit-checklist` to apply the fixes. When it's ready, the person's next step is in Flightdeck: **Practice** the draft on the real run screen (nothing is recorded), then **Publish vN…**, or **Stage for testing instead** in that dialog.

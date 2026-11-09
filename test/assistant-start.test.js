@@ -44,7 +44,7 @@ rule('AGENTS.md as shipped is at most 28 KiB, so Team notes have room before a t
 
 /* 2.15.0: AGENTS.md keeps the rules and points to the how. Its ceiling is the measured text plus a 66-byte margin; a later slice
    that adds a Commands or Skills row raises it by that row's bytes, with the reason stated. 3.0: +141 for the `flightdeck library inspect` row. */
-const ROOM_CEILING = 19688 + 141 + 358, INDEX_ROW = 300; /* 3.0: the loop row and the scope-records rule (loops, design section 44) */
+const ROOM_CEILING = 19688 + 141 + 358 + 1029, INDEX_ROW = 300; /* 3.0: the loop row and the scope-records rule (loops, design section 44); 3.0.1: the loop row in What you may write, scope decisions, the 3.0-on-every-computer rule, the test-run readiness note and reading results and loops */
 /* The rows of the Commands and Skills tables: each names a command or a skill and where its how is, in at most 300 bytes. */
 function indexRows(t) {
   const out = [];
