@@ -36,8 +36,19 @@ function valid() {
   const sap = T.buildStatus({ kind: 'application', proposal: sp.id, run: RUN, seen: [sp.id], by: 'person-avery', at: AT, authority: { decision: dec.name.replace(/\.json$/, '') }, previous: '', effect: se, writer: 'w1', rev: '0a1b2c3f' });
   const fr = T.cleanFile(JSON.parse(T.text(fil)), fil.id + '.json').record, fe = T.effectOf(fr);
   const fap = T.buildStatus({ kind: 'application', proposal: fil.id, run: kidRun, seen: [fil.id], by: 'person-avery', at: AT, authority: { grant: g.id }, previous: '', effect: fe, writer: 'w1', rev: '0a1b2c40' });
+  /* Facts (4.0 slice 4): one per domain, complete, partial with an error, and a done on evidence with its application. */
+  const FA = PF.facts, src = { feed: 'bitbucket', site: 'git.example.com', account: 'team-a' }, at1 = { run: RUN, producer: bot, seen: [], at: AT, loopStep: 'each', uid: 'jira:10101', attempt: 1, observedAt: AT, maxAgeSeconds: 86400 };
+  const fct = FA.build(Object.assign({}, at1, { key: 'f-1', source: src, domain: 'prs', complete: true, reported: 2, fetched: 2, errors: [], entries: [{ id: '42', text: 'Fix the login', state: 'merged', link: 'https://git.example.com/pr/42' }, { id: '43', text: 'Docs', state: 'open' }] }));
+  const fbk = FA.build(Object.assign({}, at1, { key: 'f-2', seen: [fct.id], source: { feed: 'jira' }, domain: 'blockers', complete: false, reported: null, fetched: 1, errors: ['The search timed out'], entries: [{ id: 'B-1', text: 'Waiting on QA', state: 'open' }] }));
+  const fst = FA.build(Object.assign({}, at1, { key: 'f-3', source: { feed: 'jira' }, domain: 'status', complete: true, reported: 1, fetched: 1, errors: [], entries: [{ id: 'ABC-1', text: 'Done', category: 'done' }] }));
+  const fcm = FA.build(Object.assign({}, at1, { key: 'f-4', source: src, domain: 'commits', maxAgeSeconds: 604800, complete: false, reported: 9, fetched: 1, errors: [], entries: [{ id: 'a1b2c3d', text: 'Fix the login' }] }));
+  const sup = { fact: fct.id, content: '0123456789abcdef', incarnation: app.name.replace(/\.json$/, ''), source: { feed: 'bitbucket', site: 'git.example.com' }, domain: 'prs' };
+  const sug = T.buildProposal({ run: RUN, producer: bot, seen: [], at: AT, body: { op: 'done', todo: T.todoIdFor(tool.id), support: sup } });
+  const sge = T.effectOf(T.cleanFile(JSON.parse(T.text(sug)), sug.id + '.json').record);
+  const sga = T.buildStatus({ kind: 'application', proposal: sug.id, run: RUN, seen: [sug.id], by: 'person-avery', at: AT, authority: { grant: g.id }, previous: app.name.replace(/\.json$/, ''), effect: sge, writer: 'w1', rev: '0a1b2c41' });
   return [[tool.id + '.json', tool], [asked.id + '.json', asked], [person.id + '.json', person], [mv.id + '.json', mv], [cid + '.json', comp], [g.id + '.json', g], [rv.id + '.json', rv], [dec.name, dec.file], [app.name, app.file],
-    [sp.id + '.json', sp], [inc.id + '.json', inc], [bnd.id + '.json', bnd], [stp.id + '.json', stp], [fil.id + '.json', fil], [sap.name, sap.file], [fap.name, fap.file]];
+    [sp.id + '.json', sp], [inc.id + '.json', inc], [bnd.id + '.json', bnd], [stp.id + '.json', stp], [fil.id + '.json', fil], [sap.name, sap.file], [fap.name, fap.file],
+    [fct.id + '.json', fct], [fbk.id + '.json', fbk], [fst.id + '.json', fst], [fcm.id + '.json', fcm], [sug.id + '.json', sug], [sga.name, sga.file]];
 }
 /* Each record damaged one way at a time: every field dropped, retyped and nulled, an extra field, a newer or unmarked format,
    over-long text, a prototype key, another file name. */
@@ -81,6 +92,7 @@ function corpus() {
     put(name, '﻿' + JSON.stringify(o), 'byte-order mark');
     /* Links as a browser's URL parser reads them: a host ending in a number is an IPv4 address or nothing. */
     if (o.op === 'move') LINKS.concat(IDN).forEach((v) => put(name, Object.assign({}, o, { to: { link: v } }), 'link ' + v));
+    if (o.kind === 'fact' && o.domain === 'prs') LINKS.concat(IDN).forEach((v) => put(name, Object.assign({}, o, { entries: [Object.assign({}, o.entries[0], { link: v })].concat(o.entries.slice(1)) }), 'entry link ' + v));
     if (o.op === 'add' && o.kind === 'proposal') LINKS.concat(IDN).forEach((v) => put(name, Object.assign({}, o, { origin: { link: v } }), 'origin link ' + v));
     put(name, JSON.stringify(o, null, 2) + ' '.repeat(T.LIMITS.bytes), 'over the size limit');
   });
@@ -118,9 +130,11 @@ rule('The checker refuses exactly the to-do records the app refuses, over every 
   const cs = corpus();
   assert.ok(cs.length > 400, 'a corpus of ' + cs.length);
   ['spread-add', 'spread-include', 'spread-bind', 'spread-stop'].forEach((op) => assert.ok(cs.some((c) => c.label === 'valid' && JSON.parse(c.text).op === op), 'the corpus has a ' + op));
+  ['prs', 'commits', 'status', 'blockers'].forEach((d) => assert.ok(cs.some((c) => c.label === 'valid' && JSON.parse(c.text).domain === d), 'the corpus has a fact on ' + d));
+  assert.ok(cs.some((c) => c.label === 'valid' && JSON.parse(c.text).support), 'the corpus has a done on evidence');
   const pyOut = JSON.parse(cp.execFileSync(py, ['-I', '-B', '-c', DRIVER, DIR], { input: JSON.stringify(cs), encoding: 'utf8', maxBuffer: 256 * 1048576 }));
   const off = [];
-  const idn = (c) => IDN.some((v) => c.label === 'link ' + v || c.label === 'origin link ' + v), un = [];
+  const idn = (c) => IDN.some((v) => c.label === 'link ' + v || c.label === 'origin link ' + v || c.label === 'entry link ' + v), un = [];
   cs.forEach((c, i) => {
     const j = jsRefuses(c), x = pyOut[i], p = Array.isArray(x) ? x[0] : x, notes = Array.isArray(x) ? x[1] : [];
     if (idn(c)) { if (notes.length !== 1) un.push(c.label + ' · unchecked: ' + JSON.stringify(notes)); return; }

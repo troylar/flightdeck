@@ -17,8 +17,8 @@
       "reviewed": "slice 3 commit 2: read-back of a taken request through PF.todos.cleanFile as todo does"
     },
     "build.py": {
-      "sha256": "1dce012e7269422f84c2c2aeb7b327b242a28e4990a5c5c95a22dc98228122dc",
-      "reviewed": "slice 3 commit 1: spreads core (spreads.js), todos reduction and holds, run.js todoLand, app wiring, Python checker parity; no direct writes or unconditional deletes"
+      "sha256": "cf0a7c0289f08fc6d138b4feaddbdc118b45af451a7732e5ee68c9480c752b38",
+      "reviewed": "slice 4 commit 3: facts core (facts.js: records, reduction, freshness, support, de-duplication), todos hooks (fact dispatch, done support, now), Python checker parity; pure code, no direct writes or unconditional deletes"
     },
     "docs/apps.md": {
       "sha256": "c274051da1107eec8e4f23ce41dc59580f178049dc519071fd8f405e1ca90c9a",
@@ -53,8 +53,8 @@
       "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "373cc7b3c905fa6ad2b1b2b104bdf9c85db642f8ad4b6c3ae8631b255d899292",
-      "reviewed": "slice 3 commit 1: spreads core (spreads.js), todos reduction and holds, run.js todoLand, app wiring, Python checker parity; no direct writes or unconditional deletes"
+      "sha256": "31707538c53d222852754ab45c962675f2c5c96efa97c07923eb700f946f1f46",
+      "reviewed": "slice 4 commit 3: facts core (facts.js: records, reduction, freshness, support, de-duplication), todos hooks (fact dispatch, done support, now), Python checker parity; pure code, no direct writes or unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
       "sha256": "197779e5fb047d6137527db0211659a2db320470f3086d61b5126d6e868b0cf8",
@@ -197,8 +197,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "f290b6bb20da1936545d797eb635c4a646b5f63a5fde90844706f984f4859a09",
-      "reviewed": "slice 3 commit 2: flightdeck spread (list/add/sync/include/stop), CLI run/next read loop inputs for spreads, the spread row and Accept N additions in the app, docs, command guide, AGENTS.md row and the living-run skill; sync writes each request once through writeOnce; no direct writes or unconditional deletes"
+      "sha256": "66d8e7145d82379fb46dea10e508e748f11cabedddc1a75730094b112e78c95a",
+      "reviewed": "slice 4 commit 3: facts core (facts.js: records, reduction, freshness, support, de-duplication), todos hooks (fact dispatch, done support, now), Python checker parity; pure code, no direct writes or unconditional deletes"
     },
     "src/core/appjson.js": {
       "sha256": "d3bcd6c56e778c6eba888b38b74415cf61bc96905589d51ce8c67b319f63c676",
@@ -231,6 +231,10 @@
     "src/core/evidence.js": {
       "sha256": "f3b2d1b62d72274f6169f873bae26689fb931b2dab4e2fae9a2335e5ec9b67e2",
       "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
+    },
+    "src/core/facts.js": {
+      "sha256": "f6ac45ba8e8c71468d35957f0d88552cf2b86294111d8e75a8ca0d0005e03efd",
+      "reviewed": "slice 4 commit 3: facts core (facts.js: records, reduction, freshness, support, de-duplication), todos hooks (fact dispatch, done support, now), Python checker parity; pure code, no direct writes or unconditional deletes"
     },
     "src/core/followups.js": {
       "sha256": "ee399703ee43c4408af48a9bbd816483f6c28039a4587815063ff0a175c8fea0",
@@ -337,8 +341,8 @@
       "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
     },
     "src/core/spreads.js": {
-      "sha256": "5062c012797efd4368203e6057ffd5e58a644693d4ef7481ae3ae3152db01940",
-      "reviewed": "slice 3 commit 1: spreads core (spreads.js), todos reduction and holds, run.js todoLand, app wiring, Python checker parity; no direct writes or unconditional deletes"
+      "sha256": "93f84a7410fde0354e86ee1d78a897863cd36078cdb9914a2a3f71cd890e39fe",
+      "reviewed": "slice 4 commit 3: facts core (facts.js: records, reduction, freshness, support, de-duplication), todos hooks (fact dispatch, done support, now), Python checker parity; pure code, no direct writes or unconditional deletes"
     },
     "src/core/staging.js": {
       "sha256": "d01a3204178bd0b055c05524916f55774c4404cca10f86fbb10a2ca675bd6b07",
@@ -353,8 +357,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "71d11c8ad693748ea5e11f89054ef122b0c02f3c9b8a366791cb1554a6aaaba4",
-      "reviewed": "slice 3 commit 2: flightdeck spread (list/add/sync/include/stop), CLI run/next read loop inputs for spreads, the spread row and Accept N additions in the app, docs, command guide, AGENTS.md row and the living-run skill; sync writes each request once through writeOnce; no direct writes or unconditional deletes"
+      "sha256": "dd4edd10d5c817befa876f40332455f507d95a0cca866a105a3b10f34841781d",
+      "reviewed": "slice 4 commit 3: facts core (facts.js: records, reduction, freshness, support, de-duplication), todos hooks (fact dispatch, done support, now), Python checker parity; pure code, no direct writes or unconditional deletes"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",

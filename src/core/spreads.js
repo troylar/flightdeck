@@ -51,7 +51,7 @@ PF.spreads = (function () {
     var views = Object.create(null);
     var childView = function (c) {
       var k = c.process + '/' + c.id;
-      if (!own(views, k)) { var v = null; try { v = PF.todos.view(c, { records: deps.records, unread: deps.unread, people: o.people, deps: deps }); } catch (e) { v = null; } views[k] = v; }
+      if (!own(views, k)) { var v = null; try { v = PF.todos.view(c, { records: deps.records, unread: deps.unread, people: o.people, deps: deps, now: o.now }); } catch (e) { v = null; } views[k] = v; }
       return views[k];
     };
     (T.spreads || []).forEach(function (s) {

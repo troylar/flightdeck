@@ -121,6 +121,7 @@ test/loops.test.js -
 test/todos.test.js -
 test/todos-rules.test.js -
 test/spreads.test.js -
+test/facts.test.js -
 test/loop-cli.test.js -
 test/todo-cli.test.js -
 test/spread-cli.test.js -

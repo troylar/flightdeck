@@ -1802,8 +1802,18 @@ T_ISO = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(?::[0-9]{2}(?
 T_CONTROL = re.compile("[\u0000-\u001f\u007f  ]")
 T_RUNKEY = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}/[a-z0-9-]{1,40}\Z", re.I | re.A)
 T_COMMON = ["format", "features", "app", "kind", "id", "run", "seen", "producer", "key", "by", "at"]
-T_BODY = ["op", "todo", "target", "placement", "text", "owner", "reason", "origin", "to", "requester", "spread", "loopStep", "child", "scope", "item", "dest", "owed", "fulfills"]
-T_EFIELDS = {"add": ["op", "todo", "text", "target", "placement", "owner", "reason", "origin", "fulfills"], "done": ["op", "todo", "reason"],
+T_BODY = ["op", "todo", "target", "placement", "text", "owner", "reason", "origin", "to", "requester", "spread", "loopStep", "child", "scope", "item", "dest", "owed", "fulfills", "support"]
+# Facts (4.0 slice 4, PF.facts): what a tool observed about a loop item, one record per item, source and domain.
+F_DOMAINS = {"prs": ("state", ["open", "draft", "merged", "closed"], 100), "commits": (None, None, 100),
+             "status": ("category", ["todo", "doing", "done"], 1), "blockers": ("state", ["open", "resolved"], 100)}
+F_NAMES = ["prs", "commits", "status", "blockers"]
+F_LIMITS = {"entries": 100, "errors": 20, "error": 300, "ageMin": 1, "ageMax": 604800, "reported": 1000000000, "text": 200}
+F_SRC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@-]{0,59}\Z")
+F_ENTRY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:#/-]{0,119}\Z")
+F_MOMENT = re.compile(r"^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2})(?::([0-9]{2})(?:\.[0-9]{1,3})?)?(?:Z|[+-]([0-9]{2}):([0-9]{2}))\Z")
+F_FIELDS = ["loopStep", "uid", "attempt", "source", "domain", "observedAt", "maxAgeSeconds", "complete", "reported", "fetched", "errors", "entries"]
+F_COMMON = ["format", "features", "app", "kind", "id", "run", "seen", "producer", "key", "at"]
+T_EFIELDS = {"add": ["op", "todo", "text", "target", "placement", "owner", "reason", "origin", "fulfills"], "done": ["op", "todo", "reason", "support"],
              "spread-add": ["op", "spread", "loopStep", "text", "child", "scope", "owner", "reason"], "spread-include": ["op", "spread", "item", "reason"],
              "spread-bind": ["op", "spread", "item", "dest", "reason"], "spread-stop": ["op", "spread", "reason", "owed"],
              "reopen": ["op", "todo", "reason"], "wont": ["op", "todo", "reason"], "move": ["op", "todo", "to", "reason"]}
@@ -1931,6 +1941,178 @@ def _spread_child_id(spread, uid, attempt, run):
 def _todo_td(proposal):
     import hashlib
     return "td-" + hashlib.sha256(js_json(["td", proposal]).encode("utf-8")).hexdigest()[:24]
+
+
+def _fact_id(tool, key):
+    return "req-" + tool + "-" + _thash(["fact", tool, key], 24)
+
+
+def _suggest_hash(todo, inc, source, domain, content):
+    def orv(v):
+        return v if (v is not None and v is not False and v != "" and not (_tnum(v) and v == 0)) else ""
+    src = [source.get("feed"), orv(source.get("site")), orv(source.get("account"))]
+    return _thash(["suggest", todo, inc, src, domain, content], 24)
+
+
+def fact_moment_ok(v):
+    """PF.facts momentOk: the date-time format with every part in range."""
+    m = F_MOMENT.match(v) if _tstr(v) else None
+    if not m:
+        return False
+    rng = [(2, 1, 12), (3, 1, 31), (4, 0, 23), (5, 0, 59), (6, 0, 59), (7, 0, 23), (8, 0, 59)]
+    return all(m.group(i) is None or lo <= int(m.group(i)) <= hi for i, lo, hi in rng)
+
+
+def fact_clean_source(v, err, what):
+    if not isinstance(v, dict):
+        err(what)
+        return None
+    n = [0]
+
+    def e(w):
+        n[0] += 1
+        err(w)
+    for k in v:
+        if k not in ("feed", "site", "account"):
+            e(what + " has " + k)
+    out = {}
+    if not _tstr(v.get("feed")) or not F_SRC.match(v["feed"]):
+        e(what + " feed")
+    else:
+        out["feed"] = v["feed"]
+    for k in ("site", "account"):
+        if v.get(k) is None:
+            continue
+        if not _tstr(v[k]) or not F_SRC.match(v[k]):
+            e(what + " " + k)
+        else:
+            out[k] = v[k]
+    return None if n[0] else out
+
+
+def fact_clean_support(v, err):
+    """PF.facts.cleanSupport."""
+    if not isinstance(v, dict):
+        err("support")
+        return None
+    errs = []
+    for k in v:
+        if k not in ("fact", "content", "incarnation", "source", "domain"):
+            errs.append("support has " + k)
+    if not _tstr(v.get("fact")) or not T_REQ.match(v["fact"]):
+        errs.append("support fact")
+    if not _tstr(v.get("content")) or not T_FP.match(v["content"]):
+        errs.append("support content")
+    inc = v.get("incarnation")
+    if not _tstr(inc) or not (T_REQ.match(inc) or T_DNAME.match(inc + ".json")):
+        errs.append("support incarnation")
+    src = fact_clean_source(v.get("source"), errs.append, "support source")
+    if not _tstr(v.get("domain")) or v["domain"] not in F_NAMES:
+        errs.append("support domain")
+    for w in errs:
+        err(w)
+    if errs:
+        return None
+    return {"fact": v["fact"], "content": v["content"], "incarnation": inc, "source": src, "domain": v["domain"]}
+
+
+def fact_why(o, name, unchecked=None):
+    """PF.facts.cleanFile: '' when the app reads this fact, else why it refuses it."""
+    if not _tstr(o.get("id")) or not T_REQ.match(o["id"]):
+        return "is a fact without a request id"
+    if _tstr(name) and not todo_request_file(name, o["id"]):
+        return "is a fact whose name isn't its id"
+    errors = []
+    err = errors.append
+    for k in o:
+        if k not in F_COMMON + F_FIELDS:
+            err("It has " + k)
+    run = o.get("run")
+    if not isinstance(run, dict) or len(run) != 2 or not _tstr(run.get("process")) or not T_PROC.match(run["process"]) or not _tstr(run.get("id")) or not T_RUN.match(run["id"]):
+        err("run")
+    sn = o.get("seen")
+    if not isinstance(sn, list) or len(sn) > 50 or not all(_tstr(x) and T_REQ.match(x) for x in sn):
+        err("seen")
+    elif len(set(sn)) != len(sn):
+        err("seen twice")
+    pr = o.get("producer")
+    if not isinstance(pr, dict) or len(pr) != 2 or not _tstr(pr.get("name")) or not T_TOOL.match(pr["name"]) or not _tstr(pr.get("version")) or not T_VERSION.match(pr["version"]):
+        err("producer")
+    elif not _tstr(o.get("key")) or not T_KEY.match(o["key"]):
+        err("key")
+    elif o["id"] != _fact_id(pr["name"], o["key"]):
+        err("Its id isn't the one its tool and key give")
+    if not _tstr(o.get("at")) or not T_ISO.match(o["at"]):
+        err("at")
+    # The observation (PF.facts.cleanObservation).
+    n0 = len(errors)
+    if not _tstr(o.get("loopStep")) or not T_STEP.match(o["loopStep"]):
+        err("loopStep")
+    if not _tstr(o.get("uid")) or not T_UID.match(o["uid"]):
+        err("uid")
+    if not _twhole(o.get("attempt"), 1, 999):
+        err("attempt")
+    fact_clean_source(o.get("source"), err, "source")
+    dom = o.get("domain")
+    if not _tstr(dom) or dom not in F_NAMES:
+        err("domain")
+        return "is a fact that isn't in its format: " + errors[0]
+    if not fact_moment_ok(o.get("observedAt")):
+        err("observedAt")
+    if not _twhole(o.get("maxAgeSeconds"), F_LIMITS["ageMin"], F_LIMITS["ageMax"]):
+        err("maxAgeSeconds")
+    if not isinstance(o.get("complete"), bool):
+        err("complete")
+    if not ("reported" in o and (o["reported"] is None or _twhole(o["reported"], 0, F_LIMITS["reported"]))):
+        err("reported")
+    field, values, mx = F_DOMAINS[dom]
+    ents = o.get("entries")
+    if not isinstance(ents, list) or len(ents) > mx:
+        err("entries")
+    else:
+        have = set()
+        for i, e in enumerate(ents):
+            what = "entries " + str(i + 1)
+            if not isinstance(e, dict):
+                err(what)
+                break
+            k0 = len(errors)
+            for k in e:
+                if k not in ["id", "text", "link"] + ([field] if field else []):
+                    err(what + " has " + k)
+            if not _tstr(e.get("id")) or not F_ENTRY.match(e["id"]):
+                err(what + " id")
+            t = e.get("text")
+            if not _tstr(t) or not js_trim(t) or js_len(t) > F_LIMITS["text"] or T_CONTROL.search(t):
+                err(what + " text")
+            if field and (not _tstr(e.get(field)) or e[field] not in values):
+                err(what + " " + field)
+            if e.get("link") is not None:
+                ok = todo_http_link(e["link"])
+                if ok == SCOPE_IDN:
+                    if unchecked is not None:
+                        unchecked.append('"entries" "link"')
+                elif not ok:
+                    err(what + " link")
+            if len(errors) > k0:
+                break
+            if e["id"] in have:
+                err("entries twice")
+                break
+            have.add(e["id"])
+    fe = o.get("fetched")
+    if not _twhole(fe, 0, F_LIMITS["entries"]) or (isinstance(ents, list) and fe != len(ents)):
+        err("fetched")
+    ers = o.get("errors")
+    if not isinstance(ers, list) or len(ers) > F_LIMITS["errors"]:
+        err("errors")
+    else:
+        for x in ers:
+            if not _tstr(x) or not js_trim(x) or js_len(x) > F_LIMITS["error"] or T_CONTROL.search(x):
+                err("errors entry")
+    if len(errors) == n0 and o["complete"] and (o["reported"] != o["fetched"] or ers):
+        err("complete is true only when reported equals fetched and there are no errors")
+    return "is a fact that isn't in its format: " + errors[0] if errors else ""
 
 
 def todo_why(o, name, nbytes=None, unchecked=None):
@@ -2156,7 +2338,7 @@ def todo_why(o, name, nbytes=None, unchecked=None):
 
     def clean_spread_body(oo, rid):
         b = {"op": oo["op"]}
-        for k in ("todo", "target", "placement", "origin", "to", "fulfills"):
+        for k in ("todo", "target", "placement", "origin", "to", "fulfills", "support"):
             if oo.get(k) is not None:
                 err("A spread request has no " + k)
         if oo["op"] == "spread-add":
@@ -2274,6 +2456,8 @@ def todo_why(o, name, nbytes=None, unchecked=None):
             err("effect of a won't-do says why")
         if e["op"] == "move":
             out["to"] = clean_to(e.get("to"))
+        if e.get("support") is not None:
+            out["support"] = fact_clean_support(e["support"], err)
         return out
 
     def effect_of(p):
@@ -2304,6 +2488,8 @@ def todo_why(o, name, nbytes=None, unchecked=None):
             e["reason"] = p.get("reason")
         if p["op"] == "move":
             e["to"] = p.get("to")
+        if p["op"] == "done" and p.get("support"):
+            e["support"] = p["support"]
         return e
 
     def clean_authority(a):
@@ -2360,8 +2546,10 @@ def todo_why(o, name, nbytes=None, unchecked=None):
                     err("An application has no " + k)
         return "is a to-do " + o["kind"] + " that isn't in its format: " + errors[0] if errors else ""
     kind = o.get("kind")
+    if kind == "fact":
+        return fact_why(o, name, unchecked)
     if kind not in TODO_PKINDS:
-        return "is a to-do record that isn't a proposal, a compound, a grant or a revoke"
+        return "is a to-do record that isn't a proposal, a compound, a grant, a revoke or a fact"
     if not _tstr(o.get("id")) or not T_REQ.match(o["id"]):
         return "is a to-do record without a request id"
     if _tstr(name) and not todo_request_file(name, o["id"]):
@@ -2395,6 +2583,15 @@ def todo_why(o, name, nbytes=None, unchecked=None):
         fr = ful.get("run")
         if isinstance(fr, dict) and fr.get("process") == run["process"] and fr.get("id") == run["id"]:
             err("fulfills names this run itself")
+    elif isinstance(o.get("support"), dict) and o.get("op") == "done":
+        sp = o["support"]
+        ok = _tstr(o.get("todo")) and _tstr(sp.get("incarnation")) and isinstance(sp.get("source"), dict) and _tstr(sp.get("domain")) and _tstr(sp.get("content"))
+        if not by or not by.get("tool") or kind != "proposal":
+            err("A suggestion with support is a tool's request")
+        elif not ok or o["id"] != "req-suggest-" + _suggest_hash(o["todo"], sp["incarnation"], sp["source"], sp["domain"], sp["content"]):
+            err("Its id isn't the one its to-do and support give")
+        elif o.get("key") != "sg-" + _suggest_hash(o["todo"], sp["incarnation"], sp["source"], sp["domain"], sp["content"]):
+            err("Its key isn't its suggestion's")
     elif by and by.get("tool") and o["id"] != _todo_id(by["tool"], o.get("key")):
         err("Its id isn't the one its tool and key give")
     if kind in ("proposal", "compound"):
@@ -2450,6 +2647,11 @@ def todo_why(o, name, nbytes=None, unchecked=None):
                     b["reason"] = rr
             if o.get("requester") is not None and (not _tstr(o["requester"]) or not T_PERSON.match(o["requester"])):
                 err("requester")
+            if o.get("support") is not None:
+                if op != "done":
+                    err("Only a done request has support")
+                else:
+                    b["support"] = fact_clean_support(o["support"], err)
             self_move(run, b.get("to"))
         if kind == "compound":
             if not by or not by.get("person"):
