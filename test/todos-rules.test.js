@@ -64,7 +64,7 @@ rule('A decision counts only from a person in people.json, active, who records t
     assert.ok(q.ignored.some(x => re.test(x.why)), JSON.stringify(q.ignored));
   });
 });
-rule('a compound counts only from a person who may decide; otherwise it is ignored with the reason', () => {
+rule('A compound counts only from a person who may decide; otherwise it is ignored with the reason', () => {
   const { r } = newRun();
   const ok = compound('ca1', add('One', { phase: 'draft' }), 'person-avery', r);
   same(V(r, [ok]).requests[ok.id].status, 'queued', 'the recorder');
@@ -196,7 +196,7 @@ rule('A dispute on a to-do holds its gate, and settling it never restores an app
   same(V(r, recs.concat([settle])).requests[re.id].status, 'declined');
   same(R.gateStatus(r, map, 0), 'review', 'settled, the approval still needs review');
 });
-rule('a contrary decision after an application landed keeps the work disputed and the gate held until settled', () => {
+rule('A contrary decision after an application landed keeps the work disputed and the gate held until settled', () => {
   const { r } = newRun(), map = R.mapOf(r), p = prop('bd1', add('Check', { phase: 'draft' }), [], 'person-avery');
   const a = applied(p, '', { decision: p.id + '.status-w1-00000000' }); land(r, a);
   R.done(r, map, 'write', 'person-avery', AT);

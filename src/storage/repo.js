@@ -2578,11 +2578,11 @@ PF.repo = (function () {
     return loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status' || typeof o.format === 'string'; }, bad, only, torn).then(function (props) {
       var plans = [], statuses = [], scopes = [], scopesUnread = [], todos = [], todosUnread = [];
       props.forEach(function (p) {
-        /* A to-do record (4.0, PF.todos) goes to its own reader first; one that can't be read holds its run (or, when which run
-           it is for can't be told, every living run). */
-        if (PF.todos.isTodo(p)) {
+        /* A to-do record (4.0, PF.todos), or any record naming living-runs, goes to its own reader first; one that can't be
+           read (newer, malformed) holds its run (or, when which run it is for can't be told, every living run). */
+        if (PF.todos.claims(p)) {
           var raw = {}; Object.keys(p).forEach(function (k) { if (k !== '_file') raw[k] = p[k]; });
-          var tv = PF.todos.cleanFile(raw, p._file), tp = 'proposals/' + p._file, tf = p.format === PF.todos.STATUS ? 'flightdeck-plan-status' : 'flightdeck-plan';
+          var tv = PF.todos.cleanFile(raw, p._file), tp = 'proposals/' + p._file, tf = PF.todos.familyOf(p);
           if (!tv.ok) { if (bad) bad.push({ path: tp, kind: tv.kind, why: tv.why }); refused.push(PF.envelope.refusal(tp, tf, tv)); todosUnread.push({ file: p._file, why: tv.why, run: PF.todos.runOf(p) }); return; }
           tv.record._file = p._file; todos.push(tv.record); return;
         }

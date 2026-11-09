@@ -48,6 +48,10 @@ PF.todos = (function () {
   function todoIdFor(proposal) { return 'td-' + PF.sha256.hex(JSON.stringify(['td', proposal])).slice(0, 24); }
   function statusName(proposal, writer, rev) { return proposal + '.status-' + writer + '-' + rev + '.json'; }
   function isTodo(o) { return isMap(o) && (o.format === FORMAT || o.format === STATUS); }
+  /* Whether the to-do reader takes a file: one in its format, or any record naming the living-runs feature (a newer or
+     malformed one included), so a record this copy can't read holds its run rather than reaching another reader. */
+  function claims(o) { return isTodo(o) || (isMap(o) && Array.isArray(o.features) && o.features.indexOf(FEATURE) >= 0); }
+  function familyOf(o) { return isMap(o) && typeof o.format === 'string' && /^flightdeck-plan-status\//.test(o.format) ? 'flightdeck-plan-status' : 'flightdeck-plan'; }
 
   /* ---- Where a to-do belongs: exactly one target, by immutable ids in the run's frozen checklist. ---- */
   function cleanTarget(t, errors, where) {
@@ -222,7 +226,7 @@ PF.todos = (function () {
   /* A record in proposals/, read back: { ok, record } or a refusal ({ ok: false, kind, why }). name: its file name. Every
      field is checked for its type and limit; a record over a limit is refused whole, never cut. */
   function cleanFile(o, name) {
-    var st = isMap(o) && o.format === STATUS, bad = verdictOf(o, st ? 'flightdeck-plan-status' : 'flightdeck-plan');
+    var st = isMap(o) && o.format === STATUS, bad = verdictOf(o, familyOf(o));
     if (bad) return bad;
     var errors = [];
     if (st) {
@@ -651,7 +655,7 @@ PF.todos = (function () {
      before it left it. */
   function nextQueued(T) { return requestsOf(T).filter(function (q) { return q.status === 'queued' && !q.landed; })[0] || null; }
 
-  return { FORMAT: FORMAT, STATUS: STATUS, FEATURE: FEATURE, LIMITS: LIMITS, OPS: OPS, WORDS: WORDS, STATE_WORDS: STATE_WORDS, idFor: idFor, todoIdFor: todoIdFor, statusName: statusName, isTodo: isTodo,
+  return { FORMAT: FORMAT, STATUS: STATUS, FEATURE: FEATURE, LIMITS: LIMITS, OPS: OPS, WORDS: WORDS, STATE_WORDS: STATE_WORDS, idFor: idFor, todoIdFor: todoIdFor, statusName: statusName, isTodo: isTodo, claims: claims, familyOf: familyOf,
     targetKey: targetKey, placeOf: placeOf, placementWhy: placementWhy, placementFor: placementFor, effectOf: effectOf, fingerprint: fp, text: text,
     buildProposal: buildProposal, buildGrant: buildGrant, buildStatus: buildStatus, cleanFile: cleanFile, fileWhy: fileWhy, filed: filed, runOf: runOf, recordsFor: recordsFor,
     reduce: reduce, seenFor: seenFor, requestsOf: requestsOf,

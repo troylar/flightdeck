@@ -25,8 +25,8 @@
       "reviewed": "loop guard builder for every loop parent and child write, undo on drop; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "a1a8d9d5b1864662d545186c61b852f791b6d5154dae2da0456e6b023501175d",
-      "reviewed": "Round 1 B: work stays disputed while any decision on it is unsettled; checked for direct writes and unconditional deletes"
+      "sha256": "b9dd1ff1b5c0ed547c89806c9bb55dfc83f796f9134abacbb7832f1b9fb9d707",
+      "reviewed": "Round 1 C: any record naming living-runs goes to the to-do reader; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -345,8 +345,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "87a6a69c6681cc7b4e588ca2b66b24e37cbd92655b1f2b914f808232ea54a33c",
-      "reviewed": "Round 1 B: work stays disputed while any decision on it is unsettled; checked for direct writes and unconditional deletes"
+      "sha256": "c591333c8cc2ef635fb7050e87b505d6502a44c3acefc6d5211ca4793691f60b",
+      "reviewed": "Round 1 C: any record naming living-runs goes to the to-do reader; checked for direct writes and unconditional deletes"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",
@@ -397,8 +397,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "992a2984c53df6d429ad9a490c6c4870dff075c4b0a1f91f0143d399504659ea",
-      "reviewed": "4.0 slice 1, commit 3: the recorder's window applies queued to-dos and recovers every interruption from the folder"
+      "sha256": "775c88c0ff9940a7fbed92964a5e2525f16592916ddff91e533632d248e82dbe",
+      "reviewed": "Round 1 C: any record naming living-runs goes to the to-do reader; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "66fd5ae5978a5c470d1c5d596bf3412f5b66a1f5d482623c6cfe376cc599357a",

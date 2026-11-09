@@ -27,6 +27,7 @@ function apply(p, previous, seen, authority) {
 }
 const ALL = { map: MAP, authority: () => ({ ok: true, via: 'test' }) };
 const statusOf = (Tr, id) => Tr.requests[id].status;
+const memFs = (files) => { const m = new PF.fs.MemoryFS('todos-' + Math.random(), null); Object.keys(files).forEach(p => { m.files[p] = { t: files[p], m: 1 }; }); return m; };
 const has = (list, re) => assert.ok(list.some(x => re.test(x)), 'expected ' + re + ' in ' + JSON.stringify(list));
 
 /* ---------- The format ---------- */
@@ -242,4 +243,15 @@ budget('Reducing a run with 500 to-dos and 1,500 records stays under 400 ms', ()
   assert.ok(ms < 400, ms + ' ms');
 });
 
+rule('A newer to-do record (living-runs, any format version) holds its run as unread, never reaching another reader', async () => {
+  const p = T.buildProposal({ run: RUN, id: T.idFor('flightdeck', 'c5'), by: 'person-avery', seen: [], at: AT, body: ADD('X') });
+  const f5 = Object.assign({}, p, { format: 'flightdeck-plan/5' }), s5 = { format: 'flightdeck-plan-status/5', features: ['living-runs'], kind: 'decision', proposal: p.id, run: RUN };
+  const fs = memFs({ ['proposals/' + p.id + '.json']: T.text(f5), ['proposals/' + p.id + '.status-w1-0000abcd.json']: T.text(s5) });
+  const d = await PF.repo.readPlans(fs);
+  same([d.todos.length, d.todosUnread.length, d.todosUnread.every(u => u.run && u.run.id === 'r-1'), d.plans.length + d.statuses.length + d.scopes.length], [0, 2, true, 0]);
+  assert.ok(d.todosUnread.every(u => /newer/.test(u.why)), JSON.stringify(d.todosUnread));
+  const r = { process: RUN.process, id: RUN.id, steps: {} };
+  T.markHolds([r], { records: d.todos, unread: d.todosUnread, people: { people: [] } });
+  assert.ok(r._todos && r._todos.all.length, 'held');
+});
 run();
