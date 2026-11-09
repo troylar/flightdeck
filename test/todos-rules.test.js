@@ -95,6 +95,19 @@ rule('An approval binds what the request says, not only its consequence: a reque
   const w1 = prop('ab3', { op: 'wont', todo: p.todo, reason: 'Not needed' }, [a.id], 'person-avery'), w2 = prop('ab3', { op: 'wont', todo: p.todo, reason: 'Done elsewhere' }, [a.id], 'person-avery');
   assert.notStrictEqual(T.consequenceOf(r, map, w1, V(r, recs.concat([w1]))).fingerprint, T.consequenceOf(r, map, w2, V(r, recs.concat([w2]))).fingerprint, 'another reason');
 });
+rule('Moving a to-do to its own run is refused in a request, a compound and an application', () => {
+  const { r, map, p, a } = landedTodo(), self = { run: RUN.process + '/' + RUN.id };
+  const raw = T.buildProposal({ run: RUN, id: T.idFor('flightdeck', 'ae1'), by: 'person-avery', seen: [a.id], at: AT, body: moveTo(p.todo, self) });
+  same(T.cleanFile(JSON.parse(T.text(raw)), raw.id + '.json').ok, false, 'a request');
+  const ok = prop('ae2', moveTo(p.todo, { run: 'other-process/r-9' }), [a.id], 'person-avery');
+  const eff = Object.assign(T.effectOf(ok), { to: self });
+  const s = T.buildStatus({ kind: 'application', proposal: ok.id, run: RUN, seen: [ok.id, a.id], by: 'person-avery', at: AT, authority: { decision: ok.id + '.status-w1-00000000' }, previous: a.id, effect: eff, writer: 'rec', rev: rev() });
+  same(T.cleanFile(JSON.parse(T.text(s.file)), s.name).ok, false, 'an application');
+  const cid = T.idFor('flightdeck', 'ae3'), body = moveTo(p.todo, self), ce = T.effectOf(body);
+  const c = T.buildProposal({ kind: 'compound', run: RUN, id: cid, by: 'person-avery', seen: [a.id], at: AT, body, decision: { by: 'person-avery', consequence: '0123456789abcdef' }, application: { previous: a.id, effect: ce, fingerprint: T.fingerprint(ce) } });
+  same(T.cleanFile(JSON.parse(T.text(c)), cid + '.json').ok, false, 'a compound');
+  assert.ok(r && map);
+});
 rule('A grant lets a tool add, check off and reopen on its exact targets within its limit; never drop work or reopen an approval', () => {
   const { r } = newRun(), g = grant('g1', ['add', 'done'], [{ phase: 'draft' }], 1);
   const p1 = prop('b1', add('One', { phase: 'draft' }), [g.id]), p2 = prop('b2', add('Two', { phase: 'draft' }), [g.id, p1.id]), p3 = prop('b3', add('Three', { phase: 'review' }), [g.id]);

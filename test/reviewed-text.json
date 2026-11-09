@@ -25,8 +25,8 @@
       "reviewed": "loop guard builder for every loop parent and child write, undo on drop; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "4e766674c99ea12657d12b21e7579d22880d9ccae932476b68b569b7d6418881",
-      "reviewed": "Slice 1 round 4 AD: unread people.json gives no authority"
+      "sha256": "9344dcb3f18e6540cfe68b1f970b2f0f417a73a089d398ad2592637821691287",
+      "reviewed": "Slice 1 round 4 AE: moving to its own run is refused"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -345,8 +345,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "1bd078ef16803ff3f19452cc90a3d31e0570d22fd892a8a961f537ed9dbe36ce",
-      "reviewed": "Slice 1 round 4 AB: consent binds the request's arguments"
+      "sha256": "9f7830dd0bebe3595ae03a3465e78dc516fa4cf2e91982b67154f9cc94ec5cc4",
+      "reviewed": "Slice 1 round 4 AE: moving to its own run is refused"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",

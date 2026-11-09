@@ -116,6 +116,8 @@ PF.todos = (function () {
     if (own(to, 'run')) { if (typeof to.run !== 'string' || !/^[a-z0-9][a-z0-9-]{0,59}\/[a-z0-9-]{1,40}$/i.test(to.run)) { errors.push('"to" "run" is <process>/<run id>.'); return null; } return { run: to.run }; }
     errors.push('"to" is a ticket, a link or a run.'); return null;
   }
+  /* Moved work goes somewhere else: never to the run the record is for, which would release it while it went nowhere. */
+  function selfMove(run, to, errors) { if (run && to && typeof to.run === 'string' && to.run.toLowerCase() === (run.process + '/' + run.id).toLowerCase()) errors.push('"to" names this run itself; moved work goes to another run, a ticket or a link.'); }
   function cleanOrigin(o, errors) {
     if (!isMap(o)) { errors.push('"origin" is {"step": <step id>} or {"link": "https://..."}.'); return null; }
     only(o, ['step', 'link'], '"origin"', errors);
@@ -264,6 +266,7 @@ PF.todos = (function () {
         rec.authority = cleanAuthority(o.authority, errors);
         if (typeof o.previous !== 'string' || (o.previous !== '' && !REQ.test(o.previous) && !DNAME.test(o.previous + '.json'))) errors.push('"previous" is the application before it, or "".'); else rec.previous = o.previous;
         rec.effect = cleanEffect(o.effect, errors);
+        if (rec.effect) selfMove(rec.run, rec.effect.to, errors);
         if (typeof o.fingerprint !== 'string' || !FP.test(o.fingerprint)) errors.push('"fingerprint" is its effect\'s fingerprint.');
         else if (rec.effect && o.fingerprint !== fp(rec.effect)) errors.push('"fingerprint" doesn\'t match its effect.');
         else rec.fingerprint = o.fingerprint;
@@ -281,7 +284,7 @@ PF.todos = (function () {
     if (o.kind === 'proposal' || o.kind === 'compound') {
       only(o, COMMON.concat(BODY, o.kind === 'compound' ? ['decision', 'application'] : []), 'It', errors);
       var b = cleanBody(o, errors, o.id);
-      if (b) BODY.forEach(function (k) { if (b[k] != null) r[k] = b[k]; });
+      if (b) { BODY.forEach(function (k) { if (b[k] != null) r[k] = b[k]; }); selfMove(r.run, b.to, errors); }
       if (o.kind === 'compound') {
         if (!r.by || !r.by.person) errors.push('A compound is one person\'s gesture: it has "by", no tool.');
         var d = o.decision, a = o.application;
@@ -291,6 +294,7 @@ PF.todos = (function () {
         else {
           only(a, ['previous', 'effect', 'fingerprint'], '"application"', errors);
           var ap = { previous: '', effect: cleanEffect(a.effect, errors), fingerprint: '' };
+          if (ap.effect) selfMove(r.run, ap.effect.to, errors);
           if (typeof a.previous !== 'string' || (a.previous !== '' && !REQ.test(a.previous) && !DNAME.test(a.previous + '.json'))) errors.push('"application" "previous" is the application before it, or "".'); else ap.previous = a.previous;
           if (typeof a.fingerprint !== 'string' || !FP.test(a.fingerprint) || (ap.effect && a.fingerprint !== fp(ap.effect))) errors.push('"application" "fingerprint" is its effect\'s fingerprint.'); else ap.fingerprint = a.fingerprint;
           if (b && ap.effect && fp(effectOf(b)) !== fp(ap.effect)) errors.push('"application" "effect" isn\'t what the compound asks for.');
