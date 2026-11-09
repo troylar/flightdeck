@@ -8236,6 +8236,8 @@
     'loop-choose': function (id, b) { var run = b.dataset.run || (b.dataset.pick ? val(b.dataset.pick) : ''), r = ctx.run(), V = r && loopView(r, id), w = V ? PF.loop.choiceWhy(V, b.dataset.item, run) : 'The loop can\'t be read.'; if (w) { say(w, 'warn'); render(); return; } loopChange(id, 'choose', [b.dataset.item], { run: run }); },
     'loop-unassign': function (id, b) { loopChange(id, 'owner', [b.dataset.item], { owner: '' }); },
     'loop-more': function (id) { loopMem().all[id] = true; render(); },
+    /* Every fact line of one loop item (a view only; the memory is the folder's, as the loop's own Show all is). */
+    'fact-more': function (id, b) { var m = loopMem(); (m.facts = m.facts || Object.create(null))[id + '\n' + b.dataset.item] = true; render(); },
     'loop-requests-more': function (id) { loopMem().reqs[id] = true; render(); },
     'loop-open': function (id) { var m = loopMem(); m.keepRow = null; m.open[id] = !m.open[id]; render(); },
     'loop-approve': function (id) {

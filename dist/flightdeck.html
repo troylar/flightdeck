@@ -751,7 +751,7 @@ input[type="checkbox"] { accent-color: var(--go); width: 16px; height: 16px; }
 .sp-chips { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
 .sp-chip { padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); }
 .fact-lines { list-style: none; margin: 4px 0 0; padding: 0; color: var(--muted, inherit); overflow-wrap: anywhere; }
-.fact-lines .fact-disputed, .fact-lines .fact-failed, .fact-lines .fact-stale, .fact-lines .fact-held, .fact-lines .fact-future { color: inherit; font-weight: 600; }
+.fact-lines .fact-contrary, .fact-lines .fact-disputed, .fact-lines .fact-failed, .fact-lines .fact-stale, .fact-lines .fact-held, .fact-lines .fact-future { color: inherit; font-weight: 600; }
 .td-ack, .td-evidence { color: var(--muted, inherit); overflow-wrap: anywhere; }
 .sp-chip.sp-done, .sp-chip.sp-wont, .sp-chip.sp-moved, .sp-chip.sp-excepted { border-color: var(--go); }
 .td-batch { margin: 8px 0; padding: 8px 10px; border-left: 3px solid var(--go); }
@@ -19555,7 +19555,9 @@ PF.facts = (function () {
   function itemFacts(FV, loopStep, uid, attempt, now) {
     var list = (FV && FV.byItem[itemKey(loopStep, uid, attempt)]) || [];
     if (!list.length) return FV && FV.unread.length ? [{ domain: '', state: 'held', words: 'A fact record can\'t be read, so what is known about it may be missing.' }] : [];
-    var out = list.map(function (S) { var w = words(S, now, FV); return { domain: S.domain, source: S.source, state: w.state, words: w.words, slot: S.key }; });
+    /* contrary: what speaks against the work being done (a dispute, a record held, an open blocker), shown first wherever lines
+       are cut. */
+    var out = list.map(function (S) { var w = words(S, now, FV); return { domain: S.domain, source: S.source, state: w.state, words: w.words, slot: S.key, contrary: !!(S.disputed || S.held.length || (S.domain === 'blockers' && S.current && (S.entries || []).some(function (e) { return e.state === 'open'; }))) }; });
     NAMES.forEach(function (d) { if (!list.some(function (S) { return S.domain === d; })) out.push({ domain: d, source: null, state: 'unknown', words: TITLE[d] + ': not checked.' }); });
     return out;
   }
@@ -27888,9 +27890,17 @@ PF.vk = (function () {
       /* What is known about each item (4.0 slice 4: facts), by source, with completeness and freshness. A domain no tool has
          checked says so, never "none"; facts are shown, never acted on here (flightdeck fact sync files them). */
       var FV = ctx.factView ? ctx.factView(r) : null, fNow = ctx.factNow ? ctx.factNow() : Date.now();
+      /* Contrary lines first, then any not to be trusted as they stand, then the rest, then what wasn't checked; past 12, the
+         count left out and Show all, so every line is reachable and the contrary ones are never the part cut. */
+      var fMem = (ctx.loopMem ? ctx.loopMem() : {}).facts || Object.create(null), FACT_PAGE = 12;
+      var rank = function (f) { return f.contrary || f.state === 'held' || f.state === 'disputed' ? 0 : f.state === 'failed' || f.state === 'future' || f.state === 'stale' ? 1 : f.state === 'unknown' ? 3 : 2; };
       var factLines = function (i) {
         var L = FV && FV.count ? PF.facts.itemFacts(FV, s.id, i.uid, i.attempt || 1, fNow) : [];
-        return L.length ? '<ul class="fact-lines small">' + L.slice(0, 12).map(function (f) { return '<li class="fact-' + esc(f.state) + '">' + esc(f.words) + '</li>'; }).join('') + '</ul>' : '';
+        if (!L.length) return '';
+        L = L.map(function (f, n) { return { f: f, n: n }; }).sort(function (a, b) { return rank(a.f) - rank(b.f) || a.n - b.n; }).map(function (x) { return x.f; });
+        var all = !!fMem[s.id + '\n' + i.uid], cut = all ? L.length : Math.min(L.length, FACT_PAGE);
+        return '<ul class="fact-lines small">' + L.slice(0, cut).map(function (f) { return '<li class="fact-' + esc(f.state) + (f.contrary ? ' fact-contrary' : '') + '">' + esc(f.words) + '</li>'; }).join('') + '</ul>' +
+          (cut < L.length ? '<p class="small">' + (L.length - cut) + ' more <button class="mini" data-act="fact-more" data-id="' + sid + '" data-item="' + esc(i.uid) + '">Show all ' + L.length + ' facts</button></p>' : '');
       };
       rows.slice(0, all ? rows.length : PAGE).forEach(function (i) {
         var x = V.ledger.items.filter(function (y) { return y.uid === i.uid; })[0] || {}, k = esc(i.key || i.uid), acts = '';
@@ -41260,6 +41270,8 @@ PF.examples = (function () {
     'loop-choose': function (id, b) { var run = b.dataset.run || (b.dataset.pick ? val(b.dataset.pick) : ''), r = ctx.run(), V = r && loopView(r, id), w = V ? PF.loop.choiceWhy(V, b.dataset.item, run) : 'The loop can\'t be read.'; if (w) { say(w, 'warn'); render(); return; } loopChange(id, 'choose', [b.dataset.item], { run: run }); },
     'loop-unassign': function (id, b) { loopChange(id, 'owner', [b.dataset.item], { owner: '' }); },
     'loop-more': function (id) { loopMem().all[id] = true; render(); },
+    /* Every fact line of one loop item (a view only; the memory is the folder's, as the loop's own Show all is). */
+    'fact-more': function (id, b) { var m = loopMem(); (m.facts = m.facts || Object.create(null))[id + '\n' + b.dataset.item] = true; render(); },
     'loop-requests-more': function (id) { loopMem().reqs[id] = true; render(); },
     'loop-open': function (id) { var m = loopMem(); m.keepRow = null; m.open[id] = !m.open[id]; render(); },
     'loop-approve': function (id) {

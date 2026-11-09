@@ -265,7 +265,9 @@ PF.facts = (function () {
   function itemFacts(FV, loopStep, uid, attempt, now) {
     var list = (FV && FV.byItem[itemKey(loopStep, uid, attempt)]) || [];
     if (!list.length) return FV && FV.unread.length ? [{ domain: '', state: 'held', words: 'A fact record can\'t be read, so what is known about it may be missing.' }] : [];
-    var out = list.map(function (S) { var w = words(S, now, FV); return { domain: S.domain, source: S.source, state: w.state, words: w.words, slot: S.key }; });
+    /* contrary: what speaks against the work being done (a dispute, a record held, an open blocker), shown first wherever lines
+       are cut. */
+    var out = list.map(function (S) { var w = words(S, now, FV); return { domain: S.domain, source: S.source, state: w.state, words: w.words, slot: S.key, contrary: !!(S.disputed || S.held.length || (S.domain === 'blockers' && S.current && (S.entries || []).some(function (e) { return e.state === 'open'; }))) }; });
     NAMES.forEach(function (d) { if (!list.some(function (S) { return S.domain === d; })) out.push({ domain: d, source: null, state: 'unknown', words: TITLE[d] + ': not checked.' }); });
     return out;
   }

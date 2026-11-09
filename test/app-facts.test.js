@@ -134,7 +134,28 @@ rule('The loop says each item\'s facts by source, with completeness and freshnes
   assert.ok(/Status \(jira\): disputed\./.test(h), 'contrary observations made at once show as disputed');
   assert.ok(!/no blockers|none open/i.test(h), 'missing data never reads as no blockers');
   assert.ok((app.html().match(/class="fact-lines/g) || []).length === 2, 'fact lines on the two items observed');
-  assert.ok(!/data-act="fact-/.test(app.html()), 'syncing facts goes through flightdeck fact, not buttons here');
+  assert.ok(!/data-act="fact-(?!more")/.test(app.html()), 'syncing facts goes through flightdeck fact, not buttons here');
+});
+
+rule('Every fact line is reachable: past the first lines a count and Show all; contrary evidence (an open blocker, a dispute) is never the part hidden', async () => {
+  const app = await setup(), W = await now(app);
+  for (let i = 0; i < 13; i++) await fact(app, 'prs-' + i, { source: { feed: 'git' + String(i).padStart(2, '0') } });
+  await fact(app, 'blk-z', { source: { feed: 'zz-tracker' }, domain: 'blockers', complete: true, reported: 1, entries: [{ id: 'B-1', text: 'Waiting on legal', state: 'open' }] });
+  await fact(app, 'st-a', { source: { feed: 'zz-jira' }, domain: 'status', entries: [{ id: 'ABC-101', text: 'Doing', category: 'doing' }] }, W.d.todos);
+  await fact(app, 'st-b', { source: { feed: 'zz-jira' }, domain: 'status', entries: [{ id: 'ABC-101', text: 'Done', category: 'done' }] }, W.d.todos);
+  await refresh(app, 300);
+  const lines = () => { const m = /<ul class="fact-lines[^"]*">([\s\S]*?)<\/ul>/.exec(app.html()); return m ? (m[1].match(/<li[^>]*>[\s\S]*?<\/li>/g) || []).map(txt) : []; };
+  const shown = lines();
+  assert.ok(/^Blockers \(zz-tracker\): 1 open/.test(shown[0]) || /^Status \(zz-jira\): disputed/.test(shown[0]), 'contrary first: ' + shown.slice(0, 3).join(' | '));
+  assert.ok(shown.some(l => /^Blockers \(zz-tracker\): 1 open/.test(l)) && shown.some(l => /^Status \(zz-jira\): disputed/.test(l)), 'both contrary lines shown: ' + shown.join(' | '));
+  const total = 13 + 2 + 1;
+  assert.ok(shown.length < total, 'set-up: more lines than are shown at first');
+  const more = new RegExp('data-act="fact-more"[^>]*>Show all ' + total + ' facts').test(app.html());
+  assert.ok(more && txt(app.html()).includes((total - shown.length) + ' more'), 'the count left out and Show all');
+  const b = /data-act="fact-more" data-id="([^"]+)" data-item="([^"]+)"/.exec(app.html());
+  app.click('fact-more', b[1], { item: b[2] }); await app.tick(20);
+  assert.strictEqual(lines().length, total, 'every line, once asked');
+  assert.ok(!/data-act="fact-more"/.test(app.html()));
 });
 
 rule('A done suggested on evidence shows that evidence while it waits; once applied, the to-do quietly says what it was done on', async () => {
