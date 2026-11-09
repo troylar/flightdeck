@@ -409,8 +409,8 @@
       "reviewed": "AY: the folder reader keeps a file's own _file/_bytes apart from the loader's and validates to-do and scope records as written; checked for direct writes and unconditional deletes (none)"
     },
     "src/ui/app.js": {
-      "sha256": "383c5659d9f25534f6d0c1f2b58c97aad9c9cbffc1c0be5281b7e59f44ddef04",
-      "reviewed": "s3 review SA: a stale or incomplete spread stop is refused at prepare, decision and application; no direct writes or unconditional deletes"
+      "sha256": "97e633c3d349bd2448424a0053145c2782d2e488e4e62fd8d59961d363b4e73d",
+      "reviewed": "s3 review SD: batch accept bound to the clicking person, folder and read; no direct writes or unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

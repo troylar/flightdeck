@@ -36010,32 +36010,37 @@ PF.examples = (function () {
   function tdDecideAll(triples) {
     var mem = loopMem(), tok = tdTok('dec');
     if (!state.me) return;
+    /* The batch is the clicking person's, in the folder and read of the click: asked again before every decision, and the rest
+       stop once any of them changed. Never continued as someone else. */
+    var me = state.me, fk = fsKey(), g0 = gen, stopped = 0, same = function () { return state.me === me && fsKey() === fk && gen === g0; };
     var list = String(triples || '').split(' ').filter(Boolean).map(function (t) { var p = t.split('|'); return { run: p[0], id: p[1], fp: p[2] }; });
     var ok = 0, changed = [], failed = [], n = list.length;
     var said = function () {
       var t = ok === n ? 'Accepted ' + n + ' addition' + (n === 1 ? '' : 's') + '. Each run\'s recorder applies its own.' : 'Accepted ' + ok + ' of ' + n + ' additions.';
       if (failed.length) t += ' ' + failed.length + ' couldn\'t be saved (' + failed.slice(0, 5).map(function (f) { return f.why; }).join(' ') + '); they still need you.';
       if (changed.length) t += ' ' + changed.length + ' changed since you saw ' + (changed.length === 1 ? 'it and is' : 'them and are') + ' shown again for your decision.';
-      if (tok === tdTok('dec')) mem.tdSaid = t; else say(t, failed.length || changed.length ? 'warn' : 'good');
+      if (stopped) t += ' Stopped: the person, the folder or what was read changed after you clicked, so ' + stopped + ' weren\'t decided.';
+      if (tok === tdTok('dec') && !stopped) mem.tdSaid = t; else say(t, failed.length || changed.length || stopped ? 'warn' : 'good');
       render();
     };
     var step = function (i) {
       if (i >= list.length) { said(); return; }
+      if (!same()) { stopped = list.length - i; said(); return; }
       var x = list[i], r = findRun(x.run);
       if (!r || runUnread(r)) { failed.push({ why: (r ? runUnread(r) : 'The run ' + x.run + ' isn\'t in this folder.') }); step(i + 1); return; }
-      var slot = 'dec-all:' + x.run + '|' + x.id, sig = JSON.stringify([x.run, x.id, 'accept', x.fp, state.me]);
-      var made = tdKept(slot, sig, function (seed) { return PF.todos.decide(r, Object.assign(spInputs(), { request: x.id, op: 'accept', by: state.me, shown: x.fp, at: new Date().toISOString(), app: APP_VERSION, writer: seed.writer, rev: seed.rev })); });
+      var slot = 'dec-all:' + x.run + '|' + x.id, sig = JSON.stringify([x.run, x.id, 'accept', x.fp, me]);
+      var made = tdKept(slot, sig, function (seed) { return PF.todos.decide(r, Object.assign(spInputs(), { request: x.id, op: 'accept', by: me, shown: x.fp, at: new Date().toISOString(), app: APP_VERSION, writer: seed.writer, rev: seed.rev })); });
       if (made.why) { if (made.renewed) changed.push(x); else failed.push({ why: made.why }); step(i + 1); return; }
       var cx = loopGuard({ run: r.process + '/' + r.id, readable: true }), endBusy = busyStart(), sg = gen;
-      repo.saveScope(cx.fs, made.name, made.file, { still: function () { return guardOk(cx); } }).then(function (res) {
-        endBusy(); if (sg !== gen) return;
+      repo.saveScope(cx.fs, made.name, made.file, { still: function () { return same() && guardOk(cx); } }).then(function (res) {
+        endBusy(); if (sg !== gen) { stopped = list.length - i; said(); return; }
         if (res && res.dropped) { failed.push({ why: 'The folder, the person or the run changed before it was written.' }); step(i + 1); return; }
         tdSettled(slot);
         if (res && res.conflict && res.theirs !== PF.todos.text(made.file)) { failed.push({ why: 'A different record is already saved under its name.' }); step(i + 1); return; }
         var rec = made.record; rec._file = made.name;
         if (!(data.todos || []).some(function (y) { return y.id === rec.id; })) data.todos = (data.todos || []).concat([rec]);
         ok++; lastAll = -Infinity; step(i + 1);
-      }, function (err) { endBusy(); if (sg !== gen) return; failed.push({ why: String(err && err.message || err) }); step(i + 1); });
+      }, function (err) { endBusy(); if (sg !== gen) { stopped = list.length - i; said(); return; } failed.push({ why: String(err && err.message || err) }); step(i + 1); });
     };
     step(0);
   }

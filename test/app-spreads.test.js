@@ -13,7 +13,8 @@ const PARENT = ['---', 'process: release-readiness', 'title: Release 4.1', 'owne
   '## Stories · DO-CONFIRM {#stories}', '- [!] {for.each} Validate every release story {#each}', '  process: validate-story', '  items: jira.issue', '  pass: issue=item:key', '  accepts: cleared', '',
   '## Ship · READ-DO {#ship}', '- [!] {confirm} Ship it {#ship1}', ''].join('\n');
 
-async function setup() {
+async function setup(o) {
+  o = o || {};
   const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(80); app.choose('person-avery'); await app.tick();
   const PF = app.PF, people = JSON.parse(app.fs.files['people.json'].t), now = new Date().toISOString();
   const put = (md, id, rand) => {
@@ -21,7 +22,7 @@ async function setup() {
     assert.ok(!b.blockers, JSON.stringify(b.blockers));
     Object.keys(b.files).forEach(k => { app.fs.files['publications/' + id + '/' + b.folder + '/' + k] = { t: b.files[k], m: Date.now() }; });
   };
-  put(KID, 'validate-story', 'vs000001');
+  put(o.kid || KID, 'validate-story', 'vs000001');
   put(PARENT, 'release-readiness', 'rr000001');
   app.click('refresh'); await app.tick(80);
   app.click('start', 'release-readiness'); await app.settle();
@@ -165,4 +166,27 @@ rule('A batch with an outcome that couldn\'t be saved says exactly which; the re
   assert.strictEqual(await homeCount(app), 1, 'the one not saved still needs you, once');
 });
 
+/* Review round 1 (SD): a batch is the clicking person's, in the folder and generation of the click, or it stops. */
+rule('SD: Accept N additions never continues as another person: changing who you are stops the rest, nothing is written as them', async () => {
+  const app = await setup({ kid: KID.replace('owner: person-avery\n', 'owner: person-avery\nroles: reviewer\n') });
+  await landedSpread(app);
+  /* Blake reviews every story's run too, so Blake could decide them. */
+  for (const k of ['ABC-102', 'ABC-103']) { const p = kidOf(app, k), kid = JSON.parse(app.fs.files[p].t); kid.roles = Object.assign({}, kid.roles, { reviewer: 'person-blake' }); kid.rev = (kid.rev || 0) + 1; await app.fs.write(p, JSON.stringify(kid)); }
+  const ps = await sync(app, ['ABC-102', 'ABC-103']);
+  await refresh(app, 300);
+  app.click('td-inbox', ''); await app.tick(20);
+  const bt = /<button[^>]*data-act="td-accept-all"[^>]*>/.exec(ov(app));
+  assert.ok(bt, 'set-up: the batch');
+  const d = {}; bt[0].replace(/data-(ids)="([^"]*)"/g, (x, k, v) => { d[k] = v.replace(/&quot;/g, '"').replace(/&amp;/g, '&'); });
+  /* While the first decision is being written, the person picked changes to Blake. */
+  const fs = app.fs, write = fs.write.bind(fs); let n = 0;
+  fs.write = (p, t, o2) => { if (/^proposals\/req-.*status-/.test(p) && ++n === 1) { app.choose('person-blake'); return new Promise(res => setTimeout(res, 30)).then(() => write(p, t, o2)); } return write(p, t, o2); };
+  app.click('td-accept-all', /data-id="([^"]*)"/.exec(bt[0])[1], d); await app.tick(300);
+  fs.write = write;
+  const ds = decisions(app).filter(x => ps.some(p => p.id === x.proposal));
+  assert.ok(ds.every(x => x.by === 'person-avery'), 'nothing written as Blake: ' + JSON.stringify(ds.map(x => x.by)));
+  assert.ok(ds.length <= 1, 'the rest stopped: ' + ds.length);
+  const said = txt(app.html() + ov(app));
+  assert.ok(/stopped/i.test(said) && /changed/i.test(said), said.slice(0, 600));
+});
 run();
