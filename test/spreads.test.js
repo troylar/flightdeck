@@ -582,4 +582,33 @@ rule('TB: a stale stop whose applications disagree never blocks settling another
   const plan = T.applyPlan(W.r, W.view(), q, W.inputs());
   assert.ok(plan.write || plan.adopt, JSON.stringify(plan));
 });
+/* Review round 2 (TC): once stopped, a spread keeps exactly the obligations it had, but only while each is still required on
+   its current attempt: a removed item and an earlier attempt owe nothing, and a later attempt never inherits one. */
+const loopChange = (W, key, change) => {
+  const c = LP.cleanIntent({ loop: LOOPT, observation: null, changes: [change] }, key, { name: 'release-helper', version: '1.0' });
+  same(c.errors, []);
+  const f = LP.buildRequest(c.intent, { seen: [W.scopes[W.scopes.length - 1].id], children: [], now: AT, app: '3.0.0' });
+  return W.scopes.push(LP.cleanRequest(JSON.parse(LP.text(f)), f.id + '.json').record);
+};
+rule('TC: a stopped spread owes nothing on an item removed from scope after it stopped', () => {
+  const W = world([101, 102]); W.kid(101); W.kid(102);
+  W.spreadAdd(); W.land(W.r);
+  W.ask(W.r, stopBody(W, [101, 102]), { person: 'person-morgan' }); W.land(W.r);
+  same(spreadOf(W).state, 'stopped', 'set-up: stopped');
+  same(spreadOf(W).stop.owed.length, 2);
+  loopChange(W, 'ex-102', { op: 'exclude', item: { key: 'ABC-102' }, reason: 'Ships in 4.2' });
+  same(W.loopView().rollup.items.filter(i => i.key === 'ABC-102').map(i => [i.required, i.status]), [[false, 'removed']], 'set-up: removed');
+  same(W.one().items.filter(i => i.owed).map(i => i.key), ['ABC-101']);
+  assert.ok(!(W.mark().loops.each || []).some(x => /ABC-102/.test(x)), JSON.stringify(W.r._todos.loops.each));
+  same(spreadOf(W).stop.owed.length, 2, 'the stop record itself is unchanged');
+});
+rule('TC: a stopped spread owes nothing on an earlier attempt, and its new attempt inherits nothing', () => {
+  const W = world([101, 102]); W.kid(101, { cleared: false }); W.kid(102);
+  W.spreadAdd(); W.land(W.r);
+  W.ask(W.r, stopBody(W, [101, 102]), { person: 'person-morgan' }); W.land(W.r);
+  same(spreadOf(W).state, 'stopped', 'set-up: stopped');
+  W.kid(101, { attempt: 2 });
+  same(W.loopView().rollup.items.filter(i => i.key === 'ABC-101').map(i => i.attempt), [2], 'set-up: attempt 2');
+  same(W.one().items.filter(i => i.owed).map(i => i.key + '#' + i.attempt), ['ABC-102#1']);
+});
 run();

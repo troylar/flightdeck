@@ -19203,9 +19203,10 @@ PF.spreads = (function () {
       C.complete = true; C.noun = V.noun;
       var rows = Object.create(null); V.rollup.items.forEach(function (i) { rows[i.uid] = i; });
       /* Who owes it: while it stands, every item in scope on its current attempt, apart from those cleared when it was added
-         (unless included one by one); once stopped, exactly the obligations it had then. */
+         (unless included one by one); once stopped, the obligations it had then that are still required on the item's current
+         attempt (a removed item or an earlier attempt owes nothing, a later attempt inherits nothing; the stop is unchanged). */
       var mine = Object.create(null), owe = function (p) { C.items.push(itemOf(r, s, V, rows[p.uid], p, o, deps, childView, mine)); };
-      if (s.state === 'stopped') (s.stop.owed || []).forEach(function (p) { owe({ uid: p.uid, attempt: p.attempt }); });
+      if (s.state === 'stopped') (s.stop.owed || []).forEach(function (p) { var w = rows[p.uid]; if (w && w.required && (w.attempt || 1) === p.attempt) owe({ uid: p.uid, attempt: p.attempt }); });
       else V.rollup.items.forEach(function (i) {
         if (!i.required) return;
         var a = i.attempt || 1;
