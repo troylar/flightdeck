@@ -370,4 +370,54 @@ rule('Landing a spread on an approved loop sends that approval back, with the ea
   same([W.r.living.head, W.r.steps.each.s], [a.id, 'recheck']);
   assert.ok(W.r.log.some(l => /Spread added: "Security sign-off"/.test(l.what || l.text || JSON.stringify(l))), 'logged');
 });
+/* Commit 2: coordination. */
+const grantSync = (W, k) => { const g = T.grantOf(k, { subject: { tool: 'sync-bot' }, ops: ['add'], targets: [{ phase: 'assess' }], adds: 10, by: 'person-avery', key: 'g-' + rev(), records: W.recs, unread: W.unread, people: PEOPLE, at: AT, app: '4.0.0' }); assert.ok(!g.why, g.why); return W.push(g.record, g.name); };
+rule('A story\'s delegation revoked before its request lands sends it back to a person; nothing lands and the loop stays held', () => {
+  const W = world([101]); const k = W.kid(101);
+  W.spreadAdd(); W.land(W.r);
+  const g = grantSync(W, k), q = W.request(k, spreadOf(W));
+  same(q.preview.status, 'queued', 'the delegation covers the tool\'s addition');
+  same(W.one().items[0].state, 'queued');
+  const rv = T.revokeOf(k, { grant: g.id, by: 'person-avery', key: 'rv-' + rev(), records: W.recs, unread: W.unread, people: PEOPLE, at: AT, app: '4.0.0' });
+  assert.ok(!rv.why, rv.why); W.push(rv.record, rv.name);
+  W.land(k);
+  same([W.view(k).requests[q.id].status, W.one().items[0].state], ['waiting', 'waiting']);
+  same(T.inbox([k], { records: W.recs, unread: W.unread, people: PEOPLE, me: 'person-avery' }).map(x => x.id), [q.id]);
+  has(W.mark().loops.each, /ABC-101/);
+  W.decide(k, q.id, 'person-avery'); W.land(k);
+  same(W.one().items[0].state, 'open', 'a person\'s acceptance lands it');
+});
+rule('A story\'s placement that changes during review asks again: the decision binds what was shown, and the new one is shown', () => {
+  const W = world([101]); const k = W.kid(101);
+  W.spreadAdd(); W.land(W.r);
+  const q = W.request(k, spreadOf(W));
+  const it0 = T.inbox([k], { records: W.recs, unread: W.unread, people: PEOPLE, me: 'person-avery' })[0];
+  same(it0.consequence.reopens, []);
+  /* While it waits, the story's assessment passes its gate: adding before that gate now reopens it. */
+  const m = R.mapOf(k); R.done(k, m, 'read', 'person-avery', AT); R.done(k, m, 'verdict', 'person-avery', AT, { decision: 'needs-work' }); R.pass(k, m, 0, 'person-avery', AT);
+  const d = T.decide(k, { request: q.id, op: 'accept', by: 'person-avery', shown: it0.consequence.fingerprint, records: W.recs, unread: W.unread, people: PEOPLE, at: AT, writer: 'w' + rev(), rev: rev(), app: '4.0.0' });
+  same([!!d.renewed, !!d.record], [true, false], 'nothing is decided on what was shown before');
+  assert.ok(/changed since you saw it/.test(d.why), d.why);
+  const it1 = T.inbox([k], { records: W.recs, unread: W.unread, people: PEOPLE, me: 'person-avery' })[0];
+  same(it1.consequence.reopens, ['gate:assess-confirm']);
+  assert.notStrictEqual(it1.consequence.fingerprint, it0.consequence.fingerprint);
+  same(W.one().items[0].state, 'waiting');
+});
+rule('Exact inbox counts: each story\'s request once, on its own run, beside other requests; none on the parent for a story\'s people', () => {
+  const W = world([101, 102, 103]); const ks = [W.kid(101), W.kid(102), W.kid(103)];
+  W.spreadAdd(); W.land(W.r);
+  const s = spreadOf(W), qs = ks.map(k => W.request(k, s));
+  /* The same obligation asked again by another tool is the same request, not a second one. */
+  const again = T.prepare(ks[0], { body: { op: 'add', text: s.text, target: { phase: 'assess' }, fulfills: { run: { process: 'release-readiness', id: 'r-41' }, spread: s.id, uid: uid(101), attempt: 1 } }, by: { tool: 'other-bot', version: '2.0' }, records: W.recs, unread: W.unread, people: PEOPLE, at: AT, app: '4.0.0' });
+  same(again.id, qs[0].id);
+  const plain = W.ask(ks[0], { op: 'add', text: 'Plain one', target: { phase: 'assess' } }, { tool: 'notes-bot', version: '1.0', key: 'plain-1' });
+  W.spreadAdd('Legal sign-off', { tool: 'release-helper', version: '1.0', key: 'legal-1' });
+  const box = (me) => T.inbox(W.runs(), { records: W.recs, unread: W.unread, people: PEOPLE, me });
+  const av = box('person-avery');
+  same(av.map(x => x.id).sort(), qs.map(q => q.id).concat([plain.id]).sort());
+  same(av.filter(x => x.fulfills).map(x => [x.run.id, x.fulfills.spread, x.fulfills.uid]), [['k101', s.id, uid(101)], ['k102', s.id, uid(102)], ['k103', s.id, uid(103)]]);
+  same(box('person-morgan').filter(x => x.run.id === 'r-41').map(x => x.op), ['spread-add']);
+  W.decide(ks[1], qs[1].id, 'person-avery');
+  same(box('person-avery').length, 3);
+});
 run();

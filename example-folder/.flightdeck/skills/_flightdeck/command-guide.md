@@ -178,6 +178,14 @@ Ask for one change with `flightdeck todo add --text "..." --phase <phase id>` (o
 
 Exit code 0 is requested, already requested, or (with `--dry-run`) what it would write; 4 nothing written, because a to-do record or part of the folder couldn't be read; 1 refused (a key already used for a different request, or a change the run doesn't allow, with why); 5 no such run. If it can't confirm the save, retry with the same key, never a new one. The formats are in docs/apps.md of the Flightdeck repository.
 
+### Spreads
+
+A spread is a requirement every item of a loop must meet, like "security sign-off on every open story". It is asked on the parent run and met by an addition on each item's own run, which that run's own people decide; the parent's approval never stands for theirs.
+
+Read them with `flightdeck spread list <team folder> <process>/<run> --json`: each spread's `row`, `preview` (what is open and what stays unchanged), `notices` (items that joined since), `holds`, and each item's `state` (owed means not requested yet; only done, won't do, moved and excepted resolve it).
+
+Ask for one with `flightdeck spread add --loop <loop step> --text "..." --before <child gate id>`, `spread include --spread <id> --item <key> [--run <process>/<run>]` or `spread stop --spread <id> --reason "..."`, each with `--tool <name>@<version> --key <key>`, previewed first with `--dry-run --json`. Then `flightdeck spread sync --spread <id> --tool <name>@<version>` asks each owed item's run, one request per item, once each; run it again after an interruption and it asks only what is missing. Stopping a spread releases work, and adding or including one on an approved loop sends the approval back, so a person decides those. Exit codes are as for to-dos; `sync` exits 4 when part of it couldn't be written, and the rest stand.
+
 ## Evidence packs
 
 **Evidence packs:** when a person asks for a run's evidence, run `flightdeck export <team folder> --run <process>/<id> --out <a folder outside the team folder>` (or `--process <id> --from YYYY-MM-DD --through YYYY-MM-DD --tz Area/City` for the runs started on those days). It only reads. Exit code 0 is a complete pack, 4 a partial one (its top lists what changed or was missing), 1 no pack.

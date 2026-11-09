@@ -886,10 +886,13 @@ function runCovers(proc, id, r) {
 /* Living runs (4.0, docs/design.md 45): what open or disputed to-dos hold on each run (r._todos, PF.todos.markHolds), and a
    living run's to-dos as every window reads them (r._tdv), from what readPlans read. people.json unread: no one's authority
    counts. Returns every to-do record that couldn't be read (and people.json, when it couldn't be). */
-function markTodos(PF, runs, got, people, peopleBad) {
+/* loopIn: { runs, loops } a spread's coverage reads (its loop's scope records and every item's run); without it a spread holds
+   its loop, fail closed. Only `runs` are marked. */
+function markTodos(PF, runs, got, people, peopleBad, loopIn) {
   const T = PF.todos, unread = (got.todosUnread || []).slice();
   if (peopleBad) unread.push({ file: 'people.json', why: 'people.json couldn\'t be read, so no one\'s authority over to-dos can be checked.', run: null });
-  T.markHolds(runs, { records: got.todos || [], unread, people });
+  const others = loopIn ? loopIn.runs.filter((c) => runs.indexOf(c) < 0) : [];
+  T.markHolds(runs, { records: got.todos || [], unread, people, loops: loopIn ? loopIn.loops : undefined, also: others });
   runs.forEach((r) => { if (r && r.living && !r._unrunnable) r._tdv = T.view(r, { records: T.recordsFor(got.todos || [], r), unread: unread.filter((u) => (u.run ? u.run.process === r.process && u.run.id === r.id : true)), people }); });
   return unread;
 }
@@ -945,13 +948,19 @@ async function readData(eng, adapter, req) {
       let plansRead = null;
       const plansOnce = () => plansRead || (plansRead = repo.readPlans(L.fs, null, null, true).then((got) => ({ got }), (e) => ({ why: fileWhy(e && e.message || String(e)) })));
       /* Loops (3.0): an approval the folder no longer matches holds its gate here as in every window (PF.loop.markStale). */
-      if (usable && two && Object.keys(r.steps || {}).some((id) => r.steps[id] && r.steps[id].loop)) {
+      /* Spreads (4.0) read a loop's items and their runs as well, so a run with a {for.each} step reads them for both. */
+      let loopIn = null;
+      const looped = usable && two && Object.keys(r.steps || {}).some((id) => r.steps[id] && r.steps[id].loop);
+      if (usable && two && (looped || (r.living && PF.run.mapOf(r).phases.some((p) => p.steps.some((x) => x.type === 'for.each'))))) {
         const mp = PF.run.mapOf(r), kids = [];
-        Object.keys(r.steps).forEach((id) => { const x = r.steps[id] && r.steps[id].loop && PF.map.findStep(mp, id); const pr = x && String(PF.run.fieldsOf(r, x.step).process || ''); if (pr && kids.indexOf('runs/' + pr) < 0) kids.push('runs/' + pr, 'publications/' + pr); });
+        mp.phases.forEach((p) => p.steps.forEach((x) => { if (x.type !== 'for.each') return; const pr = String(PF.run.fieldsOf(r, x).process || ''); if (pr && kids.indexOf('runs/' + pr) < 0) kids.push('runs/' + pr, 'publications/' + pr); }));
         const gp = (await plansOnce()).got || null;
         const dk = gp && kids.length ? await repo.loadAll(dependsOn(L.fs, kids), { readOnly: true, deep: true }).catch(() => null) : { runs: [] };
-        if (gp && dk) PF.loop.markStale([r].concat(dk.runs || []), { records: gp.scopes, unread: gp.scopesUnread, procOf: procOfFrom(dk) });
-        else { r._loopStale = Object.create(null); Object.keys(r.steps).forEach((id) => { if (r.steps[id] && r.steps[id].loop && r.steps[id].s === 'done') r._loopStale[id] = ['The loop\'s scope records couldn\'t be read.']; }); }
+        if (gp && dk) loopIn = { runs: (dk.runs || []).filter((c) => c && !(c.process === r.process && c.id === r.id)), loops: { records: gp.scopes || [], unread: gp.scopesUnread || [], procOf: procOfFrom(dk) } };
+        if (looped) {
+          if (loopIn) PF.loop.markStale([r].concat(loopIn.runs), { records: gp.scopes, unread: gp.scopesUnread, procOf: loopIn.loops.procOf });
+          else { r._loopStale = Object.create(null); Object.keys(r.steps).forEach((id) => { if (r.steps[id] && r.steps[id].loop && r.steps[id].s === 'done') r._loopStale[id] = ['The loop\'s scope records couldn\'t be read.']; }); }
+        }
       }
       /* Living runs (4.0): the run's to-dos and what they hold, read here as in every window (PF.todos.markHolds), for every
          usable run, a run/2 with none landed yet among them: a to-do record of this run that can't be read holds it and is this
@@ -960,7 +969,7 @@ async function readData(eng, adapter, req) {
         const pr = await plansOnce(), gp = pr.got || null;
         if (pr.why) L.note('proposals', 'unreadable', pr.why);
         if (gp) {
-          const un = markTodos(PF, [r], gp, one.people, !!(one.peopleWhy || pw)), was = relevant, mine = {};
+          const un = markTodos(PF, [r], gp, one.people, !!(one.peopleWhy || pw), loopIn), was = relevant, mine = {};
           un.filter((u) => u.run ? u.run.process === m[1] && u.run.id === m[2] : !!r.living).forEach((u) => { if (u.file !== 'people.json') { mine['proposals/' + u.file] = true; L.note('proposals/' + u.file, u.kind === 'newer' ? 'newer' : 'malformed', u.kind === 'newer' ? u.why : fileWhy(u.why)); } });
           relevant = (p) => was(p) || !!mine[p];
         } else if (r.living) { const was = relevant; relevant = (p) => was(p) || p === 'proposals'; }
@@ -1032,7 +1041,7 @@ async function readData(eng, adapter, req) {
     d.runs.forEach((r) => { if (req.cmd !== 'runs' || tested(r)) take(judgeRun(PF, r, req.cmd === 'runs' ? pubOf(r) : null)); });
     const nameOf = A.names(d.people), runs = d.runs.filter((r) => !newerRun(PF, r)), all = (list) => list;
     /* Living runs (4.0): what to-dos hold, as in every window. */
-    if (two && req.cmd === 'runs') markTodos(PF, runs, { todos: d.todos || [], todosUnread: d.todosUnread || [] }, d.people, !!(d.failed && 'people' in d.failed));
+    if (two && req.cmd === 'runs') markTodos(PF, runs, { todos: d.todos || [], todosUnread: d.todosUnread || [] }, d.people, !!(d.failed && 'people' in d.failed), { runs: [], loops: { records: d.scopes || [], unread: d.scopesUnread || [], procOf: procOfFrom(d) } });
     const known = (p) => d.processes.some((x) => x.process === p) || d.runs.some((r) => r.process === p) || d.plans.some((x) => x.process === p);
     if (req.proc && !known(req.proc) && !req.stage) return notFound('There\'s no process ' + req.proc + ' in the team folder.');
     if (req.cmd === 'processes') return done(all, A.processes(d.processes), d.readAt);
@@ -2666,6 +2675,14 @@ const HELP = `flightdeck: team process checklists, in one HTML file
                                       ask for a to-do (or --step <id>, --item <loop step>/<uid>; done, wont --reason,
                                       move --to, reopen take --todo <id>). Writes one file in proposals/, once;
                                       --dry-run previews; --as names who asks, never their approval; never writes a run
+  flightdeck spread list <team folder> <process>/<run> --json
+                                      for AI assistants: a run's spreads (a requirement every item of a loop must
+                                      meet), each item's state, what joined since, and what holds the loop. Only reads
+  flightdeck spread add <team folder> <process>/<run> --loop <step> --text "..." --before <child gate> --tool <name>@<version> --key <key> [--dry-run] [--json]
+                                      ask for a spread on a loop (include --spread --item [--attempt] [--run],
+                                      stop --spread --reason, take --key too). Writes one file in proposals/, once;
+                                      sync --spread asks each owed item's own run, one file per item, once each;
+                                      --dry-run previews; never decides, never writes a run
   flightdeck skill register <team folder> --from <file|-> [--json]
                                       for AI assistants: register a skill against the exact version it was built
                                       from (Flightdeck 2.0). The only writer of skill-registrations/
@@ -2719,6 +2736,198 @@ default goes to .flightdeck/updates/<version>/, with a README.md to hand to your
    a person (--as) that a tool records on their behalf. They never start a run and never write run.json; the parent's
    recorder sees the change when Flightdeck reads the folder. --dry-run previews and writes nothing. The same --tool and --key
    always mean the same request: a retry writes nothing; the key with other content is refused. */
+/* ---- flightdeck spread (4.0, docs/apps.md "Spreads", docs/design.md section 45.1) ---- */
+/* Spreads (4.0 slice 3, docs/design.md 45.1, docs/apps.md): a standing requirement on a loop, "every open story here". A spread
+   is asked on the parent run (add, include, stop: one request each, decided by a person or a delegation, applied by the
+   recorder); sync asks each story's own run for it, one request per obligation, each decided by that run's people. The CLI
+   asks; it never decides and never writes run.json. */
+const SPREAD_SUBS = ['list', 'add', 'sync', 'include', 'stop'];
+const SPREAD_VAL = ['--tool', '--key', '--loop', '--text', '--before', '--owner', '--reason', '--spread', '--item', '--attempt', '--run', '--as'];
+function spreadWords(json, sub) {
+  if (json.error) return 'flightdeck: ' + json.error.why + json.problems.map((x) => '\n  ' + x.path + ': ' + x.why).join('');
+  const d = json.data, lines = [];
+  if (sub === 'list') {
+    lines.push(d.title + ' · ' + (d.spreads.length ? d.spreads.length + (d.spreads.length === 1 ? ' spread' : ' spreads') : 'no spreads'));
+    d.spreads.forEach((s) => {
+      lines.push('  ' + s.row + ' · ' + s.id + (s.summary ? '\n    ' + s.summary : '') + '\n    ' + s.preview);
+      s.items.forEach((i) => lines.push('    ' + (i.key || i.uid) + (i.attempt > 1 ? ' (attempt ' + i.attempt + ')' : '') + ' · ' + i.words + (i.why ? ': ' + i.why : '')));
+      s.notices.forEach((n) => lines.push('    ' + n));
+      s.holds.forEach((h) => lines.push('    holds: ' + h));
+    });
+    d.requests.forEach((q) => lines.push('  ' + q.id + ' · ' + q.op + ' · ' + q.statusWords + (q.why ? ': ' + q.why : '')));
+  } else lines.push(d.preview);
+  json.problems.forEach((x) => lines.push('  ' + x.path + ': ' + x.why));
+  return lines.join('\n');
+}
+async function spreadMain(argv) {
+  const val = {}, args = argv.filter((a, i) => !a.startsWith('--') && !(i > 0 && SPREAD_VAL.indexOf(argv[i - 1]) >= 0));
+  let eng = null;
+  const C2 = 2, asJson = argv.includes('--json'), dryRun = argv.includes('--dry-run'), sub = args[1], appOf = () => (eng ? eng.version : versionOf(app()) || '');
+  const out = (json, code) => ({ out: asJson ? JSON.stringify(json, null, 2) : spreadWords(json, sub), code });
+  const failOut = (kind, why, problems, code) => { const F = eng ? eng.PF.appjson : null; return out(F ? F.failure(appOf(), kind, why, problems || [], C2) : { contract: 'flightdeck-read/2', app: appOf(), error: { kind, why }, problems: problems || [] }, code || (kind === 'not-found' ? EXIT.notFound : EXIT.error)); };
+  const usage = (why) => failOut('usage', why);
+  for (const f of SPREAD_VAL) {
+    const i = argv.indexOf(f);
+    if (i < 0) continue;
+    if (argv.indexOf(f, i + 1) >= 0) return usage('say ' + f + ' once.');
+    if (argv[i + 1] == null || (argv[i + 1].startsWith('--') && f !== '--reason' && f !== '--text')) return usage('say what goes after ' + f + '.');
+    val[f] = argv[i + 1];
+  }
+  const unknown = argv.filter((a, i) => a.startsWith('--') && ['--json', '--dry-run'].concat(SPREAD_VAL).indexOf(a) < 0 && !(i > 0 && SPREAD_VAL.indexOf(argv[i - 1]) >= 0));
+  if (unknown.length) return usage('spread doesn\'t take ' + unknown.join(', ') + '.');
+  if (SPREAD_SUBS.indexOf(sub) < 0) return usage('say what to do: flightdeck spread ' + SPREAD_SUBS.join(' | ') + ' <team folder> <process>/<parent run> ...');
+  const m = RUN_KEY.exec(args[3] || '');
+  if (!args[2] || !m || args[4]) return usage('say the team folder and the parent run, for example: flightdeck spread ' + sub + ' <team folder> release-readiness/k3m9p2q8 --json');
+  const writes = sub !== 'list', allowed = { list: [], add: ['--tool', '--key', '--loop', '--text', '--before', '--owner', '--reason', '--as'], sync: ['--tool', '--spread'],
+    include: ['--tool', '--key', '--spread', '--item', '--attempt', '--run', '--reason', '--as'], stop: ['--tool', '--key', '--spread', '--reason', '--as'] }[sub];
+  const extra = Object.keys(val).filter((f) => allowed.indexOf(f) < 0);
+  if (extra.length) return usage(sub + ' doesn\'t take ' + extra.join(', ') + '.');
+  if (dryRun && !writes) return usage('list writes nothing; --dry-run goes with add, sync, include and stop.');
+  let tool = null;
+  if (writes) {
+    const tm = /^([a-z0-9][a-z0-9-]{0,29})@([A-Za-z0-9][A-Za-z0-9._+-]{0,39})$/.exec(val['--tool'] || '');
+    if (!tm) return usage('say which tool asks, with its version, for example --tool release-helper@1.4.0.');
+    tool = { name: tm[1], version: tm[2] };
+    if (sub !== 'sync' && (!val['--key'] || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$/.test(val['--key']))) return usage('say which key with --key: letters, numbers, dots, colons, dashes or underscores, like release-41-signoff. The same key always means the same request.');
+    if (val['--as'] != null && !/^[A-Za-z0-9_.-]{1,80}$/.test(val['--as'])) return usage('--as is the ID from people.json of the person the tool asks for.');
+    if (sub === 'add' && (!val['--loop'] || val['--text'] == null || !val['--before'])) return usage('say which loop with --loop <loop step>, what every item needs with --text "...", and the gate of the items\' checklist it comes before with --before <gate id>.');
+    if (sub !== 'add' && !val['--spread']) return usage('say which spread with --spread <spread id> (flightdeck spread list shows them).');
+    if (sub === 'include' && !val['--item']) return usage('say which item with --item <its key or uid> [--attempt <n>] (and --run <process>/<run id> to say which of its runs covers it).');
+    if (val['--attempt'] != null && !/^[1-9][0-9]{0,2}$/.test(val['--attempt'])) return usage('--attempt is a whole number from 1.');
+    if (val['--run'] != null && !RUN_KEY.test(val['--run'])) return usage('--run is <process>/<run id>.');
+    if (sub === 'stop' && !(val['--reason'] || '').trim()) return usage('say why it stops with --reason "...". Stopping releases work, so a person decides.');
+  }
+  let dir;
+  try { eng = loadEngine(); dir = folderArg(args[2], 'spread ' + sub); } catch (e) { return failOut('failed', e.message); }
+  const PF = eng.PF, A = PF.appjson, T = PF.todos, S = PF.spreads, LP = PF.loop, R = PF.run, repo = PF.repo, proc = m[1], runId = m[2];
+  const ra = readAdapter(dir, { maxBytes: READ_MAX }), L = repo.ledger(repo.readOnly(ra, 'Reading spreads'));
+  let kidProcs = [];
+  const relevant = (p) => p === '' || p === 'people.json' || /^proposals(\/|$)/.test(p) || p.indexOf('runs/' + proc + '/' + runId) === 0 || p === 'runs' || p === 'runs/' + proc || kidProcs.some((k) => p.indexOf('runs/' + k) === 0 || p.indexOf('publications/' + k) === 0);
+  const more = [];
+  const problems = () => { const all = L.problems(), seen = {}; all.forEach((x) => { seen[x.path + '\u0000' + x.kind] = true; }); adapterProblems(ra).forEach((x) => { if (!seen[x.path + '\u0000' + x.kind]) all.push(x); }); return all.filter((x) => relevant(x.path)).concat(more); };
+  const done = (data, code) => { const e = A.envelope(eng.version, new Date().toISOString(), problems(), data, C2); return out(e, code != null ? code : e.complete ? 0 : EXIT.partial); };
+  const nothing = writes ? ' Nothing was written.' : '';
+  try {
+    const one = await repo.readRunOnly(L.fs, proc, runId);
+    if (!one.found) return failOut('not-found', 'There\'s no run ' + proc + '/' + runId + ' in the team folder.' + nothing, problems());
+    const r = one.run;
+    if (!r) return failOut('failed', 'The run ' + proc + '/' + runId + ' couldn\'t be read, so its spreads can\'t be.' + nothing, problems());
+    if (newerRun(PF, r)) return failOut('failed', 'The run ' + proc + '/' + runId + ' was made with a newer Flightdeck: ' + r._unrunnable + nothing, problems());
+    let map; try { map = R.mapOf(r); } catch (e) { return failOut('failed', 'The run\'s checklist can\'t be read here.' + nothing, problems()); }
+    if (one.peopleWhy) L.note('people.json', one.peopleKind || 'unreadable', fileWhy(one.peopleWhy));
+    const pw = peopleWhy(one.people);
+    if (pw) L.note('people.json', 'malformed', pw);
+    /* proposals/ is read once, checked, for the loops, the to-dos and the spreads alike; every loop's item runs with it. */
+    const bad = [], got = await repo.readPlans(L.fs, bad, null, true);
+    bad.forEach((b) => L.note(b.path, b.kind || 'malformed', fileWhy(b.why)));
+    map.phases.forEach((p) => p.steps.forEach((s) => { if (s.type === 'for.each') { const c = String(R.fieldsOf(r, s).process || ''); if (c && kidProcs.indexOf(c) < 0) kidProcs.push(c); } }));
+    const d = kidProcs.length ? await repo.loadAll(dependsOn(L.fs, [].concat(...kidProcs.map((k) => ['runs/' + k, 'publications/' + k]))), { readOnly: true, explain: true, deep: true }) : { runs: [] };
+    const procOf = procOfFrom(d), runs = [r].concat((d.runs || []).filter((c) => c && !(c.process === r.process && c.id === r.id)));
+    const unread = (got.todosUnread || []).slice();
+    unread.filter((u) => !u.run || (u.run.process === proc && u.run.id === runId) || runs.some((c) => c.process === u.run.process && c.id === u.run.id)).forEach((u) => more.push({ path: 'proposals/' + u.file, kind: u.kind === 'newer' ? 'newer' : 'malformed', why: u.kind === 'newer' ? u.why : fileWhy(u.why) }));
+    if (one.peopleWhy || pw) unread.push({ file: 'people.json', why: 'people.json couldn\'t be read, so no one\'s authority over to-dos can be checked.', run: null });
+    const sunread = (got.scopesUnread || []).concat(bad.filter((b) => /^proposals\/req-/.test(String(b.path || ''))).map((b) => ({ file: String(b.path).slice(10), why: b.why, loop: null })));
+    const records = got.todos || [], people = one.people, deps = { records, unread };
+    const V = T.view(r, { records, unread, people, deps }), title = String(r.title || r.process);
+    const cov = S.coverage(r, V, { runs, records, unread, people, loops: { records: got.scopes || [], unread: sunread, procOf } });
+    const shape = (C) => ({ id: C.id, text: C.text, loop: C.loopStep, beforeGate: C.child.beforeGate, state: C.state, row: C.row, summary: C.summary, preview: C.preview, counts: C.counts ? { owed: C.counts.owed, done: C.counts.resolved, unchanged: C.counts.exempt, arrivals: C.counts.arrivals } : null,
+      items: C.items.map((i) => ({ uid: i.uid, key: i.key || null, attempt: i.attempt, state: i.state, words: i.words, why: i.why || null, owed: i.owed, resolved: i.resolved, arrival: !!i.arrival, run: i.run || null, request: i.request || null, todo: i.todo || null })),
+      notices: C.notices, holds: C.unresolved, stop: C.stop ? { reason: C.stop.reason } : null });
+    const spreadReqs = T.requestsOf(V).filter((q) => T.isSpreadOp(q.op)).map((q) => ({ id: q.id, op: q.op, spread: q.spread || null, status: q.status, statusWords: T.WORDS[q.status] || q.status, why: q.why || null, by: q.by || null, at: q.at || null }));
+    if (sub === 'list') return done({ run: { process: proc, id: runId }, title, living: !!r.living, spreads: cov.spreads.map(shape), requests: spreadReqs, held: (V.broken ? [V.broken.why] : []).concat(V.unread.map((u) => String(u.file) + ': ' + u.why), V.held.map((h) => h.record + ': ' + h.why)) });
+    /* Anything this depends on that couldn't be read holds the write (exit 4): reading it again could change the answer. */
+    const held = (why) => done({ run: { process: proc, id: runId }, status: 'held', preview: why + ' Nothing was written. Check folder availability, then retry' + (sub === 'sync' ? '.' : ' with the same key.') });
+    const C = val['--spread'] ? cov.spreads.filter((x) => x.id === val['--spread'])[0] : null;
+    if (sub === 'sync') {
+      if (!C) return failOut('invalid', 'That spread isn\'t on ' + proc + '/' + runId + ' (flightdeck spread list shows them).' + nothing, problems());
+      if (problems().length) return held('Part of the team folder this depends on couldn\'t be read.');
+      /* One request per obligation not yet asked, on the run that covers it, named by the obligation and that run: a retry from
+         any tool is the same request. Each is written once and on its own, so an interruption leaves the others standing and
+         the next sync asks only what is still missing. */
+      const M = S.manifest(C), plan = [];
+      M.file.forEach((f) => {
+        const kid = runs.filter((c) => c.process + '/' + c.id === f.run)[0];
+        let km = null; try { km = kid ? R.mapOf(kid) : null; } catch (e) { km = null; }
+        const ph = km ? S.phaseOfGate(km, C.child.beforeGate) : null;
+        const P = kid && ph ? T.prepare(kid, { body: { op: 'add', text: C.text, target: { phase: ph.id }, fulfills: { run: { process: proc, id: runId }, spread: C.id, uid: f.uid, attempt: f.attempt } }, by: { tool: tool.name, version: tool.version }, records, unread, people, deps, at: new Date().toISOString(), app: eng.version }) : { why: f.run + ' can\'t be read here.' };
+        plan.push({ f, P });
+      });
+      const items = plan.map(({ f, P }) => Object.assign({ key: f.key || null, uid: f.uid, attempt: f.attempt, run: f.run, request: P.id || f.request, file: 'proposals/' + (P.name || f.request + '.json') }, P.why ? { status: 'refused', why: P.why } : { status: dryRun ? 'would-request' : 'pending', queue: T.WORDS[P.preview.status] || P.preview.status, needs: P.preview.status === 'waiting' ? 'person' : P.preview.status === 'queued' ? 'delegation' : 'none' }));
+      const skipped = M.skip.map((k) => ({ key: k.key || null, uid: k.uid, attempt: k.attempt, run: k.run, state: k.state, words: k.words, why: k.why || null }));
+      const N = C.noun || { one: 'item', many: 'items' }, cnt = (n) => LP.count(n, N);
+      const say = (written, already, failed) => title + ' · "' + C.text + '"' + (dryRun ? ' — preview only; no files written.' : ' — synced.') + '\n\n' +
+        (dryRun ? 'Would ask ' + cnt(items.filter((i) => i.status !== 'refused').length) + '\' runs for it' : 'Asked ' + cnt(written) + '\' runs for it' + (already ? '; ' + already + ' already asked' : '') + (failed ? '; ' + failed + ' not asked (see why)' : '')) +
+        '. Each run\'s own people decide; its recorder applies it.' + (skipped.length ? ' Not asked now: ' + skipped.slice(0, 20).map((k) => (k.key || k.uid) + ' (' + k.words.toLowerCase() + ')').join(', ') + (skipped.length > 20 ? ' and ' + (skipped.length - 20) + ' more' : '') + '.' : '') + ' ' + C.preview + '.';
+      if (dryRun) return done({ run: { process: proc, id: runId }, spread: C.id, status: 'would-sync', items, skipped, partial: false, preview: say(0, 0, 0) });
+      let written = 0, already = 0, failed = 0;
+      for (const it of items) {
+        const P = plan.filter((x) => (x.P.id || x.f.request) === it.request)[0].P;
+        if (P.why) { failed++; continue; }
+        let res;
+        try { res = writeOnce(dir, ['proposals'], P.name, T.text(P.file)); } catch (e) { it.status = 'failed'; it.why = UNCERTAIN + ' (' + (e && e.message || String(e)) + ')'; failed++; continue; }
+        if (res === 'written') { it.status = 'requested'; written++; continue; }
+        let there = null; try { const tx = fs.readFileSync(path.join(dir, 'proposals', P.name), 'utf8'), tv = PF.todos.cleanFile(JSON.parse(tx), P.name, Buffer.byteLength(tx, 'utf8')); there = tv.ok ? tv.record : null; } catch (e) { there = null; }
+        if (there && !T.askDiffers(there, { process: P.file.run.process, id: P.file.run.id }, { op: 'add', text: C.text, target: P.record.target, owner: undefined, fulfills: P.record.fulfills }).length) { it.status = 'already'; already++; }
+        else { it.status = 'failed'; it.why = there ? 'A different request is already filed under this obligation\'s name.' : UNCERTAIN; failed++; }
+      }
+      return done({ run: { process: proc, id: runId }, spread: C.id, status: failed ? 'partial' : 'synced', items, skipped, partial: failed > 0, preview: say(written, already, failed) }, failed ? EXIT.partial : undefined);
+    }
+    /* add, include, stop: one request on the parent run, under the tool's key. */
+    const id = T.idFor(tool.name, val['--key']), file = 'proposals/' + id + '.json';
+    if (unread.some((u) => u.file === id + '.json')) return held('A request under this key is in the folder but can\'t be read yet.');
+    let body = null, childMap = null;
+    if (sub === 'add') {
+      const x = PF.map.findStep(map, val['--loop']);
+      if (!x || x.step.type !== 'for.each') return failOut('invalid', 'Step ' + val['--loop'] + ' of ' + proc + '/' + runId + ' isn\'t a loop ({for.each}).' + nothing, problems());
+      const LV = LP.view(r, val['--loop'], { records: got.scopes || [], unread: sunread, runs, procOf });
+      if (!LV) return failOut('invalid', 'The loop ' + val['--loop'] + ' can\'t be read here.' + nothing, problems());
+      if (LV.ledger.held.length) return held('A scope record of the loop can\'t be read yet, so who would owe it isn\'t known.');
+      const tgt = PF.pins.childTarget(r, x.step, procOf);
+      childMap = tgt && tgt.pub ? tgt.pub.map : null;
+      body = { op: 'spread-add', loopStep: val['--loop'], text: val['--text'], child: { beforeGate: val['--before'] }, scope: S.snapshot(LV) };
+      if (val['--owner'] != null) body.owner = val['--owner'];
+    } else {
+      if (!C) return failOut('invalid', 'That spread isn\'t on ' + proc + '/' + runId + ' (flightdeck spread list shows them).' + nothing, problems());
+      if (sub === 'stop') body = { op: 'spread-stop', spread: C.id, owed: C.items.filter((i) => i.owed).map((i) => ({ uid: i.uid, attempt: i.attempt })) };
+      else {
+        const LV = LP.view(r, C.loopStep, { records: got.scopes || [], unread: sunread, runs, procOf }), it = LV ? LV.rollup.items.filter((i) => i.key === val['--item'] || i.uid === val['--item'])[0] : null;
+        const uid = it ? it.uid : val['--item'], attempt = val['--attempt'] != null ? +val['--attempt'] : it ? it.attempt || 1 : 1;
+        if (val['--run'] != null) { const rm = RUN_KEY.exec(val['--run']); body = { op: 'spread-bind', spread: C.id, item: { uid, attempt }, dest: { process: rm[1], id: rm[2] } }; }
+        else body = { op: 'spread-include', spread: C.id, item: { uid, attempt } };
+      }
+    }
+    if (val['--reason'] != null) body.reason = val['--reason'];
+    if (val['--as'] != null) body.requester = val['--as'];
+    /* A retry under the same key is judged on what was first asked: the same ask says already, anything else is refused. */
+    const prior = records.filter((x) => x.id === id)[0];
+    if (prior) {
+      const dA = T.askDiffers(prior, r, Object.assign({}, body, sub === 'add' ? { scope: prior.scope, spread: prior.spread } : {}, sub === 'stop' ? { owed: prior.owed } : {}));
+      if (dA.length) return failOut('key-taken', 'This key already names a different request (' + file + '). Changed fields: ' + dA.join(', ') + '. Read it (flightdeck spread list) before choosing a new key. Nothing was written.', problems());
+      const q0 = V.requests[id];
+      return done({ run: { process: proc, id: runId }, status: 'already', request: { id, file }, preview: 'Already requested (' + (q0 ? T.WORDS[q0.status] || q0.status : 'not read in order yet') + '). Nothing written.' });
+    }
+    if (problems().length) return held('Part of the team folder this depends on couldn\'t be read.');
+    const P = T.prepare(r, { body, by: { tool: tool.name, version: tool.version, key: val['--key'] }, records, unread, people, deps, childMap, at: new Date().toISOString(), app: eng.version });
+    if (P.why) return failOut('invalid', P.why + nothing, problems());
+    const pv = P.preview, needs = pv.status === 'waiting' ? 'person' : pv.status === 'queued' ? 'delegation' : 'none';
+    const data = (status) => ({ run: { process: proc, id: runId }, status, request: { id, file }, op: pv.op, spread: pv.spread,
+      authority: { needs, why: pv.why || null, requester: body.requester || null, approvesNothing: true },
+      consequence: { reopens: pv.consequence.reopens, releases: pv.consequence.releases }, recorder: pv.recorder || null, queue: T.WORDS[pv.status] || pv.status,
+      scope: sub === 'add' ? { open: body.scope.open.length, unchanged: body.scope.cleared.length } : undefined,
+      preview: title + (status === 'would-request' ? ' — preview only; no files written.' : ' — requested.') + '\n\n' + pv.words + (sub === 'add' ? ' Each story\'s run then decides its own addition (flightdeck spread sync asks them).' : '') + (body.requester ? ' Asked for ' + body.requester + '; that is not their approval.' : ''), appliedBy: 'the recorder' });
+    if (dryRun) return done(data('would-request'));
+    let res;
+    try { res = writeOnce(dir, ['proposals'], P.name, T.text(P.file)); } catch (e) { return failOut('failed', UNCERTAIN + ' (' + (e && e.message || String(e)) + ')', problems()); }
+    if (res !== 'written') {
+      let there = null; try { const tx = fs.readFileSync(path.join(dir, 'proposals', P.name), 'utf8'), tv = PF.todos.cleanFile(JSON.parse(tx), P.name, Buffer.byteLength(tx, 'utf8')); there = tv.ok ? tv.record : null; } catch (e) { there = null; }
+      if (!there) return failOut('failed', UNCERTAIN, problems());
+      if (T.askDiffers(there, r, Object.assign({}, body, sub === 'add' ? { scope: there.scope, spread: there.spread } : {}, sub === 'stop' ? { owed: there.owed } : {})).length) return failOut('key-taken', 'This key already names a different request (' + file + '). Read it (flightdeck spread list) before choosing a new key. Nothing was written.', problems());
+      return done(Object.assign(data('requested'), { status: 'already', preview: 'Already requested. Nothing written.' }));
+    }
+    return done(data('requested'));
+  } catch (e) { return failOut('failed', (e && e.message || String(e)) + nothing, problems()); }
+}
+
 /* ---- flightdeck todo (4.0, docs/apps.md "To-dos on a living run", docs/design.md section 45) ----
    list reads a run's to-dos and the requests on them; add, done, wont, move and reopen ask for one change by writing exactly
    one request in proposals/, once (PF.todos.prepare: the rules every window's buttons use). Nothing here writes run.json or
@@ -3149,6 +3358,7 @@ function main(argv) {
   if (first === 'library' && !argv.includes('--help')) return libraryMain(argv);
   if (first === 'loop' && !argv.includes('--help')) return loopMain(argv);
   if (first === 'todo' && !argv.includes('--help')) return todoMain(argv);
+  if (first === 'spread' && !argv.includes('--help')) return spreadMain(argv);
   const ti = argv.indexOf('--to'), to = ti >= 0 ? argv[ti + 1] : null;
   if (ti >= 0 && (!to || to.startsWith('--'))) fail('say which folder after --to, for example: flightdeck skills --to ~/skills');
   /* Flags that take a value: the value is never read as a command or a folder. */

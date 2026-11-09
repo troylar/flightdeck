@@ -901,14 +901,16 @@ PF.todos = (function () {
   }
   /* Every run's holds, read-only, on every read (like PF.loop.markStale). A run with no to-do records and no living marker
      is left exactly as it was. o: { records, unread, people }. */
+  /* o.also: runs read only for a spread's coverage (its items' runs), not marked themselves. */
   function markHolds(runs, o) {
     o = o || {};
+    var seen = (runs || []).concat(o.also || []);
     (runs || []).forEach(function (r) {
       if (!r || !r.steps || r._unrunnable) return;
       var mine = recordsFor(o.records, r), un = (o.unread || []).filter(function (u) { return u.run ? u.run.process === r.process && u.run.id === r.id : !!r.living; });
       if (!mine.length && !r.living && !un.length) { delete r._todos; return; }
       var T = view(r, { records: mine, unread: un, people: o.people, deps: { records: o.records || [], unread: o.unread || [] } });
-      var cov = T.spreads.length ? PF.spreads.coverage(r, T, { runs: runs, records: o.records || [], unread: o.unread || [], people: o.people, loops: o.loops }) : null;
+      var cov = T.spreads.length ? PF.spreads.coverage(r, T, { runs: seen, records: o.records || [], unread: o.unread || [], people: o.people, loops: o.loops }) : null;
       r._todos = holds(T, r, cov);
     });
   }
@@ -1169,7 +1171,7 @@ PF.todos = (function () {
     var sp = T && T.bySpread ? T.bySpread[q.spread] : null, ls = q.op === 'spread-add' ? q.loopStep : sp ? sp.loopStep : '', st = ls && map ? PF.map.findStep(map, ls) : null;
     var N = st ? PF.loop.nounOf(st.step.fields || {}) || PF.loop.nounOf({ items: (st.step.fields || {}).items }) : { one: 'item', many: 'items' }, n = function (k) { return PF.loop.count(k, N); };
     var text = q.op === 'spread-add' ? q.text : sp ? sp.text : q.spread;
-    if (q.op === 'spread-add') return 'Require "' + text + '" on ' + q.scope.open.length + ' open ' + (q.scope.open.length === 1 ? N.one : N.many) + ', and on every ' + N.one + ' that joins later' + (q.scope.cleared.length ? '; ' + n(q.scope.cleared.length) + ' cleared stay' + (q.scope.cleared.length === 1 ? 's' : '') + ' unchanged' : '') + '.';
+    if (q.op === 'spread-add') return 'Require "' + text + '" on ' + q.scope.open.length + ' open ' + (q.scope.open.length === 1 ? N.one : N.many) + ', and on every ' + N.one + ' that joins later' + (q.scope.cleared.length ? '; ' + q.scope.cleared.length + ' cleared ' + (q.scope.cleared.length === 1 ? N.one + ' stays' : N.many + ' stay') + ' unchanged' : '') + '.';
     if (q.op === 'spread-include') return 'Include ' + q.item.uid + ' (attempt ' + q.item.attempt + ') in "' + text + '"; it was cleared when the spread was added.';
     if (q.op === 'spread-bind') return 'Cover "' + text + '" on ' + q.item.uid + ' (attempt ' + q.item.attempt + ') on ' + q.dest.process + '/' + q.dest.id + '.';
     return 'Stop "' + text + '" for ' + N.many + ' that join later; the ' + n(q.owed.length) + ' it is owed on stay owed.';

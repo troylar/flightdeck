@@ -696,6 +696,40 @@ The rules are the app's own (`PF.todos.prepare`, the run screen's buttons use th
 
 Every copy before 4.0 calls a to-do record, and a run that has to-dos, newer: it shows the run by name only and can't save it.
 
+## Spreads
+
+A spread is a requirement every item of a loop must meet (4.0, docs/design.md section 45.1): "security sign-off on every open story in this release". It is asked on the parent run and fulfilled by an addition on each item's own run, which that run's own people decide. Records live in `proposals/` like every to-do's; never write one by hand.
+
+```
+flightdeck spread list    <team folder> <process>/<run> --json
+flightdeck spread add     <team folder> <process>/<run> --loop <loop step> --text "..." --before <child gate id> [--owner <person id>] [--reason <why>] --tool <name>@<version> --key <key> [--as <person id>] [--dry-run] [--json]
+flightdeck spread sync    <same> --spread <spread id> --tool <name>@<version> [--dry-run] [--json]
+flightdeck spread include <same> --spread <spread id> --item <key or uid> [--attempt <n>] [--run <process>/<run>] [--reason <why>] --tool ... --key ... [--as ...] [--dry-run] [--json]
+flightdeck spread stop    <same> --spread <spread id> --reason <why> --tool ... --key ... [--as ...] [--dry-run] [--json]
+```
+
+`list` and `--dry-run` write nothing. `add`, `include` and `stop` write exactly one request on the parent run, once, under `--tool` and `--key`, as `flightdeck todo` does: the same key and the same ask says `already`; the same key with another ask is `key-taken`. `add` records the scope the person reviewed: the items open now owe the requirement, those cleared now stay unchanged, and every item that joins later, or starts a new attempt, owes it at once. `include` opts one cleared item in; with `--run` it binds the item's obligation to that run instead (when the loop's run for it changed, or competes). `stop` needs a reason; it ends inheritance for later items only and keeps exactly what is owed now.
+
+`sync` asks each owed item's own run for its addition: one `add` request per obligation not yet asked, before the spread's child gate, named by the obligation (`fulfills: { run, spread, uid, attempt }`), so any tool's retry is the same request. Each is written once and on its own: if one can't be written, the rest stand, the exit code is 4, and the next `sync` asks only what is missing. No key is needed; nothing it asks is decided by the parent's approval.
+
+Adding, including or binding needs a person, or a delegation that may add on the loop step; on an approved loop it sends that approval back for review, so a person decides. Stopping releases work, so a person decides.
+
+### The result
+
+`list` gives `spreads` (each `id`, `text`, `loop`, `beforeGate`, `state`, `row` like "Security sign-off · on 3 stories · 0 done", `preview` like "11 open stories; 3 cleared stories unchanged", `counts` (`owed`, `done`, `unchanged`, `arrivals`), `items` (each `key`, `uid`, `attempt`, `owed`, `state`, `words`, `why`, `arrival`, `run`, `request`, `todo`), `notices` ("ABC-105 joined. Security sign-off is owed; not requested yet.") and `holds`, what holds the loop) and `requests` (the spread requests and their status). An item's `state` is `exempt` (cleared when it was added, unchanged), `owed` (not requested yet), `waiting`, `queued`, `open` (added), `done`, `wont`, `moved`, `excepted` (approved without a run), `declined`, `disputed`, `held`, `ended`, `no-run`, `competing`, `rebind` or `unread`; only done, won't do, moved and excepted resolve it.
+
+`add`, `include` and `stop` give what `flightdeck todo` gives (`status`, `request`, `op`, `authority`, `consequence`, `recorder`, `queue`, `preview`), and `add` adds `scope` (`open`, `unchanged`). `sync` gives `status` (`would-sync`, `synced`, `partial` or `held`), `items` (each `key`, `uid`, `attempt`, `run`, `request`, `file` and `status`: `would-request`, `requested`, `already`, `refused` or `failed` with why) and `skipped` (owed items not asked now: already asked, no run yet, a run to choose or bind).
+
+### Errors
+
+| Situation | What it says |
+|---|---|
+| A record or part of the folder this depends on can't be read | `held` (exit 4): nothing was written; retry once the folder is available |
+| An item's request couldn't be written | `partial` (exit 4): the rest stand; run `sync` again |
+| The same key, another ask | `key-taken`, with the changed fields |
+| No such spread, a step that isn't a loop, a change the run doesn't allow | `invalid`, with why |
+| No such run | exit 5 |
+
 ## Writing step types (for AI assistants)
 
 Contract `flightdeck-write/1` (2.14) for `type save`; `type list` and `type read` print `flightdeck-read/2`. `type save` **changes the team folder**: it writes `step-types/<id>.json` and one history line, `history/step-types/<id>/agent-<operation>.jsonl`, and nothing else, never through a link and never outside the folder.

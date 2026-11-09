@@ -172,6 +172,8 @@
     /* What needs this person on every run (PF.todos.inbox), and the delegations they may end: worked out once per draw. */
     todoInbox: function () { return tdInboxNow().items; },
     todoGrants: function () { return tdInboxNow().grants; },
+    /* Spreads on a run (4.0 slice 3): coverage as every window and the CLI work it out (PF.spreads.coverage), once per draw. */
+    spreadCoverage: function (r) { return spreadCoverageOf(r); },
     /* Whether this person may decide on a run's to-dos (and so delegate them): never while people.json can't be read. */
     todoMay: function (r) { return !!state.me && !(data.todosUnread || []).some(function (u) { return u && u.file === 'people.json'; }) && !PF.todos.personWhy(r, state.me, data.people); },
     runOrigin: function (r) { return runOrigin(r); },
@@ -2103,7 +2105,7 @@
     repHarvest();
     corrHarvest();
     tdHarvest();
-    procCache = null; pplBy = { list: null, len: -1, by: null }; pplSorted = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null; tdMemo = null; tdBox = null;
+    procCache = null; pplBy = { list: null, len: -1, by: null }; pplSorted = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null; tdMemo = null; tdBox = null; spBox = null;
     pruneUnapplied();
     var keep = {}, ae = document.activeElement, focusKey = null;
     /* What a person typed or ticked survives a redraw of the same thing: the same screen, run, step and open form. Moving to
@@ -3338,6 +3340,18 @@
       render();
     }, function (err) { endBusy(); if (sg !== gen) return; say('Couldn\'t save the request: ' + (err && err.message || err) + ' It may or may not have been saved; asking again is the same request.', 'bad'); render(); });
   }
+  var spBox = null;
+  function spreadCoverageOf(r) {
+    if (!r || r._unrunnable) return null;
+    var k = r.process + '/' + r.id;
+    spBox = spBox || Object.create(null);
+    if (Object.prototype.hasOwnProperty.call(spBox, k)) return spBox[k];
+    var V = todoViewFor(r), out = null;
+    if (V && V.spreads && V.spreads.length) {
+      try { out = PF.spreads.coverage(r, V, { runs: data.runs || [], records: data.todos || [], unread: data.todosUnread || [], people: data.people, loops: { records: data.scopes || [], unread: data.scopesUnread || [], procOf: ctx.procOf } }); } catch (e) { out = null; }
+    }
+    return (spBox[k] = out);
+  }
   var tdBox = null;
   function tdInboxNow() {
     if (tdBox) return tdBox;
@@ -3387,6 +3401,42 @@
     var made = tdKept(slot, sig, function (seed) { return PF.todos.decide(r, { request: id, op: op, by: state.me, shown: shown, reason: reason, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION, writer: seed.writer, rev: seed.rev }); });
     if (made.why) { mem.tdSaid = made.why; render(); return; }
     tdWrite(r, made, made.words, slot, tok).then(function (ok) { if (ok && mem.tdDec === open && tok === tdTok('dec') && (!sent || tdClearIf(sent))) { mem.tdDec = null; render(); } });
+  }
+  /* Accept N additions (4.0 slice 3): a spread's plain additions on its stories' runs, accepted together, each its own
+     decision on exactly the consequence shown with it (data-ids: run|request|fingerprint). One that changed since, or whose
+     run can't be read, is not decided and is shown again; what couldn't be saved is said, and the rest stand. Each keeps its
+     own retry seed (tdKept), so accepting again after an uncertain save is the same record. */
+  function tdDecideAll(triples) {
+    var mem = loopMem(), tok = tdTok('dec');
+    if (!state.me) return;
+    var list = String(triples || '').split(' ').filter(Boolean).map(function (t) { var p = t.split('|'); return { run: p[0], id: p[1], fp: p[2] }; });
+    var ok = 0, changed = [], failed = [], n = list.length;
+    var said = function () {
+      var t = ok === n ? 'Accepted ' + n + ' addition' + (n === 1 ? '' : 's') + '. Each run\'s recorder applies its own.' : 'Accepted ' + ok + ' of ' + n + ' additions.';
+      if (failed.length) t += ' ' + failed.length + ' couldn\'t be saved (' + failed.slice(0, 5).map(function (f) { return f.why; }).join(' ') + '); they still need you.';
+      if (changed.length) t += ' ' + changed.length + ' changed since you saw ' + (changed.length === 1 ? 'it and is' : 'them and are') + ' shown again for your decision.';
+      if (tok === tdTok('dec')) mem.tdSaid = t; else say(t, failed.length || changed.length ? 'warn' : 'good');
+      render();
+    };
+    var step = function (i) {
+      if (i >= list.length) { said(); return; }
+      var x = list[i], r = findRun(x.run);
+      if (!r || runUnread(r)) { failed.push({ why: (r ? runUnread(r) : 'The run ' + x.run + ' isn\'t in this folder.') }); step(i + 1); return; }
+      var slot = 'dec-all:' + x.run + '|' + x.id, sig = JSON.stringify([x.run, x.id, 'accept', x.fp, state.me]);
+      var made = tdKept(slot, sig, function (seed) { return PF.todos.decide(r, { request: x.id, op: 'accept', by: state.me, shown: x.fp, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION, writer: seed.writer, rev: seed.rev }); });
+      if (made.why) { if (made.renewed) changed.push(x); else failed.push({ why: made.why }); step(i + 1); return; }
+      var cx = loopGuard({ run: r.process + '/' + r.id, readable: true }), endBusy = busyStart(), sg = gen;
+      repo.saveScope(cx.fs, made.name, made.file, { still: function () { return guardOk(cx); } }).then(function (res) {
+        endBusy(); if (sg !== gen) return;
+        if (res && res.dropped) { failed.push({ why: 'The folder, the person or the run changed before it was written.' }); step(i + 1); return; }
+        tdSettled(slot);
+        if (res && res.conflict && res.theirs !== PF.todos.text(made.file)) { failed.push({ why: 'A different record is already saved under its name.' }); step(i + 1); return; }
+        var rec = made.record; rec._file = made.name;
+        if (!(data.todos || []).some(function (y) { return y.id === rec.id; })) data.todos = (data.todos || []).concat([rec]);
+        ok++; lastAll = -Infinity; step(i + 1);
+      }, function (err) { endBusy(); if (sg !== gen) return; failed.push({ why: String(err && err.message || err) }); step(i + 1); });
+    };
+    step(0);
   }
   /* The delegation dialog's choices, as drawn now, into its state (mem.tdDelegate), so every redraw draws them again. */
   function tdDelegateKeep() {
@@ -8081,6 +8131,7 @@
     /* The same dialog, opened at its delegations: any active one can be ended whether or not a request waits. */
     'td-grants': function (id) { tdRenew('dec'); var mem = loopMem(); mem.tdInboxRun = id || ''; mem.tdSaid = ''; mem.tdDec = null; state.overlayFocus = '#tdi-g'; openOverlay({ tdInbox: true, html: function () { return V.todoInbox(ctx); }, held: tdDeclineHeld }); },
     'td-accept': function (id, b) { tdDecide(b.dataset.run, id, 'accept', b.dataset.fp, ''); },
+    'td-accept-all': function (id, b) { tdDecideAll(b.dataset.ids); },
     'td-decline-pick': function (id, b) {
       var mem = loopMem(), was = mem.tdDec, el = document.getElementById('td-dec-why');
       if (was && was.run === b.dataset.run && was.id === id) return;

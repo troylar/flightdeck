@@ -201,6 +201,16 @@
     var last = ctx.loopLast ? ctx.loopLast(r, s.id, V) : null;
     if (V.ledger.held.length) h += '<div class="notice warn"><span><b>Held:</b> a scope record of this loop can\'t be read yet, so nothing here can be approved until it can.' +
       (last ? ' Last readable view, from ' + esc(String(last.at).slice(0, 16).replace('T', ' ')) + ': <b>' + esc(last.summary) + '</b>. ' + last.items.slice(0, 50).map(function (i) { return esc((i.key || i.uid) + ' ' + (LOOP_STATUS[i.status] || i.status)); }).join(' · ') + (last.items.length > 50 ? ' · and ' + (last.items.length - 50) + ' more' : '') : '') + '</span></div>';
+    /* Spreads (4.0 slice 3): one row each, what it covers, what joined since, and a chip per story that owes it. Adding,
+       including and stopping one go through flightdeck spread and the skills; here they are shown as they are. */
+    var SPC = ctx.spreadCoverage ? ctx.spreadCoverage(r) : null;
+    ((SPC && SPC.spreads) || []).filter(function (C) { return C.loopStep === s.id; }).forEach(function (C) {
+      var owed = C.items.filter(function (i) { return i.owed; });
+      h += '<div class="sp-row"><p><b>' + esc(C.row) + '</b>' + (C.summary ? ' <span class="small">' + esc(C.summary) + '</span>' : '') + '</p><p class="small">' + esc(C.preview) + (C.stop ? '. Stopped: ' + esc(C.stop.reason || '') + '; ' + (C.stop.reason ? 'the ' : 'The ') + esc(PF.loop.count(owed.length, N)) + ' it was owed on stay owed' : '') + '.</p>';
+      if (C.notices.length) h += '<div class="notice" role="status"><span>' + C.notices.slice(0, 10).map(esc).join(' ') + (C.notices.length > 10 ? ' And ' + (C.notices.length - 10) + ' more.' : '') + '</span></div>';
+      if (owed.length) h += '<ul class="sp-chips small">' + owed.slice(0, 50).map(function (i) { return '<li class="sp-chip sp-' + esc(i.state) + '"' + (i.why ? ' title="' + esc(i.why) + '"' : '') + '>' + esc((i.key || i.uid) + (i.attempt > 1 ? ' (attempt ' + i.attempt + ')' : '')) + ' · ' + esc(i.words) + '</li>'; }).join('') + '</ul>' + (owed.length > 50 ? '<p class="small">and ' + (owed.length - 50) + ' more (flightdeck spread list shows all).</p>' : '');
+      h += '</div>';
+    });
     if (RU.blockers.length) h += '<ul class="small">' + RU.blockers.slice(0, 12).map(function (b) { return '<li>' + esc(b.text) + '</li>'; }).join('') + (RU.blockers.length > 12 ? '<li>and ' + (RU.blockers.length - 12) + ' more</li>' : '') + '</ul>';
     var mem = ctx.loopMem ? ctx.loopMem() : { all: {}, open: {}, preview: {}, reqs: {}, keepRow: null };
     var me = ctx.state && ctx.state.me, all = !!mem.all[s.id], open = !!mem.open[s.id];

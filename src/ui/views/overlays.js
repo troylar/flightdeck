@@ -336,7 +336,15 @@
     var mem = ctx.loopMem(), only = mem.tdInboxRun || '', all = ctx.todoInbox ? ctx.todoInbox() : [];
     var items = only ? all.filter(function (x) { return x.run.process + '/' + x.run.id === only; }) : all;
     var gs = (ctx.todoGrants ? ctx.todoGrants() : []).filter(function (g) { return !only || g.run.process + '/' + g.run.id === only; });
-    var dec = mem.tdDec, rows = items.map(function (x) { return { x: x, key: x.run.process + '/' + x.run.id + '|' + x.id }; });
+    /* A spread's plain additions on its stories' runs (4.0 slice 3) are accepted together, at most 50 a click; each is still its
+       own decision on what it shows. Anything else (a dispute, one that reopens an approval or releases work) is an exception,
+       listed and decided on its own. */
+    var opening = mem.tdDec, plain = function (x) { return !(opening && opening.run === x.run.process + '/' + x.run.id && opening.id === x.id) && !!x.fulfills && x.op === 'add' && !x.dispute && !x.landed && !x.consequence.reopens.length && !x.consequence.releases; };
+    var groups = [], gOf = Object.create(null);
+    items.forEach(function (x) { if (!plain(x)) return; var k = x.fulfills.spread; if (!gOf[k]) groups.push(gOf[k] = { spread: k, text: x.text, list: [] }); gOf[k].list.push(x); });
+    groups = groups.filter(function (g) { return g.list.length >= 2; });
+    var batched = Object.create(null); groups.forEach(function (g) { g.list.slice(0, 50).forEach(function (x) { batched[x.run.process + '/' + x.run.id + '|' + x.id] = true; }); });
+    var dec = mem.tdDec, rows = items.map(function (x) { return { x: x, key: x.run.process + '/' + x.run.id + '|' + x.id }; }).filter(function (y) { return !batched[y.key]; });
     var h = '<div class="overlay" data-act="close-overlay"><div class="help tdi" role="dialog" aria-modal="true" aria-labelledby="tdi-h"><h2 id="tdi-h" tabindex="-1">To-do requests that need you</h2>';
     h += '<p class="small">' + (items.length ? items.length + ' request' + (items.length === 1 ? '' : 's') + ' wait' + (items.length === 1 ? 's' : '') + ' for your decision' + (only ? ' on this run' : '') + '. Accepting queues it for the run\'s recorder; their window applies it.' : 'Nothing waits for your decision' + (only ? ' on this run' : '') + '.') + '</p>';
     if (mem.tdSaid) h += '<p class="small" role="status">' + esc(mem.tdSaid) + '</p>';
@@ -346,6 +354,12 @@
     if (keptDec.length) h += '<ul class="todos">' + keptDec.map(function (d) {
       return '<li class="small td-kept" role="note">Not sent: your reason to decline a request on ' + esc(d.run) + ': <q>' + esc(d.why) + '</q> <button type="button" class="mini" id="tdk-' + K.domKey(d.key) + '" data-act="td-kept-drop" data-key="' + esc(d.key) + '">Discard</button></li>';
     }).join('') + '</ul>';
+    groups.forEach(function (g) {
+      var now = g.list.slice(0, 50), ids = now.map(function (x) { return x.run.process + '/' + x.run.id + '|' + x.id + '|' + x.consequence.fingerprint; }).join(' ');
+      h += '<div class="td-batch"><p><b>' + esc(g.text) + '</b>: ' + g.list.length + ' addition' + (g.list.length === 1 ? '' : 's') + ' asked of ' + (g.list.length === 1 ? 'a run' : 'their own runs') + ' by a spread. Each is its own decision; none reopens an approval.' + (g.list.length > 50 ? ' 50 at a time; ' + (g.list.length - 50) + ' more after.' : '') + '</p>' +
+        '<ul class="todos small">' + now.map(function (x) { var rk = x.run.process + '/' + x.run.id; return '<li class="todo"><div>' + esc(x.title) + ': ' + esc(x.words) + '</div><button type="button" class="mini" data-act="td-decline-pick" data-id="' + esc(x.id) + '" data-run="' + esc(rk) + '">Decline…</button></li>'; }).join('') + '</ul>' +
+        '<span class="row"><button type="button" class="btn go" data-act="td-accept-all" data-id="' + esc(g.spread) + '" data-ids="' + esc(ids) + '">Accept ' + now.length + ' additions</button></span></div>';
+    });
     if (rows.length) h += K.list(ctx.state, 'td-inbox:' + mem.g, rows, { page: 10, keyOf: function (y) { return y.key; }, focusOf: function (k) { return '#tdi-' + K.domKey(k); }, draw: function (shown) {
       return '<ul class="todos">' + shown.map(function (y) {
         var x = y.x, rk = x.run.process + '/' + x.run.id, open = dec && dec.run === rk && dec.id === x.id;
