@@ -1799,7 +1799,7 @@ def _tsha(v):
 
 
 def todo_http_link(v):
-    """PF.loop.httpLink, as far as it can be said without a browser's URL parser."""
+    """PF.loop.httpLink: its pattern, then what new URL() does with the ASCII host it lets through (_url_host_ok)."""
     if not _tstr(v) or js_len(v) > 2048 or T_CONTROL.search(v) or re.search(r"[\s\ufeff]", v):
         return False
     m = re.match(r"^https?://([A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?)(?::([0-9]{1,5}))?(?:[/?#][\x21-\x7e]*)?\Z", v)
@@ -1809,7 +1809,35 @@ def todo_http_link(v):
         return False
     if re.match(r"^[0-9.]+\Z", m.group(1)) and not re.match(r"^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\Z", m.group(1)):
         return False
-    return True
+    return _url_host_ok(m.group(1))
+
+
+def _ipv4_number(p):
+    """The URL Standard's IPv4 number parser: 0x hex, a leading 0 octal, else decimal; None on failure."""
+    if re.match(r"^0[xX]", p):
+        t, digits, base = p[2:], r"[0-9A-Fa-f]", 16
+    elif len(p) > 1 and p[0] == "0":
+        t, digits, base = p[1:], r"[0-7]", 8
+    else:
+        t, digits, base = p, r"[0-9]", 10
+    if t == "":
+        return 0
+    return int(t, base) if re.fullmatch(digits + "+", t) else None
+
+
+def _url_host_ok(host):
+    """What new URL() does with an ASCII host the pattern let through: one ending in a number (all digits, or one the IPv4
+    number parser reads) must be a whole IPv4 address, or the URL is refused, as the app's link check is."""
+    parts = host.split(".")
+    last = parts[-1]
+    if not (last != "" and (re.fullmatch(r"[0-9]+", last) or _ipv4_number(last) is not None)):
+        return True
+    if len(parts) > 4 or any(x == "" for x in parts):
+        return False
+    nums = [_ipv4_number(x) for x in parts]
+    if any(n is None for n in nums) or any(n > 255 for n in nums[:-1]):
+        return False
+    return nums[-1] < 256 ** (5 - len(nums))
 
 
 def _tcopy_mark(m):

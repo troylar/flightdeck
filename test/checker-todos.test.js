@@ -27,6 +27,10 @@ function valid() {
 }
 /* Each record damaged one way at a time: every field dropped, retyped and nulled, an extra field, a newer or unmarked format,
    over-long text, a prototype key, another file name. */
+const LINKS = ['https://abc.123', 'https://abc.0x1f', 'https://0x7f.1', 'https://0x7f.0.0.1', 'https://abc.0x', 'https://a..b', 'https://a.b.c.d.e',
+  'https://1.2.3', 'https://08.1.1.1', 'https://abc.08', 'https://abc.0', 'https://abc.1a', 'https://a-.b', 'https://-a.b', 'https://abc.09x', 'https://0x.0x.0x.0x',
+  'https://0x100000000', 'https://4294967295', 'https://abc.4294967296', 'https://a.0X1', 'https://1.2.3.4.5', 'https://1.2.3.4', 'https://example.com:0',
+  'https://example.com:65536', 'https://example.com:443/a?b#c', 'http://0377.0.0.1', 'http://0x7f.0x0.0.01', 'http://1.0x100.1', 'http://00x1.a'];
 function corpus() {
   const out = [], seen = Object.create(null);
   const put = (name, o, label) => { const text = typeof o === 'string' ? o : JSON.stringify(o); const k = name + '\n' + text; if (seen[k]) return; seen[k] = 1; out.push({ name, text, label }); };
@@ -58,6 +62,8 @@ function corpus() {
     put(name.replace(/\.json$/, ' (1).json'), o, 'a copy\'s name');
     put(name.replace(/\.json$/, '-LAPTOP.json'), o, 'a laptop copy\'s name');
     put(name, '﻿' + JSON.stringify(o), 'byte-order mark');
+    /* Links as a browser's URL parser reads them: a host ending in a number is an IPv4 address or nothing. */
+    if (o.op === 'move') LINKS.forEach((v) => put(name, Object.assign({}, o, { to: { link: v } }), 'link ' + v));
     put(name, JSON.stringify(o, null, 2) + ' '.repeat(T.LIMITS.bytes), 'over the size limit');
   });
   return out;
