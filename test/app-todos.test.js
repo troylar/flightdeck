@@ -274,6 +274,24 @@ rule('Use copy keeping none of the copy\'s to-dos sends the approval that counte
   assert.deepStrictEqual([r.living, g.s, g.was, 'todos' in g], [undefined, 'review', 'passed', false]);
   assert.ok(!app.fs.files[cp], 'kept: the copy is gone');
 });
+rule('Use copy asks the kept to-dos\' authority again before its save writes: an approver made inactive meanwhile keeps nothing', async () => {
+  const app = await setup();
+  const { head } = await conflictCopy(app, 'person-blake');
+  /* This run is paused, so its recorder doesn't land the request again before the copy is kept. */
+  const r0 = theRun(app); r0.paused = { by: 'person-avery', at: new Date().toISOString(), reason: 'Lunch' }; r0.rev = (r0.rev || 0) + 1;
+  await app.fs.write(runPath(app), JSON.stringify(r0, null, 2));
+  await refresh(app, 300);
+  assert.strictEqual(theRun(app).living, undefined, 'set-up: this run hasn\'t landed it');
+  const before = app.fs.files[runPath(app)].t, h = holdRecovery(app);
+  app.click('use-copy', 'run-OTHER.json'); await app.tick(200);
+  assert.strictEqual(h.seen(), 1, 'set-up: the recovery save reached its read');
+  await blake(app, true); app.click('refresh'); await app.tick(200);
+  h.hold.open(); await app.tick(400);
+  const r = theRun(app);
+  assert.ok(!r.living || r.living.head !== head, 'the head that lost its authority isn\'t saved: ' + JSON.stringify(r.living));
+  assert.strictEqual(app.fs.files[runPath(app)].t, before, 'nothing was written');
+  assert.ok(app.fs.files[runPath(app).replace('run.json', 'run-OTHER.json')], 'the copy is still there');
+});
 rule('Keeping a living copy over a run/2 writes no backup once the person changed', async () => {
   const app = await setup();
   await conflictCopy(app, 'person-blake');

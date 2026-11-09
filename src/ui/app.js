@@ -2965,23 +2965,26 @@
   }
   function guardOk(cx) {
     if (!cx || cx.g !== gen || cx.fs !== state.fs || cx.me !== state.me) return false;
+    if (cx.todo && !todoStill(cx.todo)) return false;
     if (!cx.run) return true;
     var r = findRun(cx.run);
     if (!r || runSig(r) !== cx.sig) return false;
     if (cx.view && viewSig(r, cx.step) !== cx.vsig) return false;
-    if (cx.todo && !todoStill(cx.todo)) return false;
     return !(cx.q && cx.step && PF.loop.askerWhy(r, loopView(r, cx.step), cx.q, data.people));
   }
-  /* A to-do landing (4.0), asked before every write of it (candidate, final, backup): on the run as it was before the landing
-     (its tentative head never counts), with the records, people and unread files as this window reads them now, the same
-     application is still the one to land: authority, revokes, unread and held records all asked again. */
+  /* The one to-do guard (4.0), for a landing and for keeping a conflict copy alike, asked before every write of either
+     (candidate, final, backup): on the run as it was before (t.pre: its tentative head never counts), with the records, people
+     and unread files as this window reads them now, PF.todos.keepHead still keeps exactly the head it kept (t.head) of the one
+     it was given (t.from), dropping the same (t.dropped): authority, revokes, unread and held records all asked again. A
+     landing is keeping one application past the run's head. */
   function todoStill(t) {
     if (!t.pre) return true;
     var pre; try { pre = R.sanitize(JSON.parse(t.pre)); } catch (e) { return false; }
     if (!pre || pre._unrunnable) return false;
-    var V = todoView(pre), q = V && V.requests[t.q], plan = q ? PF.todos.applyPlan(pre, V, q) : null;
-    return !!(plan && plan.adopt && plan.adopt.id === t.a);
+    var kh = PF.todos.keepHead(pre, { living: t.from ? { head: t.from } : null }, { records: data.todos || [], unread: data.todosUnread || [], people: data.people });
+    return kh.head === t.head && kh.dropped === (t.dropped || '');
   }
+  function todoPre(r) { return JSON.stringify(r, function (k, v) { return this === r && k.charAt(0) === '_' ? undefined : v; }); }
   /* Whether a run is a loop's parent (its checklist has a {for.each} step) or a loop's child. */
   function loopy(r) {
     if (!r) return false;
@@ -3284,7 +3287,7 @@
       var types = todoTypes(r), lcx = loopGuard({ run: key });
       var ed = loopEdit(lcx, key, function (rr, m, me, now) {
         /* The write guard asks again before every write, on the run as it is now, before this landing. */
-        lcx.todo = { q: q.id, a: a.id, pre: JSON.stringify(rr, function (k, v) { return this === rr && k.charAt(0) === '_' ? undefined : v; }) };
+        lcx.todo = { from: a.id, head: a.id, pre: todoPre(rr) };
         /* Asked again in the write queue, on the run as it is: still queued (or only its prepared applications disagree), the
            same head, the same authority. */
         var V2 = todoView(rr), q2 = V2 && V2.requests[q.id], plan2 = q2 ? PF.todos.applyPlan(rr, V2, q2) : { skip: 'gone' };
@@ -8871,13 +8874,17 @@
       /* Keeping it would save only what this copy understands of it, erasing the rest. */
       if (c._unrunnable) { say(c._unrunnable + ' That copy can only be read here, so it wasn\'t kept.', 'warn'); return; }
       text = snapshot(cur);
+      /* The guard captured at the click, with the to-dos it keeps (todoStill, as a landing's) asked before every write; when it
+         fails, the kept copy is put back in this window (loopEdit) and the copy stays. */
+      var rc = state.recoverCx, rcx = Object.assign({}, rc && rc.key === key ? rc.cx : loopGuard());
       return repo.keepDisplaced(fs, cur, WRITER).then(function (where) {
         if (g !== gen) return false;
-        return mutateRun(key, g, function (run, map, me, now) {
+        var ed = loopEdit(rcx, key, function (run, map, me, now) {
           var extra = c._overflow || [];
           /* A copy's to-dos this run never landed are kept only while they would land now (PF.todos.keepHead); the rest are
              prepared again. */
           var kh = PF.todos.keepHead(run, c, { records: data.todos || [], unread: data.todosUnread || [], people: data.people }), ko = { typesHash: todoTypes(run), head: kh.head };
+          rcx.todo = { from: c.living && typeof c.living.head === 'string' ? c.living.head : '', head: kh.head, dropped: kh.dropped, pre: todoPre(run) };
           var keep = function (t) {
             R.adopt(t, c, me, now, ko);
             if (kh.dropped) R.log(t, me, now, 'Kept the copy without its to-dos from ' + kh.dropped.slice(0, 120) + ' on: they aren\'t authorized now, so they will be prepared again');
@@ -8892,6 +8899,7 @@
           keep(run);
           if (extra.length) run._overflow = (run._overflow || []).concat(extra);
         }, { recovery: true, expect: cur, expectText: text });
+        return mutateRun(key, g, ed.fn, ed.opts);
       }).then(function (ok) {
         if (!ok || g !== gen) return;
         state.copyView = null;
