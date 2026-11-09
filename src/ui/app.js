@@ -787,6 +787,19 @@
   /* A part of the folder that couldn't be read this time keeps what was read before, and so does a run whose file couldn't
      be read: an unreadable part never looks empty, and Folder health and the Runs page say what couldn't be read. */
   var KEEP = { people: ['people'], drafts: ['drafts'], publications: ['processes'], legacy: ['legacy'], skills: ['skills', 'skillsSkipped'], proposals: ['plans', 'planUnread', 'scopes', 'todos'], 'step types': ['stepTypes'], 'Jira workflows': ['jira'], 'sign-offs': ['validations', 'valUnread'], corrections: ['corrDecisions', 'corrUnread'], 'follow-ups': ['fuDecisions', 'fuUnread'], 'proposed changes': ['proposed'], presence: ['presence'], reports: ['reports'], 'report decisions': ['repDecisions', 'repUnread'], stages: ['stages'] };
+  /* A to-do request (4.0) is what this window first read under its id, for as long as it reads this folder (S3): a file
+     replaced later under the same id with anything else is held as two versions of one request, its run with it, never read
+     as the request someone approved. */
+  function todoBodies(d) {
+    var m = loopMem(), seen = m.todoBodies || (m.todoBodies = Object.create(null));
+    (d.todos || []).forEach(function (x) {
+      if (x.kind !== 'proposal' && x.kind !== 'compound') return;
+      var b = Object.create(null); Object.keys(x).forEach(function (k) { if (k.charAt(0) !== '_') b[k] = x[k]; });
+      var h = PF.todos.fingerprint(b);
+      if (!Object.prototype.hasOwnProperty.call(seen, x.id)) { seen[x.id] = h; return; }
+      if (seen[x.id] !== h) d.todosUnread = (d.todosUnread || []).concat([{ file: x._file, why: 'It changed after this window read it: two versions of one request.', run: x.run }]);
+    });
+  }
   function keepUnread(d) {
     Object.keys(d.failed || {}).forEach(function (k) { (KEEP[k] || []).forEach(function (f) { if (data[f] !== undefined) d[f] = data[f]; }); });
     /* Loops (3.0): proposals/ not read this time keeps the scope records read before and holds every loop until it is, as
@@ -794,6 +807,7 @@
     if (d.failed && 'proposals' in d.failed) d.scopesUnread = (data.scopesUnread || []).filter(function (u) { return u.file !== 'proposals/'; }).concat([{ file: 'proposals/', why: 'The loop\'s scope records couldn\'t be read.', loop: null }]);
     /* Living runs (4.0) the same way: the to-do records read before are kept, and every living run is held until they're read. */
     if (d.failed && 'proposals' in d.failed) d.todosUnread = (data.todosUnread || []).filter(function (u) { return u.file !== 'proposals/'; }).concat([{ file: 'proposals/', why: 'The to-do records couldn\'t be read.', run: null }]);
+    todoBodies(d);
     /* Versions kept from before because publications/ couldn't be read now: their bytes weren't checked against their stage
        this time, so none of a stage's test runs or sign-offs count for them until they are (2.1). */
     if (d.failed && 'publications' in d.failed) (d.processes || []).forEach(function (p) {

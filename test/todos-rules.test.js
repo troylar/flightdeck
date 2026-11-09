@@ -76,6 +76,25 @@ rule('A compound counts only from a person who may decide; otherwise it is ignor
     assert.ok(!T.applyPlan(r, V(r, [c]), q).adopt, 'never landed as it is');
   });
 });
+const moveTo = (todo, to) => ({ op: 'move', todo, to, reason: 'Elsewhere' });
+function landedTodo() {
+  const { r } = newRun(), map = R.mapOf(r), p = prop('ab0', add('Ship it', { phase: 'draft' }), [], 'person-avery');
+  const a = applied(p, '', { decision: p.id + '.status-w1-00000000' }); R.todoLand(r, map, a, { who: 'person-avery', now: AT, typesHash: 'abcdef12', app: '4.0.0' });
+  return { r, map, p, a };
+}
+rule('An approval binds what the request says, not only its consequence: a request replaced with other arguments needs approval again', () => {
+  const { r, map, p, a } = landedTodo(), recs = [p, a];
+  const m1 = prop('ab1', moveTo(p.todo, { ticket: 'ABC-123' }), [a.id], 'person-avery'), m2 = prop('ab1', moveTo(p.todo, { ticket: 'ABC-456' }), [a.id], 'person-avery');
+  same(m1.id, m2.id, 'set-up: the same request id');
+  const C1 = T.consequenceOf(r, map, m1, V(r, recs.concat([m1]))).fingerprint, C2 = T.consequenceOf(r, map, m2, V(r, recs.concat([m2]))).fingerprint;
+  assert.notStrictEqual(C1, C2, 'another destination is another consent');
+  const d = decide(m1, 'accept', 'person-blake', C1);
+  same([st(r, recs.concat([m1, d]), m1.id).status, st(r, recs.concat([m2, d]), m2.id).status], ['queued', 'waiting']);
+  const t1 = prop('ab2', add('One text', { phase: 'draft' }), [a.id], 'person-avery'), t2 = prop('ab2', add('Another text', { phase: 'draft' }), [a.id], 'person-avery');
+  assert.notStrictEqual(T.consequenceOf(r, map, t1, V(r, recs.concat([t1]))).fingerprint, T.consequenceOf(r, map, t2, V(r, recs.concat([t2]))).fingerprint, 'another text');
+  const w1 = prop('ab3', { op: 'wont', todo: p.todo, reason: 'Not needed' }, [a.id], 'person-avery'), w2 = prop('ab3', { op: 'wont', todo: p.todo, reason: 'Done elsewhere' }, [a.id], 'person-avery');
+  assert.notStrictEqual(T.consequenceOf(r, map, w1, V(r, recs.concat([w1]))).fingerprint, T.consequenceOf(r, map, w2, V(r, recs.concat([w2]))).fingerprint, 'another reason');
+});
 rule('A grant lets a tool add, check off and reopen on its exact targets within its limit; never drop work or reopen an approval', () => {
   const { r } = newRun(), g = grant('g1', ['add', 'done'], [{ phase: 'draft' }], 1);
   const p1 = prop('b1', add('One', { phase: 'draft' }), [g.id]), p2 = prop('b2', add('Two', { phase: 'draft' }), [g.id, p1.id]), p3 = prop('b3', add('Three', { phase: 'review' }), [g.id]);

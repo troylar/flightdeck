@@ -18143,7 +18143,7 @@ PF.todos = (function () {
     var reqs = T.requests, rv = function (x) { return x; };
     c.order.forEach(function (x) {
       if (x.kind === 'proposal' || x.kind === 'compound') {
-        reqs[x.id] = { id: x.id, kind: x.kind, op: x.op, todo: x.todo, target: x.target || null, placement: x.placement || null, text: x.text || '', to: x.to || null, reason: x.reason || '', owner: x.owner || '', by: x.by, requester: x.requester || '', at: x.at,
+        reqs[x.id] = { id: x.id, kind: x.kind, op: x.op, todo: x.todo, target: x.target || null, placement: x.placement || null, text: x.text || '', to: x.to || null, reason: x.reason || '', owner: x.owner || '', origin: x.origin || null, by: x.by, requester: x.requester || '', at: x.at,
           status: '', why: '', landed: landed[x.id] || '', candidates: [], decisions: [], dec: null, decReview: [], rawReview: [], app: null, appReview: [], ignored: [], disputedIds: [] };
         /* A compound's decision counts only as a separate decision would (o.may); otherwise it is ignored, with why, and the
            request waits like any other. */
@@ -18198,7 +18198,7 @@ PF.todos = (function () {
     /* A request this copy can't read in order is still listed, held, with what it says. */
     mine.forEach(function (x) {
       if ((x.kind !== 'proposal' && x.kind !== 'compound') || reqs[x.id]) return;
-      reqs[x.id] = { id: x.id, kind: x.kind, op: x.op, todo: x.todo, target: x.target || null, placement: x.placement || null, text: x.text || '', to: x.to || null, reason: x.reason || '', owner: x.owner || '', by: x.by, requester: x.requester || '', at: x.at,
+      reqs[x.id] = { id: x.id, kind: x.kind, op: x.op, todo: x.todo, target: x.target || null, placement: x.placement || null, text: x.text || '', to: x.to || null, reason: x.reason || '', owner: x.owner || '', origin: x.origin || null, by: x.by, requester: x.requester || '', at: x.at,
         status: '', why: '', landed: '', candidates: [], decisions: [], dec: null, decReview: [], rawReview: [], app: null, appReview: [], ignored: [], disputedIds: [], unordered: true };
     });
     Object.keys(reqs).forEach(function (id) { statusOf(T, reqs[id], o, map, heldIds); });
@@ -18289,7 +18289,9 @@ PF.todos = (function () {
         if (a && a.s === 'done' && a.loop) reopens.push('loop:' + P.loop);
       }
     }
-    return { reopens: reopens, releases: releases, fingerprint: fp([q.op, q.todo || '', targetKey(t), reopens, releases]) };
+    /* The consent covers exactly what the request says (its operation's body: text, target, owner, reason, destination...) as
+       well as what it would do, so a request replaced under the same id with other arguments needs approval again. */
+    return { reopens: reopens, releases: releases, fingerprint: fp([q.op, q.todo || '', targetKey(t), reopens, releases, fp(effectOf(q))]) };
   }
   /* Whether a request is authorized now: { ok, via: { decision | grant | compound }, why }. Releasing work or reopening an
      approval needs a person's decision on exactly that consequence; a grant covers only add, done and reopen on its exact
@@ -32337,6 +32339,19 @@ PF.examples = (function () {
   /* A part of the folder that couldn't be read this time keeps what was read before, and so does a run whose file couldn't
      be read: an unreadable part never looks empty, and Folder health and the Runs page say what couldn't be read. */
   var KEEP = { people: ['people'], drafts: ['drafts'], publications: ['processes'], legacy: ['legacy'], skills: ['skills', 'skillsSkipped'], proposals: ['plans', 'planUnread', 'scopes', 'todos'], 'step types': ['stepTypes'], 'Jira workflows': ['jira'], 'sign-offs': ['validations', 'valUnread'], corrections: ['corrDecisions', 'corrUnread'], 'follow-ups': ['fuDecisions', 'fuUnread'], 'proposed changes': ['proposed'], presence: ['presence'], reports: ['reports'], 'report decisions': ['repDecisions', 'repUnread'], stages: ['stages'] };
+  /* A to-do request (4.0) is what this window first read under its id, for as long as it reads this folder (S3): a file
+     replaced later under the same id with anything else is held as two versions of one request, its run with it, never read
+     as the request someone approved. */
+  function todoBodies(d) {
+    var m = loopMem(), seen = m.todoBodies || (m.todoBodies = Object.create(null));
+    (d.todos || []).forEach(function (x) {
+      if (x.kind !== 'proposal' && x.kind !== 'compound') return;
+      var b = Object.create(null); Object.keys(x).forEach(function (k) { if (k.charAt(0) !== '_') b[k] = x[k]; });
+      var h = PF.todos.fingerprint(b);
+      if (!Object.prototype.hasOwnProperty.call(seen, x.id)) { seen[x.id] = h; return; }
+      if (seen[x.id] !== h) d.todosUnread = (d.todosUnread || []).concat([{ file: x._file, why: 'It changed after this window read it: two versions of one request.', run: x.run }]);
+    });
+  }
   function keepUnread(d) {
     Object.keys(d.failed || {}).forEach(function (k) { (KEEP[k] || []).forEach(function (f) { if (data[f] !== undefined) d[f] = data[f]; }); });
     /* Loops (3.0): proposals/ not read this time keeps the scope records read before and holds every loop until it is, as
@@ -32344,6 +32359,7 @@ PF.examples = (function () {
     if (d.failed && 'proposals' in d.failed) d.scopesUnread = (data.scopesUnread || []).filter(function (u) { return u.file !== 'proposals/'; }).concat([{ file: 'proposals/', why: 'The loop\'s scope records couldn\'t be read.', loop: null }]);
     /* Living runs (4.0) the same way: the to-do records read before are kept, and every living run is held until they're read. */
     if (d.failed && 'proposals' in d.failed) d.todosUnread = (data.todosUnread || []).filter(function (u) { return u.file !== 'proposals/'; }).concat([{ file: 'proposals/', why: 'The to-do records couldn\'t be read.', run: null }]);
+    todoBodies(d);
     /* Versions kept from before because publications/ couldn't be read now: their bytes weren't checked against their stage
        this time, so none of a stage's test runs or sign-offs count for them until they are (2.1). */
     if (d.failed && 'publications' in d.failed) (d.processes || []).forEach(function (p) {

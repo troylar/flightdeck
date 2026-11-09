@@ -321,6 +321,19 @@ rule('Use copy that keeps none of the copy\'s to-dos still writes nothing once t
   assert.strictEqual(app.fs.files[runPath(app)].t, before, 'nothing was written for someone else');
   assert.ok(app.fs.files[runPath(app).replace('run.json', 'run-OTHER.json')], 'the copy is still there');
 });
+rule('A request whose file changed after this window read it is held, never landed on an approval of what it says now', async () => {
+  const app = await setup();
+  const T = app.PF.todos, p = await request(app, { op: 'add', text: 'First words', target: { phase: 'draft' } }, { decide: false });
+  await refresh(app, 300);
+  const o = JSON.parse(app.fs.files['proposals/' + p.id + '.json'].t); o.text = 'Other words';
+  await app.fs.write('proposals/' + p.id + '.json', JSON.stringify(o, null, 2));
+  const r = theRun(app), d = await app.PF.repo.loadAll(app.fs, {}), V = T.view(app.PF.run.sanitize(r), { records: d.todos, people: JSON.parse(app.fs.files['people.json'].t) });
+  const C = T.consequenceOf(app.PF.run.sanitize(r), V.map, V.requests[p.id], V).fingerprint;
+  const s = T.buildStatus({ kind: 'decision', proposal: p.id, run: { process: r.process, id: r.id }, seen: [p.id], by: 'person-avery', at: new Date().toISOString(), op: 'accept', consequence: C, writer: 'w1', rev: 'abcdef01', app: '4.0.0' });
+  await app.fs.write('proposals/' + s.name, T.text(s.file));
+  await refresh(app, 400); await refresh(app, 400);
+  assert.deepStrictEqual([apps(app, p.id).length, theRun(app).living], [0, undefined], 'two versions of one request: held');
+});
 rule('Every save, backup and retry of a living run goes through the run guard: loopy() counts a living run', () => {
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
   const i = src.indexOf('function loopy('), body = src.slice(i, src.indexOf('\n  }', i));

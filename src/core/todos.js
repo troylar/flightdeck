@@ -396,7 +396,7 @@ PF.todos = (function () {
     var reqs = T.requests, rv = function (x) { return x; };
     c.order.forEach(function (x) {
       if (x.kind === 'proposal' || x.kind === 'compound') {
-        reqs[x.id] = { id: x.id, kind: x.kind, op: x.op, todo: x.todo, target: x.target || null, placement: x.placement || null, text: x.text || '', to: x.to || null, reason: x.reason || '', owner: x.owner || '', by: x.by, requester: x.requester || '', at: x.at,
+        reqs[x.id] = { id: x.id, kind: x.kind, op: x.op, todo: x.todo, target: x.target || null, placement: x.placement || null, text: x.text || '', to: x.to || null, reason: x.reason || '', owner: x.owner || '', origin: x.origin || null, by: x.by, requester: x.requester || '', at: x.at,
           status: '', why: '', landed: landed[x.id] || '', candidates: [], decisions: [], dec: null, decReview: [], rawReview: [], app: null, appReview: [], ignored: [], disputedIds: [] };
         /* A compound's decision counts only as a separate decision would (o.may); otherwise it is ignored, with why, and the
            request waits like any other. */
@@ -451,7 +451,7 @@ PF.todos = (function () {
     /* A request this copy can't read in order is still listed, held, with what it says. */
     mine.forEach(function (x) {
       if ((x.kind !== 'proposal' && x.kind !== 'compound') || reqs[x.id]) return;
-      reqs[x.id] = { id: x.id, kind: x.kind, op: x.op, todo: x.todo, target: x.target || null, placement: x.placement || null, text: x.text || '', to: x.to || null, reason: x.reason || '', owner: x.owner || '', by: x.by, requester: x.requester || '', at: x.at,
+      reqs[x.id] = { id: x.id, kind: x.kind, op: x.op, todo: x.todo, target: x.target || null, placement: x.placement || null, text: x.text || '', to: x.to || null, reason: x.reason || '', owner: x.owner || '', origin: x.origin || null, by: x.by, requester: x.requester || '', at: x.at,
         status: '', why: '', landed: '', candidates: [], decisions: [], dec: null, decReview: [], rawReview: [], app: null, appReview: [], ignored: [], disputedIds: [], unordered: true };
     });
     Object.keys(reqs).forEach(function (id) { statusOf(T, reqs[id], o, map, heldIds); });
@@ -542,7 +542,9 @@ PF.todos = (function () {
         if (a && a.s === 'done' && a.loop) reopens.push('loop:' + P.loop);
       }
     }
-    return { reopens: reopens, releases: releases, fingerprint: fp([q.op, q.todo || '', targetKey(t), reopens, releases]) };
+    /* The consent covers exactly what the request says (its operation's body: text, target, owner, reason, destination...) as
+       well as what it would do, so a request replaced under the same id with other arguments needs approval again. */
+    return { reopens: reopens, releases: releases, fingerprint: fp([q.op, q.todo || '', targetKey(t), reopens, releases, fp(effectOf(q))]) };
   }
   /* Whether a request is authorized now: { ok, via: { decision | grant | compound }, why }. Releasing work or reopening an
      approval needs a person's decision on exactly that consequence; a grant covers only add, done and reopen on its exact
