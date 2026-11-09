@@ -892,8 +892,9 @@ function markTodos(PF, runs, got, people, peopleBad, loopIn) {
   const T = PF.todos, unread = (got.todosUnread || []).slice();
   if (peopleBad) unread.push({ file: 'people.json', why: 'people.json couldn\'t be read, so no one\'s authority over to-dos can be checked.', run: null });
   const others = loopIn ? loopIn.runs.filter((c) => runs.indexOf(c) < 0) : [];
-  T.markHolds(runs, { records: got.todos || [], unread, people, loops: loopIn ? loopIn.loops : undefined, also: others });
-  runs.forEach((r) => { if (r && r.living && !r._unrunnable) r._tdv = T.view(r, { records: T.recordsFor(got.todos || [], r), unread: unread.filter((u) => (u.run ? u.run.process === r.process && u.run.id === r.id : true)), people }); });
+  const now = Date.now();
+  T.markHolds(runs, { records: got.todos || [], unread, people, loops: loopIn ? loopIn.loops : undefined, also: others, now });
+  runs.forEach((r) => { if (r && r.living && !r._unrunnable) r._tdv = T.view(r, { records: T.recordsFor(got.todos || [], r), unread: unread.filter((u) => (u.run ? u.run.process === r.process && u.run.id === r.id : true)), people, deps: { records: got.todos || [], unread }, now }); });
   return unread;
 }
 /* The checked publication reader the screen gives a loop (procOf): a process's versions as loadAll indexed them. */
@@ -2683,6 +2684,16 @@ const HELP = `flightdeck: team process checklists, in one HTML file
                                       stop --spread --reason, take --key too). Writes one file in proposals/, once;
                                       sync --spread asks each owed item's own run, one file per item, once each;
                                       --dry-run previews; never decides, never writes a run
+  flightdeck fact sync <team folder> <process>/<run> --from <file|-> --tool <name>@<version> [--dry-run] [--json]
+                                      for AI assistants: file what a tool observed about a loop's items (PRs,
+                                      commits, status, blockers), one record per observation, once each. The whole
+                                      batch is checked first; nothing is filed when any of it is refused. Facts
+                                      never change work; never writes a run
+  flightdeck fact list <team folder> <process>/<run> [--loop <step>] [--item <key|uid>] --json
+                                      each item's facts by source, with completeness and freshness. Only reads.
+                                      todo suggest-done --todo <id> --fact <id> --tool ... asks for a to-do done on a
+                                      fact's evidence, named by that evidence (no --key); a person or a delegation
+                                      still decides, and applying it checks the evidence again
   flightdeck skill register <team folder> --from <file|-> [--json]
                                       for AI assistants: register a skill against the exact version it was built
                                       from (Flightdeck 2.0). The only writer of skill-registrations/
@@ -2828,8 +2839,8 @@ async function spreadMain(argv) {
     if (one.peopleWhy || pw) unread.push({ file: 'people.json', why: 'people.json couldn\'t be read, so no one\'s authority over to-dos can be checked.', run: null });
     const sunread = (got.scopesUnread || []).concat(bad.filter((b) => /^proposals\/req-/.test(String(b.path || ''))).map((b) => ({ file: String(b.path).slice(10), why: b.why, loop: null })));
     const records = got.todos || [], people = one.people, deps = { records, unread };
-    const V = T.view(r, { records, unread, people, deps }), title = String(r.title || r.process);
-    const cov = S.coverage(r, V, { runs, records, unread, people, loops: { records: got.scopes || [], unread: sunread, procOf } });
+    const V = T.view(r, { records, unread, people, deps, now: Date.now() }), title = String(r.title || r.process);
+    const cov = S.coverage(r, V, { runs, records, unread, people, loops: { records: got.scopes || [], unread: sunread, procOf }, now: Date.now() });
     const shape = (C) => ({ id: C.id, text: C.text, loop: C.loopStep, beforeGate: C.child.beforeGate, state: C.state, row: C.row, summary: C.summary, preview: C.preview, counts: C.counts ? { owed: C.counts.owed, done: C.counts.resolved, unchanged: C.counts.exempt, arrivals: C.counts.arrivals } : null,
       items: C.items.map((i) => ({ uid: i.uid, key: i.key || null, attempt: i.attempt, state: i.state, words: i.words, why: i.why || null, owed: i.owed, resolved: i.resolved, arrival: !!i.arrival, run: i.run || null, request: i.request || null, todo: i.todo || null })),
       notices: C.notices, holds: C.unresolved, stop: C.stop ? { reason: C.stop.reason } : null });
@@ -2928,19 +2939,166 @@ async function spreadMain(argv) {
   } catch (e) { return failOut('failed', (e && e.message || String(e)) + nothing, problems()); }
 }
 
+/* ---- flightdeck fact (4.0 slice 4, docs/apps.md "Facts", docs/design.md section 45.2) ----
+   sync files what a tool observed about a loop's items, one fact record per observation (PF.facts.prepare: the one rule).
+   The whole batch is checked first, in order, each seeing the ones before it; when any of it is refused nothing is filed.
+   Each record is then written once, on its own, so an interruption leaves the rest standing and a retry files only what is
+   missing. list says each item's facts by source with completeness and freshness. Facts never change work: nothing here
+   writes run.json, decides or asks for a change. */
+const FACT_SUBS = ['list', 'sync'];
+const FACT_VAL = ['--tool', '--from', '--loop', '--item'];
+function factWords(json, sub) {
+  if (json.error) return 'flightdeck: ' + json.error.why + json.problems.map((x) => '\n  ' + x.path + ': ' + x.why).join('');
+  const d = json.data, lines = [];
+  if (sub === 'list') {
+    lines.push(d.title + ' · ' + (d.count ? d.count + (d.count === 1 ? ' fact record' : ' fact records') : 'no facts'));
+    d.items.forEach((i) => { lines.push('  ' + (i.key || i.uid) + (i.attempt > 1 ? ' (attempt ' + i.attempt + ')' : '') + ' · ' + i.loop); i.facts.forEach((f) => lines.push('    ' + f.words)); });
+    d.held.forEach((h) => lines.push('  held: ' + h));
+  } else {
+    lines.push(d.preview);
+    d.facts.forEach((f) => lines.push('  ' + (f.key || '') + ' · ' + f.status + (f.words ? ' · ' + f.words : '') + (f.why ? ': ' + f.why : '')));
+  }
+  json.problems.forEach((x) => lines.push('  ' + x.path + ': ' + x.why));
+  return lines.join('\n');
+}
+async function factMain(argv) {
+  const val = {}, args = argv.filter((a, i) => !a.startsWith('--') && !(i > 0 && FACT_VAL.indexOf(argv[i - 1]) >= 0));
+  let eng = null;
+  const C2 = 2, asJson = argv.includes('--json'), dryRun = argv.includes('--dry-run'), sub = args[1], appOf = () => (eng ? eng.version : versionOf(app()) || '');
+  const out = (json, code) => ({ out: asJson ? JSON.stringify(json, null, 2) : factWords(json, sub), code });
+  const failOut = (kind, why, problems, code) => { const F = eng ? eng.PF.appjson : null; return out(F ? F.failure(appOf(), kind, why, problems || [], C2) : { contract: 'flightdeck-read/2', app: appOf(), error: { kind, why }, problems: problems || [] }, code || (kind === 'not-found' ? EXIT.notFound : EXIT.error)); };
+  const usage = (why) => failOut('usage', why);
+  for (const f of FACT_VAL) {
+    const i = argv.indexOf(f);
+    if (i < 0) continue;
+    if (argv.indexOf(f, i + 1) >= 0) return usage('say ' + f + ' once.');
+    if (argv[i + 1] == null || (argv[i + 1].startsWith('--') && argv[i + 1] !== '-')) return usage('say what goes after ' + f + '.');
+    val[f] = argv[i + 1];
+  }
+  const unknown = argv.filter((a, i) => a.startsWith('--') && ['--json', '--dry-run'].concat(FACT_VAL).indexOf(a) < 0 && !(i > 0 && FACT_VAL.indexOf(argv[i - 1]) >= 0));
+  if (unknown.length) return usage('fact doesn\'t take ' + unknown.join(', ') + '.');
+  if (FACT_SUBS.indexOf(sub) < 0) return usage('say what to do: flightdeck fact ' + FACT_SUBS.join(' | ') + ' <team folder> <process>/<run> ...');
+  const m = RUN_KEY.exec(args[3] || '');
+  if (!args[2] || !m || args[4]) return usage('say the team folder and the run that has the loop, for example: flightdeck fact ' + sub + ' <team folder> release-readiness/k3m9p2q8 --json');
+  const writes = sub === 'sync', allowed = { list: ['--loop', '--item'], sync: ['--tool', '--from'] }[sub];
+  const extra = Object.keys(val).filter((f) => allowed.indexOf(f) < 0);
+  if (extra.length) return usage(sub + ' doesn\'t take ' + extra.join(', ') + '.');
+  if (dryRun && !writes) return usage('list writes nothing; --dry-run goes with sync.');
+  let tool = null, batch = null;
+  if (writes) {
+    const tm = /^([a-z0-9][a-z0-9-]{0,29})@([A-Za-z0-9][A-Za-z0-9._+-]{0,39})$/.exec(val['--tool'] || '');
+    if (!tm) return usage('say which tool observed it, with its version, for example --tool git-bot@1.4.0.');
+    tool = { name: tm[1], version: tm[2] };
+    if (!val['--from']) return usage('say where the observations are with --from <file|-> (a JSON file of {"facts": [...]}, or - for standard input).');
+  }
+  if (val['--loop'] != null && !/^[a-z0-9][a-z0-9-]{0,59}$/i.test(val['--loop'])) return usage('--loop is the loop step\'s id.');
+  let dir;
+  try { eng = loadEngine(); dir = folderArg(args[2], 'fact ' + sub); } catch (e) { return failOut('failed', e.message); }
+  const PF = eng.PF, A = PF.appjson, FX = PF.facts, LP = PF.loop, R = PF.run, repo = PF.repo, proc = m[1], runId = m[2];
+  if (writes) {
+    /* The whole input is read and checked as a batch before the folder is: anything over a limit is refused, never cut. */
+    let got0;
+    try { got0 = await readRequestInput(val['--from'], READ_MAX); } catch (e) { return failOut('failed', 'The observations couldn\'t be read: ' + (e && e.message || String(e)) + ' Nothing was written.'); }
+    if (got0.tooBig) return failOut('invalid', 'The observations are over ' + size(READ_MAX) + '. Nothing was cut and nothing was written; sync fewer at a time.');
+    try { batch = JSON.parse(norm(got0.buf.toString('utf8'))); } catch (e) { return failOut('invalid', 'The input isn\'t JSON: ' + e.message + ' Nothing was written.'); }
+    if (!batch || typeof batch !== 'object' || Array.isArray(batch) || !Array.isArray(batch.facts) || Object.keys(batch).some((k) => k !== 'facts')) return failOut('invalid', 'The observations are {"facts": [ ... ]}, one object per observation. Nothing was written.');
+    if (batch.facts.length > FX.LIMITS.batch) return failOut('invalid', 'One sync takes at most ' + FX.LIMITS.batch + ' facts (this has ' + batch.facts.length + '). Nothing was cut and nothing was written; sync them in parts.');
+  }
+  const ra = readAdapter(dir, { maxBytes: READ_MAX }), L = repo.ledger(repo.readOnly(ra, 'Reading facts'));
+  let kidProcs = [];
+  const relevant = (p) => p === '' || p === 'people.json' || /^proposals(\/|$)/.test(p) || p.indexOf('runs/' + proc + '/' + runId) === 0 || p === 'runs' || p === 'runs/' + proc || kidProcs.some((k) => p.indexOf('runs/' + k) === 0 || p.indexOf('publications/' + k) === 0);
+  const more = [];
+  const problems = () => { const all = L.problems(), seen = {}; all.forEach((x) => { seen[x.path + '\u0000' + x.kind] = true; }); adapterProblems(ra).forEach((x) => { if (!seen[x.path + '\u0000' + x.kind]) all.push(x); }); return all.filter((x) => relevant(x.path)).concat(more); };
+  const done = (data, code) => { const e = A.envelope(eng.version, new Date().toISOString(), problems(), data, C2); return out(e, code != null ? code : e.complete ? 0 : EXIT.partial); };
+  const nothing = writes ? ' Nothing was written.' : '';
+  try {
+    const one = await repo.readRunOnly(L.fs, proc, runId);
+    if (!one.found) return failOut('not-found', 'There\'s no run ' + proc + '/' + runId + ' in the team folder.' + nothing, problems());
+    const r = one.run;
+    if (!r) return failOut('failed', 'The run ' + proc + '/' + runId + ' couldn\'t be read, so its facts can\'t be.' + nothing, problems());
+    if (newerRun(PF, r)) return failOut('failed', 'The run ' + proc + '/' + runId + ' was made with a newer Flightdeck: ' + r._unrunnable + nothing, problems());
+    let map; try { map = R.mapOf(r); } catch (e) { return failOut('failed', 'The run\'s checklist can\'t be read here.' + nothing, problems()); }
+    /* proposals/ is read once, checked: the loops' scope records and every to-do and fact record alike. */
+    const bad = [], got = await repo.readPlans(L.fs, bad, null, true);
+    bad.forEach((b) => L.note(b.path, b.kind || 'malformed', fileWhy(b.why)));
+    const loops = [];
+    map.phases.forEach((p) => p.steps.forEach((s) => { if (s.type === 'for.each') { loops.push(s.id); const c = String(R.fieldsOf(r, s).process || ''); if (c && kidProcs.indexOf(c) < 0) kidProcs.push(c); } }));
+    if (val['--loop'] != null && loops.indexOf(val['--loop']) < 0) return failOut('invalid', 'Step ' + val['--loop'] + ' of ' + proc + '/' + runId + ' isn\'t a loop ({for.each}).', problems());
+    const d = kidProcs.length ? await repo.loadAll(dependsOn(L.fs, [].concat(...kidProcs.map((k) => ['runs/' + k, 'publications/' + k]))), { readOnly: true, explain: true, deep: true }) : { runs: [] };
+    const procOf = procOfFrom(d), runs = [r].concat((d.runs || []).filter((c) => c && !(c.process === r.process && c.id === r.id)));
+    const unread = (got.todosUnread || []).slice();
+    unread.filter((u) => !u.run || (u.run.process === proc && u.run.id === runId)).forEach((u) => more.push({ path: 'proposals/' + u.file, kind: u.kind === 'newer' ? 'newer' : 'malformed', why: u.kind === 'newer' ? u.why : fileWhy(u.why) }));
+    const sunread = (got.scopesUnread || []).concat(bad.filter((b) => /^proposals\/req-/.test(String(b.path || ''))).map((b) => ({ file: String(b.path).slice(10), why: b.why, loop: null })));
+    const LVs = {}, viewOf = (step) => (Object.prototype.hasOwnProperty.call(LVs, step) ? LVs[step] : (LVs[step] = loops.indexOf(step) >= 0 ? LP.view(r, step, { records: got.scopes || [], unread: sunread, runs, procOf }) : null));
+    const NOW = Date.now(), title = String(r.title || r.process), records = got.todos || [];
+    if (sub === 'list') {
+      const FV = FX.view(r, { records, unread }), items = [];
+      (val['--loop'] != null ? [val['--loop']] : loops).forEach((step) => {
+        const LV = viewOf(step);
+        (LV ? LV.rollup.items : []).forEach((i) => {
+          if (val['--item'] != null && i.key !== val['--item'] && i.uid !== val['--item']) return;
+          const fs2 = FX.itemFacts(FV, step, i.uid, i.attempt || 1, NOW);
+          if (!fs2.length) return;
+          items.push({ loop: step, uid: i.uid, key: i.key || null, title: i.title || null, attempt: i.attempt || 1,
+            facts: fs2.map((f) => { const S = f.slot ? FV.bySlot[f.slot] : null; return { domain: f.domain || null, source: f.source || null, state: f.state, words: f.words, fact: S && S.current ? S.current.id : null, records: S ? S.records.length : 0, disputed: !!(S && S.disputed) }; }) });
+        });
+      });
+      return done({ run: { process: proc, id: runId }, title, count: FV.count, limit: FX.LIMITS.records, items, held: FV.held.map((h) => h.record + ': ' + h.why).concat(FV.unread.map((u) => String(u.file) + ': ' + u.why)) });
+    }
+    /* Anything this depends on that couldn't be read holds the sync (exit 4): what a record sees would be incomplete. */
+    const held = (why) => done({ run: { process: proc, id: runId }, status: 'held', facts: [], partial: false, preview: why + ' Nothing was written. Check folder availability, then sync again.' }, EXIT.partial);
+    if (problems().length) return held('Part of the team folder this depends on couldn\'t be read.');
+    /* Checked in order, each against the ones before it in the batch, so two observations of one slot are filed in order. */
+    const recs = records.slice(), plan = [], refused = [], at = new Date().toISOString();
+    for (let i = 0; i < batch.facts.length; i++) {
+      const b = batch.facts[i], label = 'fact ' + (i + 1) + (b && typeof b.key === 'string' ? ' (' + String(b.key).slice(0, 120) + ')' : '');
+      const LV = b && typeof b.loopStep === 'string' ? viewOf(b.loopStep) : null;
+      if (LV && LV.ledger.held.length) return held('A scope record of loop ' + b.loopStep + ' can\'t be read yet, so its items aren\'t known.');
+      const P = FX.prepare(r, { obs: b, by: { tool: tool.name, version: tool.version }, records: recs, unread, items: LV ? LV.rollup.items : [], at, app: eng.version, now: NOW });
+      if (P.held) return held(P.why);
+      if (P.why) { refused.push({ label, why: P.why, taken: !!P.taken }); continue; }
+      if (P.status === 'new') recs.push(Object.assign({}, P.record, { _file: P.name }));
+      plan.push({ i, b, P });
+    }
+    if (refused.length) {
+      const why = refused.slice(0, 5).map((x) => x.label + ': ' + x.why).join(' ') + (refused.length > 5 ? ' And ' + (refused.length - 5) + ' more.' : '');
+      return failOut(refused.some((x) => x.taken) ? 'key-taken' : 'invalid', 'Nothing was filed: every fact in a sync is checked first. ' + why + ' Nothing was written.', problems());
+    }
+    const shape = (x, status, why) => ({ index: x.i + 1, key: x.b.key, id: x.P.id, file: 'proposals/' + x.P.name, status, item: { loop: x.P.record.loopStep, uid: x.P.record.uid, attempt: x.P.record.attempt }, domain: x.P.record.domain, words: x.P.words || null, why: why || null });
+    const items = plan.map((x) => shape(x, x.P.status === 'already' ? 'already' : dryRun ? 'would-file' : 'pending'));
+    const count = (k) => items.filter((x) => x.status === k).length;
+    const say = () => title + (dryRun ? ' — preview only; no files written.' : ' — synced.') + '\n\n' + (dryRun ? 'Would file ' + count('would-file') : 'Filed ' + count('filed')) + ' of ' + items.length + (items.length === 1 ? ' fact' : ' facts') + (count('already') ? '; ' + count('already') + ' already filed' : '') + (count('failed') ? '; ' + count('failed') + ' not filed (see why)' : '') + '. Facts never change work: a to-do is resolved only by an ordinary request (flightdeck todo suggest-done).';
+    if (dryRun) return done({ run: { process: proc, id: runId }, status: 'would-sync', facts: items, partial: false, preview: say() });
+    let failed = 0;
+    plan.forEach((x, k) => {
+      const it = items[k];
+      if (x.P.status === 'already') return;
+      let res;
+      try { res = writeOnce(dir, ['proposals'], x.P.name, PF.todos.text(x.P.file)); } catch (e) { it.status = 'failed'; it.why = UNCERTAIN.replace('the request', 'the fact') + ' (' + (e && e.message || String(e)) + ')'; failed++; return; }
+      if (res === 'written') { it.status = 'filed'; return; }
+      /* Filed meanwhile under the same name: the same observation is already; any other is not this one. */
+      let there = null; try { const tx = fs.readFileSync(path.join(dir, 'proposals', x.P.name), 'utf8'), tv = PF.todos.cleanFile(JSON.parse(tx), x.P.name, Buffer.byteLength(tx, 'utf8')); there = tv.ok ? tv.record : null; } catch (e) { there = null; }
+      const again = there ? FX.prepare(r, { obs: x.b, by: { tool: tool.name, version: tool.version }, records: records.concat([there]), unread, items: viewOf(x.b.loopStep).rollup.items, at, app: eng.version, now: NOW }) : null;
+      if (again && again.status === 'already') { it.status = 'already'; return; }
+      it.status = 'failed'; it.why = there ? 'A different record is already filed under this key.' : UNCERTAIN.replace('the request', 'the fact'); failed++;
+    });
+    return done({ run: { process: proc, id: runId }, status: failed ? 'partial' : 'synced', facts: items, partial: failed > 0, preview: say() }, failed ? EXIT.partial : undefined);
+  } catch (e) { return failOut('failed', (e && e.message || String(e)) + nothing, problems()); }
+}
+
 /* ---- flightdeck todo (4.0, docs/apps.md "To-dos on a living run", docs/design.md section 45) ----
    list reads a run's to-dos and the requests on them; add, done, wont, move and reopen ask for one change by writing exactly
    one request in proposals/, once (PF.todos.prepare: the rules every window's buttons use). Nothing here writes run.json or
    decides: a person decides in Flightdeck (or a delegation covers it), and the recorder's window applies it. --as names who the
    tool asks for; it never stands for that person's approval. */
-const TODO_SUBS = ['list', 'add', 'done', 'wont', 'move', 'reopen'];
-const TODO_VAL = ['--tool', '--key', '--text', '--phase', '--step', '--item', '--attempt', '--todo', '--reason', '--to', '--owner', '--as'];
+const TODO_SUBS = ['list', 'add', 'done', 'wont', 'move', 'reopen', 'suggest-done'];
+const TODO_VAL = ['--tool', '--key', '--text', '--phase', '--step', '--item', '--attempt', '--todo', '--reason', '--to', '--owner', '--as', '--fact'];
 function todoWords(json, sub) {
   if (json.error) return 'flightdeck: ' + json.error.why + json.problems.map((x) => '\n  ' + x.path + ': ' + x.why).join('');
   const d = json.data, lines = [];
   if (sub === 'list') {
     lines.push(d.title + ' · ' + d.summary);
-    d.todos.forEach((t) => lines.push('  [' + (t.state === 'open' ? ' ' : t.state === 'done' ? 'x' : '-') + '] ' + t.text + (t.gate ? ' (before ' + t.gate + ')' : '') + ' · ' + t.id + (t.state !== 'open' ? ' · ' + t.stateWords : '')));
+    d.todos.forEach((t) => lines.push('  [' + (t.state === 'open' ? ' ' : t.state === 'done' ? 'x' : '-') + '] ' + t.text + (t.gate ? ' (before ' + t.gate + ')' : '') + ' · ' + t.id + (t.state !== 'open' ? ' · ' + t.stateWords : '') + (t.evidence ? ' · on evidence: ' + t.evidence.words : '')));
     d.requests.forEach((q) => lines.push('  ' + q.id + ' · ' + q.op + ' · ' + q.statusWords + (q.why ? ': ' + q.why : '')));
     d.held.forEach((h) => lines.push('  held: ' + h));
   } else lines.push(d.preview);
@@ -2972,7 +3130,11 @@ async function todoMain(argv) {
     const tm = /^([a-z0-9][a-z0-9-]{0,29})@([A-Za-z0-9][A-Za-z0-9._+-]{0,39})$/.exec(val['--tool'] || '');
     if (!tm) return usage('say which tool asks, with its version, for example --tool release-helper@1.4.0.');
     tool = { name: tm[1], version: tm[2] };
-    if (!val['--key'] || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$/.test(val['--key'])) return usage('say which key with --key: letters, numbers, dots, colons, dashes or underscores, like import-42. The same key always means the same request.');
+    if (sub === 'suggest-done') {
+      if (val['--key'] != null) return usage('suggest-done is named by the evidence it rests on, so it takes no --key: the same evidence is always the same request.');
+      if (!val['--fact']) return usage('say which fact it rests on with --fact <fact id> (flightdeck fact list shows them).');
+    } else if (val['--fact'] != null) return usage('--fact goes with suggest-done.');
+    else if (!val['--key'] || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$/.test(val['--key'])) return usage('say which key with --key: letters, numbers, dots, colons, dashes or underscores, like import-42. The same key always means the same request.');
     if (val['--as'] != null && !/^[A-Za-z0-9_.-]{1,80}$/.test(val['--as'])) return usage('--as is the ID from people.json of the person the tool asks for.');
     const targets = ['--phase', '--step', '--item'].filter((f) => val[f] != null);
     if (sub === 'add' && (val['--text'] == null || targets.length !== 1)) return usage('say what needs doing with --text "..." and where it goes with exactly one of --phase <phase id>, --step <step id> or --item <loop step>/<item uid> [--attempt <n>].');
@@ -2992,7 +3154,7 @@ async function todoMain(argv) {
   const relevant = (p) => p === '' || p === 'people.json' || p === 'proposals' || p === 'proposals/' || p.indexOf('runs/' + proc + '/' + runId) === 0 || p === 'runs' || p === 'runs/' + proc;
   const extra = [];
   const problems = () => { const all = L.problems(), seen = {}; all.forEach((x) => { seen[x.path + '\u0000' + x.kind] = true; }); adapterProblems(ra).forEach((x) => { if (!seen[x.path + '\u0000' + x.kind]) all.push(x); }); return all.filter((x) => relevant(x.path)).concat(extra); };
-  const done = (data) => { const e = A.envelope(eng.version, new Date().toISOString(), problems(), data, C2); return out(e, e.complete ? 0 : EXIT.partial); };
+  const done = (data, code) => { const e = A.envelope(eng.version, new Date().toISOString(), problems(), data, C2); return out(e, code != null ? code : e.complete ? 0 : EXIT.partial); };
   const nothing = writes ? ' Nothing was written.' : '';
   try {
     const one = await repo.readRunOnly(L.fs, proc, runId);
@@ -3009,18 +3171,65 @@ async function todoMain(argv) {
     const unread = (got.todosUnread || []).filter(mineRun);
     unread.forEach((u) => extra.push({ path: 'proposals/' + u.file, kind: u.kind === 'newer' ? 'newer' : 'malformed', why: u.kind === 'newer' ? u.why : fileWhy(u.why) }));
     if (one.peopleWhy || pw) unread.push({ file: 'people.json', why: 'people.json couldn\'t be read, so no one\'s authority over to-dos can be checked.', run: null });
-    const records = T.recordsFor(got.todos || [], r), people = one.people;
-    const V = T.view(r, { records, unread, people }), nameOf = A.names(people), title = String(r.title || r.process);
+    const records = T.recordsFor(got.todos || [], r), people = one.people, NOW = Date.now();
+    /* Every record and unread file read, for what a request depends on elsewhere (a story's facts are on its parent run). */
+    const deps = { records: got.todos || [], unread: (got.todosUnread || []).concat(unread.filter((u) => u.file === 'people.json')) };
+    const V = T.view(r, { records, unread, people, deps, now: NOW }), nameOf = A.names(people), title = String(r.title || r.process);
     const gateOf = (pl) => (pl ? T.gateTitle(map, pl.beforeGate) : '');
+    const evidenceOf = (x) => { if (!x || !x.support) return null; const s = x.support; return { fact: s.fact, domain: s.domain, source: s.source, words: PF.facts.TITLE[s.domain] + ' from ' + [s.source.feed, s.source.site, s.source.account].filter(Boolean).join(' · ') + ' (' + s.fact + ')' }; };
     if (sub === 'list') {
       const open = V.todos.filter((x) => x.state === 'open').length;
       return done({ run: { process: proc, id: runId }, title, living: !!r.living, ended: !!r.ended,
         summary: 'To-dos: ' + (V.todos.length - open) + ' of ' + V.todos.length + ' resolved' + (V.broken || V.unread.length || V.held.length ? ' · held' : ''),
         todos: V.todos.map((x) => ({ id: x.id, text: x.text, state: x.state, stateWords: T.STATE_WORDS[x.state], target: x.target || null, placement: x.placement || null, beforeGate: x.placement ? x.placement.beforeGate : null, gate: gateOf(x.placement) || null,
-          owner: x.owner ? nameOf(x.owner) : null, reason: x.why || null, addedReason: x.reason || null, to: x.to || null })),
-        requests: T.requestsOf(V).map((q) => ({ id: q.id, kind: q.kind, op: q.op, todo: q.todo || null, status: q.status, statusWords: T.WORDS[q.status] || q.status, why: q.why || null, by: q.by || null, requester: q.requester || null, at: q.at || null })),
+          owner: x.owner ? nameOf(x.owner) : null, reason: x.why || null, addedReason: x.reason || null, to: x.to || null, evidence: evidenceOf(x) })),
+        requests: T.requestsOf(V).map((q) => ({ id: q.id, kind: q.kind, op: q.op, todo: q.todo || null, status: q.status, statusWords: T.WORDS[q.status] || q.status, why: q.why || null, by: q.by || null, requester: q.requester || null, at: q.at || null, evidence: q.support ? evidenceOf(q) : null })),
         held: (V.broken ? [V.broken.why] : []).concat(V.unread.map((u) => String(u.file) + ': ' + u.why), V.held.map((h) => h.record + ': ' + h.why)) });
     }
+    /* suggest-done (4.0 slice 4): a done on one fact's evidence, as PF.facts.supportFor checks it now. Its name comes from the
+       to-do's opening and what the evidence says, so asking again (any tool, any time, a re-sync that only moved the time)
+       is the same request: already, once filed, whatever became of it. */
+    const suggestDone = () => {
+      const FX = PF.facts, x = V.byTodo[val['--todo']], sid0 = { run: { process: proc, id: runId } };
+      const held = (why) => done(Object.assign(sid0, { status: 'held', preview: why + ' Nothing was written. Check folder availability, then try again.' }), EXIT.partial);
+      if (!x) return (V.broken || V.unread.length || V.held.length) ? held('The to-do can\'t be read in order yet.') : failOut('invalid', 'That to-do isn\'t in this run.' + nothing, problems());
+      const it = FX.itemOfTodo(r, x), FV = it ? FX.view(it.run, deps) : null, fr = FV ? FV.byId[val['--fact']] : null;
+      if (fr && fr.loopStep === it.loopStep && fr.uid === it.uid && fr.attempt === it.attempt) {
+        const sid = FX.suggestionId(x.id, FX.incarnationOf(x), fr.source, fr.domain, fr.content), sfile = 'proposals/' + sid + '.json';
+        if ((got.todos || []).some((y) => y.id === sid)) {
+          const q0 = T.requestsOf(V).filter((q) => q.id === sid)[0];
+          return done(Object.assign(sid0, { status: 'already', request: { id: sid, file: sfile }, preview: 'Already suggested on this evidence (' + (q0 ? T.WORDS[q0.status] || q0.status : 'not read in order yet') + '). Nothing written.' }));
+        }
+        if ((got.todosUnread || []).some((u) => u.file === sid + '.json')) return held('A suggestion on this evidence is in the folder but can\'t be read yet.');
+      }
+      if (problems().length || (FV && FV.unread.length)) return held('Part of the team folder this depends on couldn\'t be read.');
+      const S = FX.supportFor(r, x, val['--fact'], { records: deps.records, unread: deps.unread, now: NOW });
+      if (S.held) return held(S.why);
+      if (S.why) return failOut('invalid', S.why + nothing, problems());
+      const body = { op: 'done', todo: x.id, support: S.support };
+      if (val['--reason'] != null) body.reason = val['--reason'];
+      if (val['--as'] != null) body.requester = val['--as'];
+      const P = T.prepare(r, { body, by: { tool: tool.name, version: tool.version }, records, unread, people, deps, now: NOW, at: new Date().toISOString(), app: eng.version });
+      if (P.why) return failOut('invalid', P.why + nothing, problems());
+      const pv = P.preview, needs = pv.status === 'waiting' ? 'person' : pv.status === 'queued' ? 'delegation' : 'none', file = 'proposals/' + P.name;
+      const data = (status) => Object.assign(sid0, { status, request: { id: P.id, file }, op: 'done', todo: x.id,
+        evidence: { fact: S.support.fact, domain: S.support.domain, source: S.support.source, words: S.words },
+        authority: { needs, why: pv.why || null, requester: body.requester || null, approvesNothing: true },
+        consequence: { reopens: pv.consequence.reopens, releases: pv.consequence.releases }, recorder: pv.recorder || null, queue: T.WORDS[pv.status] || pv.status,
+        preview: title + (status === 'would-request' ? ' — preview only; no files written.' : ' — requested.') + '\n\n' + pv.words + ' Evidence: ' + S.words + ' Applying it checks the evidence again.' + (body.requester ? ' Asked for ' + body.requester + '; that is not their approval.' : ''), appliedBy: 'the recorder' });
+      if (dryRun) return done(data('would-request'));
+      let res;
+      try { res = writeOnce(dir, ['proposals'], P.name, T.text(P.file)); } catch (e) { return failOut('failed', UNCERTAIN + ' (' + (e && e.message || String(e)) + ')', problems()); }
+      if (res !== 'written') {
+        /* Its name is its evidence: the same suggestion filed meanwhile is already; anything else there is refused. */
+        let there = null; try { const tx = fs.readFileSync(path.join(dir, 'proposals', P.name), 'utf8'), tv = T.cleanFile(JSON.parse(tx), P.name, Buffer.byteLength(tx, 'utf8')); there = tv.ok ? tv.record : null; } catch (e) { there = null; }
+        if (!there) return failOut('failed', UNCERTAIN, problems());
+        if (there.op !== 'done' || there.todo !== x.id || !there.support) return failOut('key-taken', 'A different record is already filed under this suggestion\'s name (' + file + '). Nothing was written.', problems());
+        return done(Object.assign(data('requested'), { status: 'already', preview: 'Already suggested on this evidence. Nothing written.' }));
+      }
+      return done(data('requested'));
+    };
+    if (sub === 'suggest-done') return suggestDone();
     const id = T.idFor(tool.name, val['--key']), file = 'proposals/' + id + '.json';
     if (unread.some((u) => u.file === id + '.json')) return done({ run: { process: proc, id: runId }, status: 'held', request: { id, file }, preview: 'A request under this key is in the folder but can\'t be read yet. Nothing written. Check folder availability, then retry with the same key.' });
     const body = { op: sub };
@@ -3050,7 +3259,7 @@ async function todoMain(argv) {
     /* After a retry is recognized, before anything is judged: a dependency that can't be read holds the ask (exit 4), never
        a refusal that reading it again could lift. */
     if (problems().length) return done({ run: { process: proc, id: runId }, status: 'held', request: { id, file }, preview: 'Part of the team folder this depends on couldn\'t be read, so nothing was written. Check folder availability, then retry with the same key.' });
-    const P = T.prepare(r, { body, by: { tool: tool.name, version: tool.version, key: val['--key'] }, records, unread, people, at: new Date().toISOString(), app: eng.version });
+    const P = T.prepare(r, { body, by: { tool: tool.name, version: tool.version, key: val['--key'] }, records, unread, people, deps, now: NOW, at: new Date().toISOString(), app: eng.version });
     if (P.why) return failOut('invalid', P.why + ' Nothing was written.', problems());
     const pv = P.preview, needs = pv.status === 'waiting' ? 'person' : pv.status === 'queued' ? 'delegation' : 'none';
     const data = (status) => ({ run: { process: proc, id: runId }, status, request: { id, file }, op: pv.op, todo: pv.todo, placement: pv.placement, gate: pv.gate || null,
@@ -3359,6 +3568,7 @@ function main(argv) {
   if (first === 'loop' && !argv.includes('--help')) return loopMain(argv);
   if (first === 'todo' && !argv.includes('--help')) return todoMain(argv);
   if (first === 'spread' && !argv.includes('--help')) return spreadMain(argv);
+  if (first === 'fact' && !argv.includes('--help')) return factMain(argv);
   const ti = argv.indexOf('--to'), to = ti >= 0 ? argv[ti + 1] : null;
   if (ti >= 0 && (!to || to.startsWith('--'))) fail('say which folder after --to, for example: flightdeck skills --to ~/skills');
   /* Flags that take a value: the value is never read as a command or a folder. */

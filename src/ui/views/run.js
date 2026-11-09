@@ -221,6 +221,13 @@
       h += '<table class="loop-items"><thead><tr><th>' + esc(One) + '</th><th>Status</th><th>Result</th><th>Owner</th><th></th></tr></thead><tbody>';
       /* Which rows may start, by the one rule every start uses (PF.loop.launchable): a competing story is chosen first. */
       var startOk = Object.create(null); PF.loop.launchable(r, V, RU.items.map(function (i) { return i.key; }), ctx.procOf).start.forEach(function (k) { startOk[k.key] = k; });
+      /* What is known about each item (4.0 slice 4: facts), by source, with completeness and freshness. A domain no tool has
+         checked says so, never "none"; facts are shown, never acted on here (flightdeck fact sync files them). */
+      var FV = ctx.factView ? ctx.factView(r) : null, fNow = ctx.factNow ? ctx.factNow() : Date.now();
+      var factLines = function (i) {
+        var L = FV && FV.count ? PF.facts.itemFacts(FV, s.id, i.uid, i.attempt || 1, fNow) : [];
+        return L.length ? '<ul class="fact-lines small">' + L.slice(0, 12).map(function (f) { return '<li class="fact-' + esc(f.state) + '">' + esc(f.words) + '</li>'; }).join('') + '</ul>' : '';
+      };
       rows.slice(0, all ? rows.length : PAGE).forEach(function (i) {
         var x = V.ledger.items.filter(function (y) { return y.uid === i.uid; })[0] || {}, k = esc(i.key || i.uid), acts = '';
         var data = ' data-id="' + sid + '" data-item="' + k + '"';
@@ -243,7 +250,7 @@
         h += '<tr id="' + esc(PF.loop.rowId(s.id, i.key || i.uid)) + '" tabindex="-1"><td><b>' + k + '</b> ' + (x.link && PF.loop.httpLink(x.link) ? '<a href="' + esc(x.link) + '" target="_blank" rel="noopener noreferrer">' + esc(i.title || x.link) + '</a>' : esc(i.title || '')) + (i.state === 'proposed' ? ' <span class="small">(removal proposed)</span>' : '') + '</td><td>' + esc(LOOP_STATUS[i.status] || i.status) +
           (i.exception ? ' <span class="small">' + esc(i.exception.reason || '') + ' · ' + esc(who(i.exception.approver)) + (i.exception.onBehalf ? ', recorded on their behalf' : '') + '</span>' : '') +
           (i.mismatch ? ' <span class="small">' + (i.state === 'removed' ? 'Removed here, but ' + esc(src) + (jira ? ' still finds it' : ' still lists it') : 'Kept here, but ' + esc(src) + (jira ? ' no longer finds it' : ' no longer lists it')) + '</span>' : '') +
-          (x.removed && x.removed.by && x.removed.by.tool ? ' <span class="small">Removed by ' + esc(x.removed.by.tool) + '</span>' : '') + '</td><td>' + esc(i.result || '') + '</td><td>' + esc(i.owner ? who(i.owner) : i.ownerWhy ? 'Unassigned: ' + i.ownerWhy : i.recorder ? who(i.recorder) : '') + '</td><td>' + acts + '</td></tr>';
+          (x.removed && x.removed.by && x.removed.by.tool ? ' <span class="small">Removed by ' + esc(x.removed.by.tool) + '</span>' : '') + factLines(i) + '</td><td>' + esc(i.result || '') + '</td><td>' + esc(i.owner ? who(i.owner) : i.ownerWhy ? 'Unassigned: ' + i.ownerWhy : i.recorder ? who(i.recorder) : '') + '</td><td>' + acts + '</td></tr>';
       });
       h += '</tbody></table>';
       if (!all && rows.length > PAGE) h += '<button class="mini" data-act="loop-more" data-id="' + sid + '">Show all ' + esc(PF.loop.count(rows.length, N)) + '</button>';
@@ -1222,7 +1229,10 @@
     if (x.owner) h += ' <span class="small">· ' + esc(nameOf(ctx, x.owner)) + '</span>';
     if (!open) h += ' <span class="pill ' + (x.state === 'done' ? 'passed' : 'waived') + '">' + esc(TD_STATE[x.state]) + '</span>' + (x.state === 'moved' && tdDest(x.to) ? ' <span class="small">to ' + esc(tdDest(x.to)) + '</span>' : '') + (x.why ? ' <span class="small">· ' + esc(x.why) + '</span>' : '');
     if (x.disputed) h += ' <span class="pill review">Decided two ways at once</span>';
-    mine.forEach(function (q) { h += ' <span class="pill review" title="' + esc(q.why || '') + '">' + esc((q.op === 'done' ? 'Done' : q.op === 'wont' ? 'Won\'t do' : q.op === 'move' ? 'Move' : 'Reopen') + ': ' + (TD_REQ[q.status] || q.status)) + '</span>' + (q.why ? ' <span class="small">' + esc(q.why) + '</span>' : ''); });
+    /* Done on a fact's evidence (4.0 slice 4): said quietly, once it is applied, never before. */
+    if (x.state === 'done' && x.support) h += ' <span class="small td-ack">Checked off on its evidence: ' + esc(PF.facts.supportWords(x.support)) + '.</span>';
+    mine.forEach(function (q) { h += ' <span class="pill review" title="' + esc(q.why || '') + '">' + esc((q.op === 'done' ? 'Done' : q.op === 'wont' ? 'Won\'t do' : q.op === 'move' ? 'Move' : 'Reopen') + ': ' + (TD_REQ[q.status] || q.status)) + '</span>' + (q.why ? ' <span class="small">' + esc(q.why) + '</span>' : '') +
+      (q.support ? ' <span class="small td-evidence">On evidence: ' + esc(ctx.evidenceWords ? ctx.evidenceWords(r, x, q.support) : PF.facts.supportWords(q.support) + '.') + '</span>' : ''); });
     if (can && !busy) {
       if (open) h += ' <span class="row td-acts"><button type="button" class="mini" data-act="td-pick" data-kind="wont" data-id="' + id + '">Won\'t do…</button><button type="button" class="mini" data-act="td-pick" data-kind="move" data-id="' + id + '">Move or defer…</button></span>';
       else h += ' <span class="row td-acts"><button type="button" class="mini" data-act="td-reopen" data-id="' + id + '">Reopen</button></span>';

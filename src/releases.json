@@ -31,6 +31,13 @@
         "title": "Read and ask for to-dos from the command line",
         "now": "flightdeck todo list shows a run's to-dos and the requests on them. flightdeck todo add, done, wont, move and reopen preview with --dry-run, then file one request for a person to decide; the recorder's window applies it. flightdeck run, next and runs show a run's to-dos and what holds its gates. The new living-run skill does this for an assistant.",
         "where": "flightdeck todo, the assistants' skills"
+      },
+      {
+        "kind": "new",
+        "area": "Loops",
+        "title": "See what is known about each story, and check a to-do off on its evidence",
+        "now": "A tool can record what it found about a loop's items (PRs, commits, status, blockers), how complete and when. The loop shows it under each item; anything not checked says so, never \"no blockers\". Facts never change work: a to-do is checked off on their evidence only when a person accepts the suggestion, or a delegation covers it, and only if the evidence still holds when applied.",
+        "where": "A run's loop, flightdeck fact, the living-run skill"
       }
     ]
   },

@@ -730,6 +730,53 @@ Adding, including or binding needs a person, or a delegation that may add on the
 | No such spread, a step that isn't a loop, a change the run doesn't allow | `invalid`, with why |
 | No such run | exit 5 |
 
+## Facts
+
+A fact is what a tool observed about one loop item from one source (4.0, docs/design.md section 45.2): its PRs, commits, status or blockers, with whether the list is complete, when it was observed and how long that stays fresh. Facts are information only. They never check off a step or a to-do, pass an approval or reopen work; a to-do is resolved on a fact's evidence only through `flightdeck todo suggest-done`, an ordinary done request a person decides (or a delegation covers), and applying it checks the evidence again. Records live in `proposals/`; never write one by hand.
+
+```
+flightdeck fact sync <team folder> <process>/<run> --from <file|-> --tool <name>@<version> [--dry-run] [--json]
+flightdeck fact list <team folder> <process>/<run> [--loop <loop step>] [--item <key or uid>] [--json]
+flightdeck todo suggest-done <team folder> <process>/<run> --todo <to-do id> --fact <fact id> --tool <name>@<version> [--reason <why>] [--as <person id>] [--dry-run] [--json]
+```
+
+The run is the one that has the loop. `--from` is a JSON file (or `-` for standard input) of `{"facts": [ ... ]}`, at most 500, each one observation:
+
+```json
+{ "key": "abc-102-prs-2026-11-09T09", "loopStep": "stories", "item": "ABC-102",
+  "source": { "feed": "bitbucket", "site": "git.example.com" }, "domain": "prs",
+  "observedAt": "2026-11-09T09:00:00Z", "maxAgeSeconds": 86400,
+  "complete": true, "reported": 2, "errors": [],
+  "entries": [ { "id": "17", "text": "Fix the login", "state": "merged", "link": "https://git.example.com/pr/17" } ] }
+```
+
+- `key`: the tool's own name for this observation. The same `--tool` name and key always mean the same observation: filed again it is `already`; the same key with any other observation is refused (`key-taken`). Use a new key for each new observation (a key with the time in it works).
+- `item`: the item's key or uid; `attempt` (optional) defaults to its current one. An item that isn't in the loop, or an attempt it hasn't reached, is refused.
+- `domain` and its entries: `prs` (`state`: open, draft, merged or closed), `commits` (no state), `status` (one entry; `category`: todo, doing or done) or `blockers` (`state`: open or resolved). Each entry has an `id` (at most 120 characters), `text` (at most 200) and an optional https `link`; at most 100 entries.
+- `complete`: true only when you read the whole list: `reported` (how many the source says there are, or null when it doesn't say) equals the entries given, and there are no `errors` (at most 20, 300 characters each). A partial list is fine; say so. `fetched` defaults to the number of entries.
+- `maxAgeSeconds`: how long it stays fresh, 1 to 604,800 (default 86,400).
+
+`sync` checks the whole batch first, in order (each observation sees the ones before it), and files nothing when any of it is refused; the error names each refusal by its place and key. Then each is written once, as `proposals/req-<tool>-<24 hex>.json`, on its own: if one can't be written, the rest stand, the exit code is 4, and the next `sync` of the same file files only what is missing. A run takes at most 10,000 fact records; past that `sync` is refused with what to do, and the records there are kept.
+
+`suggest-done` checks one fact against one open to-do about that item: the fact must be the current observation in its slot (not replaced by one that says something else), fresh, complete for PRs, status and blockers, show the work done (every PR merged, a commit, status done, no open blocker), and no other fact about the item may disagree (a disputed observation, open blockers). It files one done request whose name comes from the to-do's current opening and what the evidence says, so no `--key`: another tool, or a later sync that only moved the time, gets `already`, as does a suggestion already declined or applied. Reopened, the to-do may be suggested again.
+
+### The result
+
+`fact sync` gives `status` (`would-sync`, `synced`, `partial` or `held`), `facts` (each `index`, `key`, `id`, `file`, `item` `{ loop, uid, attempt }`, `domain`, `words` (how its slot would read), and `status`: `would-file`, `filed`, `already` or `failed` with why) and `preview`. `fact list` gives `count` (fact records on the run), `limit`, `items` (each `loop`, `uid`, `key`, `title`, `attempt` and `facts`: one per source and domain observed, then each domain not checked, each `domain`, `source`, `state`, `words`, `fact` (the current record's id, for `suggest-done`), `records` and `disputed`) and `held`. A slot's `state` is `complete`, `partial`, `stale`, `future` (dated ahead of now), `failed` (it has errors), `disputed` (observations made at once disagree; the next sync that sees them all settles it), `held` (a record can't be read) or `unknown` (not checked). `words` read like "PRs (bitbucket · git.example.com): 1 of 2 merged · complete · checked 3 hours ago." Missing data never reads as no blockers: a domain no tool checked says "not checked", and an incomplete list of blockers says it is no sign there are none.
+
+`suggest-done` gives what `flightdeck todo` gives, plus `evidence` (`fact`, `domain`, `source`, `words`). `todo list` adds `evidence` to a to-do done on a fact's evidence and to a request that carries one. While a suggestion's evidence doesn't hold (replaced, stale, incomplete, disputed) its request is `held` with why, and nothing is applied.
+
+### Errors
+
+| Situation | What it says |
+|---|---|
+| A record or part of the folder this depends on can't be read | `held` (exit 4): nothing was written; retry once the folder is available |
+| An observation out of its format, over a limit, about an unknown item; a batch over 500; input that isn't JSON | `invalid`, naming each one; nothing was filed |
+| The same key, another observation | `key-taken`; nothing was filed |
+| A record couldn't be written | `partial` (exit 4): the rest stand; run `sync` again |
+| Evidence that doesn't support it, or a to-do that isn't open | `invalid`, with why |
+| No such run | exit 5 |
+
 ## Writing step types (for AI assistants)
 
 Contract `flightdeck-write/1` (2.14) for `type save`; `type list` and `type read` print `flightdeck-read/2`. `type save` **changes the team folder**: it writes `step-types/<id>.json` and one history line, `history/step-types/<id>/agent-<operation>.jsonl`, and nothing else, never through a link and never outside the folder.

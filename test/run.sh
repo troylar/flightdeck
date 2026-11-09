@@ -125,6 +125,7 @@ test/facts.test.js -
 test/loop-cli.test.js -
 test/todo-cli.test.js -
 test/spread-cli.test.js -
+test/fact-cli.test.js -
 test/patterns.test.js -
 test/link-fields.test.js -
 test/library.test.js -
@@ -154,6 +155,7 @@ test/app-todos.test.js -
 test/app-todos-ui.test.js -
 test/app-todos-inbox.test.js -
 test/app-spreads.test.js -
+test/app-facts.test.js -
 test/staging-app.test.js -
 test/test-runs-app.test.js -
 test/readiness-stage-app.test.js -

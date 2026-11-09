@@ -1,15 +1,15 @@
 ---
 name: flightdeck-living-run
-description: "Use when asked what is left to do on a Flightdeck run, or to add, check off, drop or move a to-do on one, or to require something of every item of a loop (a spread): reads the run's to-dos and spreads and asks for changes through flightdeck todo and flightdeck spread, for a person to decide"
+description: "Use when asked what is left to do on a Flightdeck run, or to add, check off, drop or move a to-do on one, to require something of every item of a loop (a spread), or to record what a tool found about a loop's items (PRs, commits, status, blockers) and suggest a to-do done on it: reads the run's to-dos, spreads and facts and asks for changes through flightdeck todo, flightdeck spread and flightdeck fact, for a person to decide"
 ---
 
-Read a running Flightdeck run's to-dos and spreads, and ask for changes to them. You only ask: a person decides in Flightdeck (or a delegation they made covers it), and the run's recorder's window applies it. You never write `run.json`, never decide a request and never write a file in `proposals/` by hand.
+Read a running Flightdeck run's to-dos, spreads and facts, and ask for changes to them. You only ask: a person decides in Flightdeck (or a delegation they made covers it), and the run's recorder's window applies it. You never write `run.json`, never decide a request and never write a file in `proposals/` by hand.
 
-The person's request names the run (`<process>/<run id>`) and what they want: what is left, one to-do to add, check off, drop, move or reopen, or a requirement on every item of a loop (a spread).
+The person's request names the run (`<process>/<run id>`) and what they want: what is left, one to-do to add, check off, drop, move or reopen, a requirement on every item of a loop (a spread), or what is known about a loop's items (facts).
 
 Read `AGENTS.md` in this team folder first.
 
-How the commands work is in *Asking for a run* in the command guide, under To-dos and Spreads.
+How the commands work is in *Asking for a run* in the command guide, under To-dos, Spreads and Facts.
 
 ## Steps
 
@@ -34,11 +34,19 @@ A spread requires something of every item of a loop ("security sign-off on every
 3. **Ask each item's run** once the spread is applied: `flightdeck spread sync ... --spread <spread id> --tool <name>@<version>`, previewed with `--dry-run --json`. It writes one request per item that owes it and hasn't been asked. If the exit code is 4 and `status` is `partial`, say which items weren't asked and run the same `sync` again; it asks only what is missing.
 4. **Include a cleared item** (`spread include --spread <id> --item <key>`), or bind an item to the run that covers it now (`--run <process>/<run id>`), only when the person asks for it. **Stop a spread** (`spread stop --spread <id> --reason "..."`) only with the person's agreement and reason: it stops items that join later from owing it, and keeps what is owed now.
 
+## Facts
+
+A fact is what a tool observed about one item of a loop (its PRs, commits, status or blockers). It is information only: it never checks anything off.
+
+1. **Read them:** `flightdeck fact list <team folder> <process>/<run id> --json`. Say each item's facts in their `words`, with when they were checked. A domain that says "not checked" is unknown: never say there are no blockers unless a complete, fresh blockers fact says none are open.
+2. **File what you observed** with `flightdeck fact sync ... --from <file> --tool <name>@<version> --dry-run --json` first, then without `--dry-run`. Give each observation a new `key`, and say `complete: true` only when you read the whole list without an error. If the exit code is 4 and `status` is `partial`, run the same `sync` again; it files only what is missing. Filing facts the person asked for may go on: they change no work.
+3. **Suggest a to-do done** on a fact only when the person asks, or when a fact plainly shows the to-do's work done: `flightdeck todo suggest-done ... --todo <to-do id> --fact <fact id> --tool <name>@<version> --dry-run --json` first. If it is refused, say why (stale, incomplete, replaced, another fact disagrees) and don't work around it. Otherwise write it: it waits for a person's decision (or a delegation), and the recorder applies it only if the evidence still holds then.
+
 ## Never
 
-- Never say a to-do is done, dropped or moved, or that an item has met a spread, until `todo list` or `spread list` shows it applied.
+- Never say a to-do is done, dropped or moved, or that an item has met a spread, until `todo list` or `spread list` shows it applied. A suggestion on evidence is a request like any other.
 - Never use a new key to retry. If the command can't confirm the save, retry with the same key: a new key could ask twice.
 - Never drop or move work, stop a spread or send an approval back without the person's agreement. Never ask for any of them to make a gate pass, and never pass a gate. A person decides that.
-- Never put secrets, tokens or customer data in a to-do's or a spread's text, reason or destination.
+- Never put secrets, tokens or customer data in a to-do's or a spread's text, reason or destination, or in a fact's entries, errors or source.
 
 Remember that OneDrive may be up to a minute behind, so say what you read, not what is guaranteed.

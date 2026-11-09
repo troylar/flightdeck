@@ -44,7 +44,7 @@ rule('AGENTS.md as shipped is at most 28 KiB, so Team notes have room before a t
 
 /* 2.15.0: AGENTS.md keeps the rules and points to the how. Its ceiling is the measured text plus a 66-byte margin; a later slice
    that adds a Commands or Skills row raises it by that row's bytes, with the reason stated. 3.0: +141 for the `flightdeck library inspect` row. */
-const ROOM_CEILING = 19688 + 141 + 358 + 1029 + 593 + 174, INDEX_ROW = 300; /* 3.0: the loop row and the scope-records rule (loops, design section 44); 3.0.1: the loop row in What you may write, scope decisions, the 3.0-on-every-computer rule, the test-run readiness note and reading results and loops. 4.0: the todo row, the living-run skill row and the to-do-records rule (living runs, design section 45) */
+const ROOM_CEILING = 19688 + 141 + 358 + 1029 + 593 + 174 + 270, INDEX_ROW = 300; /* 3.0: the loop row and the scope-records rule (loops, design section 44); 3.0.1: the loop row in What you may write, scope decisions, the 3.0-on-every-computer rule, the test-run readiness note and reading results and loops. 4.0: the todo row, the living-run skill row and the to-do-records rule (living runs, design section 45); the fact row (facts, design section 45.2) */
 /* The rows of the Commands and Skills tables: each names a command or a skill and where its how is, in at most 300 bytes. */
 function indexRows(t) {
   const out = [];
@@ -1716,7 +1716,7 @@ rule('The citation parser reads 14 forms as stated, escapes an alias, takes the 
   assert.deepStrictEqual(Object.keys(c.names).sort(), [ESS, GUIDE, FORMATS, MF].sort());
   assert.deepStrictEqual(pl(c.alias), { 'command guide': GUIDE, 'checklist essentials': ESS, 'file formats': FORMATS });
   const occ = (alias) => (K15.prose(t).join('\n').match(new RegExp('\\*[^*\\n]+\\* in the ' + alias + '(?![a-z])', 'g')) || []).length;
-  assert.deepStrictEqual([occ('command guide'), c.cites[GUIDE].length, occ('checklist essentials'), c.cites[ESS].length, occ('file formats'), c.cites[FORMATS].length], [15, 7, 1, 1, 6, 5], '3.0: the library inspect row cites *Editing drafts* again; the loop row, *Asking for a run*. 4.0: the todo row, *Asking for a run* again; the spread row, *Asking for a run* again');
+  assert.deepStrictEqual([occ('command guide'), c.cites[GUIDE].length, occ('checklist essentials'), c.cites[ESS].length, occ('file formats'), c.cites[FORMATS].length], [16, 7, 1, 1, 6, 5], '3.0: the library inspect row cites *Editing drafts* again; the loop row, *Asking for a run*. 4.0: the todo row, *Asking for a run* again; the spread row, *Asking for a run* again; the fact row, *Asking for a run* again');
   c.cites[GUIDE].forEach(x => assert.ok(K15.sections(G215).indexOf(x) >= 0, 'the guide has ' + x));
   c.cites[ESS].forEach(x => assert.ok(K15.sections(E215).indexOf(x) >= 0, 'the essentials have ' + x));
   c.cites[FORMATS].forEach(x => assert.ok(K15.sections(FFT).indexOf(x) >= 0, 'the file formats have ' + x));

@@ -558,6 +558,9 @@ input[type="checkbox"] { accent-color: var(--go); width: 16px; height: 16px; }
 .sp-row { margin: 8px 0; padding: 8px 10px; border-left: 3px solid var(--amber); }
 .sp-chips { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
 .sp-chip { padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); }
+.fact-lines { list-style: none; margin: 4px 0 0; padding: 0; color: var(--muted, inherit); overflow-wrap: anywhere; }
+.fact-lines .fact-disputed, .fact-lines .fact-failed, .fact-lines .fact-stale, .fact-lines .fact-held, .fact-lines .fact-future { color: inherit; font-weight: 600; }
+.td-ack, .td-evidence { color: var(--muted, inherit); overflow-wrap: anywhere; }
 .sp-chip.sp-done, .sp-chip.sp-wont, .sp-chip.sp-moved, .sp-chip.sp-excepted { border-color: var(--go); }
 .td-batch { margin: 8px 0; padding: 8px 10px; border-left: 3px solid var(--go); }
 .todo { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--line); border-left: 4px solid var(--amber); border-radius: 8px; background: var(--card); }

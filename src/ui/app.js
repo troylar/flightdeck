@@ -174,6 +174,10 @@
     todoGrants: function () { return tdInboxNow().grants; },
     /* Spreads on a run (4.0 slice 3): coverage as every window and the CLI work it out (PF.spreads.coverage), once per draw. */
     spreadCoverage: function (r) { return spreadCoverageOf(r); },
+    /* Facts on a run (4.0 slice 4) and the time they are judged at; a suggestion's evidence as it stands now. */
+    factView: function (r) { return factViewOf(r); },
+    factNow: function () { return tdNow(); },
+    evidenceWords: function (r, x, sp) { return evidenceWords(r, x, sp); },
     /* Whether this person may decide on a run's to-dos (and so delegate them): never while people.json can't be read. */
     todoMay: function (r) { return !!state.me && !(data.todosUnread || []).some(function (u) { return u && u.file === 'people.json'; }) && !PF.todos.personWhy(r, state.me, data.people); },
     runOrigin: function (r) { return runOrigin(r); },
@@ -3017,7 +3021,7 @@
     if (!t.pre) return true;
     var pre; try { pre = R.sanitize(JSON.parse(t.pre)); } catch (e) { return false; }
     if (!pre || pre._unrunnable) return false;
-    var ok = function (run) { var kh = PF.todos.keepHead(run, { living: t.from ? { head: t.from } : null }, { records: data.todos || [], unread: data.todosUnread || [], people: data.people }); return kh.head === t.head && kh.dropped === (t.dropped || ''); };
+    var ok = function (run) { var kh = PF.todos.keepHead(run, { living: t.from ? { head: t.from } : null }, { records: data.todos || [], unread: data.todosUnread || [], people: data.people, now: tdNow() }); return kh.head === t.head && kh.dropped === (t.dropped || ''); };
     if (!ok(pre)) return false;
     /* Asked again with the roles the run has now (the durable head stays the one before): a role reassigned meanwhile takes
        its holder's authority with it. */
@@ -3297,13 +3301,30 @@
     });
   }
   var TODO_PAGES = 20;
-  function todoView(r) { return PF.todos.view(r, { records: data.todos || [], unread: data.todosUnread || [], people: data.people }); }
+  function todoView(r) { return PF.todos.view(r, { records: data.todos || [], unread: data.todosUnread || [], people: data.people, now: tdNow() }); }
+  /* The time a to-do's evidence (4.0 slice 4: facts) is judged at: now, asked again at every view and before every write. */
+  function tdNow() { return Date.now(); }
+  /* A run's facts (PF.facts.view), worked out once per read of the folder; how they stand is judged at tdNow(). */
+  var fcMemo = null;
+  function factViewOf(run) {
+    if (!run) return null;
+    var k = [run.process + '/' + run.id, data.todos, data.todosUnread];
+    if (fcMemo && fcMemo.k[1] === k[1] && fcMemo.k[2] === k[2] && Object.prototype.hasOwnProperty.call(fcMemo.v, k[0])) return fcMemo.v[k[0]];
+    if (!fcMemo || fcMemo.k[1] !== k[1] || fcMemo.k[2] !== k[2]) fcMemo = { k: k, v: Object.create(null) };
+    var v = null; try { v = PF.facts.view({ process: run.process, id: run.id }, { records: data.todos || [], unread: data.todosUnread || [] }); } catch (e) { v = null; }
+    return (fcMemo.v[k[0]] = v);
+  }
+  /* What a suggestion's evidence says now, in the loop's words (the slot it was observed in, as it stands). */
+  function evidenceWords(r, x, sp) {
+    var it = PF.facts.itemOfTodo(r, x), FV = it ? factViewOf(it.run) : null, F = FV && FV.byId[sp.fact], S = F ? FV.bySlot[PF.facts.slotKey(F)] : null;
+    return S ? PF.facts.words(S, tdNow(), FV).words : PF.facts.supportWords(sp) + ' (not in the folder as this computer reads it).';
+  }
   /* The screen's copy (ctx.todoView): the same view, kept while the records, unread files, people and the run are the ones it
      was worked out from. */
   var tdMemo = null;
   function todoViewFor(r) {
     if (!r || r._unrunnable) return null;
-    var k = [r, r.rev || 0, r.living ? r.living.head : '', data.todos, data.todosUnread, data.people, (data.todos || []).length];
+    var k = [r, r.rev || 0, r.living ? r.living.head : '', data.todos, data.todosUnread, data.people, (data.todos || []).length, Math.floor(tdNow() / 60000)];
     if (tdMemo && tdMemo.k.length === k.length && tdMemo.k.every(function (x, i) { return x === k[i]; })) return tdMemo.v;
     var v = null; try { v = todoView(r); } catch (e) { v = null; }
     tdMemo = { k: k, v: v };
@@ -3319,7 +3340,7 @@
     if (!r || !state.me) return;
     var sig = JSON.stringify([fsKey(), r.process + '/' + r.id, state.me, body]), keep = state.tdKey;
     var key = keep && keep.sig === sig ? keep.key : 'ui-' + loopHex(20);
-    var P = PF.todos.prepare(r, { body: body, by: { person: state.me }, key: key, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION });
+    var P = PF.todos.prepare(r, { body: body, by: { person: state.me }, key: key, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION, now: tdNow() });
     if (P.why) { say(P.why + ' Nothing was written.', 'warn'); render(); return; }
     if (runUnread(r)) { say(runUnread(r) + ' Nothing was written.', 'warn'); render(); return; }
     /* Asked again after a write that may have happened: exactly the bytes of the first ask, so it is found as the same. */
@@ -3348,14 +3369,14 @@
     if (Object.prototype.hasOwnProperty.call(spBox, k)) return spBox[k];
     var V = todoViewFor(r), out = null;
     if (V && V.spreads && V.spreads.length) {
-      try { out = PF.spreads.coverage(r, V, { runs: data.runs || [], records: data.todos || [], unread: data.todosUnread || [], people: data.people, loops: { records: data.scopes || [], unread: data.scopesUnread || [], procOf: ctx.procOf } }); } catch (e) { out = null; }
+      try { out = PF.spreads.coverage(r, V, { runs: data.runs || [], records: data.todos || [], unread: data.todosUnread || [], people: data.people, loops: { records: data.scopes || [], unread: data.scopesUnread || [], procOf: ctx.procOf }, now: tdNow() }); } catch (e) { out = null; }
     }
     return (spBox[k] = out);
   }
   var tdBox = null;
   function tdInboxNow() {
     if (tdBox) return tdBox;
-    var o = { records: data.todos || [], unread: data.todosUnread || [], people: data.people, me: state.me };
+    var o = { records: data.todos || [], unread: data.todosUnread || [], people: data.people, me: state.me, now: tdNow() };
     tdBox = { items: [], grants: [] };
     /* A run whose own file couldn't be read on the last check asks nothing and offers nothing: the copy shown is stale. */
     var rs = (data.runs || []).filter(function (r) { return r && !runUnread(r); });
@@ -3398,7 +3419,7 @@
     if (!r || !state.me) return;
     if (runUnread(r)) { mem.tdSaid = runUnread(r) + ' Nothing was decided.'; render(); return; }
     var sent = op === 'decline' ? tdSent(['td-dec-why'], 'dec') : null, tok = tdTok('dec'), open = mem.tdDec, slot = 'dec', sig = JSON.stringify([key, id, op, shown || '', reason == null ? '' : String(reason), state.me]);
-    var made = tdKept(slot, sig, function (seed) { return PF.todos.decide(r, { request: id, op: op, by: state.me, shown: shown, reason: reason, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION, writer: seed.writer, rev: seed.rev }); });
+    var made = tdKept(slot, sig, function (seed) { return PF.todos.decide(r, { request: id, op: op, by: state.me, shown: shown, reason: reason, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION, writer: seed.writer, rev: seed.rev, now: tdNow() }); });
     if (made.why) { mem.tdSaid = made.why; render(); return; }
     tdWrite(r, made, made.words, slot, tok).then(function (ok) { if (ok && mem.tdDec === open && tok === tdTok('dec') && (!sent || tdClearIf(sent))) { mem.tdDec = null; render(); } });
   }
@@ -3423,7 +3444,7 @@
       var x = list[i], r = findRun(x.run);
       if (!r || runUnread(r)) { failed.push({ why: (r ? runUnread(r) : 'The run ' + x.run + ' isn\'t in this folder.') }); step(i + 1); return; }
       var slot = 'dec-all:' + x.run + '|' + x.id, sig = JSON.stringify([x.run, x.id, 'accept', x.fp, state.me]);
-      var made = tdKept(slot, sig, function (seed) { return PF.todos.decide(r, { request: x.id, op: 'accept', by: state.me, shown: x.fp, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION, writer: seed.writer, rev: seed.rev }); });
+      var made = tdKept(slot, sig, function (seed) { return PF.todos.decide(r, { request: x.id, op: 'accept', by: state.me, shown: x.fp, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION, writer: seed.writer, rev: seed.rev, now: tdNow() }); });
       if (made.why) { if (made.renewed) changed.push(x); else failed.push({ why: made.why }); step(i + 1); return; }
       var cx = loopGuard({ run: r.process + '/' + r.id, readable: true }), endBusy = busyStart(), sg = gen;
       repo.saveScope(cx.fs, made.name, made.file, { still: function () { return guardOk(cx); } }).then(function (res) {
@@ -3540,6 +3561,14 @@
     var pub = all.filter(function (x) { return x && x.info && x.info.folder === r.folder && x.info.mapHash === r.mapHash; })[0];
     return pub && typeof pub.info.typesHash === 'string' ? pub.info.typesHash : '';
   }
+  /* Whether a request read now, on the run as this window has it now, still prepares the application it prepared (plan). */
+  function todoPlanStill(key, id, plan) {
+    var r1 = findRun(key); if (!r1 || r1._unrunnable) return false;
+    var V1 = null; try { V1 = todoView(r1); } catch (e) { V1 = null; }
+    var q1 = V1 && !V1.broken ? V1.requests[id] : null; if (!q1) return false;
+    var p1 = PF.todos.applyPlan(r1, V1, q1), a = plan.write || plan.settle || null, b = p1.write || p1.settle || null;
+    return !!a && !!b && JSON.stringify(a) === JSON.stringify(b);
+  }
   function todoCarry(r, V, q, cx) {
     var key = r.process + '/' + r.id, plan = PF.todos.applyPlan(r, V, q);
     if (plan.landed || plan.skip) return Promise.resolve(false);
@@ -3552,7 +3581,10 @@
       var rec = fw.record;
       /* Written in the folder and generation it was prepared in; once the window has moved on (another folder, a new read),
          the record never enters what is shown now: the next read of its own folder finds it. */
-      prepared = repo.saveScope(cx.fs, s.name, s.file, { still: function () { return guardOk(cx); } }).then(function (res) { if ((res && res.dropped) || !guardOk(cx)) return null; rec._file = s.name; (data.todos = (data.todos || []).slice()).push(rec); return rec; });
+      /* Asked right before the application is written: the guard, and the request read now (its authority, any evidence it
+         rests on and that evidence's freshness) still prepares exactly this application. */
+      var still = function () { return guardOk(cx) && todoPlanStill(key, q.id, plan); };
+      prepared = repo.saveScope(cx.fs, s.name, s.file, { still: still }).then(function (res) { if ((res && res.dropped) || !guardOk(cx)) return null; rec._file = s.name; (data.todos = (data.todos || []).slice()).push(rec); return rec; });
     }
     return prepared.then(function (a) {
       if (!a || !guardOk(cx)) return false;
@@ -6360,7 +6392,7 @@
     if (!data) return;
     PF.loop.markStale(runs || [], { records: data.scopes, unread: data.scopesUnread || [], procOf: ctx.procOf });
     /* Living runs (4.0): what open or disputed to-dos hold, read-only, on every read (r._todos). */
-    PF.todos.markHolds(runs || [], { records: data.todos || [], unread: data.todosUnread || [], people: data.people, loops: { records: data.scopes || [], unread: data.scopesUnread || [], procOf: ctx.procOf } });
+    PF.todos.markHolds(runs || [], { records: data.todos || [], unread: data.todosUnread || [], people: data.people, loops: { records: data.scopes || [], unread: data.scopesUnread || [], procOf: ctx.procOf }, now: tdNow() });
   }
   function mutate(fn, opts) { return mutateRun(state.runKey, gen, function (r, m, me, now) { markLoops([r].concat((data.runs || []).filter(function (x) { return x.id !== r.id; }))); return fn(r, m, me, now); }, opts); }
   /* Change one run, named by its key, in the folder generation the action started in. An action that finishes after the
@@ -8144,7 +8176,7 @@
     'td-revoke': function (id, b) {
       var r = findRun(b.dataset.run); if (!r || !state.me) return;
       var sig = JSON.stringify([b.dataset.run, id, state.me]);
-      var made = tdKept('revoke', sig, function (seed) { return PF.todos.revokeOf(r, { grant: id, by: state.me, key: seed.key, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION }); });
+      var made = tdKept('revoke', sig, function (seed) { return PF.todos.revokeOf(r, { grant: id, by: state.me, key: seed.key, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION, now: tdNow() }); });
       if (made.why) { loopMem().tdSaid = made.why; render(); return; }
       tdWrite(r, made, made.words, 'revoke', tdTok('dec'));
     },
@@ -8157,7 +8189,7 @@
       var n = String(dg.adds || '').trim(), adds = /^\d{1,3}$/.test(n) ? Number(n) : -1;
       if (!who) { mem.tdSaid = 'Say who: a tool\'s name, or a person\'s ID from people.json.'; render(); return; }
       var subject = ppl ? { person: who } : { tool: who }, sig = JSON.stringify([dg.run, subject, ops, dg.phase, adds, state.me]);
-      var made = tdKept('grant', sig, function (seed) { return PF.todos.grantOf(r, { subject: subject, ops: ops, targets: [{ phase: dg.phase }], adds: adds, by: state.me, key: seed.key, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION }); });
+      var made = tdKept('grant', sig, function (seed) { return PF.todos.grantOf(r, { subject: subject, ops: ops, targets: [{ phase: dg.phase }], adds: adds, by: state.me, key: seed.key, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION, now: tdNow() }); });
       if (made.why) { mem.tdSaid = made.why + ' Nothing was written.'; render(); return; }
       tdWrite(r, made, made.words, 'grant', tdTok('dg'));
     },
@@ -9217,7 +9249,7 @@
           var extra = c._overflow || [];
           /* A copy's to-dos this run never landed are kept only while they would land now (PF.todos.keepHead); the rest are
              prepared again. */
-          var kh = PF.todos.keepHead(run, c, { records: data.todos || [], unread: data.todosUnread || [], people: data.people }), ko = { typesHash: todoTypes(run), head: kh.head };
+          var kh = PF.todos.keepHead(run, c, { records: data.todos || [], unread: data.todosUnread || [], people: data.people, now: tdNow() }), ko = { typesHash: todoTypes(run), head: kh.head };
           rcx.todo = { key: key, from: c.living && typeof c.living.head === 'string' ? c.living.head : '', head: kh.head, dropped: kh.dropped, pre: todoPre(run) };
           var keep = function (t) {
             R.adopt(t, c, me, now, ko);

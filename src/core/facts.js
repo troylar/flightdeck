@@ -229,6 +229,8 @@ PF.facts = (function () {
   }
   function spanWords(s) { return s % 86400 === 0 ? (s / 86400) + (s === 86400 ? ' day' : ' days') : s % 3600 === 0 ? (s / 3600) + (s === 3600 ? ' hour' : ' hours') : s % 60 === 0 ? (s / 60) + (s === 60 ? ' minute' : ' minutes') : s + (s === 1 ? ' second' : ' seconds'); }
   function sourceWords(src) { return [src.feed, src.site, src.account].filter(Boolean).join(' · '); }
+  /* What a done rests on, in a few words: "PRs from bitbucket · git.example.com". */
+  function supportWords(s) { return TITLE[s.domain] + ' from ' + sourceWords(s.source); }
   /* What the entries say, by domain. */
   function contentWords(S) {
     var D = DOMAINS[S.domain], es = S.entries || [], n = es.length, partial = !S.complete;
@@ -400,5 +402,5 @@ PF.facts = (function () {
 
   return { LIMITS: LIMITS, DOMAINS: DOMAINS, NAMES: NAMES, TITLE: TITLE, idFor: idFor, sourceKey: sourceKey, slotKey: slotKey, itemKey: itemKey, contentOf: contentOf, suggestionId: suggestionId, suggestionKey: suggestionKey,
     cleanFile: cleanFile, cleanObservation: cleanObservation, cleanSupport: cleanSupport, build: build, factsOf: factsOf, view: view, stateOf: stateOf, words: words, itemFacts: itemFacts, agoWords: agoWords,
-    incarnationOf: incarnationOf, itemOfTodo: itemOfTodo, supportWhy: supportWhy, supportFor: supportFor, prepare: prepare };
+    incarnationOf: incarnationOf, itemOfTodo: itemOfTodo, supportWords: supportWords, supportWhy: supportWhy, supportFor: supportFor, prepare: prepare };
 })();

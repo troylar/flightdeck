@@ -186,6 +186,16 @@ Read them with `flightdeck spread list <team folder> <process>/<run> --json`: ea
 
 Ask for one with `flightdeck spread add --loop <loop step> --text "..." --before <child gate id>`, `spread include --spread <id> --item <key> [--run <process>/<run>]` or `spread stop --spread <id> --reason "..."`, each with `--tool <name>@<version> --key <key>`, previewed first with `--dry-run --json`. Then `flightdeck spread sync --spread <id> --tool <name>@<version>` asks each owed item's run, one request per item, once each; run it again after an interruption and it asks only what is missing. Stopping a spread releases work, and adding or including one on an approved loop sends the approval back, so a person decides those. Exit codes are as for to-dos; `sync` exits 4 when part of it couldn't be written, and the rest stand.
 
+### Facts
+
+A fact is what a tool observed about one item of a loop from one source: its PRs, commits, status or blockers, whether the list is complete, and when. Facts are information only: they never check off a step or a to-do, pass an approval or reopen work.
+
+File them with `flightdeck fact sync <team folder> <process>/<run> --from <file|-> --tool <name>@<version>`, previewed first with `--dry-run --json`. The file is `{"facts": [ ... ]}`, at most 500, each with its own `key` (a new key for each new observation; the same key and observation is `already`), `loopStep`, `item` (its key), `source` (`feed`, optional `site`, `account`), `domain` (`prs`, `commits`, `status` or `blockers`), `observedAt`, `complete`, `reported` and `entries`; the fields are in docs/apps.md. Say `complete: true` only when you read the whole list without an error; otherwise false, with the errors. The whole batch is checked first and nothing is filed when any of it is refused; exit 4 with `partial` means some were written and the same `sync` again files only the rest.
+
+Read them with `flightdeck fact list <team folder> <process>/<run> --json`: each item's facts by source, each with its `state` and `words` ("PRs (bitbucket): 2 of 2 merged · complete · checked 3 hours ago."). Say them as they are: a domain that says "not checked" is unknown, never "none", and an incomplete or stale list is no sign there is nothing there.
+
+To ask for a to-do done on a fact's evidence, run `flightdeck todo suggest-done <team folder> <process>/<run> --todo <to-do id> --fact <fact id> --tool <name>@<version> --dry-run --json` first (no `--key`: the evidence names it). It is refused, with why, unless the fact is current, fresh, complete where it needs to be, shows the work done, and nothing else about the item disagrees. It is an ordinary request: a person decides it (or a delegation covers it), and applying it checks the evidence again.
+
 ## Evidence packs
 
 **Evidence packs:** when a person asks for a run's evidence, run `flightdeck export <team folder> --run <process>/<id> --out <a folder outside the team folder>` (or `--process <id> --from YYYY-MM-DD --through YYYY-MM-DD --tz Area/City` for the runs started on those days). It only reads. Exit code 0 is a complete pack, 4 a partial one (its top lists what changed or was missing), 1 no pack.
