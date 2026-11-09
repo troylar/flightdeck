@@ -46,6 +46,8 @@ function corpus() {
       put(name, set(o, at, true), 'boolean ' + l);
       put(name, set(o, at, []), 'list ' + l);
       put(name, set(o, at, {}), 'object ' + l);
+      /* Numbers JSON can say that a double can't hold exactly or at all: written as text, since JSON.stringify can't. */
+      ['1e999', '-1e999', '1.5', '-1', '1e300', '9007199254740993', '0'].forEach((n) => put(name, JSON.stringify(set(o, at, 123456789)).replace('123456789', n), 'number ' + n + ' ' + l));
     });
     put(name, Object.assign({}, o, { extra: 1 }), 'extra field');
     put(name, Object.assign({}, o, { format: o.format.replace(/4$/, '5') }), 'newer format');

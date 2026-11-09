@@ -53,8 +53,8 @@
       "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "4923166f4f199523bb60a8de6d7a86da1133762c2a1bb48740d588b7e645d9a8",
-      "reviewed": "4.0 slice 2 commit 6: flightdeck todo (list, add, done, wont, move, reopen) asks through PF.todos.prepare and writes one request in proposals/ once; run/next/runs add to-do fields only on a living run; the checker reads to-do records as the app does; docs, AGENTS.md rows, command guide To-dos, status skill and the new living-run skill. Checked for direct writes and unconditional deletes: the skill and guide forbid writing proposals/ and run.json by hand; the CLI creates one file exclusively and never deletes"
+      "sha256": "173b2676dc9ad2c9e9741e5c89fc1c51982a591ecba59120632fa37510d8ba41",
+      "reviewed": "AN: the checker refuses a non-finite number before any int() in to-do records (attempt, adds); checked for direct writes and unconditional deletes (none)"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
       "sha256": "49d0d083e46b366224edb2e93df3927ede63a2efebc57a2990810460bbe7d7b7",

@@ -1770,7 +1770,13 @@ def _tstr(v):
 
 
 def _tnum(v):
-    return isinstance(v, (int, float)) and not isinstance(v, bool)
+    """A JSON number a double holds: never infinite (1e999 reads as infinity) or NaN, so int() after it never raises."""
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def _twhole(v, lo, hi):
+    """A whole number from lo to hi, as JavaScript's typeof, % 1 and range checks read it."""
+    return _tnum(v) and float(v).is_integer() and lo <= v <= hi
 
 
 def _tsha(v):
@@ -1887,7 +1893,7 @@ def todo_why(o, name, nbytes=None):
         if "item" in t:
             it = t["item"]
             if (not isinstance(it, dict) or len(it) != 3 or not _tstr(it.get("loopStep")) or not T_STEP.match(it["loopStep"]) or not _tstr(it.get("uid")) or not T_UID.match(it["uid"])
-                    or not _tnum(it.get("attempt")) or it["attempt"] != int(it["attempt"]) or it["attempt"] < 1 or it["attempt"] > 999):
+                    or not _twhole(it.get("attempt"), 1, 999)):
                 err(where + ": item")
                 return None
             return {"item": {"loopStep": it["loopStep"], "uid": it["uid"], "attempt": it["attempt"]}}
@@ -2198,7 +2204,7 @@ def todo_why(o, name, nbytes=None):
                         err("targets twice")
                     keys.append(k)
         lim = o.get("limits")
-        if not isinstance(lim, dict) or any(k != "adds" for k in lim) or not _tnum(lim.get("adds")) or lim["adds"] != int(lim["adds"]) or lim["adds"] < 0 or lim["adds"] > TODO_LIMITS["grantAdds"]:
+        if not isinstance(lim, dict) or any(k != "adds" for k in lim) or not _twhole(lim.get("adds"), 0, TODO_LIMITS["grantAdds"]):
             err("limits")
     else:
         only(o, T_COMMON + ["grant", "reason"], "It")
