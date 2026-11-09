@@ -693,4 +693,27 @@ rule('UA: before any application, a settled dispute on a plain addition never re
   W.decide(W.r, P.id, 'person-morgan', 'decline'); W.mark();
   same(R.gateStatus(W.r, map, 1), 'review', 'settling it restores nothing');
 });
+/* Review round 3 (UB): a dispute on any request on a covered to-do (Done, Won't do, Move, Reopen), not only its Add, stays
+   in the parent's approval scope, so settling it never restores an approval made before it. */
+rule('UB: a delayed contrary decision on a story\'s Done holds the parent, and settling it keeps the parent\'s approval in review', () => {
+  const W = world([101]); const k = W.kid(101);
+  const P = W.spreadAdd('Security sign-off', { tool: 'release-helper', version: '1.0', key: 'ub-1' }); W.decide(W.r, P.id, 'person-morgan'); W.land(W.r);
+  const sp = spreadOf(W), A = W.fulfil(k, sp, false);
+  const D = W.ask(k, { op: 'done', todo: A.preview.todo }, { tool: 'release-helper', version: '1.0', key: 'ub-done' });
+  const acc = W.decide(k, D.id, 'person-avery'); W.land(k);
+  W.clear(k);
+  same(W.one().items[0].state, 'done', 'set-up: done');
+  const map = R.mapOf(W.r), step = map.phases[0].steps[0], V0 = W.loopView();
+  R.done(W.r, map, 'each', 'person-morgan', AT, { _loop: { ok: true, snapshot: LP.approval(V0.ledger, V0.rollup, { by: 'person-morgan', at: AT }) } }); W.mark();
+  assert.ok(R.answered(W.r, step), 'set-up: approved');
+  /* A decline made at the same time as the accept, arriving late: it saw the request, not the accept. */
+  const KV = W.view(k), C = T.consequenceOf(k, KV.map, KV.requests[D.id], KV).fingerprint, run = { process: k.process, id: k.id };
+  const late = T.buildStatus({ kind: 'decision', proposal: D.id, run, seen: [D.id], by: 'person-avery', at: AT, op: 'decline', consequence: C, writer: 'wlate', rev: rev(), app: '4.0.0' }); W.push(T.filed(late.name, late.file).record, late.name);
+  W.mark();
+  same(R.answered(W.r, step), false, 'held while the Done is disputed');
+  const fix = T.buildStatus({ kind: 'decision', proposal: D.id, run, seen: [D.id, acc.id, T.filed(late.name, late.file).record.id], by: 'person-avery', at: AT, op: 'accept', consequence: C, writer: 'wfix', rev: rev(), app: '4.0.0' }); W.push(T.filed(fix.name, fix.file).record, fix.name);
+  same(W.view(k).byTodo[A.preview.todo].disputed, false, 'set-up: settled');
+  W.mark();
+  same(R.answered(W.r, step), false, 'settling it restores nothing: a person approves again');
+});
 run();

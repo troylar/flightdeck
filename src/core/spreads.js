@@ -124,6 +124,9 @@ PF.spreads = (function () {
     var x = CT.byTodo[it.todo];
     if (!x) return set('unread', 'Its to-do on ' + it.run + ' can\'t be read.');
     x.history.forEach(function (h) { if (h.op === 'add' || h.op === 'reopen') scope[h.application] = true; });
+    /* Every request on the covered to-do (Done, Won't do, Move, Reopen, not only its Add) that was decided or applied two ways
+       keeps its participants in the parent's approval scope, so settling it never restores an approval made before it. */
+    (x.requests || []).forEach(function (id) { var q1 = CT.requests[id]; (q1 && q1.disputedIds || []).forEach(function (d) { scope[d] = true; }); });
     if (x.disputed) return set('disputed', 'Its to-do on ' + it.run + ' was decided two ways at once.');
     return set(x.state === 'open' ? 'open' : x.state, x.why || '');
   }
