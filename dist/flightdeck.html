@@ -18665,6 +18665,12 @@ PF.todos = (function () {
         sp.history.forEach(function (h) { putLoop(sp.loopStep, h.application); });
         (C && C.scope || []).forEach(function (id) { putLoop(sp.loopStep, id); });
       });
+      /* Bindings of one item made at once, and the one that settled them, stay in what an approval counts: settling them never
+         restores an approval made before them. */
+      Object.keys(T.bindSlots).forEach(function (bk) {
+        var sl = T.bindSlots[bk], sp = T.bySpread[sl.spread];
+        if (sp && sl.reqs.length > 1) sl.reqs.forEach(function (id) { putLoop(sp.loopStep, id); });
+      });
       requestsOf(T).forEach(function (q) {
         var sp = isSpreadOp(q.op) && (T.bySpread[q.spread] || (q.op === 'spread-add' ? { loopStep: q.loopStep, text: q.text } : null));
         if (!sp) return;

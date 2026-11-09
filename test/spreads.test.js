@@ -483,4 +483,29 @@ rule('SB: contrary decisions on an applied spread hold its loop and its phase\'s
   same(W.mark().loops.each || [], []);
   assert.ok(map && V2, 'set-up');
 });
+/* Review round 1 (SC): bindings made at once and the one that settled them stay in what an approval must count. */
+rule('SC: settling two bindings made at once never restores an approval made before them', () => {
+  const W = world([101]); const k = W.kid(101); W.kid(101, { id: 'k101b' });
+  W.spreadAdd(); W.land(W.r);
+  const s = spreadOf(W), item = { uid: uid(101), attempt: 1 };
+  W.ask(W.r, { op: 'spread-bind', spread: s.id, item, dest: { process: 'validate-story', id: 'k101' } }, { person: 'person-morgan' }); W.land(W.r);
+  W.fulfil(k, spreadOf(W)); W.clear(k);
+  /* The loop chooses k101 too, so the loop itself is satisfied. */
+  const LV = W.loopView(), ci = LP.cleanIntent(LP.changeOf(LV, 'choose', ['ABC-101'], { run: 'k101' }), 'choose-sc', { name: 'release-helper', version: '1.0' });
+  const cf = LP.buildRequest(ci.intent, { seen: LV.ledger.heads, children: [], now: AT, app: '3.0.0' });
+  W.scopes.push(LP.cleanRequest(JSON.parse(LP.text(cf)), cf.id + '.json').record);
+  same(W.mark().loops.each || [], [], 'set-up: covered');
+  const V0 = W.loopView();
+  R.done(W.r, R.mapOf(W.r), 'each', 'person-morgan', AT, { _loop: { ok: true, snapshot: LP.approval(V0.ledger, V0.rollup, { by: 'person-morgan', at: AT }) } });
+  W.mark();
+  assert.ok(!W.r._todos.stale.loop.each, 'set-up: approved and current');
+  const bind = (key, dest, seen) => { const f = T.buildProposal({ run: { process: 'release-readiness', id: 'r-41' }, producer: { name: 'release-helper', version: '1.0' }, key, seen: seen || [W.r.living.head], at: AT, body: { op: 'spread-bind', spread: s.id, item, dest: { process: 'validate-story', id: dest } } }); return W.push(T.cleanFile(JSON.parse(T.text(f)), f.id + '.json').record); };
+  const a = bind('sc-a', 'k101'), b = bind('sc-b', 'k101b');
+  W.mark();
+  assert.ok(W.r._todos.stale.loop.each, 'two bindings at once send it back');
+  bind('sc-c', 'k101', [a.id, b.id]);
+  W.mark();
+  assert.ok(W.r._todos.stale.loop.each, 'and settling them doesn\'t restore it');
+  same(R.answered(W.r, R.mapOf(W.r).phases[0].steps[0]), false);
+});
 run();
