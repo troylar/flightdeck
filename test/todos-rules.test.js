@@ -196,6 +196,21 @@ rule('A dispute on a to-do holds its gate, and settling it never restores an app
   same(V(r, recs.concat([settle])).requests[re.id].status, 'declined');
   same(R.gateStatus(r, map, 0), 'review', 'settled, the approval still needs review');
 });
+rule('a contrary decision after an application landed keeps the work disputed and the gate held until settled', () => {
+  const { r } = newRun(), map = R.mapOf(r), p = prop('bd1', add('Check', { phase: 'draft' }), [], 'person-avery');
+  const a = applied(p, '', { decision: p.id + '.status-w1-00000000' }); land(r, a);
+  R.done(r, map, 'write', 'person-avery', AT);
+  const dn = prop('bd2', { op: 'done', todo: p.todo }, [a.id], 'person-avery'), C = T.consequenceOf(r, map, dn, V(r, [p, a, dn])).fingerprint;
+  const yes = decide(dn, 'accept', 'person-avery', C), ad = applied(dn, a.id, { decision: yes.id }, [dn.id, a.id, yes.id]);
+  land(r, ad); mark(r, [p, a, dn, yes, ad]); R.pass(r, map, 0, 'person-avery', AT);
+  const no = decide(dn, 'decline', 'person-blake', C), recs = [p, a, dn, yes, ad, no], W = V(r, recs);
+  same([W.requests[dn.id].status, W.byTodo[p.todo].disputed], ['applied', true]);
+  mark(r, recs);
+  same([R.gateStatus(r, map, 0), R.canPass(r, map, 0)], ['review', false]);
+  const settle = decide(dn, 'accept', 'person-avery', C, [yes.id, no.id]);
+  mark(r, recs.concat([settle]));
+  same([V(r, recs.concat([settle])).byTodo[p.todo].disputed, R.gateStatus(r, map, 0), R.canPass(r, map, 0)], [false, 'review', true]);
+});
 rule('A loop item\'s to-do holds the loop\'s approval; work in a child run holds the child, so its result can\'t count', () => {
   const kid = ['---', 'process: validate-story', 'title: Validate a story', 'context: issue, disposition:choice(cleared|needs-work)', 'result: disposition', '---', '',
     '## Assess · DO-CONFIRM {#assess}', '- [!] {decide} Record the validation result {#verdict}', '  options: cleared, needs-work', '  sets: disposition=decision', ''].join('\n');

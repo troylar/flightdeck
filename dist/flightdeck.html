@@ -18140,7 +18140,9 @@ PF.todos = (function () {
         status: '', why: '', landed: '', candidates: [], decisions: [], dec: null, decReview: [], app: null, appReview: [], ignored: [], disputedIds: [], unordered: true };
     });
     Object.keys(reqs).forEach(function (id) { statusOf(T, reqs[id], o, map, heldIds); });
-    T.todos.forEach(function (x) { x.requests = Object.keys(reqs).filter(function (id) { return reqs[id].todo === x.id; }); x.disputed = x.requests.some(function (id) { return reqs[id].status === 'disputed'; }); });
+    /* Work is disputed while any request on it is, and while any decision on it is unsettled, whatever the request's status:
+       a contrary decision made after an application landed holds the work until a record that saw both settles it. */
+    T.todos.forEach(function (x) { x.requests = Object.keys(reqs).filter(function (id) { return reqs[id].todo === x.id; }); x.disputed = x.requests.some(function (id) { var q1 = reqs[id]; return q1.status === 'disputed' || (q1.decOut || []).length > 0; }); });
     return T;
   }
   /* A request's status, in this order: what landed first (an application the head reaches is Applied, whatever authority says

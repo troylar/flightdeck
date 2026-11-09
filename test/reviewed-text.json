@@ -25,8 +25,8 @@
       "reviewed": "loop guard builder for every loop parent and child write, undo on drop; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "9b64d9cd572c613489250880987ff0fbe2610dca0d911bf0bde52d7da3b26026",
-      "reviewed": "4.0 slice 1, commit 3: the recorder's window applies queued to-dos and recovers every interruption from the folder"
+      "sha256": "a1a8d9d5b1864662d545186c61b852f791b6d5154dae2da0456e6b023501175d",
+      "reviewed": "Round 1 B: work stays disputed while any decision on it is unsettled; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -345,8 +345,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "465d36b59b5189d2e04df817a4f761ecaf0968b89210035a7377c1909f876e25",
-      "reviewed": "Round 1 A: a compound's decision passes the same authority check as a decision; checked for direct writes and unconditional deletes"
+      "sha256": "87a6a69c6681cc7b4e588ca2b66b24e37cbd92655b1f2b914f808232ea54a33c",
+      "reviewed": "Round 1 B: work stays disputed while any decision on it is unsettled; checked for direct writes and unconditional deletes"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",
