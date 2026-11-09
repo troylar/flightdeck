@@ -33,6 +33,9 @@ PF.envelope = (function () {
   var STAGED = PART9.concat(['staged']);
   /* 2.1 slice 5: test runs. A run on a stage names staged and test-run, with test: true and stage: { folder } (PF.run). */
   var TESTRUN = STAGED.concat(['test-run']);
+  /* 4.0: living runs. A run with to-dos applied to it (living.head), and the to-do records in proposals/ (flightdeck-plan/4:
+     proposals, compounds, grants and revokes; flightdeck-plan-status/4: decisions and applications). */
+  var LIVING = TESTRUN.concat(['living-runs']);
   var FORMAT = /^([a-z][a-z0-9-]{1,59})\/([1-9]\d{0,3})$/, FEATURE = /^[a-z][a-z0-9-]{1,39}$/, MAX_FEATURES = 32;
 
   /* Every family, with the majors this copy reads and the features it knows in each, its legacy spelling, and whether this
@@ -42,12 +45,12 @@ PF.envelope = (function () {
   var FAMILIES = {
     'flightdeck-checklist': { files: 'maps/drafts/*.md, publications/<p>/<v>/map.md', majors: { 1: [], 2: PART9 }, rewrite: true, syntax: true, future: { 2: '2.0' } },
     'preflight-publication': { files: 'publications/<p>/<v>/publication.json, staged/<p>/<stage>/publication.json', majors: { 1: [], 2: STAGED }, rewrite: false, future: { 2: '2.0' } },
-    'preflight-run': { files: 'runs/<p>/<id>/run.json and its copies', majors: { 2: [], 3: TESTRUN }, rewrite: true, future: { 3: '2.0' }, legacyOnly: { 1: 'runs/*.json (v0.1)' } },
+    'preflight-run': { files: 'runs/<p>/<id>/run.json and its copies', majors: { 2: [], 3: LIVING }, rewrite: true, future: { 3: '2.0' }, legacyOnly: { 1: 'runs/*.json (v0.1)' } },
     'flightdeck-run-archive': { files: 'runs/<p>/<id>/history-*.jsonl lines', majors: { 1: [] }, rewrite: false, legacy: { kinds: ['log', 'answer', 'migration'], field: 'av' }, legacyMajor: 1 },
     'flightdeck-step-type': { files: 'step-types/*.json', majors: { 1: [], 2: ['typed-evidence'] }, rewrite: true, unmarked: true, future: { 2: '2.0' } },
     'flightdeck-types': { files: 'types.json entries', majors: { 1: [], 2: [], 3: [], 4: [], 5: [] }, rewrite: false, legacy: { field: 'version' }, legacyMajor: 1, future: { 3: '2.0', 4: '2.16', 5: '3.0' } },
-    'flightdeck-plan': { files: 'proposals/plan-*.json, proposals/req-*.json (3: scope requests)', majors: { 1: [], 2: [], 3: ['loops'] }, rewrite: true, legacy: { kinds: ['plan'] }, legacyMajor: 1, future: { 2: '2.0', 3: '3.0' } },
-    'flightdeck-plan-status': { files: 'proposals/*.status-*.json', majors: { 1: [], 2: [], 3: ['loops'] }, rewrite: false, legacy: { kinds: ['status'] }, legacyMajor: 1, future: { 2: '2.0', 3: '3.0' } },
+    'flightdeck-plan': { files: 'proposals/plan-*.json, proposals/req-*.json (3: scope requests; 4: to-do requests and grants)', majors: { 1: [], 2: [], 3: ['loops'], 4: ['living-runs'] }, rewrite: true, legacy: { kinds: ['plan'] }, legacyMajor: 1, future: { 2: '2.0', 3: '3.0', 4: '4.0' } },
+    'flightdeck-plan-status': { files: 'proposals/*.status-*.json', majors: { 1: [], 2: [], 3: ['loops'], 4: ['living-runs'] }, rewrite: false, legacy: { kinds: ['status'] }, legacyMajor: 1, future: { 2: '2.0', 3: '3.0', 4: '4.0' } },
     'flightdeck-validation': { files: 'validations/*.json', majors: { 1: [], 2: [] }, rewrite: false, legacy: { kinds: ['validation'] }, legacyMajor: 1, future: { 2: '2.0' } },
     'flightdeck-followup-decision': { files: 'followups/<p>/*.json', majors: { 1: [] }, rewrite: false, legacy: { kinds: ['followup-decision'], field: 'fv' }, legacyMajor: 1 },
     /* dv 0 (missing) and 1 are decisions from before results were recorded; 2 is today's. */
@@ -67,10 +70,10 @@ PF.envelope = (function () {
     'flightdeck-report-decision': { files: 'report-decisions/<p>/*.json', majors: { 1: [] }, rewrite: false }
   };
   /* The 2.0 must-understand features, frozen by name (the 2.0 plan). No copy before 2.0 knows any of them. */
-  var FROZEN = ['typed-details', 'typed-evidence', 'phase-notes', 'phase-shots', 'gate-shots', 'pinned-children', 'pinned-skills', 'staged', 'test-run', 'extensions', 'conditions', 'passed-details', 'team-values', 'jira-search', 'detail-patterns', 'module-results', 'loops'];
+  var FROZEN = ['typed-details', 'typed-evidence', 'phase-notes', 'phase-shots', 'gate-shots', 'pinned-children', 'pinned-skills', 'staged', 'test-run', 'extensions', 'conditions', 'passed-details', 'team-values', 'jira-search', 'detail-patterns', 'module-results', 'loops', 'living-runs'];
   /* The first release that reads a feature, where it isn't 2.0 (every other frozen feature's). One table, so a feature that
      moves to another release changes here only. */
-  var SINCE = { conditions: '2.1', staged: '2.1', 'test-run': '2.1', 'passed-details': '2.8', 'team-values': '2.9', 'jira-search': '2.16', 'detail-patterns': '2.16', 'module-results': '3.0', loops: '3.0' };
+  var SINCE = { conditions: '2.1', staged: '2.1', 'test-run': '2.1', 'passed-details': '2.8', 'team-values': '2.9', 'jira-search': '2.16', 'detail-patterns': '2.16', 'module-results': '3.0', loops: '3.0', 'living-runs': '4.0' };
   function sinceOf(f) { return own(SINCE, f) ? SINCE[f] : '2.0'; }
   /* The release that first reads every listed feature ('2.0', '2.1', ...), or '' for none. */
   function minimum(features) {
@@ -209,6 +212,6 @@ PF.envelope = (function () {
   /* A refusal as a reader keeps it, by path: { path, family, kind, why, needs }. */
   function refusal(path, family, v) { return { path: txt(path), family: typeof family === 'string' ? family : '', kind: v.kind === 'newer' ? 'newer' : 'malformed', why: typeof v.why === 'string' ? v.why : '', needs: typeof v.needs === 'string' ? v.needs : '' }; }
 
-  return { FAMILIES: FAMILIES, FROZEN: FROZEN, SINCE: SINCE, minimum: minimum, PART1: PART1, PART2: PART2, PART3: PART3, PART4: PART4, PART5: PART5, PART6: PART6, PART7: PART7, PART8: PART8, PART9: PART9, STAGED: STAGED, FEATURE: FEATURE, MAX_FEATURES: MAX_FEATURES, parseFormat: parseFormat, semver: semver, cmp: cmp,
+  return { FAMILIES: FAMILIES, FROZEN: FROZEN, SINCE: SINCE, minimum: minimum, PART1: PART1, PART2: PART2, PART3: PART3, PART4: PART4, PART5: PART5, PART6: PART6, PART7: PART7, PART8: PART8, PART9: PART9, STAGED: STAGED, LIVING: LIVING, FEATURE: FEATURE, MAX_FEATURES: MAX_FEATURES, parseFormat: parseFormat, semver: semver, cmp: cmp,
     txt: txt, judge: judge, stamp: stamp, markdown: markdown, needsText: needsText, familyOfPath: familyOfPath, refusal: refusal };
 })();

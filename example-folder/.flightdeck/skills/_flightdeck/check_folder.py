@@ -1559,8 +1559,8 @@ def read_text(path):
 FAMILIES = {
     "preflight-publication": {"majors": {1: [], 2: ["phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "typed-details", "typed-evidence", "conditions", "passed-details", "team-values", "jira-search", "detail-patterns", "module-results", "loops", "staged"]}, "future": {2: "2.0"}, "unmarked": False},
     "flightdeck-step-type": {"majors": {1: [], 2: ["typed-evidence"]}, "future": {2: "2.0"}, "unmarked": True},
-    "flightdeck-plan": {"majors": {1: [], 2: [], 3: ["loops"]}, "future": {}, "unmarked": False, "kinds": ["plan"]},
-    "flightdeck-plan-status": {"majors": {1: [], 2: [], 3: ["loops"]}, "future": {}, "unmarked": False, "kinds": ["status"]},
+    "flightdeck-plan": {"majors": {1: [], 2: [], 3: ["loops"], 4: ["living-runs"]}, "future": {}, "unmarked": False, "kinds": ["plan"]},
+    "flightdeck-plan-status": {"majors": {1: [], 2: [], 3: ["loops"], 4: ["living-runs"]}, "future": {}, "unmarked": False, "kinds": ["status"]},
     "flightdeck-skill": {"majors": {1: [], 2: []}, "future": {2: "2.0"}, "unmarked": True},
     "flightdeck-team-values": {"majors": {1: []}, "future": {1: "2.9"}, "unmarked": False},
 }
@@ -1570,9 +1570,9 @@ FAMILY_NAMES = ["flightdeck-checklist", "preflight-publication", "preflight-run"
                 "flightdeck-presence", "flightdeck-connection", "flightdeck-people", "flightdeck-team-values", "flightdeck-skill", "flightdeck-editor-history", "flightdeck-installed", "flightdeck-stage-decision",
                 "flightdeck-extension", "flightdeck-report", "flightdeck-report-decision"]
 FROZEN = ["typed-details", "typed-evidence", "phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "staged", "test-run", "extensions", "conditions", "passed-details", "team-values",
-          "jira-search", "detail-patterns", "module-results", "loops"]
+          "jira-search", "detail-patterns", "module-results", "loops", "living-runs"]
 # The first release that reads a feature, where it isn't 2.0 (PF.envelope.SINCE).
-SINCE = {"conditions": "2.1", "staged": "2.1", "test-run": "2.1", "passed-details": "2.8", "team-values": "2.9", "jira-search": "2.16", "detail-patterns": "2.16", "module-results": "3.0", "loops": "3.0"}
+SINCE = {"conditions": "2.1", "staged": "2.1", "test-run": "2.1", "passed-details": "2.8", "team-values": "2.9", "jira-search": "2.16", "detail-patterns": "2.16", "module-results": "3.0", "loops": "3.0", "living-runs": "4.0"}
 
 
 def _minimum(features):

@@ -1345,3 +1345,17 @@ One feed per loop: `source: <feed id>`. An observation from another feed, or fro
 
 Every scope record is checked as a reader will read it before it is filed (`PF.loop.fileWhy`: its size, at most 50 records it saw, and that it reads back), in the app and the CLI alike, so nothing is written that another copy would refuse.
 
+
+## 45. Living runs: to-dos that change a run while it runs (4.0 slice 1)
+
+Status: **Partly built.** The records and their reduction are built; authority, holds and the recorder's application follow in this slice. The design is `flightdeck-living-runs-design` (the plan of record, kept with the project's notes).
+
+A living run gains to-dos while it runs: work added to a phase, a step or an item's loop row, then done, declined (Won't do), moved elsewhere (a ticket, a link or another run) or reopened. A to-do is never stored in `run.json`. Like a loop's scope (§44), it is the reduction of immutable records in `proposals/`:
+
+- **Requests** (`flightdeck-plan/4`, `req-<tool>-<24 hex>.json`, naming the `living-runs` feature): a proposal (one op: `add`, `done`, `wont`, `move`, `reopen`), a compound (a person's request and its decision in one record), a grant (a person delegates `add`, `done` and `reopen` on exact targets, up to a number of additions) and a revoke. The id hashes `["todo", tool, key]`, so the same `--tool` and `--key` always mean the same request. A to-do's id is `td-` and a hash of the proposal that added it.
+- **Statuses** (`flightdeck-plan-status/4`, `<req>.status-<writer>-<8 hex>.json`): a decision (accept or decline, naming the consequence it accepts) and an application (the recorder's record that a request was carried out, naming the application before it, `previous`).
+- **Effective work** is the chain of applications from the run's `living.head`, walked back through `previous`; nothing else changes what the run shows. A chain that can't be walked (a missing or unreadable link, a cycle, an effect that doesn't replay) fails closed: every gate of the run is held.
+- **Order** is causal (`PF.loop.causal`: each record names the records it saw, at most 50, ties by id). Two copies of one record that differ, and a record that saw one this computer can't read, are held, never guessed. Contrary decisions, and two applications prepared at once, are settled by the same rule as a loop's records (`PF.loop.settleIn`): only a record that saw every party settles them; until then the request is disputed. A dispute's participants are kept (`disputedIds`) so an approval made before it is known by identity.
+- **Limits.** At most 500 to-dos a run, text 200 characters, a reason 300, a link 2,048, a record 256 KiB, 50 targets a grant, 500 additions a grant. A record over any limit, or with a field the reader doesn't know, is refused whole (`PF.todos.cleanFile`), never cut; every record is checked as a reader will read it before it is filed (`PF.todos.fileWhy`).
+- **Compatibility.** A run with no to-do records and no `living` marker reads and saves byte for byte as in 3.0, and loops behave exactly as in 3.0. Only a run a to-do has changed is stamped with the `living-runs` feature, which copies before 4.0 refuse by name.
+- **Tests.** `test/todos.test.js` (records, limits, chain, order, disputes, paging, placement, the loop regression and a 500 to-do speed budget).

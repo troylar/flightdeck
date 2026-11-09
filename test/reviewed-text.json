@@ -1,32 +1,32 @@
 {
   "texts": {
     "CHANGELOG.md": {
-      "sha256": "e33f748fa9506981647758ed12a63165fb86b937c3d80366caa9349da0c62760",
-      "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
+      "sha256": "69e4e1aabbf8486093b5654a57364d90f6709e43b752c9bee26aede4a1d1835b",
+      "reviewed": "4.0 slice 1, commit 1: check_folder.py reads to-do records as 4.0; starts the 4.0.0 release entry"
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1: a license text, shipped unchanged; no instruction."
     },
     "README.md": {
-      "sha256": "8688bd9f224d72e92aed8f7e3d58baa649ff7326e4b234dab78b2a935438231e",
-      "reviewed": "fold design tips and the library panel; own-key reads; checked for direct writes and unconditional deletes"
+      "sha256": "cd36d7e71d5d4d92098340e21b22df60ff9530d5bccc6c8cc2c254cb19b50bc0",
+      "reviewed": "4.0 slice 1, commit 1: check_folder.py reads to-do records as 4.0; starts the 4.0.0 release entry"
     },
     "bin/flightdeck.js": {
       "sha256": "1c19f0abd8237f2122a6a4562c3632b66a0d029cb71a5ddffc43e7d211947755",
       "reviewed": "CLI resolution says what is left; checked for direct writes and unconditional deletes"
     },
     "build.py": {
-      "sha256": "21c5b257606a8aa3d24c956f518745372409b550008be4d06f5178081117708c",
-      "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
+      "sha256": "3ccfcefff2f5c647ab6a3703c5b303f5e1de7073bc26ead84f7b84902fdd50de",
+      "reviewed": "4.0 slice 1, commit 1: to-do records and their reduction (src/core/todos.js), loop settle and paging shared, living-runs feature, design §45"
     },
     "docs/apps.md": {
       "sha256": "9636e15d67a0154337694c52976f819e3319fd23038cae27a576d8968cf9249e",
       "reviewed": "loop guard builder for every loop parent and child write, undo on drop; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "d281dc6ffb08323942309d35830c13b48242d7026909dcd2bc49fd281f0cef42",
-      "reviewed": "§44: planStill on start paths, undo binding, slot-first pages; checked for direct writes and unconditional deletes"
+      "sha256": "330d32ed48770cf194dd7547856d473b0733a236ffe4695a2ff256137eac008a",
+      "reviewed": "4.0 slice 1, commit 1: to-do records and their reduction (src/core/todos.js), loop settle and paging shared, living-runs feature, design §45"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -53,8 +53,8 @@
       "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "44d32f259593c1ce7d9d2b43ae657f3833896fdc7ea0c9119cd7320497f04c64",
-      "reviewed": "whole-set tip points to for.each; checked for direct writes and unconditional deletes"
+      "sha256": "a0f59e6e0a162d055810817c1005c55a2b4ea494490c0b92d51c26cce76de6b1",
+      "reviewed": "4.0 slice 1, commit 1: check_folder.py reads to-do records as 4.0; starts the 4.0.0 release entry"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
       "sha256": "49d0d083e46b366224edb2e93df3927ede63a2efebc57a2990810460bbe7d7b7",
@@ -173,8 +173,8 @@
       "reviewed": "Round 20, at 64e1c01: the file list npm packs (npm pack --dry-run on a mirror of the tree), read in full: CHANGELOG.md, LICENSE, README.md, bin/flightdeck.js, the two dist files, package.json. Each is pinned whole or checked by parity. No new text."
     },
     "package.json": {
-      "sha256": "b7078416ee1a6e3c542b8c6e28d5957eb920ec52edcc8e02d31cb7587d99d4f7",
-      "reviewed": "fold design tips and the library panel; own-key reads; checked for direct writes and unconditional deletes"
+      "sha256": "377c52c7f28ba508e01826e26d0ba81d3139aff9918252fb4cc6273c4686c831",
+      "reviewed": "4.0 slice 1, commit 1: check_folder.py reads to-do records as 4.0; starts the 4.0.0 release entry"
     },
     "rendered: the merge README, AGENTS.md held": {
       "sha256": "587c6fe0a4080614f1661c880aa058e9dd8180b5595d72bfaaf90b9f297f8d95",
@@ -193,8 +193,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "93ae9bb7e54a1f92f75ffba5cb38f2c30ab01b58e123aefd3cdc4141bdf9ce14",
-      "reviewed": "baselines for the whole-set tip in check_folder.py; checked for direct writes and unconditional deletes"
+      "sha256": "e1f84e408b42daef17c245b6fad8726198c4831c968474d1917a6ec02b63b255",
+      "reviewed": "4.0 slice 1, commit 1: check_folder.py reads to-do records as 4.0; starts the 4.0.0 release entry"
     },
     "src/core/appjson.js": {
       "sha256": "4baa465110a534478bbeaf2d9d1cc6a8ce846ab9a911da62298ce1dce9fc4729",
@@ -221,8 +221,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/envelope.js": {
-      "sha256": "36d8a7abaf43832d0d1705e2ea096b85c6b0571458ba74bd5c868074af062ca4",
-      "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
+      "sha256": "55710b76ab73ab450583c0d6262a25ac9b05004dd8cce86cdf67c8810f46dbd2",
+      "reviewed": "4.0 slice 1, commit 1: to-do records and their reduction (src/core/todos.js), loop settle and paging shared, living-runs feature, design §45"
     },
     "src/core/evidence.js": {
       "sha256": "f3b2d1b62d72274f6169f873bae26689fb931b2dab4e2fae9a2335e5ec9b67e2",
@@ -253,8 +253,8 @@
       "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "src/core/loop.js": {
-      "sha256": "3f136b27fdded0f766601ad5d9348bc7b46c335d3f415ca6b59a1527fa0d0179",
-      "reviewed": "seenFor puts the edited slot first; checked for direct writes and unconditional deletes"
+      "sha256": "c66615af3fce35850d92c3f125a6f91839d79063ab7caee8ee9b78be87a4be9e",
+      "reviewed": "4.0 slice 1, commit 1: to-do records and their reduction (src/core/todos.js), loop settle and paging shared, living-runs feature, design §45"
     },
     "src/core/map.js": {
       "sha256": "f9eae33f6635cd1b3983fc1c71eb7a3b3c8dc1c70ca3ef8ce8807d5228165d2f",
@@ -344,6 +344,10 @@
       "sha256": "ee724c6bcd6433a7ee3d506c74d7e50d40fad45431bdf75fd261937a31f747d4",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
+    "src/core/todos.js": {
+      "sha256": "9939fd7a6d3715e30350c58364fa32b1a2377aad6c182320bdae1fe1d13e4520",
+      "reviewed": "4.0 slice 1, commit 1: check_folder.py reads to-do records as 4.0; starts the 4.0.0 release entry; authority read by name"
+    },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",
       "reviewed": "loops: items: item kind, feed binding, completeness fix, nouns, unknown-kind refusal in loop.js/map.js/publish.js/types.js and check_folder.py parity; pure checks only, checked for direct writes and unconditional deletes"
@@ -385,8 +389,8 @@
       "reviewed": "release notes left to release time; checked for direct writes and unconditional deletes"
     },
     "src/releases.json": {
-      "sha256": "08c69c574eccf180f7abe69563f4afbb342e9c2f4f2de6b69a37dac4a6235763",
-      "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
+      "sha256": "8d826286ab66c60ebdf40c52ec438143950c6c62d931c6d369e6afb5c0ddcf0d",
+      "reviewed": "4.0 slice 1, commit 1: check_folder.py reads to-do records as 4.0; starts the 4.0.0 release entry"
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",
@@ -497,8 +501,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. A maintainer tool, not shipped. Not read line by line."
     },
     "tools/readers.js": {
-      "sha256": "09c4c17c489d1ba83800ead442306168a8f0c7a9415cc84a7fe521d900c63a7e",
-      "reviewed": "readers lint lists loopEdit's own copy; checked for direct writes and unconditional deletes"
+      "sha256": "1390bfdeb3229d1a03995a466e848c4df8f0ab7a324cf6926639988244bef8d2",
+      "reviewed": "4.0 slice 1, commit 1: to-do records and their reduction (src/core/todos.js), loop settle and paging shared, living-runs feature, design §45"
     },
     "tools/scale-limits.js": {
       "sha256": "23e06ee46d6b4ff44216f92c530578f714aa05bcecd7a2b0458515287d554ec1",

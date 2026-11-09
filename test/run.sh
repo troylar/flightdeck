@@ -118,6 +118,7 @@ test/links.test.js -
 test/jira-search.test.js -
 test/results.test.js -
 test/loops.test.js -
+test/todos.test.js -
 test/loop-cli.test.js -
 test/patterns.test.js -
 test/link-fields.test.js -
@@ -186,7 +187,7 @@ test/views.test.js -
 JOBS_LIST
 )"
 # Files with budget() rules; test/build.test.js checks this against the files.
-export BUDGET_FILES="test/perf.test.js test/practice.test.js test/practice-app.test.js test/timeline.test.js test/views.test.js test/find-runs.test.js"
+export BUDGET_FILES="test/todos.test.js test/perf.test.js test/practice.test.js test/practice-app.test.js test/timeline.test.js test/views.test.js test/find-runs.test.js"
 # What TIER=fast leaves out, the slowest files by TIMES=1. test/build.test.js checks each is a file with a job.
 FAST_LEAVES_OUT="bounds-app find-runs find-process find-notes compat perf scale-app"
 

@@ -101,6 +101,36 @@ PF.loop = (function () {
     var heads = order.filter(function (r) { return !seenBy[idx[r.id]]; }).map(function (r) { return r.id; });
     return { order: order, saw: saw, held: held, heads: heads };
   }
+  /* The one causal rule for a decision kept in slot, shared by loops and living runs (PF.todos): c is PF.loop.causal's result. */
+  function settleIn(c, x, slot, rv, rec, val, same, why) {
+    /* Round 10: one deduplicated set per slot. slot+'All' is every decision in the slot, slot+'Front' its frontier
+       (those no later one in the slot saw: what a record must see to have seen them all);
+       slot+'Out' the participants of its unresolved conflict still outstanding; slot+'Part' every participant since the
+       conflict began (the plans offered). A record settles the conflict only once it has seen every one outstanding (S1,
+       docs/design.md 44); one that saw only some takes their place, so a conflict wider than one record can name settles a
+       page at a time, and approval waits for the last page. */
+    var saw = function (id) { return c.saw(rec.id, id); }, all = x[slot + 'All'] || (x[slot + 'All'] = []), out = x[slot + 'Out'] || [], part = x[slot + 'Part'] || [];
+    var against = all.filter(function (e) { return !saw(e.record) && !same(e.val, val); });
+    all.push({ record: rec.id, val: val });
+    x[slot + 'Front'] = (x[slot + 'Front'] || []).filter(function (id) { return !saw(id); }).concat([rec.id]);
+    var join = function (ids) { var have = Object.create(null); part.forEach(function (id) { have[id] = true; }); ids.forEach(function (id) { if (!have[id]) { have[id] = true; part.push(id); } }); x[slot + 'Part'] = part; };
+    var left = out.filter(function (id) { return !saw(id); });
+    if (out.length && left.length) {
+      x[slot + 'Out'] = left.concat([rec.id]); join([rec.id]);
+      x[rv].push({ records: [rec.id], ops: [val.op], why: why.again });
+      return 'held';
+    }
+    if (against.length) {
+      against.forEach(function (e) { x[rv].push({ records: [e.record, rec.id], ops: [e.val.op, val.op], why: why.both(Object.assign({}, e.val, { record: e.record }), val) }); });
+      var ids = against.map(function (e) { return e.record; }).concat([rec.id]);
+      x[slot + 'Out'] = ids; join(ids);
+      x[slot] = Object.assign({}, val, { record: rec.id, contrary: against[0].record });
+      return 'contrary';
+    }
+    x[rv] = []; x[slot + 'Out'] = []; x[slot + 'Part'] = [];
+    x[slot] = Object.assign({}, val, { record: rec.id });
+    return 'settled';
+  }
   /* The items of a loop from its records. o: { source ('jira'), max }. Returns { items, pending, held, duplicates, overLimit,
      heads, observation }. items keep every one ever in scope, in the order they first arrived. */
   function reduce(records, o) {
@@ -133,35 +163,7 @@ PF.loop = (function () {
     /* The one causal rule for a decision kept in slot (the scope verdict, a run choice): a record that didn't see the
        decision before it and disagrees makes them contrary (held, in rv); a later one settles it only once it has seen
        both. Returns 'contrary', 'held' or 'settled'. same(prev, val): whether they agree. why: { both(prev, val), again }. */
-    function settle(x, slot, rv, rec, val, same, why) {
-      /* Round 10: one deduplicated set per slot. slot+'All' is every decision in the slot, slot+'Front' its frontier
-         (those no later one in the slot saw: what a record must see to have seen them all);
-         slot+'Out' the participants of its unresolved conflict still outstanding; slot+'Part' every participant since the
-         conflict began (the plans offered). A record settles the conflict only once it has seen every one outstanding (S1,
-         docs/design.md 44); one that saw only some takes their place, so a conflict wider than one record can name settles a
-         page at a time, and approval waits for the last page. */
-      var saw = function (id) { return c.saw(rec.id, id); }, all = x[slot + 'All'] || (x[slot + 'All'] = []), out = x[slot + 'Out'] || [], part = x[slot + 'Part'] || [];
-      var against = all.filter(function (e) { return !saw(e.record) && !same(e.val, val); });
-      all.push({ record: rec.id, val: val });
-      x[slot + 'Front'] = (x[slot + 'Front'] || []).filter(function (id) { return !saw(id); }).concat([rec.id]);
-      var join = function (ids) { var have = Object.create(null); part.forEach(function (id) { have[id] = true; }); ids.forEach(function (id) { if (!have[id]) { have[id] = true; part.push(id); } }); x[slot + 'Part'] = part; };
-      var left = out.filter(function (id) { return !saw(id); });
-      if (out.length && left.length) {
-        x[slot + 'Out'] = left.concat([rec.id]); join([rec.id]);
-        x[rv].push({ records: [rec.id], ops: [val.op], why: why.again });
-        return 'held';
-      }
-      if (against.length) {
-        against.forEach(function (e) { x[rv].push({ records: [e.record, rec.id], ops: [e.val.op, val.op], why: why.both(Object.assign({}, e.val, { record: e.record }), val) }); });
-        var ids = against.map(function (e) { return e.record; }).concat([rec.id]);
-        x[slot + 'Out'] = ids; join(ids);
-        x[slot] = Object.assign({}, val, { record: rec.id, contrary: against[0].record });
-        return 'contrary';
-      }
-      x[rv] = []; x[slot + 'Out'] = []; x[slot + 'Part'] = [];
-      x[slot] = Object.assign({}, val, { record: rec.id });
-      return 'settled';
-    }
+    function settle(x, slot, rv, rec, val, same, why) { return settleIn(c, x, slot, rv, rec, val, same, why); }
     function verdict(x, rec, op, reason) {
       var to = VERDICT[op];
       var s = settle(x, 'verdict', 'review', rec, { to: to, op: op }, function (p, v) { return p.to === v.to; },
@@ -311,7 +313,12 @@ PF.loop = (function () {
     (slots || []).forEach(function (sl) { xs.forEach(function (x) { (x[sl + 'Front'] || []).forEach(add); }); });
     first = need.sort(cmpStr).slice(); need = []; have = Object.create(null); first.forEach(function (id) { have[id] = true; });
     xs.forEach(function (x) { SLOTS.forEach(function (sl) { (x[sl[0] + 'Front'] || []).forEach(add); }); });
-    need = first.concat(need.sort(cmpStr));
+    return page(heads, first, need.sort(cmpStr));
+  }
+  /* A page of at most LIMITS.seen records to name as seen: first (what must come first), then rest, then other heads. left:
+     how many of first the page leaves for the next one (or, with none, how many of rest). Shared with living runs (PF.todos). */
+  function page(heads, first, rest) {
+    var need = first.concat(rest);
     var seen = need.slice(0, LIMITS.seen), left = Math.max(0, first.length - LIMITS.seen) || (first.length ? 0 : need.length - seen.length), in_ = Object.create(null);
     seen.forEach(function (id) { in_[id] = true; });
     for (var i = 0; i < heads.length && seen.length < LIMITS.seen; i++) if (!in_[heads[i]]) { in_[heads[i]] = true; seen.push(heads[i]); }
@@ -1039,7 +1046,7 @@ PF.loop = (function () {
   /* The records about one loop instance. */
   function recordsFor(records, loop) { return (records || []).filter(function (r) { return r.loop && r.loop.process === loop.process && r.loop.run === loop.run && r.loop.step === loop.step; }); }
 
-  return { askerWhy: askerWhy, seenFor: seenFor, pageWords: pageWords, fileWhy: fileWhy, KINDS: KINDS, kindOf: kindOf, nounOf: nounOf, count: count, feedWhy: feedWhy, httpLink: httpLink, cleanItem: cleanItem, cleanChanges: cleanChanges, FEED: FEED, NOUN: NOUN, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
+  return { askerWhy: askerWhy, seenFor: seenFor, page: page, settleIn: settleIn, pageWords: pageWords, fileWhy: fileWhy, KINDS: KINDS, kindOf: kindOf, nounOf: nounOf, count: count, feedWhy: feedWhy, httpLink: httpLink, cleanItem: cleanItem, cleanChanges: cleanChanges, FEED: FEED, NOUN: NOUN, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
     idFor: idFor, isScope: isScope, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
     rollup: rollup, view: view, markStale: markStale, rowId: rowId, choiceWhy: choiceWhy, resolveWhy: resolveWhy, resolvedBy: resolvedBy, planWhy: planWhy, sendBackWhy: sendBackWhy, again: again, appliedIn: appliedIn, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();
