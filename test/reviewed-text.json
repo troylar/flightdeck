@@ -25,8 +25,8 @@
       "reviewed": "loop guard builder for every loop parent and child write, undo on drop; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "6248771e91058e7734d0f9e8cd638143ec59e482ae05fe8f5073ee74c778cee1",
-      "reviewed": "Round 1 I: keeping a run/3 copy with to-dos over a run/2 promotes it with the publication's types; checked for direct writes and unconditional deletes"
+      "sha256": "530716ad0b0499ce31b83cbafe1c0cfabcc6d3c21fb9de0ab915db1f89a1353e",
+      "reviewed": "Round 1 J: a dispute's hold and a revoke never lapse with a participant's eligibility; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -345,8 +345,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "9238cceef1b00e52b3424e74f2208771378070c00fe227e7e34050675a9dd1f8",
-      "reviewed": "Round 1 G: nothing is prepared or landed while a run's to-do record is unread or held; checked for direct writes and unconditional deletes"
+      "sha256": "c0f5358e372315ec0704698506ffffccfba21eec025fa45518fa16ba8d562420",
+      "reviewed": "Round 1 J: a dispute's hold and a revoke never lapse with a participant's eligibility; checked for direct writes and unconditional deletes"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",

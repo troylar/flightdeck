@@ -18114,11 +18114,12 @@ PF.todos = (function () {
     c.order.forEach(function (x) {
       if (x.kind === 'proposal' || x.kind === 'compound') {
         reqs[x.id] = { id: x.id, kind: x.kind, op: x.op, todo: x.todo, target: x.target || null, placement: x.placement || null, text: x.text || '', to: x.to || null, reason: x.reason || '', owner: x.owner || '', by: x.by, requester: x.requester || '', at: x.at,
-          status: '', why: '', landed: landed[x.id] || '', candidates: [], decisions: [], dec: null, decReview: [], app: null, appReview: [], ignored: [], disputedIds: [] };
+          status: '', why: '', landed: landed[x.id] || '', candidates: [], decisions: [], dec: null, decReview: [], rawReview: [], app: null, appReview: [], ignored: [], disputedIds: [] };
         /* A compound's decision counts only as a separate decision would (o.may); otherwise it is ignored, with why, and the
            request waits like any other. */
         if (x.kind === 'compound') {
           var noc = o.may ? o.may(x, T) : '';
+          settleRaw(reqs[x.id], x, { op: 'accept' });
           if (noc) reqs[x.id].ignored.push({ record: x.id, why: noc });
           else settleDecision(reqs[x.id], x, { op: 'accept', by: x.decision.by, consequence: x.decision.consequence, record: x.id });
           settleApp(reqs[x.id], x, x.application);
@@ -18130,6 +18131,7 @@ PF.todos = (function () {
       if (!q0) return;
       if (!c.saw(x.id, x.proposal)) { q0.ignored.push({ record: x.id, why: 'it didn\'t see the request it answers' }); return; }
       if (x.kind === 'decision') {
+        settleRaw(q0, x, { op: x.op });
         var no = o.may ? o.may(x, T) : '';
         if (no) { q0.ignored.push({ record: x.id, why: no }); return; }
         q0.decisions.push(x.id);
@@ -18143,23 +18145,31 @@ PF.todos = (function () {
       ever(q1, 'dec', PF.loop.settleIn(c, q1, 'dec', 'decReview', rec, val, function (p, v) { return p.op === v.op; },
         { both: function (p, v) { return 'Two people decided this request at once: ' + p.op + ' and ' + v.op + '.'; }, again: 'Decided again without seeing both earlier decisions.' }), rec);
     }
+    /* Every decision, whoever made it, settled on its own (the 'raw' slot): its disputes only mark the records an approval
+       must have counted (disputedIds), so a dispute that once held an approval keeps it in review whatever later happens to
+       the eligibility of who took part, until a person approves again. Status still counts only decisions that may. */
+    function settleRaw(q1, rec, val) {
+      ever(q1, 'raw', PF.loop.settleIn(c, q1, 'raw', 'rawReview', rec, val, function (p, v) { return p.op === v.op; },
+        { both: function () { return 'Decided two ways at once.'; }, again: 'Decided again without seeing both earlier decisions.' }), rec);
+    }
     function settleApp(q1, rec, ap) {
       ever(q1, 'app', PF.loop.settleIn(c, q1, 'app', 'appReview', rec, { op: 'apply', previous: ap.previous, fingerprint: ap.fingerprint }, function (p, v) { return p.fingerprint === v.fingerprint && p.previous === v.previous; },
         { both: function (p, v) { return 'Two recorders applied this request at once.'; }, again: 'Applied again without seeing both earlier applications.' }), rec);
     }
-    /* Grants: active once issued, by a person who may (o.may); a revoke ends one for good, whether or not it saw what used it. */
+    /* Grants: active once issued, by a person who may (o.may); a revoke ends one for good, whether or not it saw what used it.
+       A revoke only ever takes authority away, so it counts whoever made it (fail closed): a revoke never lapses because its
+       maker later left or became inactive, which would quietly give the delegation back. */
     function grant(x) {
       if (x.kind === 'grant') { var no = o.may ? o.may(x, T) : ''; T.grants[x.id] = { id: x.id, subject: x.subject, ops: x.ops, targets: x.targets, limits: x.limits, by: x.by, active: !no, why: no, revoked: [] }; return; }
-      var g = T.grants[x.grant], no2 = o.may ? o.may(x, T) : '';
+      var g = T.grants[x.grant];
       if (!g) { T.held.push({ record: x.id, missing: [x.grant], why: 'missing' }); return; }
-      if (no2) return;
       g.revoked.push(x.id); g.active = false; g.why = 'It was revoked.';
     }
     /* A request this copy can't read in order is still listed, held, with what it says. */
     mine.forEach(function (x) {
       if ((x.kind !== 'proposal' && x.kind !== 'compound') || reqs[x.id]) return;
       reqs[x.id] = { id: x.id, kind: x.kind, op: x.op, todo: x.todo, target: x.target || null, placement: x.placement || null, text: x.text || '', to: x.to || null, reason: x.reason || '', owner: x.owner || '', by: x.by, requester: x.requester || '', at: x.at,
-        status: '', why: '', landed: '', candidates: [], decisions: [], dec: null, decReview: [], app: null, appReview: [], ignored: [], disputedIds: [], unordered: true };
+        status: '', why: '', landed: '', candidates: [], decisions: [], dec: null, decReview: [], rawReview: [], app: null, appReview: [], ignored: [], disputedIds: [], unordered: true };
     });
     Object.keys(reqs).forEach(function (id) { statusOf(T, reqs[id], o, map, heldIds); });
     /* Work is disputed while any request on it is, and while any decision on it is unsettled, whatever the request's status:

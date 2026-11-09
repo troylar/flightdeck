@@ -212,6 +212,22 @@ rule('A contrary decision after an application landed keeps the work disputed an
   mark(r, recs.concat([settle]));
   same([V(r, recs.concat([settle])).byTodo[p.todo].disputed, R.gateStatus(r, map, 0), R.canPass(r, map, 0)], [false, 'review', true]);
 });
+rule('A dispute\'s hold on an approval stays when a participant later becomes ineligible', () => {
+  const { r } = newRun(), map = R.mapOf(r), p = prop('jd1', add('Check', { phase: 'draft' }), [], 'person-avery');
+  const a = applied(p, '', { decision: p.id + '.status-w1-00000000' }); land(r, a);
+  R.done(r, map, 'write', 'person-avery', AT);
+  const dn = prop('jd2', { op: 'done', todo: p.todo }, [a.id], 'person-avery'), ad = applied(dn, a.id, { decision: dn.id + '.status-w1-00000000' });
+  land(r, ad); mark(r, [p, a, dn, ad]); R.pass(r, map, 0, 'person-avery', AT);
+  const re = prop('jd3', { op: 'reopen', todo: p.todo }, [ad.id]), C = T.consequenceOf(r, map, re, V(r, [p, a, dn, ad, re])).fingerprint;
+  const recs = [p, a, dn, ad, re, decide(re, 'accept', 'person-avery', C), decide(re, 'decline', 'person-blake', C)];
+  mark(r, recs); same(R.gateStatus(r, map, 0), 'review', 'set-up');
+  const OFF = { people: PEOPLE.people.map(x => x.id === 'person-blake' ? Object.assign({}, x, { inactive: true }) : x) };
+  mark(r, recs, OFF);
+  same(R.gateStatus(r, map, 0), 'review', 'still needs review');
+  const g = grant('jg1', ['add'], [{ phase: 'review' }], 5), x = clean(T.buildGrant({ kind: 'revoke', id: T.idFor('flightdeck', 'jx1'), run: RUN, seen: [g.id], by: 'person-blake', at: AT, grant: g.id }));
+  const pg = prop('jg2', add('By the tool', { phase: 'review' }), [g.id, x.id]), all = recs.concat([g, x, pg]);
+  same([V(r, all).requests[pg.id].status, V(r, all, OFF).requests[pg.id].status], ['waiting', 'waiting'], 'a revoke never lapses when its maker becomes inactive');
+});
 rule('A loop item\'s to-do holds the loop\'s approval; work in a child run holds the child, so its result can\'t count', () => {
   const kid = ['---', 'process: validate-story', 'title: Validate a story', 'context: issue, disposition:choice(cleared|needs-work)', 'result: disposition', '---', '',
     '## Assess · DO-CONFIRM {#assess}', '- [!] {decide} Record the validation result {#verdict}', '  options: cleared, needs-work', '  sets: disposition=decision', ''].join('\n');
