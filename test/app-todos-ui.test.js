@@ -205,6 +205,26 @@ rule('A request still waiting shows in its phase with its status, and takes no a
   assert.ok(/Waits here<\/span> <span class="pill review">Waiting for approval/.test(h), 'listed, waiting');
   assert.ok(!/To-dos:/.test(h), 'not counted until it lands');
 });
+rule('A save that finishes late clears only what it sent: newer typing in the box stays', async () => {
+  const app = await setup();
+  const fs = app.fs, write = fs.write.bind(fs), held = [];
+  const hold = () => { fs.write = (p, t, o) => /^proposals\/req-/.test(p) ? new Promise((res, rej) => held.push(() => write(p, t, o).then(res, rej))) : write(p, t, o); };
+  const release = async () => { fs.write = write; held.splice(0).forEach(f => f()); await app.tick(80); };
+  hold();
+  app.set('td-add', 'First thing'); app.click('td-add'); await app.tick(20);
+  app.set('td-add', 'Newer typing');
+  await release();
+  assert.strictEqual(app.draft('td-add'), 'Newer typing', 'the newer text stays');
+  app.set('td-add', 'Same text'); hold(); app.click('td-add'); await app.tick(20); await release();
+  assert.strictEqual(app.draft('td-add'), '', 'unchanged, it is cleared');
+  const id = await withTodo(app);
+  app.click('td-pick', id, { kind: 'wont' }); await app.tick(10);
+  hold();
+  app.set('td-why', 'First reason'); app.click('td-save', id); await app.tick(20);
+  app.set('td-why', 'Second thoughts');
+  await release();
+  assert.strictEqual(app.draft('td-why'), 'Second thoughts', 'the newer reason is never wiped by the earlier save');
+});
 rule('A write that may have happened, asked again, is the same request: never a second one', async () => {
   const app = await setup();
   const fs = app.fs, write = fs.write.bind(fs);

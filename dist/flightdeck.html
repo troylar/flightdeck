@@ -35359,12 +35359,20 @@ PF.examples = (function () {
     var r = findRun(key), mem = loopMem();
     if (!r || !state.me) return;
     if (runUnread(r)) { mem.tdSaid = runUnread(r) + ' Nothing was decided.'; render(); return; }
-    var slot = 'dec', sig = JSON.stringify([key, id, op, shown || '', reason == null ? '' : String(reason), state.me]);
+    var sent = op === 'decline' ? tdSent(['td-dec-why']) : null, open = mem.tdDec, slot = 'dec', sig = JSON.stringify([key, id, op, shown || '', reason == null ? '' : String(reason), state.me]);
     var made = tdKept(slot, sig, function (seed) { return PF.todos.decide(r, { request: id, op: op, by: state.me, shown: shown, reason: reason, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION, writer: seed.writer, rev: seed.rev }); });
     if (made.why) { mem.tdSaid = made.why; render(); return; }
-    tdWrite(r, made, made.words, slot).then(function (ok) { if (ok) { mem.tdDec = null; tdClear(['td-dec-why']); render(); } });
+    tdWrite(r, made, made.words, slot).then(function (ok) { if (ok && mem.tdDec === open && (!sent || tdClearIf(sent))) { mem.tdDec = null; render(); } });
   }
   function tdClear(ids) { ids.forEach(function (id) { var el = document.getElementById(id); if (el) el.value = ''; }); }
+  /* A to-do form's boxes as sent (tdSent), and clearing them when its save finishes (tdClearIf): only while every box still
+     holds exactly what was sent, so typing done meanwhile is never wiped; true when cleared. */
+  function tdSent(ids) { var o = {}; ids.forEach(function (id) { var el = document.getElementById(id); o[id] = el ? String(el.value == null ? '' : el.value) : ''; }); return o; }
+  function tdClearIf(sent) {
+    var same = Object.keys(sent).every(function (id) { var el = document.getElementById(id); return !el || String(el.value == null ? '' : el.value) === sent[id]; });
+    if (same) tdClear(Object.keys(sent));
+    return same;
+  }
   /* The current phase, where Add something to do sits (views/run.js todoBlock): the first whose gate isn't passed or waived,
      else the last that is needed. */
   function tdPhase(r) {
@@ -39971,8 +39979,8 @@ PF.examples = (function () {
     'continue-two': function (id) { continueTwo(id); },
     'td-add': function (id) {
       var r = ctx.run(); if (!r) return;
-      var phase = id || tdPhase(r), text = val('td-add');
-      todoAsk({ op: 'add', text: text, target: { phase: phase } }, function () { tdClear(['td-add']); state.focus = '#td-add'; });
+      var phase = id || tdPhase(r), text = val('td-add'), sent = tdSent(['td-add']);
+      todoAsk({ op: 'add', text: text, target: { phase: phase } }, function () { if (tdClearIf(sent)) state.focus = '#td-add'; });
     },
     'td-inbox': function (id) { var mem = loopMem(); mem.tdInboxRun = id || ''; mem.tdSaid = ''; mem.tdDec = null; state.overlayFocus = '#tdi-h'; openOverlay({ tdInbox: true, html: function () { return V.todoInbox(ctx); }, held: function () { return !!loopMem().tdDec && !!String(val('td-dec-why') || '').trim(); } }); },
     'td-accept': function (id, b) { tdDecide(b.dataset.run, id, 'accept', b.dataset.fp, ''); },
@@ -40005,7 +40013,8 @@ PF.examples = (function () {
     'td-save': function (id) {
       var pk = state.tdPick; if (!pk || pk.id !== id) return;
       var why = val('td-why'), body = pk.kind === 'wont' ? { op: 'wont', todo: id, reason: why } : { op: 'move', todo: id, to: val('td-to'), reason: why };
-      todoAsk(body, function () { state.tdPick = null; tdClear(['td-why', 'td-to']); });
+      var sent = tdSent(['td-why', 'td-to']);
+      todoAsk(body, function () { if (state.tdPick === pk && tdClearIf(sent)) state.tdPick = null; });
     },
     'loop-add': function (id) {
       var r = ctx.run(), V = r && loopView(r, id);
