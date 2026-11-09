@@ -254,7 +254,7 @@ rule('A newer to-do record (living-runs, any format version) holds its run as un
   T.markHolds([r], { records: d.todos, unread: d.todosUnread, people: { people: [] } });
   assert.ok(r._todos && r._todos.all.length, 'held');
 });
-rule('A to-do record over 256 KiB in UTF-8 is refused before it is read, and the writer counts bytes', async () => {
+rule('A to-do record over 256 KiB in UTF-8 is refused by its file\'s size, and the writer counts bytes', async () => {
   const p = T.buildProposal({ run: RUN, id: T.idFor('flightdeck', 'f1'), by: 'person-avery', seen: [], at: AT, body: ADD('Big') });
   const t = T.text(p), pad = t.slice(0, -2) + ' '.repeat(262554 - t.length) + '}\n';
   const d = await PF.repo.readPlans(memFs({ ['proposals/' + p.id + '.json']: pad }));
@@ -262,7 +262,6 @@ rule('A to-do record over 256 KiB in UTF-8 is refused before it is read, and the
   assert.ok(/bytes/.test(d.todosUnread[0].why), d.todosUnread[0].why);
   const wide = Object.assign({}, p, { text: 'é'.repeat(140000) });
   assert.ok(/bytes/.test(T.fileWhy(p.id + '.json', wide)), T.fileWhy(p.id + '.json', wide));
-  assert.ok(/bytes/.test(LP.fileWhy('req-x.json', { seen: [], title: '\u00e9'.repeat(140000) })), 'a scope record\'s writer counts bytes too');
 });
 rule('An application\'s effect with a field its op doesn\'t have, or one out of its limit, is refused, never dropped', () => {
   const p = cleanOf(prop('s1', ADD('One'))), d = cleanOf(prop('s2', { op: 'done', todo: p.todo }, [p.id]));
@@ -293,5 +292,15 @@ rule('A value of the wrong type in any field is one malformed record, never a th
   [5, ['person-avery']].forEach((o) => { const f = JSON.parse(T.text(ap.file)); f.effect.owner = o; same(T.cleanFile(f, ap.name).ok, false, JSON.stringify(o)); });
   const d = await PF.repo.readPlans(memFs({ ['proposals/' + p.id + '.json']: T.text(p), ['proposals/' + ap.name]: T.text(Object.assign({}, ap.file, { effect: Object.assign({}, ap.file.effect, { owner: 5 }) })) }));
   same([d.todos.length, d.todosUnread.length], [1, 1]);
+});
+rule('Scope records (loops, /3) read and write exactly as in 3.0; only to-do records are capped in bytes', async () => {
+  const d = LP.buildDecision({ proposal: 'req-release-helper-0123456789abcdef01234567', loop: { process: 'release-readiness', run: 'r-41', step: 'each' }, op: 'accept', items: ['jira:10101'], seen: ['req-release-helper-0123456789abcdef01234567'], reason: 'Moved out', by: 'person-morgan', writer: 'w1', rev: 'a1b2c3d4', now: 'x', app: '3.0.0' });
+  const t = LP.text(d.file), pad = t.slice(0, -2) + ' '.repeat(300000) + '}\n';
+  const r1 = await PF.repo.readPlans(memFs({ ['proposals/' + d.name]: pad }));
+  same([r1.scopes.length, r1.scopesUnread.length, r1.todosUnread.length], [1, 0, 0]);
+  assert.ok(!/bytes/.test(LP.fileWhy(d.name, Object.assign({}, d.file, { reason: 'é'.repeat(140000) }))), 'the scope writer counts as 3.0 did');
+  const p = T.buildProposal({ run: RUN, id: T.idFor('flightdeck', 'u1'), by: 'person-avery', seen: [], at: AT, body: ADD('Big') }), tp = T.text(p);
+  const r2 = await PF.repo.readPlans(memFs({ ['proposals/' + p.id + '.json']: tp.slice(0, -2) + ' '.repeat(262554 - tp.length) + '}\n' }));
+  same([r2.todos.length, r2.todosUnread.length], [0, 1]); assert.ok(/bytes/.test(r2.todosUnread[0].why), r2.todosUnread[0].why);
 });
 run();

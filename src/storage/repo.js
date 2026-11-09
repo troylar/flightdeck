@@ -605,19 +605,18 @@ PF.repo = (function () {
      the part. torn (the app): each file left out that way is named there ({ path, _file, why }), never just dropped: one
      still arriving could be the record that decides something. perFile (with torn): a read that's refused is named there
      too, by itself, instead of failing the part; only a folder that can't be listed fails it. */
-  /* cap(name): the most bytes (UTF-8) a file of that name may be, or 0; one over it is never parsed, and is named in torn
-     (and bad) as unread, never cut. */
-  function loadJsonDir(fs, dir, ok, bad, only, torn, perFile, cap) {
-    var over = function (i, f) { var max = cap ? cap(i.name) : 0, n = max ? (f.size != null ? f.size : U.utf8Bytes(f.text)) : 0; return max && n > max ? 'is ' + n + ' bytes, more than the ' + max + ' Flightdeck reads for it' : ''; };
+  /* Each object read carries its file's size in UTF-8 bytes as _bytes (not enumerable, so it never travels with the record),
+     for a reader whose limit is in bytes of the file as it is. */
+  function sized(o, f) { try { Object.defineProperty(o, '_bytes', { value: f.size != null ? f.size : U.utf8Bytes(f.text), enumerable: false }); } catch (e) { /* frozen: no size */ } return o; }
+  function loadJsonDir(fs, dir, ok, bad, only, torn, perFile) {
     return fs.list(dir).then(function (items) {
       return Promise.all(items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name) && (!only || only(i.name)); }).map(function (i) {
         var path = dir + '/' + i.name;
         if (!bad) return fs.read(path).then(function (f) {
           /* Listed but gone when read: it may be moving, so it's named like one still arriving, never just left out. */
           if (!f) { if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: 'was listed but was gone when read' }); return null; }
-          var big = over(i, f); if (big) { if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: big }); return null; }
           var o = json(f.text);
-          if (o && typeof o === 'object' && ok(o)) { o._file = i.name; return o; }
+          if (o && typeof o === 'object' && ok(o)) { o._file = i.name; return sized(o, f); }
           /* parsed: it's JSON, just not this folder's kind of file (ignored, only named); else it may still be arriving. */
           if (torn) torn.push({ path: path, _file: i.name, parsed: o !== undefined, why: o === undefined ? 'isn\'t complete JSON' : 'isn\'t a file Flightdeck reads here, so it\'s ignored' });
           return null;
@@ -626,11 +625,10 @@ PF.repo = (function () {
            so a decision that can't be read holds its plan there as in the app. */
         return fs.read(path).then(function (f) {
           if (!f) { if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: 'was listed but was gone when read' }); return null; }
-          var big2 = over(i, f); if (big2) { bad.push({ path: path, kind: 'malformed', why: big2 }); if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: big2 }); return null; }
           var o = json(f.text);
           if (o === undefined) { bad.push({ path: path, kind: 'malformed', why: 'isn\'t complete JSON (it may still be arriving)' }); if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: 'isn\'t complete JSON' }); return null; }
           if (!o || typeof o !== 'object' || Array.isArray(o) || !ok(o)) { bad.push({ path: path, kind: 'malformed', why: 'isn\'t a file this copy can read here' }); if (torn) torn.push({ path: path, _file: i.name, parsed: true, why: 'isn\'t a file Flightdeck reads here, so it\'s ignored' }); return null; }
-          o._file = i.name; return o;
+          o._file = i.name; return sized(o, f);
         }, function (e) { bad.push({ path: path, kind: errKind(e), why: why(e) }); if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: 'couldn\'t be read (' + why(e) + ')' }); return null; });
       }));
     }).then(function (x) { return x.filter(Boolean); });
@@ -2580,9 +2578,7 @@ PF.repo = (function () {
   /* two: reading for other apps with contract 2, which reads plan/2 and its decisions as the app does. */
   function readPlans(fs, bad, only, two) {
     var refused = [], torn = [];
-    /* A to-do or scope record (req-...) over its byte limit is never parsed: it holds as one that can't be read. */
-    var cap = function (name) { return /^req-/.test(name) ? Math.min(PF.todos.LIMITS.bytes, PF.loop.LIMITS.bytes) : 0; };
-    return loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status' || typeof o.format === 'string'; }, bad, only, torn, undefined, cap).then(function (props) {
+    return loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status' || typeof o.format === 'string'; }, bad, only, torn).then(function (props) {
       var plans = [], statuses = [], scopes = [], scopesUnread = [], todos = [], todosUnread = [];
       props.forEach(function (p) {
         /* A to-do record (4.0, PF.todos), or any record naming living-runs, goes to its own reader first; one that can't be
@@ -2591,7 +2587,7 @@ PF.repo = (function () {
           var raw = {}; Object.keys(p).forEach(function (k) { if (k !== '_file') raw[k] = p[k]; });
           /* A record the checks can't even look at (a value that can't be turned into text) is one unread file, never a read
              that fails. */
-          var tv; try { tv = PF.todos.cleanFile(raw, p._file); } catch (e) { tv = { ok: false, kind: 'malformed', why: 'is a to-do record that isn\'t in its format', needs: '' }; }
+          var tv; try { tv = PF.todos.cleanFile(raw, p._file, p._bytes); } catch (e) { tv = { ok: false, kind: 'malformed', why: 'is a to-do record that isn\'t in its format', needs: '' }; }
           var tp = 'proposals/' + p._file, tf = PF.todos.familyOf(p);
           if (!tv.ok) { if (bad) bad.push({ path: tp, kind: tv.kind, why: tv.why }); refused.push(PF.envelope.refusal(tp, tf, tv)); todosUnread.push({ file: p._file, why: tv.why, run: PF.todos.runOf(p) }); return; }
           tv.record._file = p._file; todos.push(tv.record); return;

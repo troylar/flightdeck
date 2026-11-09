@@ -241,7 +241,9 @@ PF.todos = (function () {
   var COMMON = ['format', 'features', 'app', 'kind', 'id', 'run', 'seen', 'producer', 'key', 'by', 'at'];
   /* A record in proposals/, read back: { ok, record } or a refusal ({ ok: false, kind, why }). name: its file name. Every
      field is checked for its type and limit; a record over a limit is refused whole, never cut. */
-  function cleanFile(o, name) {
+  function cleanFile(o, name, bytes) {
+    /* bytes: the file's own size in UTF-8, when read from a folder; a to-do record over the limit is refused, never cut. */
+    if (typeof bytes === 'number' && bytes > LIMITS.bytes) return mal('is ' + bytes + ' bytes; a to-do record is at most ' + LIMITS.bytes);
     var st = isMap(o) && o.format === STATUS, bad = verdictOf(o, familyOf(o));
     if (bad) return bad;
     var errors = [];

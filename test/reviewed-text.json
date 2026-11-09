@@ -25,8 +25,8 @@
       "reviewed": "loop guard builder for every loop parent and child write, undo on drop; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "57b6bbd0266a5046ce234c8931f028510308bd93247e7e77f062f999a22828f0",
-      "reviewed": "Round 2 T: a wrong-typed field is one malformed record, never a failed read; checked for direct writes and unconditional deletes"
+      "sha256": "dc88cdbe6f5ab607c46f4f38cbc4d1571f94b3db93d856ba3a343d6623e39f39",
+      "reviewed": "Round 2 U: only to-do records are capped in bytes; scope records read and write as in 3.0; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -253,8 +253,8 @@
       "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "src/core/loop.js": {
-      "sha256": "7821bc0689b92a19d19c9746ce310ad0d139936547802b7bf752519805562c18",
-      "reviewed": "Round 1 F: to-do and scope records are capped in UTF-8 bytes before they are parsed; checked for direct writes and unconditional deletes"
+      "sha256": "c66615af3fce35850d92c3f125a6f91839d79063ab7caee8ee9b78be87a4be9e",
+      "reviewed": "Round 2 U: only to-do records are capped in bytes; scope records read and write as in 3.0; checked for direct writes and unconditional deletes"
     },
     "src/core/map.js": {
       "sha256": "f9eae33f6635cd1b3983fc1c71eb7a3b3c8dc1c70ca3ef8ce8807d5228165d2f",
@@ -345,8 +345,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "131343c8430ddad5a98850cdeda954ee3c9d76fb129faf7a5cee7f2b200c14bc",
-      "reviewed": "Round 2 T: a wrong-typed field is one malformed record, never a failed read; checked for direct writes and unconditional deletes"
+      "sha256": "7af84845b2940316f011d0d48867acb21c88b1527ac7f06ecd94f1858355d4a6",
+      "reviewed": "Round 2 U: only to-do records are capped in bytes; scope records read and write as in 3.0; checked for direct writes and unconditional deletes"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",
@@ -397,8 +397,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "46d6db4576d84814d59bdf15b065aadca3f5f78df6826ac7a95e920eff0bf6b0",
-      "reviewed": "Round 2 T: a wrong-typed field is one malformed record, never a failed read; checked for direct writes and unconditional deletes"
+      "sha256": "135eefacab7a4d6b2c434a3177867f5b569bf601b8cf9397cea6210916a01fe6",
+      "reviewed": "Round 2 U: only to-do records are capped in bytes; scope records read and write as in 3.0; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "dd3e274f0bcbc70413eb36ea089a320e46d2058c28d5513933732b6bd4b38832",
