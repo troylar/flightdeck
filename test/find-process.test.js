@@ -952,7 +952,8 @@ const D10_JOIN_OK = [
   { file: 'manage.js', has: 'return \'Old copy from \' + afWaiting(', why: 'the versions go through afWaiting, which shows the first 3 and "and N more"' },
   { file: 'overlays.js', has: 'ids = now.map(function (x) { return x.run.process', why: NOT_TEXT + ': a batch\'s request ids, at most the 50 one click accepts' },
   { file: 'run.js', has: 'C.notices.slice(0, 10).map(esc).join', why: 'the first 10 and "And N more"' },
-  { file: 'app.js', has: 'failed.slice(0, 5).map(function (f) { return f.why; }).join', why: 'the first 5 reasons; how many couldn\'t be saved is said in full' }
+  { file: 'app.js', has: 'failed.slice(0, 5).map(function (f) { return f.why; }).join', why: 'the first 5 reasons; how many couldn\'t be saved is said in full' },
+  { file: 'app.js', has: 'left.slice(0, 5).map(function (u) { return u.x.run', why: 'the first 5, with "and N more"' }
 ];
 /* Every .join( in the views and app.js whose separator isn't '', with its line number and file. */
 function joins(src) {

@@ -3415,18 +3415,31 @@
        stop once any of them changed. Never continued as someone else. */
     var me = state.me, fk = fsKey(), g0 = gen, stopped = 0, same = function () { return state.me === me && fsKey() === fk && gen === g0; };
     var list = String(triples || '').split(' ').filter(Boolean).map(function (t) { var p = t.split('|'); return { run: p[0], id: p[1], fp: p[2] }; });
-    var ok = 0, changed = [], failed = [], n = list.length;
+    var ok = 0, changed = [], failed = [], unsure = [], n = list.length;
+    /* A decision written whose read-back failed is unconfirmed, not unsaved: read again before saying anything; still unknown,
+       it is named, and its retry seed is kept, so accepting again is the same record. */
+    var settle = function () {
+      if (!unsure.length) { said(); return; }
+      var u = unsure.shift();
+      u.fs.read('proposals/' + u.made.name).then(function (f) {
+        if (f && f.text === PF.todos.text(u.made.file)) { tdSettled(u.slot); var rec = u.made.record; rec._file = u.made.name; if (!(data.todos || []).some(function (y) { return y.id === rec.id; })) data.todos = (data.todos || []).concat([rec]); ok++; lastAll = -Infinity; }
+        else if (!f) failed.push({ why: 'Your acceptance of ' + u.x.id + ' isn\'t in the folder.' });
+        else u.left = true;
+        if (u.left) left.push(u); settle();
+      }, function () { left.push(u); settle(); });
+    }, left = [];
     var said = function () {
-      var t = ok === n ? 'Accepted ' + n + ' addition' + (n === 1 ? '' : 's') + '. Each run\'s recorder applies its own.' : 'Accepted ' + ok + ' of ' + n + ' additions.';
+      var t = ok === n && !left.length ? 'Accepted ' + n + ' addition' + (n === 1 ? '' : 's') + '. Each run\'s recorder applies its own.' : 'Accepted ' + ok + ' of ' + n + ' additions.';
       if (failed.length) t += ' ' + failed.length + ' couldn\'t be saved (' + failed.slice(0, 5).map(function (f) { return f.why; }).join(' ') + '); they still need you.';
       if (changed.length) t += ' ' + changed.length + ' changed since you saw ' + (changed.length === 1 ? 'it and is' : 'them and are') + ' shown again for your decision.';
+      if (left.length) t += ' Couldn\'t confirm whether ' + (left.length === 1 ? 'this acceptance was' : 'these acceptances were') + ' saved: ' + left.slice(0, 5).map(function (u) { return u.x.run + ' (' + u.x.id + ')'; }).join(', ') + (left.length > 5 ? ' and ' + (left.length - 5) + ' more' : '') + '. Accepting again is the same record, never a second one.';
       if (stopped) t += ' Stopped: the person, the folder or what was read changed after you clicked, so ' + stopped + ' weren\'t decided.';
       if (tok === tdTok('dec') && !stopped) mem.tdSaid = t; else say(t, failed.length || changed.length || stopped ? 'warn' : 'good');
       render();
     };
     var step = function (i) {
-      if (i >= list.length) { said(); return; }
-      if (!same()) { stopped = list.length - i; said(); return; }
+      if (i >= list.length) { settle(); return; }
+      if (!same()) { stopped = list.length - i; settle(); return; }
       var x = list[i], r = findRun(x.run);
       if (!r || runUnread(r)) { failed.push({ why: (r ? runUnread(r) : 'The run ' + x.run + ' isn\'t in this folder.') }); step(i + 1); return; }
       var slot = 'dec-all:' + x.run + '|' + x.id, sig = JSON.stringify([x.run, x.id, 'accept', x.fp, me]);
@@ -3441,7 +3454,7 @@
         var rec = made.record; rec._file = made.name;
         if (!(data.todos || []).some(function (y) { return y.id === rec.id; })) data.todos = (data.todos || []).concat([rec]);
         ok++; lastAll = -Infinity; step(i + 1);
-      }, function (err) { endBusy(); if (sg !== gen) { stopped = list.length - i; said(); return; } failed.push({ why: String(err && err.message || err) }); step(i + 1); });
+      }, function () { endBusy(); unsure.push({ x: x, made: made, slot: slot, fs: cx.fs }); if (sg !== gen) { stopped = list.length - i - 1; settle(); return; } step(i + 1); });
     };
     step(0);
   }

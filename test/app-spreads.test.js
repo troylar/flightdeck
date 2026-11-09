@@ -189,4 +189,44 @@ rule('SD: Accept N additions never continues as another person: changing who you
   const said = txt(app.html() + ov(app));
   assert.ok(/stopped/i.test(said) && /changed/i.test(said), said.slice(0, 600));
 });
+/* Review round 1 (SF): a decision whose read-back failed is unconfirmed, named, read again, and kept for the same retry. */
+rule('SF: a batch decision that was written but couldn\'t be read back is read again, never reported as not saved', async () => {
+  const app = await setup();
+  await landedSpread(app);
+  const ps = await sync(app, ['ABC-102', 'ABC-103']);
+  await refresh(app, 300);
+  const press = async () => {
+    app.click('td-inbox', ''); await app.tick(20);
+    const bt = /<button[^>]*data-act="td-accept-all"[^>]*>/.exec(ov(app)), d = {};
+    bt[0].replace(/data-(ids)="([^"]*)"/g, (x, k, v) => { d[k] = v.replace(/&quot;/g, '"').replace(/&amp;/g, '&'); });
+    app.click('td-accept-all', /data-id="([^"]*)"/.exec(bt[0])[1], d); await app.tick(300);
+  };
+  /* Every read of the first decision written fails from its write on: it is there, but this window can't see it. */
+  const fs = app.fs, write = fs.write.bind(fs), read = fs.read.bind(fs); let first = null;
+  fs.write = (p, t, o) => { if (!first && /^proposals\/req-.*status-/.test(p)) first = p; return write(p, t, o); };
+  fs.read = (p, o) => p === first ? Promise.reject(new Error('EIO')) : read(p, o);
+  await press();
+  const said = txt(app.html() + ov(app)), which = ps.filter(q => first.indexOf(q.id) >= 0)[0];
+  assert.ok(which, 'set-up: a decision was written');
+  assert.ok(!/couldn't be saved/.test(said), 'never "not saved": ' + said.slice(0, 500));
+  assert.ok(/couldn't confirm/i.test(said) && said.indexOf(which.id) >= 0, 'named as unconfirmed: ' + said.slice(0, 500));
+  fs.write = write; fs.read = read;
+  app.click('close-overlay'); await app.tick();
+  /* Accepting it again is the same record, never a second one. */
+  await refresh(app, 300);
+  const before = decisions(app).filter(x => x.proposal === which.id).length;
+  if (/td-accept-all|td-accept/.test((app.click('td-inbox', ''), await app.tick(20), ov(app)))) { app.click('close-overlay'); await app.tick(); await press(); }
+  assert.strictEqual(decisions(app).filter(x => x.proposal === which.id).length, before, 'one decision on it');
+  /* And when the read-back fails only once, reading again confirms it. */
+  const app2 = await setup(); await landedSpread(app2);
+  await sync(app2, ['ABC-102', 'ABC-103']); await refresh(app2, 300);
+  const f2 = app2.fs, w2 = f2.write.bind(f2), r2 = f2.read.bind(f2); let one = null, failedOnce = false;
+  f2.write = (p, t, o) => { if (!one && /^proposals\/req-.*status-/.test(p)) one = p; return w2(p, t, o); };
+  f2.read = (p, o) => { if (p === one && !failedOnce) { failedOnce = true; return Promise.reject(new Error('EIO')); } return r2(p, o); };
+  app2.click('td-inbox', ''); await app2.tick(20);
+  const bt2 = /<button[^>]*data-act="td-accept-all"[^>]*>/.exec(ov(app2)), d2 = {};
+  bt2[0].replace(/data-(ids)="([^"]*)"/g, (x, k, v) => { d2[k] = v.replace(/&quot;/g, '"').replace(/&amp;/g, '&'); });
+  app2.click('td-accept-all', /data-id="([^"]*)"/.exec(bt2[0])[1], d2); await app2.tick(300);
+  assert.ok(/Accepted 2 additions/.test(txt(app2.html() + ov(app2))), txt(ov(app2)).slice(0, 400));
+});
 run();
