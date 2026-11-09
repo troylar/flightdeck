@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "d362b7a5a888253c8ae7b1f8e14c07d29e8da4b7524b19a79eb16685c08a48a4",
-      "reviewed": "a story's run and next name unreadable parent records its spread requests depend on; no writes or deletes"
+      "sha256": "7eeee0e0d2673461cc797f93521366ddb3e0de93dd202d11cc61b33737f89948",
+      "reviewed": "parent run, next and spread commands name every unreadable coverage dependency; no writes or deletes"
     },
     "build.py": {
       "sha256": "1dce012e7269422f84c2c2aeb7b327b242a28e4990a5c5c95a22dc98228122dc",

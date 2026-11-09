@@ -897,6 +897,16 @@ function markTodos(PF, runs, got, people, peopleBad, loopIn) {
   runs.forEach((r) => { if (r && r.living && !r._unrunnable) r._tdv = T.view(r, { records: T.recordsFor(got.todos || [], r), unread: unread.filter((u) => (u.run ? u.run.process === r.process && u.run.id === r.id : true)), people, deps: { records: got.todos || [], unread } }); });
   return unread;
 }
+/* Everything a parent's spread coverage reads that couldn't be: its items' run files (unreadable, malformed or newer, from the
+   dependency load d) and its loop's scope records (from proposals/, got). Each is a problem naming its file. */
+function coverageProblems(PF, parent, d, got) {
+  const out = [], kinds = {};
+  (got.refused || []).forEach((x) => { kinds[x.path] = x.kind; });
+  ((d && d.unreadable) || []).forEach((u) => out.push({ path: u.path, kind: u.kind || 'unreadable', why: fileWhy(u.why) }));
+  ((d && d.runs) || []).forEach((c) => { if (c && !(c.process === parent.process && c.id === parent.id) && (!c.parent || (c.parent.process === parent.process && c.parent.id === parent.id)) && newerRun(PF, c)) out.push({ path: 'runs/' + c.process + '/' + c.id + '/run.json', kind: 'newer', why: 'This run was made with a newer Flightdeck: ' + c._unrunnable }); });
+  (got.scopesUnread || []).filter((u) => !u.loop || (u.loop.process === parent.process && u.loop.run === parent.id)).forEach((u) => { const p = 'proposals/' + u.file; out.push({ path: p, kind: kinds[p] === 'newer' ? 'newer' : 'malformed', why: kinds[p] === 'newer' ? u.why : fileWhy(u.why) }); });
+  return out;
+}
 /* The checked publication reader the screen gives a loop (procOf): a process's versions as loadAll indexed them. */
 function procOfFrom(d) { return (id) => { const e = ((d && d.processes) || []).filter((p) => p.process === id)[0], i = e && e.index; return i ? { latest: i.latest, all: i.all || [], clashes: i.clashes || [], broken: i.broken || [] } : null; }; }
 function dependsOn(fs, prefixes) {
@@ -950,14 +960,14 @@ async function readData(eng, adapter, req) {
       const plansOnce = () => plansRead || (plansRead = repo.readPlans(L.fs, null, null, true).then((got) => ({ got }), (e) => ({ why: fileWhy(e && e.message || String(e)) })));
       /* Loops (3.0): an approval the folder no longer matches holds its gate here as in every window (PF.loop.markStale). */
       /* Spreads (4.0) read a loop's items and their runs as well, so a run with a {for.each} step reads them for both. */
-      let loopIn = null;
+      let loopIn = null, loopDeps = null;
       const looped = usable && two && Object.keys(r.steps || {}).some((id) => r.steps[id] && r.steps[id].loop);
       if (usable && two && (looped || (r.living && PF.run.mapOf(r).phases.some((p) => p.steps.some((x) => x.type === 'for.each'))))) {
         const mp = PF.run.mapOf(r), kids = [];
         mp.phases.forEach((p) => p.steps.forEach((x) => { if (x.type !== 'for.each') return; const pr = String(PF.run.fieldsOf(r, x).process || ''); if (pr && kids.indexOf('runs/' + pr) < 0) kids.push('runs/' + pr, 'publications/' + pr); }));
         const gp = (await plansOnce()).got || null;
         const dk = gp && kids.length ? await repo.loadAll(dependsOn(L.fs, kids), { readOnly: true, deep: true }).catch(() => null) : { runs: [] };
-        if (gp && dk) loopIn = { runs: (dk.runs || []).filter((c) => c && !(c.process === r.process && c.id === r.id)), loops: { records: gp.scopes || [], unread: gp.scopesUnread || [], procOf: procOfFrom(dk) } };
+        if (gp && dk) { loopIn = { runs: (dk.runs || []).filter((c) => c && !(c.process === r.process && c.id === r.id)), loops: { records: gp.scopes || [], unread: gp.scopesUnread || [], procOf: procOfFrom(dk) } }; loopDeps = { d: dk, got: gp, prefixes: kids }; }
         if (looped) {
           if (loopIn) PF.loop.markStale([r].concat(loopIn.runs), { records: gp.scopes, unread: gp.scopesUnread, procOf: loopIn.loops.procOf });
           else { r._loopStale = Object.create(null); Object.keys(r.steps).forEach((id) => { if (r.steps[id] && r.steps[id].loop && r.steps[id].s === 'done') r._loopStale[id] = ['The loop\'s scope records couldn\'t be read.']; }); }
@@ -979,7 +989,14 @@ async function readData(eng, adapter, req) {
           (gp.todos || []).forEach((x) => { if (x && x.run && x.run.process === m[1] && x.run.id === m[2] && x.fulfills && x.fulfills.run) parents[x.fulfills.run.process + '/' + x.fulfills.run.id] = true; });
           const parentRun = (u) => !!parents[u.run.process + '/' + u.run.id];
           un.filter((u) => u.run ? (u.run.process === m[1] && u.run.id === m[2]) || kidRun(u) || parentRun(u) : !!r.living || Object.keys(parents).length > 0).forEach((u) => { if (u.file !== 'people.json') { mine['proposals/' + u.file] = true; L.note('proposals/' + u.file, u.kind === 'newer' ? 'newer' : 'malformed', u.kind === 'newer' ? u.why : fileWhy(u.why)); } });
-          relevant = (p) => was(p) || !!mine[p];
+          /* A spread's coverage reads its items' runs and its loop's scope records too: any of those that can't be read is this
+             command's problem, named by its file. */
+          if (loopDeps && r._tdv && r._tdv.spreads.length) {
+            const had = {}; L.problems().forEach((x) => { had[x.path] = true; });
+            coverageProblems(PF, r, loopDeps.d, loopDeps.got).forEach((x) => { mine[x.path] = true; if (!had[x.path]) { had[x.path] = true; L.note(x.path, x.kind, x.why); } });
+            loopDeps.prefixes.filter((k) => k.indexOf('runs/') === 0).forEach((k) => { mine[k] = true; });
+          }
+          relevant = (p) => was(p) || !!mine[p] || (!!loopDeps && !!(r._tdv && r._tdv.spreads.length) && loopDeps.prefixes.some((k) => k.indexOf('runs/') === 0 && p.indexOf(k + '/') === 0));
         } else if (r.living) { const was = relevant; relevant = (p) => was(p) || p === 'proposals'; }
       }
       /* run and next read only what they depend on (readRunOnly), so every problem met counts. */
@@ -2838,6 +2855,7 @@ async function spreadMain(argv) {
     const unread = (got.todosUnread || []).slice();
     unread.filter((u) => !u.run || (u.run.process === proc && u.run.id === runId) || runs.some((c) => c.process === u.run.process && c.id === u.run.id)).forEach((u) => more.push({ path: 'proposals/' + u.file, kind: u.kind === 'newer' ? 'newer' : 'malformed', why: u.kind === 'newer' ? u.why : fileWhy(u.why) }));
     if (one.peopleWhy || pw) unread.push({ file: 'people.json', why: 'people.json couldn\'t be read, so no one\'s authority over to-dos can be checked.', run: null });
+    coverageProblems(PF, r, d, got).forEach((x) => { if (!more.some((y) => y.path === x.path) && !L.problems().some((y) => y.path === x.path)) more.push(x); });
     const sunread = (got.scopesUnread || []).concat(bad.filter((b) => /^proposals\/req-/.test(String(b.path || ''))).map((b) => ({ file: String(b.path).slice(10), why: b.why, loop: null })));
     const records = got.todos || [], people = one.people, deps = { records, unread };
     const V = T.view(r, { records, unread, people, deps }), title = String(r.title || r.process);

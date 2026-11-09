@@ -331,6 +331,29 @@ rule('TG: a parent record a story\'s spread request depends on that can\'t be re
     }
   }
 });
+/* Review round 3 (UC): every dependency a spread's coverage reads, not only to-do records: an item's run.json that can't be
+   read, is malformed or newer, and a scope record of the loop that is damaged or newer, makes the parent's run, next and
+   spread list exit 4 naming the file. */
+rule('UC: an item\'s run file or a loop scope record that can\'t be read makes the parent\'s run, next and spread list exit 4, naming it', async () => {
+  const cases = [
+    ['malformed run', (root) => { const f = 'runs/validate-story/k102/run.json'; fs.writeFileSync(path.join(root, f), '{"format": "preflight-run/3", "id":'); return f; }],
+    ['newer run', (root) => { const f = 'runs/validate-story/k102/run.json', j = JSON.parse(fs.readFileSync(path.join(root, f), 'utf8')); j.format = 'preflight-run/9'; fs.writeFileSync(path.join(root, f), JSON.stringify(j, null, 2)); return f; }],
+    ['unreadable run', (root) => { const f = 'runs/validate-story/k102/run.json'; fs.chmodSync(path.join(root, f), 0); return f; }],
+    ['damaged scope', (root) => { const n = ls(root).find(x => { try { return JSON.parse(fs.readFileSync(path.join(root, 'proposals', x), 'utf8')).observation; } catch (e) { return false; } }); const f = 'proposals/' + n, j = JSON.parse(fs.readFileSync(path.join(root, f), 'utf8')); j.observation.reported = 'many'; fs.writeFileSync(path.join(root, f), JSON.stringify(j, null, 2)); return f; }],
+    ['newer scope', (root) => { const n = ls(root).find(x => { try { return JSON.parse(fs.readFileSync(path.join(root, 'proposals', x), 'utf8')).observation; } catch (e) { return false; } }); const f = 'proposals/' + n, j = JSON.parse(fs.readFileSync(path.join(root, f), 'utf8')); j.features = (j.features || []).concat(['teleport']); fs.writeFileSync(path.join(root, f), JSON.stringify(j, null, 2)); return f; }]
+  ];
+  for (const [how, damage] of cases) {
+    if (how === 'unreadable run' && process.getuid && process.getuid() === 0) continue;
+    const { root } = await spread();
+    const file = damage(root);
+    for (const args of [['run', root, PR, '--contract', '2', '--json'], ['next', root, PR, '--contract', '2', '--json'], ['spread', 'list', root, PR, '--json']]) {
+      const r = json(...args);
+      assert.strictEqual(r.code, 4, how + ' ' + args[0] + ': ' + JSON.stringify(r).slice(0, 300));
+      assert.ok((r.problems || []).some(p => p.path === file), how + ' ' + args[0] + ': ' + JSON.stringify(r.problems));
+    }
+    if (how === 'unreadable run') fs.chmodSync(path.join(root, file), 0o644);
+  }
+});
 rule('SI: text-mode sync says partial and names each item not asked, with why', async () => {
   const { root, sp } = await spread();
   const p = json('spread', 'sync', root, PR, '--spread', sp.id, '--dry-run', '--json', ...TOOL), names = p.data.items.map(i => i.file.slice('proposals/'.length));
