@@ -405,8 +405,8 @@
       "reviewed": "AY: the folder reader keeps a file's own _file/_bytes apart from the loader's and validates to-do and scope records as written; checked for direct writes and unconditional deletes (none)"
     },
     "src/ui/app.js": {
-      "sha256": "1283d21b622dd379a151fe44bbd4241454d707274dc29618ccb7dc359eea2939",
-      "reviewed": "AW: the delegation dialog draws its who, permissions and additions from its own state, so a redraw keeps what was chosen; checked for direct writes and unconditional deletes (none)"
+      "sha256": "f9c523ece85e11aff9995ee9186403279bb0e722c97b1c9935cba987a2dc6183",
+      "reviewed": "to-do completions clear and focus only their own form (folder, run, generation, scope); checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

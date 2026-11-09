@@ -225,6 +225,25 @@ rule('A save that finishes late clears only what it sent: newer typing in the bo
   await release();
   assert.strictEqual(app.draft('td-why'), 'Second thoughts', 'the newer reason is never wiped by the earlier save');
 });
+rule('A save that finishes late touches only the form it came from: never the same box on another run', async () => {
+  const app = await setup({ replace: true });
+  const fs = app.fs, write = fs.write.bind(fs), held = [];
+  const hold = () => { fs.write = (p, t, o) => /^proposals\/req-/.test(p) ? new Promise((res, rej) => held.push(() => write(p, t, o).then(res, rej))) : write(p, t, o); };
+  const release = async () => { fs.write = write; held.splice(0).forEach(f => f()); await app.tick(80); };
+  const a = theRun(app).id;
+  hold();
+  app.set('td-add', 'Same text'); app.click('td-add'); await app.tick(20);
+  app.set('td-add', '');
+  app.click('home'); await app.tick();
+  app.click('start', 'release-notes'); await app.settle();
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
+  const b = app.files('runs/release-notes/').filter(p => /run\.json$/.test(p)).map(p => JSON.parse(app.fs.files[p].t).id).find(x => x !== a);
+  assert.ok(b && new RegExp(b).test(app.html()), 'set-up: on the second run');
+  app.set('td-add', 'Same text');
+  await release();
+  assert.strictEqual(app.draft('td-add'), 'Same text', 'the other run\'s box keeps its text');
+  assert.notStrictEqual(app.focused(), '#td-add', 'nor is focus moved there');
+});
 rule('A reason or destination belongs to its own to-do and action: switching away from one typed in is refused, and nothing carries over', async () => {
   const app = await setup();
   await added(app, 'First'); await added(app, 'Second');

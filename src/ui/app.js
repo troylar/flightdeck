@@ -3390,14 +3390,17 @@
     ['add', 'done', 'reopen'].forEach(function (k) { var el = box('tdg-' + k); if (el) dg.ops[k] = !!el.checked; });
   }
   function tdClear(ids) { ids.forEach(function (id) { var el = document.getElementById(id); if (el) el.value = ''; }); }
-  /* A to-do form's boxes as sent (tdSent), and clearing them when its save finishes (tdClearIf): only while every box still
-     holds exactly what was sent, so typing done meanwhile is never wiped; true when cleared. */
+  /* A to-do form's boxes as sent (tdSent), and clearing them when its save finishes (tdClearIf): only while every box is
+     still the same form (its screen, folder, run and generation, and its own scope: phase, to-do and action, as redraws
+     carry typing, scopeOf in render) and holds exactly what was sent, so typing done meanwhile, or the same box on another
+     run, is never wiped or focused; true when cleared. */
   /* The open Won't do or Move form, only on the run and folder it was opened in (folder, run, to-do and action). */
   function tdPickHere(r) { var pk = state.tdPick; return pk && r && pk.fs === fsKey() && pk.run === r.process + '/' + r.id ? pk : null; }
   function tdUnsentPick() { return ['td-why', 'td-to'].some(function (id) { var el = document.getElementById(id); return !!(el && String(el.value || '').trim()); }); }
-  function tdSent(ids) { return ids.map(function (id) { var el = document.getElementById(id); return { id: id, v: el ? String(el.value == null ? '' : el.value) : '' }; }); }
+  function tdFormOf(el) { var z = el.closest('[data-scope]'); return (app.dataset.scope || '') + '|' + (z ? z.dataset.scope : ''); }
+  function tdSent(ids) { return ids.map(function (id) { var el = document.getElementById(id); return { id: id, v: el ? String(el.value == null ? '' : el.value) : '', form: el ? tdFormOf(el) : null }; }); }
   function tdClearIf(sent) {
-    var same = sent.every(function (x) { var el = document.getElementById(x.id); return !el || String(el.value == null ? '' : el.value) === x.v; });
+    var same = sent.every(function (x) { var el = document.getElementById(x.id); return el ? x.form !== null && tdFormOf(el) === x.form && String(el.value == null ? '' : el.value) === x.v : x.form === null; });
     if (same) tdClear(sent.map(function (x) { return x.id; }));
     return same;
   }
