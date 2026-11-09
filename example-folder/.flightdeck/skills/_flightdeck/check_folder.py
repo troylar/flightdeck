@@ -1730,6 +1730,487 @@ def held_why(pid, torn, refused):
     return "A decision on this plan (" + path + ") can't be read, so it isn't known whether someone already started it. It may still be arriving; if it stays this way, restore it from a backup or delete it." + held
 
 
+# ---------- Living runs (4.0): to-do records in proposals/, read as the app reads them (PF.todos.cleanFile) ----------
+# Any record in a to-do format (flightdeck-plan/4, flightdeck-plan-status/4), or any record naming the living-runs feature,
+# goes to this reader. One it refuses is named in "refused", exactly as the app refuses it: test/checker-todos.test.js runs
+# the same records through both and fails when they disagree.
+TODO_FORMAT, TODO_STATUS, TODO_FEATURE = "flightdeck-plan/4", "flightdeck-plan-status/4", "living-runs"
+TODO_LIMITS = {"text": 200, "reason": 300, "link": 2048, "bytes": 262144, "seen": 50, "targets": 50, "grantAdds": 500}
+TODO_OPS, TODO_DOPS = ["add", "done", "wont", "move", "reopen"], ["accept", "decline"]
+TODO_PKINDS, TODO_SKINDS = ["proposal", "compound", "grant", "revoke"], ["decision", "application"]
+T_PROC = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}\Z")
+T_RUN = re.compile(r"^[a-z0-9-]{1,40}\Z", re.I | re.A)
+T_STEP = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}\Z", re.I | re.A)
+T_PERSON = re.compile(r"^[A-Za-z0-9_.-]{1,80}\Z")
+T_TOOL = re.compile(r"^[a-z0-9][a-z0-9-]{0,29}\Z")
+T_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,39}\Z")
+T_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}\Z")
+T_REQ = re.compile(r"^req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24}\Z")
+T_TD = re.compile(r"^td-[0-9a-f]{24}\Z")
+T_FP = re.compile(r"^[0-9a-f]{16}\Z")
+T_DNAME = re.compile(r"^(req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})\.status-([a-z0-9][a-z0-9-]{0,39})-([0-9a-f]{8})\.json\Z")
+T_DCOPY = re.compile(r"^(req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})\.status-([a-z0-9][a-z0-9-]{0,39})-([0-9a-f]{8})( \([0-9]{1,3}\)|-[A-Za-z0-9-]{1,63})?\.json\Z")
+T_UID = re.compile(r"^[a-z][a-z0-9.-]{0,19}:(key:)?[A-Za-z0-9_-]{1,40}\Z")
+T_TICKET = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,19}-[1-9][0-9]{0,8}\Z")
+T_ISO = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(?::[0-9]{2}(?:\.[0-9]{1,3})?)?(?:Z|[+-][0-9]{2}:[0-9]{2})\Z")
+T_CONTROL = re.compile("[\u0000-\u001f\u007f  ]")
+T_RUNKEY = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}/[a-z0-9-]{1,40}\Z", re.I | re.A)
+T_COMMON = ["format", "features", "app", "kind", "id", "run", "seen", "producer", "key", "by", "at"]
+T_BODY = ["op", "todo", "target", "placement", "text", "owner", "reason", "origin", "to", "requester"]
+T_EFIELDS = {"add": ["op", "todo", "text", "target", "placement", "owner", "reason", "origin"], "done": ["op", "todo", "reason"],
+             "reopen": ["op", "todo", "reason"], "wont": ["op", "todo", "reason"], "move": ["op", "todo", "to", "reason"]}
+
+
+class _TodoBad(Exception):
+    pass
+
+
+def _tstr(v):
+    return isinstance(v, str)
+
+
+def _tnum(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def _tsha(v):
+    import hashlib
+    def canon(x):
+        if isinstance(x, list):
+            return [canon(y) for y in x]
+        if isinstance(x, dict):
+            return {k: canon(x[k]) for k in sorted(x, key=lambda s: s.encode("utf-16-be", "surrogatepass"))}
+        return x
+    def ser(x):
+        # JSON.stringify of canon(): keys as canon ordered them (no index-key reordering: canon builds a map with no
+        # prototype whose keys come back in insertion order, apart from array-index keys, which JS puts first).
+        if isinstance(x, dict):
+            return "{" + ",".join(js_string(k) + ":" + ser(x[k]) for k in js_keys(x)) + "}"
+        if isinstance(x, list):
+            return "[" + ",".join(ser(y) for y in x) + "]"
+        return js_json(x)
+    return hashlib.sha256(ser(canon(v)).encode("utf-8")).hexdigest()[:16]
+
+
+def todo_http_link(v):
+    """PF.loop.httpLink, as far as it can be said without a browser's URL parser."""
+    if not _tstr(v) or js_len(v) > 2048 or T_CONTROL.search(v) or re.search(r"[\s\ufeff]", v):
+        return False
+    m = re.match(r"^https?://([A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?)(?::([0-9]{1,5}))?(?:[/?#][\x21-\x7e]*)?\Z", v)
+    if not m or re.search(r"[<>\"'`\\]", v):
+        return False
+    if m.group(2) is not None and not (1 <= int(m.group(2)) <= 65535):
+        return False
+    if re.match(r"^[0-9.]+\Z", m.group(1)) and not re.match(r"^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\Z", m.group(1)):
+        return False
+    return True
+
+
+def _tcopy_mark(m):
+    return m is None or m == "" or bool(re.match(r"^ \([0-9]{1,3}\)\Z", m)) or (bool(re.match(r"^-[A-Za-z0-9-]{1,63}\Z", m)) and bool(re.search("[A-Z]", m)))
+
+
+def todo_status_file(name):
+    m = T_DCOPY.match(name) if _tstr(name) and js_len(name) <= 240 else None
+    return m.group(1) + ".status-" + m.group(2) + "-" + m.group(3) + ".json" if m and _tcopy_mark(m.group(4)) else ""
+
+
+def todo_request_file(name, rid):
+    return _tstr(name) and js_len(name) <= 240 and name.startswith(rid) and name.endswith(".json") and _tcopy_mark(name[len(rid):-5] or None)
+
+
+def todo_claims(o):
+    return isinstance(o, dict) and (o.get("format") in (TODO_FORMAT, TODO_STATUS) or (isinstance(o.get("features"), list) and TODO_FEATURE in o["features"]))
+
+
+def _todo_id(tool, key):
+    import hashlib
+    return "req-" + tool + "-" + hashlib.sha256(js_json(["todo", tool, key]).encode("utf-8")).hexdigest()[:24]
+
+
+def _todo_td(proposal):
+    import hashlib
+    return "td-" + hashlib.sha256(js_json(["td", proposal]).encode("utf-8")).hexdigest()[:24]
+
+
+def todo_why(o, name, nbytes=None):
+    """'' when the app reads this to-do record, else why it refuses it (PF.todos.cleanFile's reason)."""
+    if nbytes is not None and nbytes > TODO_LIMITS["bytes"]:
+        return "is " + str(nbytes) + " bytes; a to-do record is at most " + str(TODO_LIMITS["bytes"])
+    st = isinstance(o, dict) and o.get("format") == TODO_STATUS
+    fam = "flightdeck-plan-status" if isinstance(o, dict) and _tstr(o.get("format")) and o["format"].startswith("flightdeck-plan-status/") else "flightdeck-plan"
+    v = judge(fam, o)
+    if not v["ok"]:
+        if v["kind"] == "newer":
+            return "is a to-do record made with a newer Flightdeck. " + ("Needs Flightdeck " + v["needs"] + "." if v["needs"] else "Needs a newer Flightdeck.")
+        return v["why"]
+    if v["major"] != 4 or TODO_FEATURE not in (o.get("features") or []):
+        return "isn't a to-do record (it doesn't name the living-runs feature)"
+    errors = []
+
+    def err(w):
+        errors.append(w)
+
+    def only(d, keys, what):
+        for k in d:
+            if k not in keys:
+                err(what + " has " + k + ".")
+
+    def line(val, mx, what, opt=False):
+        if val is None and opt:
+            return ""
+        if not _tstr(val) or not js_trim(val):
+            err(what + " is text.")
+            return None
+        if js_len(val) > mx:
+            err(what + " is too long.")
+            return None
+        if T_CONTROL.search(val):
+            err(what + " has a control character.")
+            return None
+        return val
+
+    def clean_target(t, where):
+        if not isinstance(t, dict) or len(t) != 1:
+            err(where + " is one target.")
+            return None
+        if "phase" in t:
+            if not _tstr(t["phase"]) or not T_STEP.match(t["phase"]):
+                err(where + ": phase")
+                return None
+            return {"phase": t["phase"]}
+        if "step" in t:
+            if not _tstr(t["step"]) or not T_STEP.match(t["step"]):
+                err(where + ": step")
+                return None
+            return {"step": t["step"]}
+        if "item" in t:
+            it = t["item"]
+            if (not isinstance(it, dict) or len(it) != 3 or not _tstr(it.get("loopStep")) or not T_STEP.match(it["loopStep"]) or not _tstr(it.get("uid")) or not T_UID.match(it["uid"])
+                    or not _tnum(it.get("attempt")) or it["attempt"] != int(it["attempt"]) or it["attempt"] < 1 or it["attempt"] > 999):
+                err(where + ": item")
+                return None
+            return {"item": {"loopStep": it["loopStep"], "uid": it["uid"], "attempt": it["attempt"]}}
+        err(where + " is one target.")
+        return None
+
+    def clean_placement(p):
+        if not isinstance(p, dict):
+            err("placement")
+            return None
+        only(p, ["beforeGate", "governingLoop"], "placement")
+        if not _tstr(p.get("beforeGate")) or not T_STEP.match(p["beforeGate"]):
+            err("placement beforeGate")
+            return None
+        out = {"beforeGate": p["beforeGate"]}
+        if p.get("governingLoop") is not None:
+            if not _tstr(p["governingLoop"]) or not T_STEP.match(p["governingLoop"]):
+                err("placement governingLoop")
+                return None
+            out["governingLoop"] = p["governingLoop"]
+        return out
+
+    def clean_to(to):
+        if not isinstance(to, dict) or len(to) != 1:
+            err("to")
+            return None
+        if "ticket" in to:
+            if not _tstr(to["ticket"]) or not T_TICKET.match(to["ticket"]):
+                err("to ticket")
+                return None
+            return {"ticket": to["ticket"]}
+        if "link" in to:
+            if not todo_http_link(to["link"]):
+                err("to link")
+                return None
+            return {"link": to["link"]}
+        if "run" in to:
+            if not _tstr(to["run"]) or not T_RUNKEY.match(to["run"]):
+                err("to run")
+                return None
+            return {"run": to["run"]}
+        err("to")
+        return None
+
+    def self_move(run, to):
+        if run and to and _tstr(to.get("run")) and to["run"].lower() == (run["process"] + "/" + run["id"]).lower():
+            err("to names this run itself")
+
+    def clean_origin(og):
+        if not isinstance(og, dict):
+            err("origin")
+            return None
+        only(og, ["step", "link"], "origin")
+        out = {}
+        if og.get("step") is not None:
+            if not _tstr(og["step"]) or not T_STEP.match(og["step"]):
+                err("origin step")
+            else:
+                out["step"] = og["step"]
+        if og.get("link") is not None:
+            if not todo_http_link(og["link"]):
+                err("origin link")
+            else:
+                out["link"] = og["link"]
+        if not out:
+            err("origin names nothing")
+            return None
+        return out
+
+    def clean_run(val):
+        if not isinstance(val, dict) or len(val) != 2 or not _tstr(val.get("process")) or not T_PROC.match(val["process"]) or not _tstr(val.get("id")) or not T_RUN.match(val["id"]):
+            err("run")
+            return None
+        return {"process": val["process"], "id": val["id"]}
+
+    def clean_seen(val):
+        if not isinstance(val, list) or len(val) > TODO_LIMITS["seen"] or not all(_tstr(x) and (T_REQ.match(x) or T_DNAME.match(x + ".json")) for x in val):
+            err("seen")
+            return None
+        if len(set(val)) != len(val):
+            err("seen twice")
+            return None
+        return list(val)
+
+    def clean_effect(e):
+        if not isinstance(e, dict):
+            err("effect")
+            return None
+        if not _tstr(e.get("op")) or e["op"] not in TODO_OPS:
+            err("effect op")
+            return None
+        n0 = len(errors)
+        only(e, T_EFIELDS[e["op"]], "effect")
+        if len(errors) > n0:
+            return None
+        out = {"op": e["op"]}
+        if not _tstr(e.get("todo")) or not T_TD.match(e["todo"]):
+            err("effect todo")
+            return None
+        out["todo"] = e["todo"]
+        if e["op"] == "add":
+            out["text"] = line(e.get("text"), TODO_LIMITS["text"], "effect text")
+            out["target"] = clean_target(e.get("target"), "effect target")
+            out["placement"] = clean_placement(e.get("placement"))
+            if e.get("owner") is not None:
+                if not _tstr(e["owner"]) or not T_PERSON.match(e["owner"]):
+                    err("effect owner")
+                else:
+                    out["owner"] = e["owner"]
+            if e.get("origin") is not None:
+                out["origin"] = clean_origin(e["origin"])
+        if e.get("reason") is not None:
+            rr = line(e["reason"], TODO_LIMITS["reason"], "effect reason")
+            if rr:
+                out["reason"] = rr
+        if e["op"] == "wont" and not out.get("reason"):
+            err("effect of a won't-do says why")
+        if e["op"] == "move":
+            out["to"] = clean_to(e.get("to"))
+        return out
+
+    def effect_of(p):
+        e = {"op": p["op"], "todo": p.get("todo")}
+        if p["op"] == "add":
+            e["text"] = p.get("text")
+            e["target"] = p.get("target")
+            e["placement"] = p.get("placement")
+            for k in ("owner", "reason", "origin"):
+                if p.get(k):
+                    e[k] = p[k]
+        if p["op"] == "wont" or (p["op"] in ("reopen", "done", "move") and p.get("reason")):
+            e["reason"] = p.get("reason")
+        if p["op"] == "move":
+            e["to"] = p.get("to")
+        return e
+
+    def clean_authority(a):
+        if isinstance(a, dict) and len(a) == 1:
+            k = list(a)[0]
+            if k == "decision" and _tstr(a[k]) and T_DNAME.match(a[k] + ".json"):
+                return a
+            if k in ("grant", "compound") and _tstr(a[k]) and T_REQ.match(a[k]):
+                return a
+        err("authority")
+        return None
+
+    def prev_ok(p):
+        return _tstr(p) and (p == "" or T_REQ.match(p) or T_DNAME.match(p + ".json"))
+
+    if st:
+        sname = todo_status_file(name)
+        m = T_DNAME.match(sname) if sname else None
+        if not m or m.group(1) != o.get("proposal"):
+            return "is a to-do decision or application whose name doesn't say its request"
+        if o.get("kind") not in TODO_SKINDS:
+            return "is a to-do status that isn't a decision or an application"
+        only(o, [k for k in T_COMMON + ["proposal", "op", "consequence", "reason", "authority", "previous", "effect", "fingerprint"] if k not in ("id", "producer", "key")], "It")
+        run = clean_run(o.get("run"))
+        clean_seen(o.get("seen"))
+        if not _tstr(o.get("by")) or not T_PERSON.match(o["by"]):
+            err("by")
+        if not _tstr(o.get("at")) or not T_ISO.match(o["at"]):
+            err("at")
+        if o["kind"] == "decision":
+            if o.get("op") not in TODO_DOPS:
+                err("op")
+            if not _tstr(o.get("consequence")) or not T_FP.match(o["consequence"]):
+                err("consequence")
+            if o.get("reason") is not None:
+                line(o["reason"], TODO_LIMITS["reason"], "reason")
+            for k in ("authority", "previous", "effect", "fingerprint"):
+                if o.get(k) is not None:
+                    err("A decision has no " + k)
+        else:
+            clean_authority(o.get("authority"))
+            if not prev_ok(o.get("previous")):
+                err("previous")
+            eff = clean_effect(o.get("effect"))
+            if eff:
+                self_move(run, eff.get("to"))
+            fpv = o.get("fingerprint")
+            if not _tstr(fpv) or not T_FP.match(fpv):
+                err("fingerprint")
+            elif eff and not errors and fpv != _tsha(eff):
+                err("fingerprint doesn't match its effect")
+            for k in ("op", "consequence", "reason"):
+                if o.get(k) is not None:
+                    err("An application has no " + k)
+        return "is a to-do " + o["kind"] + " that isn't in its format: " + errors[0] if errors else ""
+    kind = o.get("kind")
+    if kind not in TODO_PKINDS:
+        return "is a to-do record that isn't a proposal, a compound, a grant or a revoke"
+    if not _tstr(o.get("id")) or not T_REQ.match(o["id"]):
+        return "is a to-do record without a request id"
+    if _tstr(name) and not todo_request_file(name, o["id"]):
+        return "is a to-do record whose name isn't its id"
+    run = clean_run(o.get("run"))
+    clean_seen(o.get("seen"))
+    by = None
+    if o.get("producer") is not None:
+        pr = o["producer"]
+        if not isinstance(pr, dict) or len(pr) != 2 or not _tstr(pr.get("name")) or not T_TOOL.match(pr["name"]) or not _tstr(pr.get("version")) or not T_VERSION.match(pr["version"]):
+            err("producer")
+        elif not _tstr(o.get("key")) or not T_KEY.match(o["key"]):
+            err("key")
+        else:
+            by = {"tool": pr["name"]}
+    else:
+        if o.get("key") is not None:
+            err("Only a tool's request has a key")
+        if not _tstr(o.get("by")) or not T_PERSON.match(o["by"]):
+            err("by")
+        else:
+            by = {"person": o["by"]}
+    if not _tstr(o.get("at")) or not T_ISO.match(o["at"]):
+        err("at")
+    if by and by.get("tool") and o["id"] != _todo_id(by["tool"], o.get("key")):
+        err("Its id isn't the one its tool and key give")
+    if kind in ("proposal", "compound"):
+        only(o, T_COMMON + T_BODY + (["decision", "application"] if kind == "compound" else []), "It")
+        b = None
+        op = o.get("op")
+        if op not in TODO_OPS:
+            err("op")
+        else:
+            b = {"op": op}
+            if op == "add":
+                if o.get("todo") is not None and o["todo"] != _todo_td(o["id"]):
+                    err("todo of an addition")
+                b["todo"] = _todo_td(o["id"])
+                b["target"] = clean_target(o.get("target"), "target")
+                b["placement"] = clean_placement(o.get("placement"))
+                b["text"] = line(o.get("text"), TODO_LIMITS["text"], "text")
+                if o.get("origin") is not None:
+                    b["origin"] = clean_origin(o["origin"])
+                if o.get("to") is not None:
+                    err("An addition has no to")
+            else:
+                if not _tstr(o.get("todo")) or not T_TD.match(o["todo"]):
+                    err("todo")
+                else:
+                    b["todo"] = o["todo"]
+                for k in ("target", "placement", "text", "origin", "owner"):
+                    if o.get(k) is not None:
+                        err("Only an addition has " + k)
+                if op == "move":
+                    b["to"] = clean_to(o.get("to"))
+                elif o.get("to") is not None:
+                    err("Only a move has to")
+            if op == "add" and o.get("owner") is not None:
+                if not _tstr(o["owner"]) or not T_PERSON.match(o["owner"]):
+                    err("owner")
+                else:
+                    b["owner"] = o["owner"]
+            if op == "wont":
+                b["reason"] = line(o.get("reason"), TODO_LIMITS["reason"], "reason")
+            elif o.get("reason") is not None:
+                rr = line(o["reason"], TODO_LIMITS["reason"], "reason")
+                if rr:
+                    b["reason"] = rr
+            if o.get("requester") is not None and (not _tstr(o["requester"]) or not T_PERSON.match(o["requester"])):
+                err("requester")
+            self_move(run, b.get("to"))
+        if kind == "compound":
+            if not by or not by.get("person"):
+                err("A compound is one person's gesture")
+            d, a = o.get("decision"), o.get("application")
+            if not isinstance(d, dict) or d.get("op") != "accept" or d.get("by") != o.get("by") or not _tstr(d.get("consequence")) or not T_FP.match(d["consequence"]):
+                err("decision")
+            else:
+                only(d, ["op", "by", "consequence", "reason"], "decision")
+                if d.get("reason") is not None:
+                    line(d["reason"], TODO_LIMITS["reason"], "decision reason")
+            if not isinstance(a, dict):
+                err("application")
+            else:
+                only(a, ["previous", "effect", "fingerprint"], "application")
+                eff = clean_effect(a.get("effect"))
+                if eff:
+                    self_move(run, eff.get("to"))
+                if not prev_ok(a.get("previous")):
+                    err("application previous")
+                n_ok = not errors
+                if not _tstr(a.get("fingerprint")) or not T_FP.match(a["fingerprint"]) or (eff and n_ok and a["fingerprint"] != _tsha(eff)):
+                    err("application fingerprint")
+                if b and eff and not errors and _tsha({k: v for k, v in effect_of(b).items() if v is not None}) != _tsha(eff):
+                    err("application effect isn't what the compound asks for")
+    elif kind == "grant":
+        only(o, T_COMMON + ["subject", "ops", "targets", "limits"], "It")
+        if not by or not by.get("person"):
+            err("A grant is issued by a person")
+        s = o.get("subject")
+        if not (isinstance(s, dict) and len(s) == 1 and ((_tstr(s.get("tool")) and T_TOOL.match(s["tool"])) or (_tstr(s.get("person")) and T_PERSON.match(s["person"])))):
+            err("subject")
+        ops = o.get("ops")
+        if not isinstance(ops, list) or not ops or len(ops) > 3 or not all(_tstr(x) and x in ("add", "done", "reopen") and ops.index(x) == i for i, x in enumerate(ops)):
+            err("ops")
+        tg = o.get("targets")
+        if not isinstance(tg, list) or not tg or len(tg) > TODO_LIMITS["targets"]:
+            err("targets")
+        else:
+            keys = []
+            for i, t in enumerate(tg):
+                c = clean_target(t, "targets " + str(i + 1))
+                if c:
+                    k = js_json(c)
+                    if k in keys:
+                        err("targets twice")
+                    keys.append(k)
+        lim = o.get("limits")
+        if not isinstance(lim, dict) or any(k != "adds" for k in lim) or not _tnum(lim.get("adds")) or lim["adds"] != int(lim["adds"]) or lim["adds"] < 0 or lim["adds"] > TODO_LIMITS["grantAdds"]:
+            err("limits")
+    else:
+        only(o, T_COMMON + ["grant", "reason"], "It")
+        if not by or not by.get("person"):
+            err("A revoke is a person's")
+        if not _tstr(o.get("grant")) or not T_REQ.match(o["grant"]):
+            err("grant")
+        if o.get("reason") is not None:
+            line(o["reason"], TODO_LIMITS["reason"], "reason")
+    return "is a to-do " + kind + " that isn't in its format: " + errors[0] if errors else ""
+
+
 def plan_family(o):
     """Which of the two a file in proposals/ is (PF.plans.familyOf): its format's family, else its kind."""
     f = o.get("format")
@@ -2525,6 +3006,14 @@ def main():
             # Not complete JSON (it may still be arriving): named, and whether its name says which plan it's for.
             torn.append(name)
         if not isinstance(obj, dict):
+            continue
+        # A to-do record (4.0, PF.todos.claims): read by its own reader first, as the app does, and never a plan or a decision.
+        # One it refuses is named with the app's reason; one it reads is a living run's record, not this checker's to report.
+        if todo_claims(obj):
+            bad = todo_why(obj, name, os.path.getsize(os.path.join(prop_dir, name)))
+            if bad:
+                out["refused"].append({"file": "proposals/" + name, "why": bad})
+                refused_decisions.append((name, "newer" if " newer Flightdeck" in bad else "malformed", ""))
             continue
         # The app's one reader of plans and plan decisions (PF.plans.clean): a file from a newer Flightdeck (flightdeck-plan/2,
         # a feature this copy doesn't know) is refused and named, never a plan or a decision; one it can't read is left out.

@@ -100,17 +100,24 @@ PF.appjson = (function () {
     gates: [{ id: 'string', phase: 'string', title: 'string', implicit: 'boolean', owner: opt('string'), approves: 'string', pattern: opt('string') }],
     sets: [{ step: 'string', names: ['string'] }], children: [{ step: 'string', process: 'string', version: opt('number'), pass: ['string'], carry: ['string'] }],
     types: ['string'], teamTypes: ['string'], unknownTypes: ['string'], skills: [{ name: 'string', implements: opt('number'), steps: opt(['string']), status: 'string' }] };
+  /* Living runs (4.0, docs/design.md 45): only a run that has to-dos (r.living) carries these, read as every window reads them
+     (r._tdv, PF.todos.view, set by the reader with the run's to-do records). todoCounts: open and all to-dos, requests waiting
+     for a person, and whether a to-do record couldn't be read (held: approval waits). todoHolds: why any gate is held by them. */
+  var TODO_COUNTS = { open: 'number', total: 'number', waiting: 'number', held: 'boolean' };
+  var TODO_ROW = { id: 'string', text: 'string', state: 'string', beforeGate: opt('string'), gate: opt('string'), owner: opt(PERSON), reason: opt('string'), to: opt('string') };
+  var TODO_REQ = { id: 'string', op: 'string', todo: opt('string'), status: 'string', why: opt('string'), by: opt('string'), requester: opt('string') };
+  var NEXT2 = extend(SCHEMA.next, { next: opt(extend(SCHEMA.next.next.$or[0], { step: opt(orResult(orSearch({ id: 'string', text: 'string', roles: [ROLE] }, 'run'), { heldBy: opt(HELD_BY), awaiting: opt(AWAITING) })) })) });
   var SCHEMA2 = {
     envelope: SCHEMA.envelope, error: SCHEMA.error, processes: SCHEMA.processes,
-    next: extend(SCHEMA.next, { next: opt(extend(SCHEMA.next.next.$or[0], { step: opt(orResult(orSearch({ id: 'string', text: 'string', roles: [ROLE] }, 'run'), { heldBy: opt(HELD_BY), awaiting: opt(AWAITING) })) })) }), followups: { followUps: [FOLLOWUP2] }, request: SCHEMA.request,
+    next: orResult(NEXT2, { todos: { open: 'number', holds: ['string'] } }), followups: { followUps: [FOLLOWUP2] }, request: SCHEMA.request,
     /* stage: the staged version shown (process --stage), else null. */
     process: orResult(extend(SCHEMA.process, { format: 'string', features: ['string'], stage: opt({ folder: 'string', proposed: 'number', stagedBy: 'string', stagedAt: 'string' }), details: [{ $or: [DETAIL, extend(DETAIL, { pattern: 'string' })] }],
       phases: [extend(SCHEMA.process.phases[0], { when: ['string'], steps: [orResult(orSearch(extend(SCHEMA.process.phases[0].steps[0], { when: ['string'], evidence: [extend(EVIDENCE2, { min: opt('string'), max: opt('string'), unit: opt('string') })] }), 'template'), { accepts: opt(['string']), imports: opt('string') })] })] }), { result: { name: 'string', options: ['string'], step: opt('string') } }),
     /* testRunsLeftOut: test runs that match but aren't listed (D3: left out unless asked for with --tests). */
-    runs: { runs: [orResult(SUMMARY2, RESULT2)], planned: [extend(SCHEMA.runs.planned[0], { format: 'string', pin: opt({ folder: 'string', version: 'number' }) })], testRunsLeftOut: 'number' },
-    run: { run: opt(orResult(orResult(extend(SUMMARY2, { roles: [ROLE], pins: map(PIN), migrations: [MIGRATION],
+    runs: { runs: [orResult(orResult(SUMMARY2, RESULT2), { todoCounts: TODO_COUNTS })], planned: [extend(SCHEMA.runs.planned[0], { format: 'string', pin: opt({ folder: 'string', version: 'number' }) })], testRunsLeftOut: 'number' },
+    run: { run: opt(orResult(orResult(orResult(extend(SUMMARY2, { roles: [ROLE], pins: map(PIN), migrations: [MIGRATION],
       steps: [orResult(orSearch(extend(SCHEMA.run.run.$or[0].steps[0], { values: map(VALUE), evidence: [EVIDENCE2], applies: APPLIES, held: opt('string') }), 'run'), { accepts: opt(['string']), result: opt('string'), heldBy: opt(HELD_BY), awaiting: opt(AWAITING) })],
-      gates: [extend(SCHEMA.run.run.$or[0].gates[0], { applies: APPLIES })], followUps: [FOLLOWUP2] }), RESULT2), { resultsChanged: [CHANGED] })) },
+      gates: [extend(SCHEMA.run.run.$or[0].gates[0], { applies: APPLIES })], followUps: [FOLLOWUP2] }), RESULT2), { resultsChanged: [CHANGED] }), { todoCounts: TODO_COUNTS, todos: [TODO_ROW], todoRequests: [TODO_REQ], todoHolds: ['string'] })) },
     /* flightdeck draft check (2.13): the verdict the Publish dialog gives the text, from the folder as it is now. from: the draft
        in maps/drafts/ (ref its path) or the file given with --from (ref null); rev: SHA-256 of the text checked. */
     draftCheck: { process: 'string', from: { kind: 'string', ref: opt('string'), rev: 'string' }, checks: { blockers: ['string'], suggestions: ['string'],
@@ -390,7 +397,30 @@ PF.appjson = (function () {
     var out = summary(r, nameOf), res = r._unrunnable ? null : R.resultOf(r);
     out.details = details2(r, R.mapOf(r), nameOf); head2(r, out); out.test = R.isTest(r); out.stage = r.test === true && r.stage ? { folder: s(r.stage.folder) } : null;
     if (!r._unrunnable && M.resultDef(R.mapOf(r))) { out.result = res ? { name: s(res.name), value: s(res.value) } : null; out.outcome = r.ended ? s(R.outcomeText(r)) : null; }
+    if (living(r)) out.todoCounts = todoCounts(r);
     return out;
+  }
+  /* ---- Living runs (4.0): a run's to-dos, as the reader read them (r._tdv). Without it, nothing is known: held. ---- */
+  function living(r) { return !!r && !r._unrunnable && !!r.living; }
+  function todoCounts(r) {
+    var V = r._tdv;
+    if (!V) return { open: 0, total: 0, waiting: 0, held: true };
+    var open = V.todos.filter(function (x) { return x.state === 'open'; }).length;
+    return { open: open, total: V.todos.length, waiting: PF.todos.requestsOf(V).filter(function (q) { return q.status === 'waiting'; }).length, held: !!(V.broken || V.unread.length || V.held.length) };
+  }
+  function todoHolds(r) {
+    var mp = R.mapOf(r), out = [];
+    mp.phases.forEach(function (p, pi) { (R.phaseHeld(r, mp, pi) || []).forEach(function (w) { if (out.indexOf(s(w)) < 0) out.push(s(w)); }); });
+    return out;
+  }
+  function todoRows(r, nameOf) {
+    var V = r._tdv, mp = R.mapOf(r);
+    if (!V) return { todos: [], todoRequests: [] };
+    return {
+      todos: V.todos.map(function (x) { return { id: s(x.id), text: s(x.text), state: s(x.state), beforeGate: x.placement ? s(x.placement.beforeGate) : null, gate: x.placement ? s(PF.todos.gateTitle(mp, x.placement.beforeGate)) || null : null,
+        owner: x.owner ? nameOf(x.owner) : null, reason: x.reason ? s(x.reason) : null, to: x.to ? s(x.to.ticket || x.to.run || x.to.link) : null }; }),
+      todoRequests: PF.todos.requestsOf(V).map(function (q) { return { id: s(q.id), op: s(q.op), todo: q.todo ? s(q.todo) : null, status: s(q.status), why: q.why ? s(q.why) : null, by: q.by ? s(q.by) : null, requester: q.requester ? s(q.requester) : null }; })
+    };
   }
   /* A step that carries module results' fields: a linked step that accepts results, or whose link recorded one. */
   function resulted(r, step, a) { return step.type === 'run.process' && (!!R.acceptsOf(r, step) || !!(a && a.child && typeof a.child.result === 'string')); }
@@ -422,6 +452,7 @@ PF.appjson = (function () {
     if (wait && out.mine && later('step', out.mine.step.id)) out.mine = { phase: { index: wait.pi, id: s(ph.id), title: s(ph.title) }, step: { id: s(wait.step.id), text: s(wait.step.text) } };
     var st = out.next && out.next.step, x = st ? M.findStep(mp, st.id) : null;
     if (st && x && resulted(r, x.step, r.steps[st.id])) { st.heldBy = heldBy(r, x.step, r.steps[st.id]); st.awaiting = awaiting(r, x.step, r.steps[st.id], o && o.kids); }
+    if (living(r)) out.todos = { open: todoCounts(r).open, holds: todoHolds(r) };
     return out;
   }
   function followUps2(items, nameOf) { return { followUps: (items || []).map(function (x) { var o = followUp(x, nameOf); o.test = !!x.test; return o; }) }; }
@@ -514,6 +545,7 @@ PF.appjson = (function () {
       if (x && R.isSearchStep(x.step)) st.search = searchRun(r, mp, x.step);
     });
     out.gates.forEach(function (g, pi) { g.applies = R.applies(r, mp, pi).applies; });
+    if (living(r)) { var tr = todoRows(r, nameOf); out.todoCounts = base.todoCounts; out.todos = tr.todos; out.todoRequests = tr.todoRequests; out.todoHolds = todoHolds(r); }
     return { run: out };
   }
 

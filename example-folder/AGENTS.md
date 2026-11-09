@@ -50,6 +50,7 @@ Earlier versions kept command how-to and the checklist syntax here; they now liv
 - `team-values.json`, unless a person asks: the folder owner and backup owner keep it in Flightdeck (Settings › Team values). Its format: *Team values and people* in the file formats. Never put passwords or tokens in it.
 - `.flightdeck/installed.json` and `.flightdeck/updates/`: written by `flightdeck install` and the app's AI assistant files. Never write them; merge an update only when a person asks (see above).
 - Scope records (`proposals/` files with `"format": "flightdeck-plan/3"`): a loop's list, written only by `flightdeck loop`. Never write, edit or delete one.
+- To-do records (`proposals/` files with `"format": "flightdeck-plan/4"` or `"flightdeck-plan-status/4"`): a run's to-dos and the decisions on them, written by Flightdeck windows and by `flightdeck todo`. Never write, edit or delete one.
 
 ## Skills for this folder
 
@@ -64,6 +65,7 @@ These are plain `SKILL.md` files in `.flightdeck/skills/` (or wherever the team 
 | `/flightdeck-plan-run <process>: <details>` | Plan a run, with roles by rotation |
 | `/flightdeck-new-step-type <what it's for>` | Create or change a team step type, through `flightdeck type save` |
 | `/flightdeck-skill-brief <process or skill>` | The brief for creating a skill from a signed-off version, or updating one after the process changed |
+| `/flightdeck-living-run <process>/<run>: <what>` | Read a run's to-dos, and ask for one change to them through `flightdeck todo` |
 | `/flightdeck-status` | Summarize checklists, drafts, runs, plans and problems (read-only) |
 
 ## Commands
@@ -77,6 +79,7 @@ These are plain `SKILL.md` files in `.flightdeck/skills/` (or wherever the team 
 | `flightdeck report targets`, `report check`, `report write` | Reporting work a tool did on a step | *Reporting work* in the command guide |
 | `flightdeck skill register` | Registering a skill built from a 2.0 version | *Skills built from processes* in the command guide |
 | `flightdeck loop read`, `loop sync` and the other `loop` commands | A loop's stories and results, and asking for a change to its list; never starts a run | *Asking for a run* in the command guide |
+| `flightdeck todo list`, `todo add`, `todo done`, `todo wont`, `todo move`, `todo reopen` | A run's to-dos, and asking for one change to them; never decides, never writes a run | *Asking for a run* in the command guide |
 | `flightdeck plan request` | Another app (not an assistant planning in this folder) asking for a run; to plan one yourself, see *Planning a run* | *Asking for a run* in the command guide |
 | `flightdeck export` | An evidence pack, when a person asks | *Evidence packs* in the command guide |
 

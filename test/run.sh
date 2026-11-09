@@ -121,6 +121,7 @@ test/loops.test.js -
 test/todos.test.js -
 test/todos-rules.test.js -
 test/loop-cli.test.js -
+test/todo-cli.test.js -
 test/patterns.test.js -
 test/link-fields.test.js -
 test/library.test.js -
@@ -141,6 +142,7 @@ test/guide-editor.test.js 0/2
 test/guide-editor.test.js 1/2
 test/docs.test.js -
 test/checker.test.js -
+test/checker-todos.test.js -
 test/app-reports.test.js -
 test/app-teamvalues.test.js -
 test/app-results.test.js -
@@ -164,6 +166,7 @@ test/compat-staging.test.js -
 test/compat-pass.test.js -
 test/compat-results.test.js -
 test/compat-loops.test.js -
+test/compat-todos.test.js -
 test/compat-teamvalues.test.js -
 test/compat-typesave.test.js -
 test/skills-parity.test.js -

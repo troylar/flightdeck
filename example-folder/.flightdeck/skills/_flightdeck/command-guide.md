@@ -133,6 +133,16 @@ Ask for a change with `flightdeck loop sync` (`--from` what a search or the loop
 
 Exit code 0 is requested, already requested, or (with `--dry-run`) what it would write; 4 nothing written, because a scope record or part of the folder couldn't be read; 1 refused (a key already used for a different request, or a request that isn't valid); 5 no such run or loop step. If it can't confirm the save, retry with the same key, never a new one: a new key could ask twice. The formats are in docs/apps.md of the Flightdeck repository.
 
+### To-dos
+
+A running run can carry to-dos: work someone found that comes before one of its gates. Flightdeck keeps them as to-do records in `proposals/` (`flightdeck-plan/4` and `flightdeck-plan-status/4`), written by Flightdeck windows and by `flightdeck todo`; never write, edit or delete one by hand.
+
+Read them with `flightdeck todo list <team folder> <process>/<run> --json`: each to-do's `id`, `text`, `state` (open, done, wont, moved) and the gate it comes before, and each request's `status` (waiting, queued, applied, declined, held, disputed) with why. `flightdeck run` and `next` (`--contract 2`) give the same to-dos, `todoCounts` and what holds a gate (`todoHolds`, `todos.holds`). An open or disputed to-do holds its gate.
+
+Ask for one change with `flightdeck todo add --text "..." --phase <phase id>` (or `--step <step id>`), `todo done --todo <id>`, `todo wont --todo <id> --reason "..."`, `todo move --todo <id> --to <ticket | https link | process/run>` or `todo reopen --todo <id>`, each with `--tool <name>@<version> --key <key>`. Run it with `--dry-run --json` first and show the person the preview: where it goes, who must approve it (`authority.needs`), what it sends back for review or releases, and that the recorder applies it. It writes one file, once; it never decides and never writes a run. `--as <person id>` names who the tool asks for, never their approval: a person decides in Flightdeck, unless a delegation they made covers it.
+
+Exit code 0 is requested, already requested, or (with `--dry-run`) what it would write; 4 nothing written, because a to-do record or part of the folder couldn't be read; 1 refused (a key already used for a different request, or a change the run doesn't allow, with why); 5 no such run. If it can't confirm the save, retry with the same key, never a new one. The formats are in docs/apps.md of the Flightdeck repository.
+
 ## Evidence packs
 
 **Evidence packs:** when a person asks for a run's evidence, run `flightdeck export <team folder> --run <process>/<id> --out <a folder outside the team folder>` (or `--process <id> --from YYYY-MM-DD --through YYYY-MM-DD --tz Area/City` for the runs started on those days). It only reads. Exit code 0 is a complete pack, 4 a partial one (its top lists what changed or was missing), 1 no pack.

@@ -1,0 +1,20 @@
+{
+  "id": "team.restore",
+  "label": "Restore a backup",
+  "icon": "doc",
+  "hint": "Restores a backup into a scratch copy.",
+  "fields": {
+    "system": {
+      "label": "System",
+      "kind": "text",
+      "required": true
+    }
+  },
+  "record": [
+    {
+      "name": "copy",
+      "label": "Restored copy",
+      "kind": "text"
+    }
+  ]
+}

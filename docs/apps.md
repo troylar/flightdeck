@@ -647,6 +647,55 @@ With the stories below it. The JSON carries the same: `added`, `proposed` (with 
 | A story's child is missing an input | The preview names it: "1 needs environment". Its scope change is valid; its assessment can't start yet. |
 | The write can't be confirmed | `failed`: "Could not confirm whether the request was saved. Retry with the same key." Never a new key: that could ask twice. |
 
+## To-dos on a living run
+
+A running run can carry to-dos (4.0, docs/design.md section 45): work found along the way that comes before one of its gates. They live in `proposals/` as to-do records, never in `run.json`. `flightdeck todo` reads a run's to-dos and asks for one change. It never decides a request and never writes `run.json`: a person decides in Flightdeck (or a delegation they made covers the change), and the run's recorder's window applies it with the same checks as its buttons.
+
+```
+flightdeck todo list   <team folder> <process>/<run> --json
+flightdeck todo add    <team folder> <process>/<run> --text "..." --phase <phase id> | --step <step id> | --item <loop step>/<item uid> [--attempt <n>] [--owner <person id>] --tool <name>@<version> --key <key> [--as <person id>] [--dry-run] [--json]
+flightdeck todo done   <same> --todo <to-do id> [--reason <why>] --tool ... --key ...
+flightdeck todo wont   <same> --todo <to-do id> --reason <why> --tool ... --key ...
+flightdeck todo move   <same> --todo <to-do id> --to <ABC-123 | https link | process/run> [--reason <why>] --tool ... --key ...
+flightdeck todo reopen <same> --todo <to-do id> [--reason <why>] --tool ... --key ...
+```
+
+Every command prints `flightdeck-read/2` (with `--json`) or plain words. `list` and `--dry-run` read and write nothing. Without `--dry-run` a change writes exactly one file, `proposals/req-<tool>-<24 hex>.json` (`flightdeck-plan/4` with the `living-runs` feature), created once and never replaced. The same `--tool` name and `--key` always mean the same request: a retry says `already` and writes nothing, even after the request was applied (a new tool version doesn't make it new); the same key with another change is refused (`key-taken`), naming the changed fields (`op`, `todo`, `text`, `target`, `owner`, `reason`, `to`, `as`, `run`).
+
+`--as <person id>` names the person the tool asks for (`requester` in the file). It must be in `people.json` and active. It is who asked, never that person's approval: the request waits for a decision like any other.
+
+The rules are the app's own (`PF.todos.prepare`, the run screen's buttons use them too): a to-do is at most 200 characters; won't do needs a reason (at most 300); a move needs a ticket key like `ABC-123`, an http(s) link, or another run as `process/run`; a run that ended takes no new work; a to-do with a request still waiting takes no second one in the app; a run has at most 500 to-dos. Anything else is refused, never cut.
+
+### The result
+
+`data.status` is `would-request` (a preview), `requested`, `already` or `held` (a to-do record of this run, or `people.json`, couldn't be read; nothing was written). The rest names what the change would do:
+
+| Field | Means |
+|---|---|
+| `request` | `{ id, file }`: the request's id and the file it is (or would be) |
+| `op`, `todo`, `placement`, `gate` | The change, the to-do it is on (an addition's new id), and the gate it comes before, by id and title |
+| `authority` | `needs`: `person` (it waits for a person who records the run or holds one of its roles), `delegation` (a delegation covers it, so it goes straight to the recorder) or `none`; `why`; `requester` (from `--as`); `approvesNothing` (always true) |
+| `consequence` | `reopens`: the approvals it would send back for review (a passed or waived gate, a loop approval); `releases`: whether it releases work (won't do, move) |
+| `recorder`, `queue` | Who applies it, and where it would wait: Waiting for approval, or Queued for the recorder |
+| `preview` | The same in plain words, the one an assistant repeats |
+| `appliedBy` | Always the recorder |
+
+`list` gives `todos` (each `id`, `text`, `state` open/done/wont/moved, `stateWords`, `target`, `placement`, `beforeGate`, `gate`, `owner`, `reason`, `to`), `requests` (each `id`, `kind`, `op`, `todo`, `status` waiting/queued/applied/declined/held/disputed, `statusWords`, `why`, `by`, `requester`, `at`), `summary` and `held` (records that can't be read or trusted; while there are any, every gate of the run waits).
+
+`flightdeck run` and `next` (`--contract 2`) read a living run's to-dos too, as every window does: `run` adds `todoCounts` (`open`, `total`, `waiting`, `held`), `todos`, `todoRequests` and `todoHolds` (why any of its gates is held by them); `next` adds `todos` (`open`, `holds`); `runs` adds `todoCounts`. A run without to-dos prints none of these, exactly as 3.0 did. An open or disputed to-do holds the gate it comes before (or, for an item's work, its loop's approval); adding or reopening one after the gate passed sends that approval back for review, and checking it off never brings the approval back on its own.
+
+### Errors
+
+| Situation | What it says |
+|---|---|
+| A to-do record of the run can't be read yet | `held`: "Part of the team folder this depends on couldn't be read, so nothing was written. Check folder availability, then retry with the same key." |
+| The same key, the same change | `already`: "Already requested (…). Nothing written." |
+| The same key, another change | `key-taken`: "This key already names a different request. Changed fields: …." |
+| A change the run doesn't allow | `invalid`, with why: an ended run, a to-do already done, won't do without a reason, a move to this run, an unknown phase |
+| The write can't be confirmed | `failed`: "Could not confirm whether the request was saved. Retry with the same key." Never a new key: that could ask twice. |
+
+Every copy before 4.0 calls a to-do record, and a run that has to-dos, newer: it shows the run by name only and can't save it.
+
 ## Writing step types (for AI assistants)
 
 Contract `flightdeck-write/1` (2.14) for `type save`; `type list` and `type read` print `flightdeck-read/2`. `type save` **changes the team folder**: it writes `step-types/<id>.json` and one history line, `history/step-types/<id>/agent-<operation>.jsonl`, and nothing else, never through a link and never outside the folder.

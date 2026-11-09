@@ -768,7 +768,8 @@ PF.todos = (function () {
      anyone else makes a request that waits for authority. Returns { why } when nothing can be asked, else { id, name, file,
      kind, record, preview: { op, todo, placement, gate, consequence: { reopens, releases }, status, why, recorder, words } }.
      Nothing is written here. */
-  function gateTitle(map, id) { var t = ''; (map && map.phases || []).forEach(function (p) { if (p.gate && p.gate.id === id) t = p.gate.implicit ? p.title + ' confirm' : p.gate.title; }); return t || id; }
+  /* The gate's own title, as the run screen and flightdeck run name it (an implicit gate is "Confirm <phase>"). */
+  function gateTitle(map, id) { var t = ''; (map && map.phases || []).forEach(function (p) { if (p.gate && p.gate.id === id) t = p.gate.title; }); return t || id; }
   function prepare(r, o) {
     o = o || {};
     var map = null; try { map = PF.run.mapOf(r); } catch (e) { map = null; }
@@ -805,6 +806,16 @@ PF.todos = (function () {
     }
     var tool = by.tool ? { name: by.tool, version: by.version || '0' } : null, person = by.person || '';
     if (!tool && !person) return { why: 'Say who asks: a person in people.json, or a tool.' };
+    /* A tool may name the person it asks for (--as). It is who asked, never their approval: the request still waits for a
+       decision, or for a delegation that covers it. */
+    if (b.requester != null) {
+      if (!tool) return { why: 'A person asks as themselves; only a tool names who it asks for.' };
+      if (typeof b.requester !== 'string' || !PERSON.test(b.requester)) return { why: 'Who it asks for is the ID from people.json of that person.' };
+      if (!people) return { why: 'people.json can\'t be read, so who it asks for can\'t be checked.' };
+      var aw = activeWhy(b.requester, people);
+      if (aw) return { why: aw + '.' };
+      body.requester = b.requester;
+    }
     if (tool && !KEY.test(String(by.key || ''))) return { why: 'A tool\'s request needs its retry key (--key): letters, digits, . _ : -, at most 120.' };
     if (!tool && !KEY.test(String(o.key || ''))) return { why: 'A request needs its retry key.' };
     var id = tool ? idFor(tool.name, by.key) : idFor('flightdeck', o.key), head = r.living && typeof r.living.head === 'string' ? r.living.head : '';
@@ -823,6 +834,25 @@ PF.todos = (function () {
     var placement = b.op === 'add' ? body.placement : x.placement, gate = placement ? gateTitle(map, placement.beforeGate) : '', rec = r.recorder && r.recorder.person || '';
     return { id: f.id, name: name, file: f, kind: f.kind, record: fd.record,
       preview: { op: b.op, todo: full.todo, placement: placement || null, gate: gate, consequence: { reopens: C.reopens.slice(), releases: C.releases }, status: q.status, why: q.why || '', recorder: rec, words: whatWords(map, full, x, C) + ' ' + thenWords(r, q) } };
+  }
+  /* A retry under the same key (4.0, flightdeck todo): which of what was asked differs from the request already filed under it,
+     judged on the ask itself (never on the run's state now), so the same ask says already, even once it has been applied. */
+  function askDiffers(rec, r, b) {
+    var d = [], str = function (v) { return v == null ? '' : String(v).trim(); }, js = function (v) { return JSON.stringify(v == null ? null : v); };
+    if (!rec || ['proposal', 'compound'].indexOf(rec.kind) < 0) return ['kind'];
+    if (!rec.run || rec.run.process !== r.process || rec.run.id !== r.id) d.push('run');
+    if (rec.op !== b.op) d.push('op');
+    if (b.op === 'add') {
+      if (str(rec.text) !== str(b.text)) d.push('text');
+      if (js(rec.target) !== js(b.target)) d.push('target');
+      if (str(rec.owner) !== str(b.owner)) d.push('owner');
+    } else {
+      if (rec.todo !== b.todo) d.push('todo');
+      if (b.op === 'move' && js(rec.to) !== js(toOf(b.to))) d.push('to');
+    }
+    if (str(rec.reason) !== str(b.reason)) d.push('reason');
+    if (str(rec.requester) !== str(b.requester)) d.push('as');
+    return d;
   }
   /* What a request would do, in words: the operation, the gate it comes before, and what it releases or sends back for review. */
   function whatWords(map, q, x, C) {
@@ -953,5 +983,5 @@ PF.todos = (function () {
     targetKey: targetKey, placeOf: placeOf, placementWhy: placementWhy, placementFor: placementFor, effectOf: effectOf, fingerprint: fp, text: text,
     buildProposal: buildProposal, buildGrant: buildGrant, buildStatus: buildStatus, cleanFile: cleanFile, fileWhy: fileWhy, filed: filed, runOf: runOf, recordsFor: recordsFor,
     reduce: reduce, seenFor: seenFor, requestsOf: requestsOf,
-    personWhy: personWhy, mayFor: mayFor, consequenceOf: consequenceOf, authorityFor: authorityFor, view: view, holds: holds, markHolds: markHolds, cutFor: cutFor, cleanCut: cleanCut, cleanLiving: cleanLiving, applyPlan: applyPlan, nextQueued: nextQueued, keepHead: keepHead, prepare: prepare, gateTitle: gateTitle, toOf: toOf, inbox: inbox, delegations: delegations, decide: decide, revokeOf: revokeOf, grantOf: grantOf, whatWords: whatWords };
+    personWhy: personWhy, mayFor: mayFor, consequenceOf: consequenceOf, authorityFor: authorityFor, view: view, holds: holds, markHolds: markHolds, cutFor: cutFor, cleanCut: cleanCut, cleanLiving: cleanLiving, applyPlan: applyPlan, nextQueued: nextQueued, keepHead: keepHead, prepare: prepare, gateTitle: gateTitle, toOf: toOf, inbox: inbox, delegations: delegations, decide: decide, revokeOf: revokeOf, grantOf: grantOf, whatWords: whatWords, askDiffers: askDiffers };
 })();

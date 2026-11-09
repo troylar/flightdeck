@@ -24,6 +24,13 @@
         "title": "Decide to-do requests that need you",
         "now": "Home says how many to-do requests wait for your decision and opens exactly those, ten at a time. Accept or decline each; if what it would do changed since you saw it, it asks again. Delegate adding, checking off and reopening to a tool or a person, and end a delegation any time.",
         "where": "Home, a run's screen"
+      },
+      {
+        "kind": "new",
+        "area": "Command line",
+        "title": "Read and ask for to-dos from the command line",
+        "now": "flightdeck todo list shows a run's to-dos and the requests on them. flightdeck todo add, done, wont, move and reopen preview with --dry-run, then file one request for a person to decide; the recorder's window applies it. flightdeck run, next and runs show a run's to-dos and what holds its gates. The new living-run skill does this for an assistant.",
+        "where": "flightdeck todo, the assistants' skills"
       }
     ]
   },
