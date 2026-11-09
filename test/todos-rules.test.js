@@ -43,6 +43,11 @@ function revoke(key, g, seen) { return clean(T.buildGrant({ kind: 'revoke', id: 
 const V = (r, recs) => T.view(r, { records: recs, people: PEOPLE });
 const mark = (r, recs) => { T.markHolds([r], { records: recs, people: PEOPLE }); return r; };
 const st = (r, recs, id) => V(r, recs).requests[id];
+function compound(key, body, by, r) {
+  const id = T.idFor('flightdeck', key), b = Object.assign({ todo: T.todoIdFor(id) }, body), eff = T.effectOf(b);
+  const C = T.consequenceOf(r, R.mapOf(r), b, V(r, [])).fingerprint;
+  return clean(T.buildProposal({ kind: 'compound', run: RUN, id, by, seen: [], at: AT, body, decision: { by, consequence: C }, application: { previous: '', effect: eff, fingerprint: T.fingerprint(eff) } }));
+}
 /* The recorder's landing of an application, as slice 1 commit 3 does it, enough for these rules: head, feature, review. */
 function land(r, a) { r.living = { head: a.id }; if (r.features.indexOf('living-runs') < 0) r.features = PF.envelope.FROZEN.filter(f => r.features.concat(['living-runs']).indexOf(f) >= 0); }
 
@@ -57,6 +62,17 @@ rule('A decision counts only from a person in people.json, active, who records t
     const q = st(r, [p, decide(p, 'accept', who, C)], p.id);
     same(q.status, 'waiting', who);
     assert.ok(q.ignored.some(x => re.test(x.why)), JSON.stringify(q.ignored));
+  });
+});
+rule('a compound counts only from a person who may decide; otherwise it is ignored with the reason', () => {
+  const { r } = newRun();
+  const ok = compound('ca1', add('One', { phase: 'draft' }), 'person-avery', r);
+  same(V(r, [ok]).requests[ok.id].status, 'queued', 'the recorder');
+  [['person-drew', /inactive/], ['person-casey', /neither records/], ['person-zed', /isn't in people\.json/]].forEach(([who, re], i) => {
+    const c = compound('cb' + i, add('One', { phase: 'draft' }), who, r), q = V(r, [c]).requests[c.id];
+    same(q.status, 'waiting', who);
+    assert.ok(q.ignored.some(x => x.record === c.id && re.test(x.why)), JSON.stringify(q.ignored));
+    assert.ok(!T.applyPlan(r, V(r, [c]), q).adopt, 'never landed as it is');
   });
 });
 rule('A grant lets a tool add, check off and reopen on its exact targets within its limit; never drop work or reopen an approval', () => {

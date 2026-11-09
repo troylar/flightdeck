@@ -18093,8 +18093,14 @@ PF.todos = (function () {
       if (x.kind === 'proposal' || x.kind === 'compound') {
         reqs[x.id] = { id: x.id, kind: x.kind, op: x.op, todo: x.todo, target: x.target || null, placement: x.placement || null, text: x.text || '', to: x.to || null, reason: x.reason || '', owner: x.owner || '', by: x.by, requester: x.requester || '', at: x.at,
           status: '', why: '', landed: landed[x.id] || '', candidates: [], decisions: [], dec: null, decReview: [], app: null, appReview: [], ignored: [], disputedIds: [] };
-        if (x.kind === 'compound') settleDecision(reqs[x.id], x, { op: 'accept', by: x.decision.by, consequence: x.decision.consequence, record: x.id });
-        if (x.kind === 'compound') settleApp(reqs[x.id], x, x.application);
+        /* A compound's decision counts only as a separate decision would (o.may); otherwise it is ignored, with why, and the
+           request waits like any other. */
+        if (x.kind === 'compound') {
+          var noc = o.may ? o.may(x, T) : '';
+          if (noc) reqs[x.id].ignored.push({ record: x.id, why: noc });
+          else settleDecision(reqs[x.id], x, { op: 'accept', by: x.decision.by, consequence: x.decision.consequence, record: x.id });
+          settleApp(reqs[x.id], x, x.application);
+        }
         return;
       }
       if (x.kind === 'grant' || x.kind === 'revoke') { grant(x); return; }
@@ -18350,7 +18356,7 @@ PF.todos = (function () {
     var p = byId[q.id];
     if (!p) return { skip: 'Its request can\'t be read in order yet.' };
     var eff = effectOf(p), f = fp(eff);
-    if (p.kind === 'compound' && (p.application.previous || '') === head && p.application.fingerprint === f) return { adopt: p };
+    if (p.kind === 'compound' && q.via && q.via.compound === p.id && (p.application.previous || '') === head && p.application.fingerprint === f) return { adopt: p };
     var c = q.candidates.map(function (id) { return byId[id]; }).filter(function (a) { return a && (a.previous || '') === head && a.fingerprint === f && sameVia(a.authority, q.via); }).sort(function (a, b) { return cmpStr(a.id, b.id); })[0];
     if (c && !appOnly) return { adopt: c };
     var must = [q.id]; if (head) must.push(head); if (q.via && q.via.decision) must.push(q.via.decision); if (q.via && q.via.grant) must.push(q.via.grant);

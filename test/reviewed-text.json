@@ -345,8 +345,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "f7af35361ea75bdad4cdcb9f51839c7bbfeb83ac69cabd237be69691a6de7755",
-      "reviewed": "4.0 slice 1, commit 3: the recorder's window applies queued to-dos and recovers every interruption from the folder"
+      "sha256": "465d36b59b5189d2e04df817a4f761ecaf0968b89210035a7377c1909f876e25",
+      "reviewed": "Round 1 A: a compound's decision passes the same authority check as a decision; checked for direct writes and unconditional deletes"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",
