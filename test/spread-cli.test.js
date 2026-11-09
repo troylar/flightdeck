@@ -292,4 +292,14 @@ rule('SH: a story\'s spread request that can\'t be read makes the parent\'s run 
     assert.ok(r.problems.some(p => p.path === file), cmd + ': ' + JSON.stringify(r.problems));
   }
 });
+rule('SI: text-mode sync says partial and names each item not asked, with why', async () => {
+  const { root, sp } = await spread();
+  const p = json('spread', 'sync', root, PR, '--spread', sp.id, '--dry-run', '--json', ...TOOL), names = p.data.items.map(i => i.file.slice('proposals/'.length));
+  fs.mkdirSync(path.join(root, 'proposals', names[1]));
+  const t = cli('spread', 'sync', root, PR, '--spread', sp.id, ...TOOL);
+  assert.strictEqual(t.code, 4, t.out);
+  assert.ok(/partly synced/i.test(t.out), t.out);
+  assert.ok(new RegExp(p.data.items[1].key + '[^\\n]*not asked[^\\n]*: ').test(t.out), 'the item and why: ' + t.out);
+  assert.ok(!new RegExp(p.data.items[0].key + '[^\\n]*not asked').test(t.out), t.out);
+});
 run();

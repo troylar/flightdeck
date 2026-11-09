@@ -2758,7 +2758,11 @@ function spreadWords(json, sub) {
       s.holds.forEach((h) => lines.push('    holds: ' + h));
     });
     d.requests.forEach((q) => lines.push('  ' + q.id + ' · ' + q.op + ' · ' + q.statusWords + (q.why ? ': ' + q.why : '')));
-  } else lines.push(d.preview);
+  } else {
+    lines.push(d.preview);
+    /* sync: every item not asked is named with why, in previews and receipts alike. */
+    (d.items || []).filter((i) => i.status === 'refused' || i.status === 'failed').forEach((i) => lines.push('  ' + (i.key || i.uid) + (i.attempt > 1 ? ' (attempt ' + i.attempt + ')' : '') + ' · ' + (i.status === 'failed' ? 'not asked (its request couldn\'t be written)' : 'not asked') + ': ' + (i.why || 'no reason given')));
+  }
   json.problems.forEach((x) => lines.push('  ' + x.path + ': ' + x.why));
   return lines.join('\n');
 }
@@ -2857,9 +2861,9 @@ async function spreadMain(argv) {
       });
       const items = plan.map(({ f, P }) => Object.assign({ key: f.key || null, uid: f.uid, attempt: f.attempt, run: f.run, request: P.id || f.request, file: 'proposals/' + (P.name || f.request + '.json') }, P.why ? { status: 'refused', why: P.why } : { status: dryRun ? 'would-request' : 'pending', queue: T.WORDS[P.preview.status] || P.preview.status, needs: P.preview.status === 'waiting' ? 'person' : P.preview.status === 'queued' ? 'delegation' : 'none' }));
       const skipped = M.skip.map((k) => ({ key: k.key || null, uid: k.uid, attempt: k.attempt, run: k.run, state: k.state, words: k.words, why: k.why || null }));
-      const N = C.noun || { one: 'item', many: 'items' }, cnt = (n) => LP.count(n, N);
-      const say = (written, already, failed) => title + ' · "' + C.text + '"' + (dryRun ? ' — preview only; no files written.' : ' — synced.') + '\n\n' +
-        (dryRun ? 'Would ask ' + cnt(items.filter((i) => i.status !== 'refused').length) + '\' runs for it' : 'Asked ' + cnt(written) + '\' runs for it' + (already ? '; ' + already + ' already asked' : '') + (failed ? '; ' + failed + ' not asked (see why)' : '')) +
+      const N = C.noun || { one: 'item', many: 'items' }, runsOf = (n) => n === 1 ? '1 ' + N.one + '\'s run' : n + ' ' + N.many + '\' runs';
+      const say = (written, already, failed) => title + ' · "' + C.text + '"' + (dryRun ? ' — preview only; no files written.' : failed ? ' — partly synced.' : ' — synced.') + '\n\n' +
+        (dryRun ? 'Would ask ' + runsOf(items.filter((i) => i.status !== 'refused').length) + ' for it' + (items.some((i) => i.status === 'refused') ? '; ' + items.filter((i) => i.status === 'refused').length + ' couldn\'t be asked (below)' : '') : 'Asked ' + runsOf(written) + ' for it' + (already ? '; ' + already + ' already asked' : '') + (failed ? '; ' + failed + ' not asked (below)' : '')) +
         '. Each run\'s own people decide; its recorder applies it.' + (skipped.length ? ' Not asked now: ' + skipped.slice(0, 20).map((k) => (k.key || k.uid) + ' (' + k.words.toLowerCase() + ')').join(', ') + (skipped.length > 20 ? ' and ' + (skipped.length - 20) + ' more' : '') + '.' : '') + ' ' + C.preview + '.';
       if (dryRun) return done({ run: { process: proc, id: runId }, spread: C.id, status: 'would-sync', items, skipped, partial: false, preview: say(0, 0, 0) });
       let written = 0, already = 0, failed = 0;
