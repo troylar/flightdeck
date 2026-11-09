@@ -132,6 +132,27 @@ rule('The checker refuses exactly the to-do records the app refuses, over every 
   assert.ok(cs.filter((c, i) => c.label === 'valid').every((c) => !jsRefuses(c)), 'every valid record reads');
   assert.ok(cs.filter((c) => c.label !== 'valid').some((c) => jsRefuses(c)), 'damage is refused');
 });
+/* Review round 3 (UE): the first reason a story's request is refused is the app's, in the app's order: its ids are compared
+   as given (so ids recomputed from a malformed attempt match), and the malformed field is what is named. */
+rule('UE: a story\'s request with a malformed attempt and ids recomputed from it is refused for its fields first, as the app refuses it, never for its id', () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const v = valid(), [, fil] = v.find(([, f]) => f.fulfills && f.op === 'add');
+  const cases = ['1', 0, 1000, 1.5].map((a) => {
+    const o = JSON.parse(T.text(fil)), kid = o.run;
+    o.fulfills.attempt = a;
+    o.id = PF.spreads.childRequestId(o.fulfills.spread, o.fulfills.uid, a, kid);
+    o.key = PF.spreads.obligationId(o.fulfills.spread, o.fulfills.uid, a);
+    o.todo = T.todoIdFor(o.id);
+    return { name: o.id + '.json', text: JSON.stringify(o), label: 'attempt ' + JSON.stringify(a) };
+  });
+  const pyOut = JSON.parse(cp.execFileSync(py, ['-I', '-B', '-c', DRIVER, DIR], { input: JSON.stringify(cases), encoding: 'utf8', maxBuffer: 16 * 1048576 }));
+  cases.forEach((c, i) => {
+    const j = jsRefuses(c), p = Array.isArray(pyOut[i]) ? pyOut[i][0] : pyOut[i];
+    assert.ok(j && !/Its id isn't|Its key isn't/.test(j), c.label + ': set-up, the app refuses it for its fields: ' + j);
+    assert.ok(p && !/Its id isn't|Its key isn't/.test(p) && /fulfills/.test(p), c.label + ': the checker names the same field first, never the id: ' + p);
+  });
+});
 rule('In a folder, a refused to-do record is listed under refused as the app names it, and a readable one never is', () => {
   const py = python();
   if (!py) { console.log('  (skipped: no Python on this computer)'); return; }

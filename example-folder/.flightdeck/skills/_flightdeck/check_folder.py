@@ -2388,9 +2388,10 @@ def todo_why(o, name, nbytes=None, unchecked=None):
         err("at")
     ful = o.get("fulfills") if isinstance(o.get("fulfills"), dict) and _tstr(o["fulfills"].get("spread")) and _tstr(o["fulfills"].get("uid")) and run else None
     if ful:
-        if not _twhole(ful.get("attempt"), 1, 999) or o["id"] != _spread_child_id(ful["spread"], ful["uid"], ful.get("attempt"), run):
+        # Compared as given, as the app does: a malformed attempt is named where "fulfills" is checked, never as an id mismatch.
+        if o["id"] != _spread_child_id(ful["spread"], ful["uid"], ful.get("attempt"), run):
             err("Its id isn't the one its spread, item, attempt and run give")
-        if by and by.get("tool") and (not _twhole(ful.get("attempt"), 1, 999) or o.get("key") != _obligation_id(ful["spread"], ful["uid"], ful.get("attempt"))):
+        if by and by.get("tool") and o.get("key") != _obligation_id(ful["spread"], ful["uid"], ful.get("attempt")):
             err("Its key isn't its obligation's")
         fr = ful.get("run")
         if isinstance(fr, dict) and fr.get("process") == run["process"] and fr.get("id") == run["id"]:
