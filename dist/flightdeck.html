@@ -8871,11 +8871,13 @@ PF.run = (function () {
     var none = function () { return Object.create(null); };
     return { all: ['This run\'s to-dos haven\'t been read, so approval waits until they are.'], phases: none(), loops: none(), stale: { gate: none(), loop: none() }, scope: { gate: none(), loop: none() }, open: 0 };
   }
-  /* Why a phase's gate is held by to-dos, or null. */
+  /* Why a phase's gate is held by to-dos, or null: its own work, and an item's open or disputed work in any of its loops, so
+     neither passing nor waiving the phase (an optional loop's included) gets past work that isn't resolved. */
   function phaseHeld(r, map, pi) {
     var H = todoHolds(r), p = map.phases[pi];
     if (!H || !p) return null;
     var why = H.all.concat(own(H.phases, p.id) ? H.phases[p.id] : []);
+    p.steps.forEach(function (s) { if (s.type === 'for.each' && own(H.loops, s.id)) why = why.concat(H.loops[s.id]); });
     return why.length ? why : null;
   }
   function loopHeld(r, sid) {

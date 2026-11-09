@@ -235,6 +235,20 @@ rule('A loop item\'s to-do holds the loop\'s approval; work in a child run holds
   same(R.canPass(c, cm, 0), false, 'the child can\'t pass its gate, so it can\'t complete with its result');
   assert.ok(!r._todos.loops.assess && !(c._todos.loops.each), 'each run holds only its own work');
 });
+rule('An optional loop\'s open item to-do holds its phase gate for waiving as for passing', () => {
+  const kid = ['---', 'process: validate-story', 'title: Validate a story', 'context: issue, disposition:choice(cleared|needs-work)', 'result: disposition', '---', '',
+    '## Assess · DO-CONFIRM {#assess}', '- [!] {decide} Record the validation result {#verdict}', '  options: cleared, needs-work', '  sets: disposition=decision', ''].join('\n');
+  const kp = publishMd(kid), procs = { 'validate-story': { latest: kp, all: [kp], clashes: [], broken: [] } }, procOf = (id) => procs[id] || null;
+  const md = ['---', 'process: release-notes', 'title: Release', '---', '', '## Stories · DO-CONFIRM {#stories}', '- [ ] {for.each} Validate every story {#each}', '  process: validate-story', '  items: jira.issue', '  pass: issue=item:key', '  accepts: cleared', '',
+    '## Ship · READ-DO {#ship}', '- [!] {confirm} Ship it {#ship1}', ''].join('\n');
+  const pp = publishMd(md, { childProcs: procs });
+  const r = R.create(pp, { id: 'r-1', by: 'person-avery', session: 'w', now: AT, app: '4.0.0', pins: PF.pins.atStart(pp.map, pp.info.payload ? pp.info.payload.pins : null, procOf) }), map = R.mapOf(r);
+  mark(r, []); same(R.canWaive(r, map, 0), true, 'set-up: waivable');
+  const p = prop('hl1', add('Security sign-off', { item: { loopStep: 'each', uid: 'jira:10101', attempt: 1 } }, md), [], 'person-avery'), a = applied(p, '', { decision: p.id + '.status-w1-00000000' });
+  land(r, a); mark(r, [p, a]);
+  same([R.canWaive(r, map, 0), R.canPass(r, map, 0)], [false, false]);
+  assert.throws(() => R.waive(r, map, 0, 'Not needed', 'person-avery', AT));
+});
 rule('A to-do on a phase that isn\'t needed in this run still holds it until the work is resolved', () => {
   const md = ['---', 'process: release-notes', 'title: Release notes', 'context: kind:choice(minor|major)', '---', '',
     '## Draft · DO-CONFIRM {#draft}', '- [!] {confirm} Write the notes {#write}', '',
