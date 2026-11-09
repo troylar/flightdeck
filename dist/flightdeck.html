@@ -23535,7 +23535,7 @@ PF.repo = (function () {
              that fails. */
           var tv; try { tv = PF.todos.cleanFile(raw, p._file, p._bytes); } catch (e) { tv = { ok: false, kind: 'malformed', why: 'is a to-do record that isn\'t in its format', needs: '' }; }
           var tp = 'proposals/' + p._file, tf = PF.todos.familyOf(p);
-          if (!tv.ok) { if (bad) bad.push({ path: tp, kind: tv.kind, why: tv.why }); refused.push(PF.envelope.refusal(tp, tf, tv)); todosUnread.push({ file: p._file, why: tv.why, run: PF.todos.runOf(p) }); return; }
+          if (!tv.ok) { if (bad) bad.push({ path: tp, kind: tv.kind, why: tv.why }); refused.push(PF.envelope.refusal(tp, tf, tv)); todosUnread.push({ file: p._file, why: tv.why, kind: tv.kind, run: PF.todos.runOf(p) }); return; }
           tv.record._file = p._file; todos.push(tv.record); return;
         }
         /* A scope request or decision (3.0, PF.loop) goes to its own reader first and never reaches the plan reader. */

@@ -164,6 +164,21 @@ rule('A run/2 with no to-dos yet is still held by a to-do record of it that can\
   assert.ok(n.problems.some(p => p.path === 'proposals/' + bad), 'next names it too');
   assert.ok(!('todos' in n.data), 'and prints no to-do fields');
 });
+rule('A to-do record from a newer Flightdeck is named newer, not malformed, by run and next', async () => {
+  const { root, d } = await folder();
+  const r = JSON.parse(fs.readFileSync(path.join(root, 'runs/release-notes/r-1/run.json'), 'utf8'));
+  await seed(d, r);
+  const id = T.idFor('notes-bot', 'newer'), body = { op: 'add', text: 'From later', target: { phase: 'draft' }, placement: T.placementFor(R.mapOf(R.sanitize(r)), { phase: 'draft' }) };
+  const f = JSON.parse(T.text(T.buildProposal({ run: { process: 'release-notes', id: 'r-1' }, producer: { name: 'notes-bot', version: '9.0' }, key: 'newer', seen: [], at: AT, body })));
+  f.format = f.format.replace(/4$/, '5');
+  await d.write('proposals/' + id + '.json', JSON.stringify(f));
+  for (const a of [['run', root, 'release-notes/r-1'], ['next', root, 'release-notes/r-1', '--as', 'person-avery']]) {
+    const o = json(...a, '--contract', '2', '--json'), p = o.problems.filter(x => x.path === 'proposals/' + id + '.json');
+    assert.deepStrictEqual(p.map(x => x.kind), ['newer'], a[0] + ': ' + JSON.stringify(o.problems));
+  }
+  const l = json('todo', 'list', root, 'release-notes/r-1', '--json');
+  assert.deepStrictEqual(l.problems.filter(x => x.path === 'proposals/' + id + '.json').map(x => x.kind), ['newer'], 'todo list too: ' + JSON.stringify(l.problems));
+});
 rule('Usage, an unknown run, a run that ended and a folder part that can\'t be read write nothing', async () => {
   const { root } = await folder();
   assert.strictEqual(json('todo', 'add', root, 'release-notes/r-1', '--text', 'x', '--phase', 'draft', '--json').code, 1, 'no --tool');

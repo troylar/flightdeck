@@ -961,7 +961,7 @@ async function readData(eng, adapter, req) {
         if (pr.why) L.note('proposals', 'unreadable', pr.why);
         if (gp) {
           const un = markTodos(PF, [r], gp, one.people, !!(one.peopleWhy || pw)), was = relevant, mine = {};
-          un.filter((u) => u.run ? u.run.process === m[1] && u.run.id === m[2] : !!r.living).forEach((u) => { if (u.file !== 'people.json') { mine['proposals/' + u.file] = true; L.note('proposals/' + u.file, 'malformed', fileWhy(u.why)); } });
+          un.filter((u) => u.run ? u.run.process === m[1] && u.run.id === m[2] : !!r.living).forEach((u) => { if (u.file !== 'people.json') { mine['proposals/' + u.file] = true; L.note('proposals/' + u.file, u.kind === 'newer' ? 'newer' : 'malformed', u.kind === 'newer' ? u.why : fileWhy(u.why)); } });
           relevant = (p) => was(p) || !!mine[p];
         } else if (r.living) { const was = relevant; relevant = (p) => was(p) || p === 'proposals'; }
       }
@@ -2798,7 +2798,7 @@ async function todoMain(argv) {
     const bad = [], got = await repo.readPlans(L.fs, bad, null, true);
     /* Only this run's to-do records (and one that can't say which run it is for) are this command's problems. */
     const unread = (got.todosUnread || []).filter(mineRun);
-    unread.forEach((u) => extra.push({ path: 'proposals/' + u.file, kind: 'malformed', why: fileWhy(u.why) }));
+    unread.forEach((u) => extra.push({ path: 'proposals/' + u.file, kind: u.kind === 'newer' ? 'newer' : 'malformed', why: u.kind === 'newer' ? u.why : fileWhy(u.why) }));
     if (one.peopleWhy || pw) unread.push({ file: 'people.json', why: 'people.json couldn\'t be read, so no one\'s authority over to-dos can be checked.', run: null });
     const records = T.recordsFor(got.todos || [], r), people = one.people;
     const V = T.view(r, { records, unread, people }), nameOf = A.names(people), title = String(r.title || r.process);

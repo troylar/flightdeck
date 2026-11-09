@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "5303a19b9b63abe9130ef6b1e6d1471ad1b547409edc1a74fbc48709c94d1fec",
-      "reviewed": "AQ: run and next read proposals/ once for the loop and the to-dos; checked for direct writes and unconditional deletes (none)"
+      "sha256": "712ad4850964ab9d41dd015be699f9345016ebefd941e94ff65f1b467a1e5418",
+      "reviewed": "AS: a to-do record from a newer Flightdeck keeps its refusal's kind (newer) in run, next and todo list; checked for direct writes and unconditional deletes (none)"
     },
     "build.py": {
       "sha256": "3ccfcefff2f5c647ab6a3703c5b303f5e1de7073bc26ead84f7b84902fdd50de",
@@ -401,8 +401,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "c286d5cdad5535dee459dfec4c1531e09c3948f26b6c4349fbae1bd6fcb3f96a",
-      "reviewed": "Slice 1 round 3 Z: to-do reader copies into a map with no prototype"
+      "sha256": "ed14c01ba9d56a35630b202f711be38232f15836fff2d028390e5ad958dad84d",
+      "reviewed": "AS: a to-do record from a newer Flightdeck keeps its refusal's kind (newer) in run, next and todo list; checked for direct writes and unconditional deletes (none)"
     },
     "src/ui/app.js": {
       "sha256": "8973bd834883f9306e4e1789cdd2bc186258017dde9a2cb2c6d664758a3b9045",
