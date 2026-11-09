@@ -3344,13 +3344,26 @@
   }
   /* Writes one decision, revoke or grant the person made in a dialog: under the run guard taken at the click, so a folder,
      person, pause, end or recorder change before the write writes nothing. What happened is said in the dialog. */
-  function tdWrite(r, made, words) {
+  /* A decision, revoke or delegation made again unchanged after a write that may have happened is the same record: its key,
+     writer and exact bytes are kept (per folder, ctx.loopMem) until the outcome is known, as asking keeps its own (todoAsk).
+     make(seed) builds it with the kept seed; the rules are asked again every time. */
+  function tdKept(slot, sig, make) {
+    var mem = loopMem(), keep = mem.tdKeep || (mem.tdKeep = Object.create(null)), k = keep[slot], again = k && k.sig === sig ? k : null;
+    var seed = again ? again.seed : { key: 'ui-' + loopHex(20), writer: 'w' + loopHex(10), rev: loopHex(8) }, made = make(seed);
+    if (made.why) return made;
+    if (again && again.made.name === made.name) made = again.made;
+    keep[slot] = { sig: sig, seed: seed, made: made };
+    return made;
+  }
+  function tdSettled(slot) { var keep = loopMem().tdKeep; if (keep) delete keep[slot]; }
+  function tdWrite(r, made, words, slot) {
     var mem = loopMem(), un = runUnread(r);
     if (un) { mem.tdSaid = un + ' Nothing was written.'; render(); return Promise.resolve(false); }
     var cx = loopGuard({ run: r.process + '/' + r.id, readable: true }), endBusy = busyStart(), sg = gen;
     return repo.saveScope(cx.fs, made.name, made.file, { still: function () { return guardOk(cx); } }).then(function (res) {
       endBusy(); if (sg !== gen) return false;
       if (res && res.dropped) { mem.tdSaid = 'Nothing was written: the folder, the person or the run changed before it was.'; render(); return false; }
+      if (slot) tdSettled(slot);
       if (res && res.conflict && res.theirs !== PF.todos.text(made.file)) { mem.tdSaid = 'A different record is already saved under that name. Nothing was written; read the folder again.'; render(); return false; }
       var rec = made.record; rec._file = made.name;
       if (!(data.todos || []).some(function (x) { return x.id === rec.id; })) data.todos = (data.todos || []).concat([rec]);
@@ -3362,9 +3375,10 @@
     var r = findRun(key), mem = loopMem();
     if (!r || !state.me) return;
     if (runUnread(r)) { mem.tdSaid = runUnread(r) + ' Nothing was decided.'; render(); return; }
-    var made = PF.todos.decide(r, { request: id, op: op, by: state.me, shown: shown, reason: reason, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION, writer: 'w' + loopHex(10), rev: loopHex(8) });
+    var slot = 'dec', sig = JSON.stringify([key, id, op, shown || '', reason == null ? '' : String(reason), state.me]);
+    var made = tdKept(slot, sig, function (seed) { return PF.todos.decide(r, { request: id, op: op, by: state.me, shown: shown, reason: reason, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION, writer: seed.writer, rev: seed.rev }); });
     if (made.why) { mem.tdSaid = made.why; render(); return; }
-    tdWrite(r, made, made.words).then(function (ok) { if (ok) { mem.tdDec = null; tdClear(['td-dec-why']); render(); } });
+    tdWrite(r, made, made.words, slot).then(function (ok) { if (ok) { mem.tdDec = null; tdClear(['td-dec-why']); render(); } });
   }
   function tdClear(ids) { ids.forEach(function (id) { var el = document.getElementById(id); if (el) el.value = ''; }); }
   /* The current phase, where Add something to do sits (views/run.js todoBlock): the first whose gate isn't passed or waived,
@@ -7983,9 +7997,10 @@
     'td-decline': function (id, b) { var d = loopMem().tdDec, run = (b && b.dataset && b.dataset.run) || (d && d.run); if (!run) return; tdDecide(run, id, 'decline', '', val('td-dec-why')); },
     'td-revoke': function (id, b) {
       var r = findRun(b.dataset.run); if (!r || !state.me) return;
-      var made = PF.todos.revokeOf(r, { grant: id, by: state.me, key: 'ui-' + loopHex(20), records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION });
+      var sig = JSON.stringify([b.dataset.run, id, state.me]);
+      var made = tdKept('revoke', sig, function (seed) { return PF.todos.revokeOf(r, { grant: id, by: state.me, key: seed.key, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION }); });
       if (made.why) { loopMem().tdSaid = made.why; render(); return; }
-      tdWrite(r, made, made.words);
+      tdWrite(r, made, made.words, 'revoke');
     },
     'td-delegate': function () { var r = ctx.run(); if (!r) return; var mem = loopMem(); mem.tdDelegate = { run: r.process + '/' + r.id, phase: tdPhase(r) }; mem.tdSaid = ''; state.overlayFocus = '#tdg-h'; openOverlay({ tdDelegate: true, html: function () { return V.todoDelegate(ctx); } }); },
     'td-delegate-save': function () {
@@ -7994,9 +8009,10 @@
       var ops = ['add', 'done', 'reopen'].filter(function (k) { var el = document.getElementById('tdg-' + k); return !!(el && el.checked); });
       var n = String(val('tdg-adds') || '').trim(), adds = /^\d{1,3}$/.test(n) ? Number(n) : -1;
       if (!who) { mem.tdSaid = 'Say who: a tool\'s name, or a person\'s ID from people.json.'; render(); return; }
-      var made = PF.todos.grantOf(r, { subject: ppl ? { person: who } : { tool: who }, ops: ops, targets: [{ phase: dg.phase }], adds: adds, by: state.me, key: 'ui-' + loopHex(20), records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION });
+      var subject = ppl ? { person: who } : { tool: who }, sig = JSON.stringify([dg.run, subject, ops, dg.phase, adds, state.me]);
+      var made = tdKept('grant', sig, function (seed) { return PF.todos.grantOf(r, { subject: subject, ops: ops, targets: [{ phase: dg.phase }], adds: adds, by: state.me, key: seed.key, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION }); });
       if (made.why) { mem.tdSaid = made.why + ' Nothing was written.'; render(); return; }
-      tdWrite(r, made, made.words);
+      tdWrite(r, made, made.words, 'grant');
     },
     'td-done': function (id) { todoAsk({ op: 'done', todo: id }); },
     'td-reopen': function (id) { todoAsk({ op: 'reopen', todo: id }); },

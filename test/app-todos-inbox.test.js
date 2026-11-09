@@ -131,6 +131,29 @@ rule('A run whose file can\'t be read asks nothing, and an open dialog writes no
   assert.strictEqual(accepts(ov(app)).length, 0, 'and it asks nothing');
   app.fs.read = read;
 });
+rule('A delegation, revoke or decision that may have been saved, made again unchanged, is the same record: never a second grant', async () => {
+  const app = await setup();
+  const fs = app.fs, write = fs.write.bind(fs);
+  let lose = true;
+  fs.write = (p, t, o) => /^proposals\/req-/.test(p) && lose ? (lose = false, write(p, t, o).then(() => Promise.reject(new Error('EIO')))) : write(p, t, o);
+  const before = recs(app), grants = () => recs(app).map(f => JSON.parse(app.fs.files[f].t)).filter(x => x.kind === 'grant');
+  const delegate = async () => { app.click('td-delegate'); await app.tick(10); app.set('tdg-who', 'notes-bot'); app.check('tdg-add', true); app.set('tdg-adds', '10'); app.click('td-delegate-save'); await app.tick(80); };
+  await delegate();
+  assert.ok(/may or may not have been saved/.test(ov(app)), 'said');
+  app.click('close-overlay'); await app.tick(10);
+  await refresh(app, 400);
+  await delegate();
+  assert.strictEqual(grants().length, 1, 'one grant: ' + JSON.stringify(fresh(app, before).map(x => x.id)));
+  app.click('close-overlay'); await app.tick(10);
+  const [p] = await asked(app, 1);
+  await refresh(app, 400);
+  app.click('td-inbox', ''); await app.tick(20);
+  const it = accepts(ov(app))[0], b2 = recs(app);
+  lose = true;
+  app.click('td-accept', it.id, { run: it.run, fp: it.fp }); await app.tick(60);
+  app.click('td-accept', it.id, { run: it.run, fp: it.fp }); await app.tick(60);
+  assert.deepStrictEqual(fresh(app, b2).map(x => [x.kind, x.proposal]), [['decision', p.id]], 'one decision');
+});
 rule('More than ten wait: ten at a time, and Show more brings the rest', async () => {
   const app = await setup();
   await asked(app, 12);
