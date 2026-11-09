@@ -18652,12 +18652,12 @@ PF.todos = (function () {
     /* Spreads (4.0 slice 3): every unresolved obligation holds its loop's approval (and so its phase's gate); coverage that
        can't be worked out here holds too. Their records, and the stories' to-do records coverage counted, are in the scope an
        approval must have counted, so an approval made before them stays in review. */
+    var putLoop = function (step, id) {
+      if (loopWhy(map, step)) return;
+      var P = placeOf(map, { step: step }), put = function (o, k) { (o[k] = o[k] || []).indexOf(id) < 0 && o[k].push(id); };
+      put(H.scope.loop, step); put(H.scope.gate, P.gate);
+    };
     if (T.spreads.length) {
-      var putLoop = function (step, id) {
-        if (loopWhy(map, step)) return;
-        var P = placeOf(map, { step: step }), put = function (o, k) { (o[k] = o[k] || []).indexOf(id) < 0 && o[k].push(id); };
-        put(H.scope.loop, step); put(H.scope.gate, P.gate);
-      };
       var covOf = Object.create(null); ((cov && cov.spreads) || []).forEach(function (C) { covOf[C.id] = C; });
       T.spreads.forEach(function (sp) {
         var lw = loopWhy(map, sp.loopStep), C = covOf[sp.id], whys = C ? C.unresolved : ['Spread "' + sp.text + '": its coverage can\'t be checked here, so approval waits.'];
@@ -18671,17 +18671,19 @@ PF.todos = (function () {
         var sl = T.bindSlots[bk], sp = T.bySpread[sl.spread];
         if (sp && sl.reqs.length > 1) sl.reqs.forEach(function (id) { putLoop(sp.loopStep, id); });
       });
-      requestsOf(T).forEach(function (q) {
-        var sp = isSpreadOp(q.op) && (T.bySpread[q.spread] || (q.op === 'spread-add' ? { loopStep: q.loopStep, text: q.text } : null));
-        if (!sp) return;
-        (q.disputedIds || []).forEach(function (pid) { putLoop(sp.loopStep, pid); });
-        /* Decided two ways (or applied two ways) is held like any to-do's work, landed or not, until a record that saw them all. */
-        if (q.status === 'disputed' || (q.decOut || []).length || (q.appOut || []).length) {
-          var why = 'Spread "' + (sp.text || q.spread) + '": its ' + (WORDS_OP[q.op] || q.op) + ' request ' + ((q.decOut || []).length || q.decReview.length ? 'was decided two ways at once; a person who may decide settles it.' : 'was applied two ways at once; the recorder settles it.'), lw = loopWhy(map, sp.loopStep);
-          if (lw) H.all.push(why + ' (' + lw + ')'); else push(H.loops, sp.loopStep, why);
-        }
-      });
     }
+    /* A spread's requests, whether or not any spread has landed: decided (or applied) two ways is held like any to-do's work,
+       queued, landed or settling, until a record that saw them all; every participant of such a dispute stays in what the
+       loop's and the gate's approvals count, so settling it never restores an approval made before it. */
+    requestsOf(T).forEach(function (q) {
+      var sp = isSpreadOp(q.op) && (T.bySpread[q.spread] || (q.op === 'spread-add' ? { loopStep: q.loopStep, text: q.text } : null));
+      if (!sp) return;
+      (q.disputedIds || []).forEach(function (pid) { putLoop(sp.loopStep, pid); });
+      if (q.status === 'disputed' || (q.decOut || []).length || (q.appOut || []).length) {
+        var why = 'Spread "' + (sp.text || q.spread) + '": its ' + (WORDS_OP[q.op] || q.op) + ' request ' + ((q.decOut || []).length || q.decReview.length ? 'was decided two ways at once; a person who may decide settles it.' : 'was applied two ways at once; the recorder settles it.'), lw = loopWhy(map, sp.loopStep);
+        if (lw) H.all.push(why + ' (' + lw + ')'); else push(H.loops, sp.loopStep, why);
+      }
+    });
     if (!r.living) return H;
     var said = function (ids, cut) { var have = Object.create(null); (cut || []).forEach(function (c) { have[c] = true; }); return ids.filter(function (i) { return !have[i]; }); };
     map.phases.forEach(function (p) {

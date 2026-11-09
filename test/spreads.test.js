@@ -522,4 +522,25 @@ rule('SE: an exception settled for the current attempt resolves coverage even wh
   same([W.one().items[0].state, W.one().items[0].resolved], ['excepted', true]);
   same(W.mark().loops.each || [], []);
 });
+/* Review round 2 (TA): a spread's request decided two ways holds whether or not any spread has landed yet. */
+rule('TA: contrary decisions on a first, unapplied spread-add hold an approved loop, and settling them keeps it in review', () => {
+  const W = world([101]); W.kid(101, { cleared: true });
+  W.ask(W.r, { op: 'add', text: 'Plain', target: { phase: 'ship' } }, { person: 'person-morgan' }); W.land(W.r);
+  W.mark();
+  const V0 = W.loopView(), map = R.mapOf(W.r);
+  R.done(W.r, map, 'each', 'person-morgan', AT, { _loop: { ok: true, snapshot: LP.approval(V0.ledger, V0.rollup, { by: 'person-morgan', at: AT }) } });
+  W.mark();
+  assert.ok(!W.r._todos.stale.loop.each && R.answered(W.r, map.phases[0].steps[0]), 'set-up: approved');
+  const P = W.spreadAdd('Security sign-off', { tool: 'release-helper', version: '1.0', key: 'ta-1' });
+  const V = W.view(), C = T.consequenceOf(W.r, V.map, V.requests[P.id], V).fingerprint;
+  for (const [op, w] of [['accept', 'wa'], ['decline', 'wb']]) { const st = T.buildStatus({ kind: 'decision', proposal: P.id, run: { process: 'release-readiness', id: 'r-41' }, seen: [P.id], by: 'person-morgan', at: AT, op, consequence: C, writer: w, rev: rev(), app: '4.0.0' }); W.push(T.filed(st.name, st.file).record, st.name); }
+  same(W.view().requests[P.id].status, 'disputed', 'set-up: disputed');
+  same(W.view().spreads.length, 0, 'set-up: no spread landed');
+  has(W.mark().loops.each, /two ways/);
+  same(R.answered(W.r, map.phases[0].steps[0]), false);
+  W.decide(W.r, P.id, 'person-morgan', 'decline');
+  same(W.view().requests[P.id].status, 'declined');
+  W.mark();
+  assert.ok(W.r._todos.stale.loop.each, 'the approval made before the dispute stays in review');
+});
 run();
