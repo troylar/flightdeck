@@ -401,8 +401,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "ad564d56af6453db2f0afa49599552404b7a908bc00cf6a1ba8b5957a4fe12eb",
-      "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
+      "sha256": "de2faf18cb0bd7d4fd89dd057542b8cb0eec0d19e7671f72fbb3bfbb7c17bf9c",
+      "reviewed": "AY: the folder reader keeps a file's own _file/_bytes apart from the loader's and validates to-do and scope records as written; checked for direct writes and unconditional deletes (none)"
     },
     "src/ui/app.js": {
       "sha256": "9c5550fe9487b20b34cc4bc2f98ade5edab2079e6a40db67ccc1eabe609a398a",

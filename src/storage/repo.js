@@ -608,6 +608,23 @@ PF.repo = (function () {
   /* Each object read carries its file's size in UTF-8 bytes as _bytes (not enumerable, so it never travels with the record),
      for a reader whose limit is in bytes of the file as it is. */
   function sized(o, f) { try { Object.defineProperty(o, '_bytes', { value: f.size != null ? f.size : U.utf8Bytes(f.text), enumerable: false }); } catch (e) { /* frozen: no size */ } return o; }
+  /* The loader's own fields (_file, then _bytes) go on the object read; a file that already has either keeps what it wrote,
+     as _supplied (not enumerable), so a reader that checks every field (PF.todos.cleanFile) reads the file as written. */
+  var LOADER_KEYS = ['_file', '_bytes'];
+  function tagged(o, name, f) {
+    var sup = null;
+    LOADER_KEYS.forEach(function (k) { if (Object.prototype.hasOwnProperty.call(o, k)) { sup = sup || Object.create(null); sup[k] = o[k]; } });
+    if (sup) { try { Object.defineProperty(o, '_supplied', { value: sup, enumerable: false }); } catch (e) { /* frozen */ } }
+    o._file = name;
+    return sized(o, f);
+  }
+  /* A record as its file wrote it, with no prototype: the loader's fields left out, the file's own put back. */
+  function asWritten(p) {
+    var raw = Object.create(null), sup = p._supplied || null;
+    Object.keys(p).forEach(function (k) { if (LOADER_KEYS.indexOf(k) < 0) raw[k] = p[k]; });
+    if (sup) Object.keys(sup).forEach(function (k) { raw[k] = sup[k]; });
+    return raw;
+  }
   function loadJsonDir(fs, dir, ok, bad, only, torn, perFile) {
     return fs.list(dir).then(function (items) {
       return Promise.all(items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name) && (!only || only(i.name)); }).map(function (i) {
@@ -616,7 +633,7 @@ PF.repo = (function () {
           /* Listed but gone when read: it may be moving, so it's named like one still arriving, never just left out. */
           if (!f) { if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: 'was listed but was gone when read' }); return null; }
           var o = json(f.text);
-          if (o && typeof o === 'object' && ok(o)) { o._file = i.name; return sized(o, f); }
+          if (o && typeof o === 'object' && ok(o)) return tagged(o, i.name, f);
           /* parsed: it's JSON, just not this folder's kind of file (ignored, only named); else it may still be arriving. */
           if (torn) torn.push({ path: path, _file: i.name, parsed: o !== undefined, why: o === undefined ? 'isn\'t complete JSON' : 'isn\'t a file Flightdeck reads here, so it\'s ignored' });
           return null;
@@ -628,7 +645,7 @@ PF.repo = (function () {
           var o = json(f.text);
           if (o === undefined) { bad.push({ path: path, kind: 'malformed', why: 'isn\'t complete JSON (it may still be arriving)' }); if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: 'isn\'t complete JSON' }); return null; }
           if (!o || typeof o !== 'object' || Array.isArray(o) || !ok(o)) { bad.push({ path: path, kind: 'malformed', why: 'isn\'t a file this copy can read here' }); if (torn) torn.push({ path: path, _file: i.name, parsed: true, why: 'isn\'t a file Flightdeck reads here, so it\'s ignored' }); return null; }
-          o._file = i.name; return sized(o, f);
+          return tagged(o, i.name, f);
         }, function (e) { bad.push({ path: path, kind: errKind(e), why: why(e) }); if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: 'couldn\'t be read (' + why(e) + ')' }); return null; });
       }));
     }).then(function (x) { return x.filter(Boolean); });
@@ -2585,7 +2602,7 @@ PF.repo = (function () {
            read (newer, malformed) holds its run (or, when which run it is for can't be told, every living run). */
         if (PF.todos.claims(p)) {
           /* Copied into a map with no prototype, so a "__proto__" key in the file is a field the checks refuse, never the copy's prototype. */
-          var raw = Object.create(null); Object.keys(p).forEach(function (k) { if (k !== '_file') raw[k] = p[k]; });
+          var raw = asWritten(p);
           /* A record the checks can't even look at (a value that can't be turned into text) is one unread file, never a read
              that fails. */
           var tv; try { tv = PF.todos.cleanFile(raw, p._file, p._bytes); } catch (e) { tv = { ok: false, kind: 'malformed', why: 'is a to-do record that isn\'t in its format', needs: '' }; }
@@ -2595,7 +2612,7 @@ PF.repo = (function () {
         }
         /* A scope request or decision (3.0, PF.loop) goes to its own reader first and never reaches the plan reader. */
         if (PF.loop.isScope(p)) {
-          var sv = PF.loop.cleanFile(p, p._file), sp = 'proposals/' + p._file, sf = p.format === PF.loop.STATUS ? 'flightdeck-plan-status' : 'flightdeck-plan';
+          var sv = PF.loop.cleanFile(asWritten(p), p._file), sp = 'proposals/' + p._file, sf = p.format === PF.loop.STATUS ? 'flightdeck-plan-status' : 'flightdeck-plan';
           if (!sv.ok) { if (bad) bad.push({ path: sp, kind: sv.kind, why: sv.why }); refused.push(PF.envelope.refusal(sp, sf, sv)); scopesUnread.push({ file: p._file, why: sv.why, loop: PF.loop.loopOf(p) }); return; }
           sv.record._file = p._file; scopes.push(sv.record); return;
         }

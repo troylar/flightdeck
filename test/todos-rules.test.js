@@ -755,4 +755,17 @@ rule('A delegation is made by a person who may, for exact targets and ops this r
   assert.ok(/neither records/.test(T.grantOf(r, Object.assign({ subject: { tool: 'notes-bot' }, ops: ['add'], targets: [{ phase: 'draft' }], adds: 1 }, base, { by: 'person-casey' })).why));
 });
 
+rule('A to-do record that supplies the loader\'s own field names (_file, _bytes) is read as written: refused, never valid', async () => {
+  const { r } = newRun(), c = compound('ay1', add('Supplied', { phase: 'draft' }), 'person-avery', r);
+  const text = T.text(T.buildProposal({ kind: 'compound', run: RUN, id: c.id, by: 'person-avery', seen: [], at: AT, body: { op: 'add', text: 'Supplied', target: { phase: 'draft' }, placement: c.placement }, decision: c.decision, application: c.application }));
+  const ok = await PF.repo.readPlans(memFs({ ['proposals/' + c.id + '.json']: text }));
+  same([ok.todos.length, ok.todosUnread.length], [1, 0], 'set-up: the record as written reads');
+  for (const [k, v] of [['_file', 'elsewhere.json'], ['_bytes', 5], ['_file', c.id + '.json']]) {
+    const o = JSON.parse(text); o[k] = v;
+    const raw = Object.create(null); Object.keys(o).forEach((x) => { raw[x] = o[x]; });
+    assert.ok(!T.cleanFile(raw, c.id + '.json').ok, 'set-up: the validator refuses ' + k);
+    const d = await PF.repo.readPlans(memFs({ ['proposals/' + c.id + '.json']: JSON.stringify(o) }));
+    same([d.todos.length, d.todosUnread.map(u => u.file)], [0, [c.id + '.json']], k + ' supplied: refused as the validator refuses it');
+  }
+});
 run();

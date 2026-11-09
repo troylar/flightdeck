@@ -141,4 +141,19 @@ rule('In a folder, a to-do destination or origin on an international domain name
   assert.deepStrictEqual(res.refused, [], 'never refused for it');
   assert.deepStrictEqual(res.uncheckedLinks, [{ file: 'proposals/' + mv[0], linkUnchecked: '"to" "link": an international domain name; Flightdeck decides whether it reads' }]);
 });
+rule('Read through the folder reader (readPlans), a record that supplies _file or _bytes is refused by the app as by the checker', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const files = {}, names = [];
+  valid().forEach(([name, f], i) => { const o = JSON.parse(T.text(f)); o[i % 2 ? '_bytes' : '_file'] = i % 2 ? 5 : name; files['proposals/' + name] = JSON.stringify(o); names.push(name); });
+  const m = new PF.fs.MemoryFS('ay-' + Math.random(), null); Object.keys(files).forEach(p => { m.files[p] = { t: files[p], m: 1 }; });
+  const d = await PF.repo.readPlans(m);
+  const appRefused = JSON.parse(JSON.stringify(d.todosUnread.map(u => u.file).sort()));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-todo-ay-'));
+  fs.mkdirSync(path.join(root, 'proposals'));
+  Object.keys(files).forEach(p => fs.writeFileSync(path.join(root, p), files[p]));
+  const res = JSON.parse(cp.execFileSync(py, ['-I', path.join(DIR, 'check_folder.py'), root], { encoding: 'utf8' }));
+  assert.deepStrictEqual(appRefused, names.slice().sort(), 'the app refuses every one: ' + JSON.stringify([appRefused.length, names.length, d.todos.map(x => x._file)]));
+  assert.deepStrictEqual(res.refused.map(x => x.file.replace(/^proposals\//, '')).sort(), appRefused, 'and the checker the same ones');
+});
 run();
