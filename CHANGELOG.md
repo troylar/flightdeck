@@ -9,6 +9,7 @@ Living runs: to-dos a run takes on while it runs.
 ### New
 
 - **Add, check off, drop or move to-dos on the run screen** (Runs). Under the current phase, Add something to do says the gate it comes before. Check a to-do off, say why it won't be done, move or defer it, or reopen it. Each says Queued for the recorder or Waiting for approval, and shows Done only once the recorder's window applies it. Steps, items and to-dos are each counted on their own line. *Where:* A run's screen
+- **Decide to-do requests that need you** (Home). Home says how many to-do requests wait for your decision and opens exactly those, ten at a time. Accept or decline each; if what it would do changed since you saw it, it asks again. Delegate adding, checking off and reopening to a tool or a person, and end a delegation any time. *Where:* Home, a run's screen
 
 ### Improved
 

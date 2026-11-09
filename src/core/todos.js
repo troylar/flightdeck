@@ -776,7 +776,7 @@ PF.todos = (function () {
     if (r.ended) return { why: 'The run has ended, so it takes no new work.' };
     if (r._unrunnable) return { why: 'This run can only be read here.' };
     /* Any authority input that couldn't be read vouches for no one: while people.json is unread, nobody asks as a decider. */
-    var people = (o.unread || []).some(function (u) { return u && u.file === 'people.json'; }) ? null : o.people;
+    var people = peopleOf(o);
     var b = o.body || {}, by = o.by || {}, T = view(r, { records: o.records, unread: o.unread, people: people });
     if (OPS.indexOf(b.op) < 0) return { why: 'Say what to do: add, done, wont, move or reopen.' };
     var body = { op: b.op }, x = null;
@@ -820,12 +820,130 @@ PF.todos = (function () {
     if (fd.why) return { why: fd.why };
     /* The request as every window would read it next, with this one in the folder: its status is the preview's. */
     var V2 = view(r, { records: (o.records || []).concat([fd.record]), unread: o.unread, people: people }), q = V2.requests[f.id] || { status: 'held', why: 'It can\'t be read in order.' };
-    var placement = b.op === 'add' ? body.placement : x.placement, gate = placement ? gateTitle(map, placement.beforeGate) : '';
-    var rec = r.recorder && r.recorder.person || '', what = b.op === 'add' ? 'Add "' + body.text + '"' + (gate ? ' before ' + gate : '') : (b.op === 'done' ? 'Check off' : b.op === 'wont' ? 'Mark won\'t do' : b.op === 'move' ? 'Move' : 'Reopen') + ' "' + x.text + '"';
-    var also = (C.releases ? ' This releases work.' : '') + (C.reopens.length ? ' This sends ' + C.reopens.length + ' approval' + (C.reopens.length === 1 ? '' : 's') + ' back for review.' : '');
-    var then = q.status === 'queued' ? 'Queued for the recorder' + (rec ? ' (' + rec + ')' : '') + ': it is applied when their window is open.' : q.status === 'waiting' ? 'Waiting for approval: ' + q.why : WORDS[q.status] + (q.why ? ': ' + q.why : '.');
+    var placement = b.op === 'add' ? body.placement : x.placement, gate = placement ? gateTitle(map, placement.beforeGate) : '', rec = r.recorder && r.recorder.person || '';
     return { id: f.id, name: name, file: f, kind: f.kind, record: fd.record,
-      preview: { op: b.op, todo: full.todo, placement: placement || null, gate: gate, consequence: { reopens: C.reopens.slice(), releases: C.releases }, status: q.status, why: q.why || '', recorder: rec, words: what + '.' + also + ' ' + then } };
+      preview: { op: b.op, todo: full.todo, placement: placement || null, gate: gate, consequence: { reopens: C.reopens.slice(), releases: C.releases }, status: q.status, why: q.why || '', recorder: rec, words: whatWords(map, full, x, C) + ' ' + thenWords(r, q) } };
+  }
+  /* What a request would do, in words: the operation, the gate it comes before, and what it releases or sends back for review. */
+  function whatWords(map, q, x, C) {
+    var pl = q.op === 'add' ? q.placement : x && x.placement, gate = pl ? gateTitle(map, pl.beforeGate) : '';
+    var what = q.op === 'add' ? 'Add "' + q.text + '"' + (gate ? ' before ' + gate : '') : (q.op === 'done' ? 'Check off' : q.op === 'wont' ? 'Mark won\'t do' : q.op === 'move' ? 'Move' : 'Reopen') + ' "' + (x ? x.text : q.todo) + '"' + (q.op === 'move' && q.to ? ' to ' + (q.to.ticket || q.to.run || q.to.link) : '');
+    return what + '.' + (C.releases ? ' This releases work.' : '') + (C.reopens.length ? ' This sends ' + C.reopens.length + ' approval' + (C.reopens.length === 1 ? '' : 's') + ' back for review.' : '');
+  }
+  function thenWords(r, q) {
+    var rec = r.recorder && r.recorder.person || '';
+    return q.status === 'queued' ? 'Queued for the recorder' + (rec ? ' (' + rec + ')' : '') + ': it is applied when their window is open.' : q.status === 'waiting' ? 'Waiting for approval: ' + q.why : WORDS[q.status] + (q.why ? ': ' + q.why : '.');
+  }
+  /* people.json as asking and deciding may use it: none while it can't be read (an unread entry names it), so no one vouches. */
+  function peopleOf(o) { return (o.unread || []).some(function (u) { return u && u.file === 'people.json'; }) ? null : o.people; }
+  function unreadFor(o, r) { return (o.unread || []).filter(function (u) { return u && (u.run ? u.run.process === r.process && u.run.id === r.id : true); }); }
+  /* ---- The inbox (4.0 slice 2): what needs a person. Every request on a run they may decide (PF.todos.personWhy) that waits
+     for a decision, or that two decisions disagree on (settled only by a decision that saw every party), once each, with what
+     it would do now. A run with a to-do record that can't be read, is held or breaks the chain asks nothing, and nor does an
+     ended run or any run while people.json can't be read: nothing there can be decided safely. The count shown and the list
+     opened are both this list. o: { records, unread, people, me }. ---- */
+  function inbox(runs, o) {
+    o = o || {};
+    var people = peopleOf(o), out = [], had = Object.create(null);
+    if (!o.me || !people) return out;
+    (runs || []).forEach(function (r) {
+      if (!r || !r.steps || r._unrunnable || r.ended || r.practice) return;
+      var mine = recordsFor(o.records, r);
+      if (!mine.length || personWhy(r, o.me, people)) return;
+      var T = view(r, { records: mine, unread: unreadFor(o, r), people: people });
+      if (!T.map || T.unread.length || T.held.length || T.broken) return;
+      requestsOf(T).forEach(function (q) {
+        if (q.landed || q.unordered) return;
+        var dispute = q.status === 'disputed' && (q.decOut || []).length > 0;
+        if (q.status !== 'waiting' && !dispute) return;
+        var k = r.process + '/' + r.id + '\n' + q.id;
+        if (had[k]) return; had[k] = true;
+        var x = q.todo ? T.byTodo[q.todo] : null, C = consequenceOf(r, T.map, q, T);
+        out.push({ run: { process: r.process, id: r.id }, title: String(r.title || r.process), id: q.id, kind: q.kind, op: q.op, todo: q.todo || '', text: q.op === 'add' ? q.text : x ? x.text : '', by: q.by, at: q.at, reason: q.reason || '', to: q.to || null,
+          status: q.status, why: q.why || '', dispute: dispute, consequence: { reopens: C.reopens.slice(), releases: C.releases, fingerprint: C.fingerprint }, words: whatWords(T.map, q, x, C) });
+      });
+    });
+    return out;
+  }
+  /* The active delegations on runs a person may decide, which they may revoke: { run, title, id, subject, ops, targets, adds,
+     by }. Same rules as the inbox: nothing while people.json can't be read, nothing on an ended run. */
+  function delegations(runs, o) {
+    o = o || {};
+    var people = peopleOf(o), out = [];
+    if (!o.me || !people) return out;
+    (runs || []).forEach(function (r) {
+      if (!r || !r.steps || r._unrunnable || r.ended || r.practice) return;
+      var mine = recordsFor(o.records, r);
+      if (!mine.length || personWhy(r, o.me, people)) return;
+      var T = view(r, { records: mine, unread: unreadFor(o, r), people: people });
+      Object.keys(T.grants).sort(cmpStr).forEach(function (id) {
+        var g = T.grants[id];
+        if (g.active) out.push({ run: { process: r.process, id: r.id }, title: String(r.title || r.process), id: id, subject: g.subject, ops: g.ops.slice(), targets: g.targets.slice(), adds: g.limits.adds, by: g.by });
+      });
+    });
+    return out;
+  }
+  /* A person's decision on one request in their inbox: { name, file, record, words } or { why } (renewed: true when what it
+     would do changed since they saw it, o.shown: the consequence fingerprint shown to them; an acceptance binds exactly that).
+     A decision sees the request and every decision on it no later one saw, so one made on a dispute settles it. o: { request,
+     op, by, shown, reason, records, unread, people, at, app, writer, rev }. Nothing is written here. */
+  function decide(r, o) {
+    o = o || {};
+    var people = peopleOf(o);
+    if (!people) return { why: 'people.json can\'t be read, so no one\'s authority can be checked. Nothing was decided.' };
+    if (r.ended) return { why: 'The run has ended, so nothing on it is decided.' };
+    var pw = personWhy(r, o.by, people);
+    if (pw) return { why: pw + ', so they can\'t decide this.' };
+    var it = inbox([r], { records: o.records, unread: o.unread, people: people, me: o.by }).filter(function (x) { return x.id === o.request; })[0];
+    if (!it) return { why: 'That request isn\'t waiting for a decision on this run (it may be decided, applied or held already). Nothing was decided.' };
+    if (DOPS.indexOf(o.op) < 0) return { why: 'Say accept or decline.' };
+    if (o.op === 'accept' && o.shown !== it.consequence.fingerprint) return { renewed: true, item: it, why: 'What it would do changed since you saw it: ' + it.words + ' Look again, then decide.' };
+    var reason = o.reason == null ? '' : String(o.reason).trim();
+    if (reason.length > LIMITS.reason) return { why: 'A reason is at most ' + LIMITS.reason + ' characters (this is ' + reason.length + ').' };
+    var T = view(r, { records: recordsFor(o.records, r), unread: unreadFor(o, r), people: people }), q = T.requests[o.request];
+    var s = buildStatus({ kind: 'decision', proposal: q.id, run: { process: r.process, id: r.id }, seen: seenFor(T, [q.id], [q.id], ['dec', 'raw']).seen, by: o.by, at: o.at, op: o.op, consequence: it.consequence.fingerprint, reason: reason, writer: o.writer, rev: o.rev, app: o.app });
+    var fd = filed(s.name, s.file);
+    if (fd.why) return { why: fd.why };
+    var after = view(r, { records: recordsFor(o.records, r).concat([fd.record]), unread: unreadFor(o, r), people: people }).requests[q.id];
+    return { name: s.name, file: s.file, record: fd.record, item: it, words: (o.op === 'accept' ? 'Accepted. ' : 'Declined. ') + it.words + ' ' + thenWords(r, after || q) };
+  }
+  /* Ending a delegation (a revoke): only a person who may decide, only an active grant; what it covered and hasn't landed waits
+     for a person's approval again. o: { grant, by, key, reason, records, unread, people, at, app }. */
+  function revokeOf(r, o) {
+    o = o || {};
+    var people = peopleOf(o);
+    if (!people) return { why: 'people.json can\'t be read, so no one\'s authority can be checked. Nothing was revoked.' };
+    var pw = personWhy(r, o.by, people);
+    if (pw) return { why: pw + ', so they can\'t revoke a delegation here.' };
+    if (!KEY.test(String(o.key || ''))) return { why: 'A revoke needs its retry key.' };
+    var T = view(r, { records: recordsFor(o.records, r), unread: unreadFor(o, r), people: people }), g = T.grants[o.grant];
+    if (!g || !g.active) return { why: 'That isn\'t an active delegation on this run.' };
+    var f = buildGrant({ kind: 'revoke', id: idFor('flightdeck', o.key), run: { process: r.process, id: r.id }, seen: seenFor(T, [g.id], [], []).seen, by: o.by, at: o.at, grant: g.id, reason: o.reason ? String(o.reason).trim() : '', app: o.app });
+    var fd = filed(f.id + '.json', f);
+    return fd.why ? { why: fd.why } : { id: f.id, name: f.id + '.json', file: f, record: fd.record, words: 'Delegation ended. What it covered and hasn\'t been applied waits for a person\'s approval.' };
+  }
+  /* A delegation (a grant): a person who may decide lets a tool or a person add, check off or reopen to-dos on exact targets of
+     this run, up to a number of additions; never Won't do, Moved or a gate. o: { subject: { tool } | { person }, ops, targets,
+     adds, by, key, records, unread, people, at, app }. */
+  function grantOf(r, o) {
+    o = o || {};
+    var people = peopleOf(o), map = null; try { map = PF.run.mapOf(r); } catch (e) { map = null; }
+    if (!map) return { why: 'This run\'s checklist can\'t be read.' };
+    if (r.ended) return { why: 'The run has ended, so nothing is delegated on it.' };
+    if (!people) return { why: 'people.json can\'t be read, so no one\'s authority can be checked. Nothing was delegated.' };
+    var pw = personWhy(r, o.by, people);
+    if (pw) return { why: pw + ', so they can\'t delegate here.' };
+    var ops = Array.isArray(o.ops) ? o.ops : [], targets = Array.isArray(o.targets) ? o.targets : [];
+    if (!ops.length || ops.some(function (x) { return ['add', 'done', 'reopen'].indexOf(x) < 0; })) return { why: 'A delegation covers add, done or reopen only; dropping or moving work always needs a person.' };
+    if (!targets.length || targets.length > LIMITS.targets) return { why: 'Name 1 to ' + LIMITS.targets + ' places it covers.' };
+    for (var i = 0; i < targets.length; i++) { var P = placeOf(map, targets[i]); if (P.why) return { why: 'It can\'t cover that: ' + P.why + '.' }; }
+    var adds = o.adds == null ? 0 : o.adds;
+    if (typeof adds !== 'number' || adds % 1 || adds < 0 || adds > LIMITS.grantAdds) return { why: 'Additions are a whole number from 0 to ' + LIMITS.grantAdds + '.' };
+    if (!KEY.test(String(o.key || ''))) return { why: 'A delegation needs its retry key.' };
+    var T = view(r, { records: recordsFor(o.records, r), unread: unreadFor(o, r), people: people });
+    var f = buildGrant({ kind: 'grant', id: idFor('flightdeck', o.key), run: { process: r.process, id: r.id }, seen: seenFor(T, [], [], []).seen, by: o.by, at: o.at, subject: o.subject, ops: ops, targets: targets, limits: { adds: adds }, app: o.app });
+    var fd = filed(f.id + '.json', f);
+    return fd.why ? { why: fd.why } : { id: f.id, name: f.id + '.json', file: f, record: fd.record, words: 'Delegated: ' + (o.subject && (o.subject.tool || o.subject.person)) + ' may ' + ops.join(', ') + ' on ' + targets.length + ' place' + (targets.length === 1 ? '' : 's') + (ops.indexOf('add') >= 0 ? ', up to ' + adds + ' addition' + (adds === 1 ? '' : 's') : '') + '. You can revoke it any time.' };
   }
   /* The first queued request of a run, in causal order: one lands at a time, so each is checked against the work as the one
      before it left it. */
@@ -835,5 +953,5 @@ PF.todos = (function () {
     targetKey: targetKey, placeOf: placeOf, placementWhy: placementWhy, placementFor: placementFor, effectOf: effectOf, fingerprint: fp, text: text,
     buildProposal: buildProposal, buildGrant: buildGrant, buildStatus: buildStatus, cleanFile: cleanFile, fileWhy: fileWhy, filed: filed, runOf: runOf, recordsFor: recordsFor,
     reduce: reduce, seenFor: seenFor, requestsOf: requestsOf,
-    personWhy: personWhy, mayFor: mayFor, consequenceOf: consequenceOf, authorityFor: authorityFor, view: view, holds: holds, markHolds: markHolds, cutFor: cutFor, cleanCut: cleanCut, cleanLiving: cleanLiving, applyPlan: applyPlan, nextQueued: nextQueued, keepHead: keepHead, prepare: prepare, gateTitle: gateTitle, toOf: toOf };
+    personWhy: personWhy, mayFor: mayFor, consequenceOf: consequenceOf, authorityFor: authorityFor, view: view, holds: holds, markHolds: markHolds, cutFor: cutFor, cleanCut: cleanCut, cleanLiving: cleanLiving, applyPlan: applyPlan, nextQueued: nextQueued, keepHead: keepHead, prepare: prepare, gateTitle: gateTitle, toOf: toOf, inbox: inbox, delegations: delegations, decide: decide, revokeOf: revokeOf, grantOf: grantOf, whatWords: whatWords };
 })();

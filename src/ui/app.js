@@ -165,6 +165,11 @@
     loopMem: function () { return loopMem(); },
     /* A run's to-dos as every window reads them (PF.todos.view), worked out once per read of the folder and change of the run. */
     todoView: function (r) { return todoViewFor(r); },
+    /* What needs this person on every run (PF.todos.inbox), and the delegations they may end: worked out once per draw. */
+    todoInbox: function () { return tdInboxNow().items; },
+    todoGrants: function () { return tdInboxNow().grants; },
+    /* Whether this person may decide on a run's to-dos (and so delegate them): never while people.json can't be read. */
+    todoMay: function (r) { return !!state.me && !(data.todosUnread || []).some(function (u) { return u && u.file === 'people.json'; }) && !PF.todos.personWhy(r, state.me, data.people); },
     runOrigin: function (r) { return runOrigin(r); },
     /* A form's (Start a run, Plan a run, Start a test run, Review the plan): whichever screen opened it, else its checklist's page. */
     formOrigin: function (pid) { return originOf(function (loc) { return loc.view !== 'plan' && !loc.sub; }, procFind(pid) ? { view: 'process', process: pid } : { view: 'processes' }); },
@@ -2093,7 +2098,7 @@
     dropBatchRender();
     repHarvest();
     corrHarvest();
-    procCache = null; pplBy = { list: null, len: -1, by: null }; pplSorted = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null; tdMemo = null;
+    procCache = null; pplBy = { list: null, len: -1, by: null }; pplSorted = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null; tdMemo = null; tdBox = null;
     pruneUnapplied();
     var keep = {}, ae = document.activeElement, focusKey = null;
     /* What a person typed or ticked survives a redraw of the same thing: the same screen, run, step and open form. Moving to
@@ -3322,6 +3327,35 @@
       lastAll = -Infinity;
       render();
     }, function (err) { endBusy(); if (sg !== gen) return; say('Couldn\'t save the request: ' + (err && err.message || err) + ' It may or may not have been saved; asking again is the same request.', 'bad'); render(); });
+  }
+  var tdBox = null;
+  function tdInboxNow() {
+    if (tdBox) return tdBox;
+    var o = { records: data.todos || [], unread: data.todosUnread || [], people: data.people, me: state.me };
+    tdBox = { items: [], grants: [] };
+    try { tdBox = { items: PF.todos.inbox(data.runs || [], o), grants: PF.todos.delegations(data.runs || [], o) }; } catch (e) { tdBox = { items: [], grants: [] }; }
+    return tdBox;
+  }
+  /* Writes one decision, revoke or grant the person made in a dialog: under the run guard taken at the click, so a folder,
+     person, pause, end or recorder change before the write writes nothing. What happened is said in the dialog. */
+  function tdWrite(r, made, words) {
+    var mem = loopMem(), cx = loopGuard({ run: r.process + '/' + r.id }), endBusy = busyStart(), sg = gen;
+    return repo.saveScope(cx.fs, made.name, made.file, { still: function () { return guardOk(cx); } }).then(function (res) {
+      endBusy(); if (sg !== gen) return false;
+      if (res && res.dropped) { mem.tdSaid = 'Nothing was written: the folder, the person or the run changed before it was.'; render(); return false; }
+      if (res && res.conflict && res.theirs !== PF.todos.text(made.file)) { mem.tdSaid = 'A different record is already saved under that name. Nothing was written; read the folder again.'; render(); return false; }
+      var rec = made.record; rec._file = made.name;
+      if (!(data.todos || []).some(function (x) { return x.id === rec.id; })) data.todos = (data.todos || []).concat([rec]);
+      mem.tdSaid = words; lastAll = -Infinity; render();
+      return true;
+    }, function (err) { endBusy(); if (sg !== gen) return false; mem.tdSaid = 'Couldn\'t save it: ' + (err && err.message || err) + ' It may or may not have been saved; read the folder again before deciding again.'; render(); return false; });
+  }
+  function tdDecide(key, id, op, shown, reason) {
+    var r = findRun(key), mem = loopMem();
+    if (!r || !state.me) return;
+    var made = PF.todos.decide(r, { request: id, op: op, by: state.me, shown: shown, reason: reason, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION, writer: 'w' + loopHex(10), rev: loopHex(8) });
+    if (made.why) { mem.tdSaid = made.why; render(); return; }
+    tdWrite(r, made, made.words).then(function (ok) { if (ok) { mem.tdDec = null; tdClear(['td-dec-why']); render(); } });
   }
   function tdClear(ids) { ids.forEach(function (id) { var el = document.getElementById(id); if (el) el.value = ''; }); }
   /* The current phase, where Add something to do sits (views/run.js todoBlock): the first whose gate isn't passed or waived,
@@ -7932,6 +7966,28 @@
       var r = ctx.run(); if (!r) return;
       var phase = id || tdPhase(r), text = val('td-add');
       todoAsk({ op: 'add', text: text, target: { phase: phase } }, function () { tdClear(['td-add']); state.focus = '#td-add'; });
+    },
+    'td-inbox': function (id) { var mem = loopMem(); mem.tdInboxRun = id || ''; mem.tdSaid = ''; mem.tdDec = null; state.overlayFocus = '#tdi-h'; openOverlay({ tdInbox: true, html: function () { return V.todoInbox(ctx); }, held: function () { return !!loopMem().tdDec && !!String(val('td-dec-why') || '').trim(); } }); },
+    'td-accept': function (id, b) { tdDecide(b.dataset.run, id, 'accept', b.dataset.fp, ''); },
+    'td-decline-pick': function (id, b) { loopMem().tdDec = { run: b.dataset.run, id: id }; state.focus = '#td-dec-why'; render(); },
+    'td-decline-cancel': function () { loopMem().tdDec = null; tdClear(['td-dec-why']); render(); },
+    'td-decline': function (id, b) { var d = loopMem().tdDec, run = (b && b.dataset && b.dataset.run) || (d && d.run); if (!run) return; tdDecide(run, id, 'decline', '', val('td-dec-why')); },
+    'td-revoke': function (id, b) {
+      var r = findRun(b.dataset.run); if (!r || !state.me) return;
+      var made = PF.todos.revokeOf(r, { grant: id, by: state.me, key: 'ui-' + loopHex(20), records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION });
+      if (made.why) { loopMem().tdSaid = made.why; render(); return; }
+      tdWrite(r, made, made.words);
+    },
+    'td-delegate': function () { var r = ctx.run(); if (!r) return; var mem = loopMem(); mem.tdDelegate = { run: r.process + '/' + r.id, phase: tdPhase(r) }; mem.tdSaid = ''; state.overlayFocus = '#tdg-h'; openOverlay({ tdDelegate: true, html: function () { return V.todoDelegate(ctx); } }); },
+    'td-delegate-save': function () {
+      var mem = loopMem(), dg = mem.tdDelegate, r = dg && findRun(dg.run); if (!r || !state.me) return;
+      var who = String(val('tdg-who') || '').trim(), ppl = PF.people.listOf(data.people).some(function (p) { return p && p.id === who; });
+      var ops = ['add', 'done', 'reopen'].filter(function (k) { var el = document.getElementById('tdg-' + k); return !!(el && el.checked); });
+      var n = String(val('tdg-adds') || '').trim(), adds = /^\d{1,3}$/.test(n) ? Number(n) : -1;
+      if (!who) { mem.tdSaid = 'Say who: a tool\'s name, or a person\'s ID from people.json.'; render(); return; }
+      var made = PF.todos.grantOf(r, { subject: ppl ? { person: who } : { tool: who }, ops: ops, targets: [{ phase: dg.phase }], adds: adds, by: state.me, key: 'ui-' + loopHex(20), records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION });
+      if (made.why) { mem.tdSaid = made.why + ' Nothing was written.'; render(); return; }
+      tdWrite(r, made, made.words);
     },
     'td-done': function (id) { todoAsk({ op: 'done', todo: id }); },
     'td-reopen': function (id) { todoAsk({ op: 'reopen', todo: id }); },

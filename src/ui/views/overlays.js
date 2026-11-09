@@ -321,4 +321,51 @@
   V.historyDrawer = historyDrawer;
   V.linkConfirm = linkConfirm;
   V.search = search; V.releases = releases; V.textPreview = textPreview; V.semverCmp = semverCmp; V.help = help; V.tabOnlyHelp = tabOnlyHelp; V.lightbox = lightbox; V.childStart = childStart; V.childVersionWords = childVersionWords;
+
+  /* ---------- Living runs (4.0 slice 2): to-do requests that need you, and delegations ----------
+     Exactly the list Home and the run screen count (PF.todos.inbox), once each, 10 at a time. Accept carries the
+     consequence shown with it (data-fp): when what it would do changed since, nothing is written and the request is shown
+     again as it is now, for consent again. Decline takes an optional reason. Delegations on runs you may decide can be
+     revoked here; what a revoked one covered and hasn't been applied waits for a person again. Paging, the open decline and
+     what was said belong to this folder (ctx.loopMem). */
+  function tdWho(ctx, by) { return !by ? '' : by.tool ? by.tool + ' (a tool)' : nameOf(ctx, by.person); }
+  function todoInbox(ctx) {
+    var mem = ctx.loopMem(), only = mem.tdInboxRun || '', all = ctx.todoInbox ? ctx.todoInbox() : [];
+    var items = only ? all.filter(function (x) { return x.run.process + '/' + x.run.id === only; }) : all;
+    var gs = (ctx.todoGrants ? ctx.todoGrants() : []).filter(function (g) { return !only || g.run.process + '/' + g.run.id === only; });
+    var dec = mem.tdDec, rows = items.map(function (x) { return { x: x, key: x.run.process + '/' + x.run.id + '|' + x.id }; });
+    var h = '<div class="overlay" data-act="close-overlay"><div class="help tdi" role="dialog" aria-modal="true" aria-labelledby="tdi-h"><h2 id="tdi-h" tabindex="-1">To-do requests that need you</h2>';
+    h += '<p class="small">' + (items.length ? items.length + ' request' + (items.length === 1 ? '' : 's') + ' wait' + (items.length === 1 ? 's' : '') + ' for your decision' + (only ? ' on this run' : '') + '. Accepting queues it for the run\'s recorder; their window applies it.' : 'Nothing waits for your decision' + (only ? ' on this run' : '') + '.') + '</p>';
+    if (mem.tdSaid) h += '<p class="small" role="status">' + esc(mem.tdSaid) + '</p>';
+    if (rows.length) h += K.list(ctx.state, 'td-inbox:' + mem.g, rows, { page: 10, keyOf: function (y) { return y.key; }, focusOf: function (k) { return '#tdi-' + K.domKey(k); }, draw: function (shown) {
+      return '<ul class="todos">' + shown.map(function (y) {
+        var x = y.x, rk = x.run.process + '/' + x.run.id, open = dec && dec.run === rk && dec.id === x.id;
+        var b = '<li class="todo" id="tdi-' + K.domKey(y.key) + '" tabindex="-1"><div><b>' + esc(x.title) + '</b>: ' + esc(x.words) +
+          '<div class="small">Asked by ' + esc(tdWho(ctx, x.by)) + (x.reason ? ' · ' + esc(x.reason) : '') + (x.dispute ? ' · <b>Decided two ways at once</b>: your decision settles it.' : x.why ? ' · ' + esc(x.why) : '') + '</div></div>';
+        if (open) b += '<div class="td-form"><label class="small" for="td-dec-why">Why decline it (optional)</label><input id="td-dec-why" class="rw-in" maxlength="300" data-enter="td-decline" data-id="' + esc(x.id) + '" autocomplete="off">' +
+          '<span class="row"><button type="button" class="btn" data-act="td-decline" data-id="' + esc(x.id) + '" data-run="' + esc(rk) + '">Decline</button><button type="button" class="mini" data-act="td-decline-cancel">Cancel</button></span></div>';
+        else b += '<span class="row"><button type="button" class="btn go" data-act="td-accept" data-id="' + esc(x.id) + '" data-run="' + esc(rk) + '" data-fp="' + esc(x.consequence.fingerprint) + '">Accept</button><button type="button" class="mini" data-act="td-decline-pick" data-id="' + esc(x.id) + '" data-run="' + esc(rk) + '">Decline…</button></span>';
+        return b + '</li>';
+      }).join('') + '</ul>';
+    } });
+    if (gs.length) h += '<h3>Delegations you can end</h3><ul class="todos">' + gs.map(function (g) {
+      return '<li class="todo"><div><b>' + esc(g.title) + '</b>: ' + esc(tdWho(ctx, g.subject)) + ' may ' + esc(g.ops.join(', ')) + ' on ' + g.targets.length + ' place' + (g.targets.length === 1 ? '' : 's') + (g.ops.indexOf('add') >= 0 ? ', up to ' + g.adds + ' addition' + (g.adds === 1 ? '' : 's') : '') + '</div>' +
+        '<button type="button" class="mini" data-act="td-revoke" data-id="' + esc(g.id) + '" data-run="' + esc(g.run.process + '/' + g.run.id) + '">Revoke</button></li>';
+    }).join('') + '</ul>';
+    return h + '<div class="row"><button type="button" class="mini" data-act="close-overlay">Close</button></div></div></div>';
+  }
+  /* Delegate on the open run: a tool or a person may add, check off or reopen to-dos in the current phase. Never Won't do,
+     Moved or a gate (PF.todos.grantOf). */
+  function todoDelegate(ctx) {
+    var r = ctx.run(), mem = ctx.loopMem(), ph = mem.tdDelegate && mem.tdDelegate.phase, map = r ? R.mapOf(r) : null, p = map ? map.phases.filter(function (x) { return x.id === ph; })[0] : null;
+    var h = '<div class="overlay" data-act="close-overlay"><div class="help tdi" role="dialog" aria-modal="true" aria-labelledby="tdg-h"><h2 id="tdg-h" tabindex="-1">Delegate to-dos' + (p ? ' in ' + esc(p.title) : '') + '</h2>';
+    if (mem.tdSaid) h += '<p class="small" role="status">' + esc(mem.tdSaid) + '</p>';
+    h += '<p class="small">A tool or a person may then add, check off or reopen to-dos here without asking each time. Dropping or moving work, and every gate, stay with people. You can revoke it from To-do requests.</p>' +
+      '<label for="tdg-who">Who: a tool\'s name, or a person\'s ID from people.json</label><input id="tdg-who" class="rw-in" maxlength="80" autocomplete="off">' +
+      '<fieldset><legend class="small">May</legend>' + [['add', 'Add'], ['done', 'Check off'], ['reopen', 'Reopen']].map(function (o) { return '<label class="check-label small"><input type="checkbox" id="tdg-' + o[0] + '"' + (o[0] === 'add' ? ' checked' : '') + '> ' + o[1] + '</label>'; }).join('') + '</fieldset>' +
+      '<label for="tdg-adds">At most this many additions</label><input id="tdg-adds" class="rw-in" type="number" min="0" max="500" value="10">' +
+      '<div class="row"><button type="button" class="btn" data-act="td-delegate-save">Delegate</button><button type="button" class="mini" data-act="close-overlay">Cancel</button></div></div></div>';
+    return h;
+  }
+  V.todoInbox = todoInbox; V.todoDelegate = todoDelegate;
 })();

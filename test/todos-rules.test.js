@@ -649,4 +649,83 @@ rule('While people.json can\'t be read, asking vouches for no one: the request w
   same([a.kind, a.preview.status], ['proposal', 'waiting']);
 });
 
+/* ---------- The inbox (slice 2): what needs a person, and deciding it ---------- */
+const inboxOf = (runs, recs, me, o) => T.inbox(runs, Object.assign({ records: recs, people: PEOPLE, me }, o || {}));
+const decideNow = (r, recs, id, op, by, shown, o) => T.decide(r, Object.assign({ request: id, op, by, shown, records: recs, people: PEOPLE, at: AT, app: '4.0.0', writer: 'w1', rev: rev() }, o || {}));
+rule('The inbox lists exactly the distinct requests a person may decide: waiting ones and decisions made two ways, never queued or applied ones', () => {
+  const { r } = newRun();
+  const w1 = prop('i1', add('First', { phase: 'draft' }), [], 'person-casey'), w2 = prop('i2', add('Second', { phase: 'review' }), [], 'person-casey');
+  const q3 = prop('i3', add('Third', { phase: 'draft' }), [], 'person-casey'), d3 = decide(q3, 'accept', 'person-avery', T.consequenceOf(r, R.mapOf(r), q3, V(r, [q3])).fingerprint);
+  const q4 = prop('i4', add('Fourth', { phase: 'draft' }), [], 'person-casey'), C4 = T.consequenceOf(r, R.mapOf(r), q4, V(r, [q4])).fingerprint;
+  const a4 = decide(q4, 'accept', 'person-avery', C4), b4 = decide(q4, 'decline', 'person-blake', C4);
+  const recs = [w1, w2, q3, d3, q4, a4, b4];
+  const box = inboxOf([r], recs, 'person-avery');
+  same(box.map(x => x.id).sort(), [w1.id, w2.id, q4.id].sort());
+  same(box.filter(x => x.id === q4.id)[0].dispute, true);
+  assert.ok(box.every(x => typeof x.words === 'string' && x.consequence && x.consequence.fingerprint), 'each says what it would do');
+  same(inboxOf([r], recs, 'person-casey'), [], 'someone who may not decide is asked nothing');
+  same(inboxOf([r], recs, 'person-avery', { unread: [{ file: 'people.json', why: 'x', run: null }] }), [], 'people.json unread: no one may decide');
+  same(inboxOf([r], recs, 'person-avery', { unread: [{ file: 'req-x.json', why: 'x', run: RUN }] }), [], 'a run with a record that can\'t be read: nothing there is decided');
+  r.ended = { by: 'person-avery', at: AT, outcome: 'abandoned' };
+  same(inboxOf([r], recs, 'person-avery'), [], 'an ended run asks nothing');
+});
+rule('Deciding binds what was shown: a consequence that changed since needs consent again, and nothing is built', () => {
+  const { r } = newRun(), map = R.mapOf(r);
+  const q = prop('j1', add('Late', { phase: 'draft' }), [], 'person-casey'), shown = T.consequenceOf(r, map, q, V(r, [q])).fingerprint;
+  R.done(r, map, 'write', 'person-avery', AT); T.markHolds([r], { records: [], people: PEOPLE }); R.pass(r, map, 0, 'person-avery', AT);
+  const no = decideNow(r, [q], q.id, 'accept', 'person-avery', shown);
+  assert.ok(no.renewed && /changed since you saw it/.test(no.why) && /sends 1 approval back for review/.test(no.why), no.why);
+  assert.ok(!no.file);
+  const now = T.inbox([r], { records: [q], people: PEOPLE, me: 'person-avery' })[0].consequence.fingerprint;
+  const ok = decideNow(r, [q], q.id, 'accept', 'person-avery', now);
+  assert.ok(!ok.why, ok.why);
+  const d = clean(ok.file, ok.name);
+  same([d.kind, d.op, d.by.person, d.consequence, d.seen.indexOf(q.id) >= 0], ['decision', 'accept', 'person-avery', now, true]);
+  same(V(r, [q, d]).requests[q.id].status, 'queued');
+  assert.ok(/Queued for the recorder/.test(ok.words), ok.words);
+});
+rule('Deciding refuses whoever may not, a request that isn\'t waiting, and an unknown op; a decline needs no reason but keeps one', () => {
+  const { r } = newRun(), map = R.mapOf(r), q = prop('k1', add('X', { phase: 'draft' }), [], 'person-casey'), C = T.consequenceOf(r, map, q, V(r, [q])).fingerprint;
+  assert.ok(/neither records/.test(decideNow(r, [q], q.id, 'accept', 'person-casey', C).why));
+  assert.ok(/isn't waiting/.test(decideNow(r, [q], 'req-flightdeck-000000000000000000000000', 'accept', 'person-avery', C).why));
+  assert.ok(/accept or decline/.test(decideNow(r, [q], q.id, 'maybe', 'person-avery', C).why));
+  assert.ok(/people.json/.test(decideNow(r, [q], q.id, 'accept', 'person-avery', C, { unread: [{ file: 'people.json', why: 'x', run: null }] }).why));
+  const dn = decideNow(r, [q], q.id, 'decline', 'person-avery', C, { reason: 'Not for this run' });
+  const d = clean(dn.file, dn.name);
+  same([d.op, d.reason], ['decline', 'Not for this run']);
+  same(V(r, [q, d]).requests[q.id].status, 'declined');
+  assert.ok(/at most 300/.test(decideNow(r, [q], q.id, 'decline', 'person-avery', C, { reason: 'x'.repeat(301) }).why));
+});
+rule('A decision made two ways is settled by one that saw both', () => {
+  const { r } = newRun(), map = R.mapOf(r), q = prop('m1', add('Both', { phase: 'draft' }), [], 'person-casey'), C = T.consequenceOf(r, map, q, V(r, [q])).fingerprint;
+  const a = decide(q, 'accept', 'person-avery', C), b = decide(q, 'decline', 'person-blake', C), recs = [q, a, b];
+  same(V(r, recs).requests[q.id].status, 'disputed');
+  const s = decideNow(r, recs, q.id, 'accept', 'person-avery', C), d = clean(s.file, s.name);
+  assert.ok(d.seen.indexOf(a.id) >= 0 && d.seen.indexOf(b.id) >= 0, JSON.stringify(d.seen));
+  same(V(r, recs.concat([d])).requests[q.id].status, 'queued');
+});
+rule('Revoking a delegation while its request is queued sends the request back to waiting; only a person who may revokes', () => {
+  const { r } = newRun();
+  const g = grant('n1', ['add'], [{ phase: 'draft' }], 5), q = prop('n2', add('By the bot', { phase: 'draft' }), [g.id]);
+  same(V(r, [g, q]).requests[q.id].status, 'queued');
+  const no = T.revokeOf(r, { grant: g.id, by: 'person-casey', key: 'rv-1', records: [g, q], people: PEOPLE, at: AT, app: '4.0.0' });
+  assert.ok(/neither records/.test(no.why), no.why);
+  const x = T.revokeOf(r, { grant: g.id, by: 'person-avery', key: 'rv-1', records: [g, q], people: PEOPLE, at: AT, app: '4.0.0' });
+  assert.ok(!x.why, x.why);
+  const rv = clean(x.file);
+  same([rv.kind, rv.grant], ['revoke', g.id]);
+  same(V(r, [g, q, rv]).requests[q.id].status, 'waiting');
+  assert.ok(/isn't an active delegation/.test(T.revokeOf(r, { grant: g.id, by: 'person-avery', key: 'rv-2', records: [g, q, rv], people: PEOPLE, at: AT, app: '4.0.0' }).why));
+});
+rule('A delegation is made by a person who may, for exact targets and ops this run has, never wont or move', () => {
+  const { r } = newRun(), base = { by: 'person-avery', key: 'gr-1', records: [], people: PEOPLE, at: AT, app: '4.0.0' };
+  const ok = T.grantOf(r, Object.assign({ subject: { tool: 'notes-bot' }, ops: ['add', 'done'], targets: [{ phase: 'draft' }], adds: 3 }, base));
+  assert.ok(!ok.why, ok.why);
+  const g = clean(ok.file);
+  same([g.kind, g.subject, g.ops, g.targets, g.limits], ['grant', { tool: 'notes-bot' }, ['add', 'done'], [{ phase: 'draft' }], { adds: 3 }]);
+  assert.ok(/add, done or reopen/.test(T.grantOf(r, Object.assign({ subject: { tool: 'notes-bot' }, ops: ['wont'], targets: [{ phase: 'draft' }], adds: 1 }, base)).why));
+  assert.ok(/isn't in this run/.test(T.grantOf(r, Object.assign({ subject: { tool: 'notes-bot' }, ops: ['add'], targets: [{ phase: 'nope' }], adds: 1 }, base)).why));
+  assert.ok(/neither records/.test(T.grantOf(r, Object.assign({ subject: { tool: 'notes-bot' }, ops: ['add'], targets: [{ phase: 'draft' }], adds: 1 }, base, { by: 'person-casey' })).why));
+});
+
 run();

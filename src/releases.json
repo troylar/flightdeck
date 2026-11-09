@@ -17,6 +17,13 @@
         "title": "Add, check off, drop or move to-dos on the run screen",
         "now": "Under the current phase, Add something to do says the gate it comes before. Check a to-do off, say why it won't be done, move or defer it, or reopen it. Each says Queued for the recorder or Waiting for approval, and shows Done only once the recorder's window applies it. Steps, items and to-dos are each counted on their own line.",
         "where": "A run's screen"
+      },
+      {
+        "kind": "new",
+        "area": "Home",
+        "title": "Decide to-do requests that need you",
+        "now": "Home says how many to-do requests wait for your decision and opens exactly those, ten at a time. Accept or decline each; if what it would do changed since you saw it, it asks again. Delegate adding, checking off and reopening to a tool or a person, and end a delegation any time.",
+        "where": "Home, a run's screen"
       }
     ]
   },

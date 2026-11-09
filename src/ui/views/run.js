@@ -1332,7 +1332,7 @@
     /* More: the phone-only copies of Details and Screen share, this run's extras, then You and this app (who you are is text). */
     var more = V.moreGroup('On this screen', '<button type="button" class="mini ph-only" data-act="run-details" aria-expanded="' + !!s.runDetails + '">Details</button>' + (alone ? '' : '<button type="button" class="mini ph-only" data-act="mission">' + I('screen') + 'Screen share</button>') +
       (r.ended || slot.primary.indexOf('data-act="receipt"') >= 0 ? '' : '<button type="button" class="mini" data-act="receipt">' + I('receipt') + 'Receipt</button>') + planAgain(ctx, r, 'mini') +
-      '<button type="button" class="mini" data-act="copy-run-key" data-id="' + key + '">Copy run key</button><button type="button" class="mini" data-act="ev-open" data-id="' + key + '">Export evidence…</button><button type="button" class="mini" data-act="health">Folder health</button>') + V.appGroup(ctx, { readOnlyMe: true });
+      (tdCan(ctx, r) && ctx.todoMay && ctx.todoMay(r) ? '<button type="button" class="mini" data-act="td-delegate">Delegate to-dos…</button>' : '') + '<button type="button" class="mini" data-act="copy-run-key" data-id="' + key + '">Copy run key</button><button type="button" class="mini" data-act="ev-open" data-id="' + key + '">Export evidence…</button><button type="button" class="mini" data-act="health">Folder health</button>') + V.appGroup(ctx, { readOnlyMe: true });
     var h = '<div class="fpe rw" id="rw">' + V.workHead({ hid: 'run-h', h1attrs: ' tabindex="-1"', cls: 'rw-head', h1: esc(r.title), h1tail: K.testTag(r), back: V.backc('go-back', og.hash, og.place, og.view),
       status: sub, prog: V.progress(t.done, t.total), acts: slot.also + slot.primary, more: V.moreMenu(ctx, more) });
     h += strip(ctx, r);
@@ -1359,6 +1359,9 @@
         K.list(s, 'badnotes', badRows(nl), { keyOf: function (y) { return y.k; }, focusOf: function (k) { return K.byId('badnote-' + K.domKey(k)); }, draw: function (shown) { return '<ul class="small">' + shown.map(function (y) { return '<li id="badnote-' + K.domKey(y.k) + '" tabindex="-1"><code>' + esc(y.x.file) + '</code>, line ' + esc(y.x.line) + '</li>'; }).join('') + '</ul>'; } }) +
         '</details></span></div>';
     }
+    /* Living runs (4.0): to-do requests on this run waiting for this person's decision. */
+    var tdi = ctx.todoInbox ? ctx.todoInbox().filter(function (x) { return x.run.process === r.process && x.run.id === r.id; }) : [];
+    if (tdi.length) al += '<div class="notice" role="status"><span>' + tdi.length + ' to-do request' + (tdi.length === 1 ? ' on this run needs' : 's on this run need') + ' your decision.</span><button class="btn" data-act="td-inbox" data-id="' + esc(runKey(r)) + '">Decide</button></div>';
     al += recovery(ctx, r, ctx.canRecover(r));
     if (K.connBanner) al += K.connBanner(ctx);
     if (s.runDetails) al += details(ctx, r, map, rec);
