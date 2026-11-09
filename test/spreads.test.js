@@ -525,12 +525,12 @@ rule('SE: an exception settled for the current attempt resolves coverage even wh
 /* Review round 2 (TA): a spread's request decided two ways holds whether or not any spread has landed yet. */
 rule('TA: contrary decisions on a first, unapplied spread-add hold an approved loop, and settling them keeps it in review', () => {
   const W = world([101]); W.kid(101, { cleared: true });
-  W.ask(W.r, { op: 'add', text: 'Plain', target: { phase: 'ship' } }, { person: 'person-morgan' }); W.land(W.r);
   W.mark();
+  assert.strictEqual(W.r.living, undefined, 'set-up: nothing has landed on the run');
   const V0 = W.loopView(), map = R.mapOf(W.r);
   R.done(W.r, map, 'each', 'person-morgan', AT, { _loop: { ok: true, snapshot: LP.approval(V0.ledger, V0.rollup, { by: 'person-morgan', at: AT }) } });
   W.mark();
-  assert.ok(!W.r._todos.stale.loop.each && R.answered(W.r, map.phases[0].steps[0]), 'set-up: approved');
+  assert.ok(!(W.r._todos && W.r._todos.stale.loop.each) && R.answered(W.r, map.phases[0].steps[0]), 'set-up: approved');
   const P = W.spreadAdd('Security sign-off', { tool: 'release-helper', version: '1.0', key: 'ta-1' });
   const V = W.view(), C = T.consequenceOf(W.r, V.map, V.requests[P.id], V).fingerprint;
   for (const [op, w] of [['accept', 'wa'], ['decline', 'wb']]) { const st = T.buildStatus({ kind: 'decision', proposal: P.id, run: { process: 'release-readiness', id: 'r-41' }, seen: [P.id], by: 'person-morgan', at: AT, op, consequence: C, writer: w, rev: rev(), app: '4.0.0' }); W.push(T.filed(st.name, st.file).record, st.name); }
@@ -636,5 +636,61 @@ rule('TD: an exception decided two ways never resolves coverage, whatever the it
   }
   assert.ok(W.loopView().rollup.items[0].excReview, 'set-up: decided two ways');
   assert.ok(W.one().items[0].state !== 'excepted' && !W.one().items[0].resolved, JSON.stringify(W.one().items[0]));
+});
+/* Review round 3 (UA): approvals are sticky before a run's first application too. A dispute on its first request, settled,
+   never restores a loop's approval or a gate passed or waived before it; approving again records what it counted. */
+const twoWays = (W, x, id, run) => {
+  const V = W.view(x), C = T.consequenceOf(x, V.map, V.requests[id], V).fingerprint;
+  for (const [op, w] of [['accept', 'wa'], ['decline', 'wb']]) { const st = T.buildStatus({ kind: 'decision', proposal: id, run, seen: [id], by: 'person-morgan', at: AT, op, consequence: C, writer: w, rev: rev(), app: '4.0.0' }); W.push(T.filed(st.name, st.file).record, st.name); }
+  same(W.view(x).requests[id].status, 'disputed', 'set-up: disputed');
+};
+for (const how of ['open', 'passed', 'waived']) {
+  rule('UA: before any application, a settled dispute on a first spread-add never restores the loop\'s approval or a gate ' + (how === 'open' ? 'not yet passed (it never becomes ready)' : how) + '; approving again records it', () => {
+    const W = world([101]); W.kid(101, { cleared: true });
+    W.mark();
+    const map = R.mapOf(W.r), step = map.phases[0].steps[0], gid = map.phases[0].gate.id;
+    const approve = () => { const V0 = W.loopView(); R.done(W.r, map, 'each', 'person-morgan', AT, { _loop: { ok: true, snapshot: LP.approval(V0.ledger, V0.rollup, { by: 'person-morgan', at: AT }) } }); W.mark(); };
+    approve();
+    if (how === 'passed') { R.pass(W.r, map, 0, 'person-morgan', AT); W.mark(); }
+    if (how === 'waived') { R.waive(W.r, map, 0, 'Covered elsewhere', 'person-morgan', AT); W.mark(); }
+    same([W.r.living, R.answered(W.r, step), R.gateStatus(W.r, map, 0)], [undefined, true, how === 'open' ? 'ready' : how], 'set-up: approved, nothing landed');
+    const P = W.spreadAdd('Security sign-off', { tool: 'release-helper', version: '1.0', key: 'ua-' + how });
+    twoWays(W, W.r, P.id, { process: 'release-readiness', id: 'r-41' });
+    W.mark();
+    same([R.answered(W.r, step), R.gateStatus(W.r, map, 0)], [false, how === 'open' ? 'open' : 'review'], 'held while disputed');
+    W.decide(W.r, P.id, 'person-morgan', 'decline');
+    same(W.view().requests[P.id].status, 'declined');
+    W.mark();
+    same([R.answered(W.r, step), R.gateStatus(W.r, map, 0)], [false, how === 'open' ? 'open' : 'review'], 'settling it restores nothing');
+    /* A person approves again: the approval records the dispute's records it counted, and the run reads back. */
+    approve();
+    assert.ok(R.answered(W.r, step), 'approved again');
+    same(W.r.steps.each.todos.cut.length > 0, true, 'the loop\'s approval records what it counted');
+    if (how !== 'open') {
+      if (how === 'passed') R.pass(W.r, map, 0, 'person-morgan', AT); else R.waive(W.r, map, 0, 'Covered elsewhere', 'person-morgan', AT);
+      W.mark();
+      same([R.gateStatus(W.r, map, 0), W.r.gates[gid].todos.cut.length > 0], [how, true], 'the gate\'s approval records what it counted');
+    } else same(R.gateStatus(W.r, map, 0), 'ready');
+    const back = R.sanitize(JSON.parse(JSON.stringify(W.r, (k, v) => k.charAt(0) === '_' ? undefined : v)));
+    same([back._unrunnable, back.living, back.features.indexOf('living-runs') >= 0], [undefined, { head: '' }, true], 'it reads back, marked as living with nothing landed');
+    T.markHolds([back].concat(W.kids), { records: W.recs, unread: W.unread, people: PEOPLE, loops: W.loops() });
+    same([R.answered(back, step), R.gateStatus(back, map, 0)], [true, how === 'open' ? 'ready' : how], 'and stays approved as read back');
+  });
+}
+rule('UA: before any application, a settled dispute on a plain addition never restores the gate passed before it', () => {
+  const W = world([101]); W.kid(101, { cleared: true });
+  W.mark();
+  const map = R.mapOf(W.r), V0 = W.loopView();
+  R.done(W.r, map, 'each', 'person-morgan', AT, { _loop: { ok: true, snapshot: LP.approval(V0.ledger, V0.rollup, { by: 'person-morgan', at: AT }) } }); W.mark();
+  R.pass(W.r, map, 0, 'person-morgan', AT); W.mark();
+  R.done(W.r, map, 'ship1', 'person-morgan', AT); W.mark();
+  R.pass(W.r, map, 1, 'person-morgan', AT); W.mark();
+  same([W.r.living, R.gateStatus(W.r, map, 1)], [undefined, 'passed'], 'set-up');
+  const P = W.ask(W.r, { op: 'add', text: 'Plain', target: { phase: 'ship' } }, { tool: 'release-helper', version: '1.0', key: 'ua-plain' });
+  twoWays(W, W.r, P.id, { process: 'release-readiness', id: 'r-41' });
+  W.mark();
+  same(R.gateStatus(W.r, map, 1), 'review', 'held while disputed');
+  W.decide(W.r, P.id, 'person-morgan', 'decline'); W.mark();
+  same(R.gateStatus(W.r, map, 1), 'review', 'settling it restores nothing');
 });
 run();

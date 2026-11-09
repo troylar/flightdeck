@@ -212,6 +212,23 @@ PF.run = (function () {
   /* A pin's step ID (never __proto__ or another key an object treats specially). */
   var STEP_ID = /^[a-z0-9][a-z0-9-]{0,59}$/i;
   /* A must-understand feature a run/3 now uses, kept in the frozen order. */
+  /* What an approval records of the to-do records in its scope (PF.todos.cutFor), or null when it records nothing: a living
+     run's always; before the first application, only when its scope already holds records (a dispute's participants), so a run
+     without to-dos saves exactly as before. A run/2 can't hold one, so such an approval waits (nothing is set). */
+  function approvalCut(r, kind, id) {
+    if (!r._todos) return null;
+    var c = PF.todos.cutFor(r._todos, kind, id);
+    if (r.living) return c;
+    if (!c.cut.length) return null;
+    if (r.format !== FORMAT3) throw new Error('To-do requests on this run were decided two ways before any landed, and a run from an earlier Flightdeck can\'t record which this approval counted. It waits until one of its to-dos lands.');
+    return c;
+  }
+  /* Marks a run/3 living with nothing landed yet (living.head ''), as an approval's cut needs. */
+  function livingNow(r) {
+    if (r.living) return;
+    r.living = { head: '' }; addFeature(r, PF.todos.FEATURE);
+    var re = withPins(order3(r)); Object.keys(r).forEach(function (k) { delete r[k]; }); Object.keys(re).forEach(function (k) { r[k] = re[k]; });
+  }
   function addFeature(r, f) { var list = (r.features || []).concat([f]); r.features = PF.envelope.FROZEN.filter(function (x) { return list.indexOf(x) >= 0; }); }
   /* run/3's pins and migrations sit right before its steps, as in the frozen samples. */
   function withPins(r) {
@@ -1075,7 +1092,8 @@ PF.run = (function () {
       rec.loop = PF.loop.cleanSnapshot(lv.snapshot);
       var lh = todoHolds(r), lw = lh ? lh.all.concat(own(lh.loops, id) ? lh.loops[id] : []) : [];
       if (lw.length) throw new Error('This loop waits on to-dos: ' + lw[0]);
-      if (r.living && r._todos) rec.todos = PF.todos.cutFor(r._todos, 'loop', id);
+      var lc = approvalCut(r, 'loop', id);
+      if (lc) { rec.todos = lc; livingNow(r); }
       answer(r, id, rec, exact);
       addLog(r, who, now, 'Approved "' + x.step.text + '": ' + rec.loop.summary);
       return x;
@@ -1319,8 +1337,8 @@ PF.run = (function () {
     if (waiting) throw new Error(waiting);
     /* The record is built whole before the gate is set: a refusal (an approval counting too many to-do records) leaves the
        run as it was. */
-    var rec = { s: 'passed', by: who, at: now, approved: gateInputs(r, map, g) };
-    if (r.living && r._todos) rec.todos = PF.todos.cutFor(r._todos, 'gate', g.id);
+    var rec = { s: 'passed', by: who, at: now, approved: gateInputs(r, map, g) }, pc = approvalCut(r, 'gate', g.id);
+    if (pc) { rec.todos = pc; livingNow(r); }
     r.gates[g.id] = rec;
     addLog(r, who, now, 'Passed gate "' + g.title + '"' + (g.binds.length ? ' for ' + describe(r.gates[g.id].approved) : ''));
   }
@@ -1330,8 +1348,8 @@ PF.run = (function () {
     if (!String(reason || '').trim()) throw new Error('Say why the gate is waived.');
     var g = map.phases[pi].gate, waiting = consumption(r, g.binds);
     if (waiting) throw new Error(waiting);
-    var rec = { s: 'waived', reason: String(reason).slice(0, 200), by: who, at: now, approved: gateInputs(r, map, g) };
-    if (r.living && r._todos) rec.todos = PF.todos.cutFor(r._todos, 'gate', g.id);
+    var rec = { s: 'waived', reason: String(reason).slice(0, 200), by: who, at: now, approved: gateInputs(r, map, g) }, wc = approvalCut(r, 'gate', g.id);
+    if (wc) { rec.todos = wc; livingNow(r); }
     r.gates[g.id] = rec;
     addLog(r, who, now, 'Waived gate "' + g.title + '": ' + r.gates[g.id].reason);
   }

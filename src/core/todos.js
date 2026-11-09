@@ -901,7 +901,8 @@ PF.todos = (function () {
         if (lw) H.all.push(why + ' (' + lw + ')'); else push(H.loops, sp.loopStep, why);
       }
     });
-    if (!r.living) return H;
+    /* Sticky from the start: an approval made before the run's first application counted nothing (it has no cut), so any
+       record in its scope, a dispute's participants included, sends it to review; approving again records its cut. */
     var said = function (ids, cut) { var have = Object.create(null); (cut || []).forEach(function (c) { have[c] = true; }); return ids.filter(function (i) { return !have[i]; }); };
     map.phases.forEach(function (p) {
       var g = p.gate, rec = g && r.gates && own(r.gates, g.id) ? r.gates[g.id] : null;
@@ -943,7 +944,8 @@ PF.todos = (function () {
     return { cut: v.cut.slice() };
   }
   var HEAD = /^(req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})(\.status-[a-z0-9][a-z0-9-]{0,39}-[0-9a-f]{8})?$/;
-  function cleanLiving(v) { return isMap(v) && Object.keys(v).length === 1 && typeof v.head === 'string' && HEAD.test(v.head) ? { head: v.head } : null; }
+  /* head '' is a living run with nothing landed yet: an approval made before its first application recorded a cut. */
+  function cleanLiving(v) { return isMap(v) && Object.keys(v).length === 1 && typeof v.head === 'string' && (v.head === '' || HEAD.test(v.head)) ? { head: v.head } : null; }
 
   /* ---- Application (slice 1, commit 3). The recorder's window carries out a queued request in two writes: the application
      record first (in proposals/, guarded), then the run, whose living.head moves to it. Recovery reads what is there before
