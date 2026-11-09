@@ -21,8 +21,8 @@
       "reviewed": "4.0 slice 1, commit 1: to-do records and their reduction (src/core/todos.js), loop settle and paging shared, living-runs feature, design §45"
     },
     "docs/apps.md": {
-      "sha256": "cb2b3687762ba2c5cb177a7f3942d5a018d1cdb0b6fba2f7bf26b512f82d81b2",
-      "reviewed": "AP: the run reader serializes who asked for a to-do request as {person} or {tool, version}; schema and docs say so; checked for direct writes and unconditional deletes (none)"
+      "sha256": "13fded9dc129ea4981c64f735344b97216a69d2d5f2a952e5ec85340013d204b",
+      "reviewed": "AP docs: name tool and version under a to-do request's by; checked for direct writes and unconditional deletes (none)"
     },
     "docs/design.md": {
       "sha256": "3bcda05e2ed6d12db8cc15c3a4da2db7de4f742ec43592959461926a4c252e1f",
