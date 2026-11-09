@@ -459,8 +459,159 @@ PF.todos = (function () {
     return out.concat(Object.keys(T.requests).filter(function (id) { return T.requests[id].unordered; }).sort(cmpStr).map(function (id) { return T.requests[id]; }));
   }
 
+  /* ---- Authority (slice 1, commit 2). A decision, grant, revoke or compound counts only from a person in people.json, not
+     inactive, who records the run or holds one of its roles. Attribution in a file is a claim under the folder's trust model. ---- */
+  function personWhy(r, person, people) {
+    var list = PF.people.listOf(people), p = null;
+    for (var i = 0; i < list.length; i++) if (list[i] && list[i].id === person) { p = list[i]; break; }
+    if (!person || !p) return (person || 'Whoever made it') + ' isn\'t in people.json';
+    if (p.inactive) return (p.name || person) + ' is marked inactive in people.json';
+    if (r.recorder && r.recorder.person === person) return '';
+    if (r.roles && Object.keys(r.roles).some(function (k) { return r.roles[k] === person; })) return '';
+    return (p.name || person) + ' neither records this run nor holds one of its roles';
+  }
+  function mayFor(r, people) {
+    return function (rec) { var person = rec.kind === 'compound' ? rec.decision && rec.decision.by : rec.by && rec.by.person; return personWhy(r, person, people); };
+  }
+  /* What applying a request would do beyond its own work: the approvals it reopens (a passed or waived gate, an approved
+     loop) and whether it releases work (Won't do, Moved). Its fingerprint is what a decision accepts; a different one later
+     needs consent again. */
+  function consequenceOf(r, map, q, T) {
+    var x = q.todo && T ? T.byTodo[q.todo] : null, t = q.op === 'add' ? q.target : x ? x.target : null, reopens = [], releases = q.op === 'wont' || q.op === 'move';
+    if ((q.op === 'add' || q.op === 'reopen') && t && map) {
+      var P = placeOf(map, t);
+      if (!P.why) {
+        var g = r.gates && own(r.gates, P.gate) ? r.gates[P.gate] : null, a = P.loop && r.steps && own(r.steps, P.loop) ? r.steps[P.loop] : null;
+        if (g && (g.s === 'passed' || g.s === 'waived')) reopens.push('gate:' + P.gate);
+        if (a && a.s === 'done' && a.loop) reopens.push('loop:' + P.loop);
+      }
+    }
+    return { reopens: reopens, releases: releases, fingerprint: fp([q.op, q.todo || '', targetKey(t), reopens, releases]) };
+  }
+  /* Whether a request is authorized now: { ok, via: { decision | grant | compound }, why }. Releasing work or reopening an
+     approval needs a person's decision on exactly that consequence; a grant covers only add, done and reopen on its exact
+     targets, within its limit, never a release, a reopened approval or a gate. */
+  function authorityFor(r, map, people) {
+    var use = null;
+    return function (q, T) {
+      if (!use) {
+        /* Additions a grant already landed count toward its limit, whoever applies next. */
+        use = Object.create(null);
+        var byId = Object.create(null); T.records.forEach(function (y) { byId[y.id] = y; });
+        T.chain.forEach(function (id) { var a = byId[id], ap = a && (a.kind === 'compound' ? a.application : a); if (ap && ap.effect.op === 'add' && ap.authority && ap.authority.grant) use[ap.authority.grant] = (use[ap.authority.grant] || 0) + 1; });
+      }
+      var C = consequenceOf(r, map, q, T), human = C.releases || C.reopens.length > 0, d = q.dec;
+      if (d && d.op === 'accept' && !d.contrary) {
+        if (d.consequence === C.fingerprint) return { ok: true, via: q.kind === 'compound' && d.record === q.id ? { compound: q.id } : { decision: d.record }, why: '' };
+        return { ok: false, why: 'What it would do changed after it was approved (' + (C.reopens.length ? 'it now reopens an approval' : 'its consequence is different') + '), so it needs approval again.' };
+      }
+      var wordsWhy = C.releases ? 'It releases work, so a person approves it.' : C.reopens.length ? 'It reopens an approval, so a person approves it.' : 'It waits for a person\'s approval or a delegation that covers it.';
+      if (human) return { ok: false, why: wordsWhy };
+      var x = q.todo ? T.byTodo[q.todo] : null, tk = targetKey(q.op === 'add' ? q.target : x ? x.target : null), sub = q.by || {};
+      var gs = Object.keys(T.grants).map(function (id) { return T.grants[id]; }).filter(function (g) {
+        return (g.subject.tool ? g.subject.tool === sub.tool : g.subject.person === sub.person) && g.ops.indexOf(q.op) >= 0 && g.targets.some(function (t) { return targetKey(t) === tk; });
+      });
+      var live = gs.filter(function (g) { return g.active && T.saw(q.id, g.id); });
+      for (var i = 0; i < live.length; i++) {
+        var g = live[i];
+        if (q.op === 'add') { var n = use[g.id] || 0; if (n >= g.limits.adds) continue; use[g.id] = n + 1; }
+        return { ok: true, via: { grant: g.id }, why: '' };
+      }
+      if (gs.length) return { ok: false, why: gs.some(function (g) { return g.revoked.length; }) ? 'The delegation that covered it was revoked, so it waits for a person\'s approval.' : gs.some(function (g) { return !g.active; }) ? 'The delegation that would cover it wasn\'t given by someone who may: ' + gs[0].why + '.' : gs.some(function (g) { return !T.saw(q.id, g.id); }) ? 'It was made without seeing the delegation that would cover it.' : 'Its delegation\'s limit of ' + gs[0].limits.adds + ' additions is used up.' };
+      return { ok: false, why: wordsWhy };
+    };
+  }
+  /* A run's to-dos as everyone reads them. o: { records, unread (records that couldn't be read: { file, run }), people }. */
+  function view(r, o) {
+    o = o || {};
+    var map = null; try { map = PF.run.mapOf(r); } catch (e) { map = null; }
+    var T = reduce(o.records || [], r, { map: map, ended: !!r.ended, may: mayFor(r, o.people), authority: authorityFor(r, map, o.people) });
+    T.map = map;
+    (o.unread || []).forEach(function (u) { if (!u.run || (u.run.process === r.process && u.run.id === r.id)) T.unread.push(u); });
+    return T;
+  }
+  /* What holds approval, read-only on every read (never saved): r._todos { all, phases, loops, stale: { gate, loop },
+     scope: { gate, loop } }. all holds every gate (a chain that can't be trusted, a record that can't be read); an open or
+     disputed to-do holds its phase's gate, or its loop's approval for an item's work. stale: an approval made before work
+     in its scope was added or reopened, or before a dispute on it, by identity (the records its snapshot didn't include). */
+  function holds(T, r) {
+    var H = { all: [], phases: Object.create(null), loops: Object.create(null), stale: { gate: Object.create(null), loop: Object.create(null) }, scope: { gate: Object.create(null), loop: Object.create(null) }, open: 0 };
+    var map = T.map, push = function (o, k, why) { (o[k] = o[k] || []).push(why); };
+    if (r.ended) return H;
+    if (!map) { H.all.push('Its checklist can\'t be read, so its to-dos can\'t be placed.'); return H; }
+    if (T.broken) H.all.push(T.broken.why);
+    T.unread.forEach(function (u) { H.all.push('A to-do record (' + String(u.file || '').slice(0, 120) + ') can\'t be read yet, so approval waits until it is.'); });
+    T.held.forEach(function (h) { H.all.push('A to-do record (' + h.record + ') ' + (h.why === 'copies' ? 'has two different copies in the folder.' : 'refers to one this computer can\'t read yet.')); });
+    var place = function (t, why) {
+      var P = placeOf(map, t);
+      if (P.why) { H.all.push(why + ' ' + P.why + '.'); return; }
+      if (t.item) push(H.loops, P.loop, why); else push(H.phases, P.phaseId, why);
+    };
+    T.todos.forEach(function (x) {
+      if (x.state === 'open') { H.open++; place(x.target, 'To-do "' + x.text + '" is open.'); }
+      else if (x.disputed) place(x.target, 'To-do "' + x.text + '" was decided two ways at once.');
+    });
+    requestsOf(T).forEach(function (q) {
+      if (q.op === 'add' && q.status === 'disputed') place(q.target, 'An addition ("' + q.text + '") was decided two ways at once.');
+      if (q.op === 'add' && q.status === 'held' && /^It needs placement/.test(q.why)) { var P = placeOf(map, q.target); if (P.why) H.all.push('An addition ("' + q.text + '") ' + q.why.charAt(0).toLowerCase() + q.why.slice(1)); else (q.target.item ? push(H.loops, P.loop, q.why) : push(H.phases, P.phaseId, q.why)); }
+    });
+    /* The records an approval in each scope must have counted: additions and reopenings that landed, and every participant
+       of a dispute on work there. */
+    var addScope = function (t, id) { var P = placeOf(map, t); if (P.why) return; var o = t.item ? H.scope.loop : H.scope.gate, k = t.item ? P.loop : P.gate; (o[k] = o[k] || []).indexOf(id) < 0 && o[k].push(id); };
+    var recOf = Object.create(null); T.records.forEach(function (y) { recOf[y.id] = y; });
+    T.chain.forEach(function (id) {
+      var a = recOf[id], e = a && (a.kind === 'compound' ? a.application.effect : a.effect);
+      if (!e || (e.op !== 'add' && e.op !== 'reopen')) return;
+      var x = T.byTodo[e.todo]; if (x) addScope(x.target, id);
+    });
+    Object.keys(T.requests).forEach(function (id) {
+      var q = T.requests[id], x = q.todo ? T.byTodo[q.todo] : null, t = q.target || (x && x.target);
+      if (!t) return;
+      (q.disputedIds || []).forEach(function (pid) { addScope(t, pid); });
+    });
+    if (!r.living) return H;
+    var said = function (ids, cut) { var have = Object.create(null); (cut || []).forEach(function (c) { have[c] = true; }); return ids.filter(function (i) { return !have[i]; }); };
+    map.phases.forEach(function (p) {
+      var g = p.gate, rec = g && r.gates && own(r.gates, g.id) ? r.gates[g.id] : null;
+      if (!rec || (rec.s !== 'passed' && rec.s !== 'waived')) return;
+      var after = said(H.scope.gate[g.id] || [], rec.todos ? rec.todos.cut : []);
+      if (after.length) H.stale.gate[g.id] = ['A to-do in this phase was added, reopened or decided two ways after it was ' + rec.s + ' (' + after.length + (after.length === 1 ? ' record' : ' records') + ' it didn\'t count).'];
+    });
+    Object.keys(H.scope.loop).forEach(function (sid) {
+      var a = r.steps && own(r.steps, sid) ? r.steps[sid] : null;
+      if (!a || a.s !== 'done' || !a.loop) return;
+      var after = said(H.scope.loop[sid], a.todos ? a.todos.cut : []);
+      if (after.length) H.stale.loop[sid] = ['An item\'s to-do was added, reopened or decided two ways after this approval.'];
+    });
+    return H;
+  }
+  /* Every run's holds, read-only, on every read (like PF.loop.markStale). A run with no to-do records and no living marker
+     is left exactly as it was. o: { records, unread, people }. */
+  function markHolds(runs, o) {
+    o = o || {};
+    (runs || []).forEach(function (r) {
+      if (!r || !r.steps || r._unrunnable) return;
+      var mine = recordsFor(o.records, r), un = (o.unread || []).filter(function (u) { return u.run ? u.run.process === r.process && u.run.id === r.id : !!r.living; });
+      if (!mine.length && !r.living && !un.length) { delete r._todos; return; }
+      r._todos = holds(view(r, { records: mine, unread: un, people: o.people }), r);
+    });
+  }
+  /* What an approval records (a gate's or a loop's): the records in its scope it counted, so later ones are known by identity. */
+  function cutFor(H, kind, id) {
+    var ids = H && H.scope && H.scope[kind] && H.scope[kind][id] ? H.scope[kind][id].slice().sort() : [];
+    if (ids.length > LIMITS.cut) throw new Error('This approval would count ' + ids.length + ' to-do records; one approval counts at most ' + LIMITS.cut + '. Nothing was approved.');
+    return { cut: ids };
+  }
+  function cleanCut(v) {
+    if (!isMap(v) || Object.keys(v).length !== 1 || !Array.isArray(v.cut) || v.cut.length > LIMITS.cut || !v.cut.every(function (x) { return typeof x === 'string' && (REQ.test(x) || DNAME.test(x + '.json')); })) return null;
+    return { cut: v.cut.slice() };
+  }
+  var HEAD = /^(req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})(\.status-[a-z0-9][a-z0-9-]{0,39}-[0-9a-f]{8})?$/;
+  function cleanLiving(v) { return isMap(v) && Object.keys(v).length === 1 && typeof v.head === 'string' && HEAD.test(v.head) ? { head: v.head } : null; }
+
   return { FORMAT: FORMAT, STATUS: STATUS, FEATURE: FEATURE, LIMITS: LIMITS, OPS: OPS, WORDS: WORDS, STATE_WORDS: STATE_WORDS, idFor: idFor, todoIdFor: todoIdFor, statusName: statusName, isTodo: isTodo,
     targetKey: targetKey, placeOf: placeOf, placementWhy: placementWhy, placementFor: placementFor, effectOf: effectOf, fingerprint: fp, text: text,
     buildProposal: buildProposal, buildGrant: buildGrant, buildStatus: buildStatus, cleanFile: cleanFile, fileWhy: fileWhy, runOf: runOf, recordsFor: recordsFor,
-    reduce: reduce, seenFor: seenFor, requestsOf: requestsOf };
+    reduce: reduce, seenFor: seenFor, requestsOf: requestsOf,
+    personWhy: personWhy, mayFor: mayFor, consequenceOf: consequenceOf, authorityFor: authorityFor, view: view, holds: holds, markHolds: markHolds, cutFor: cutFor, cleanCut: cleanCut, cleanLiving: cleanLiving };
 })();

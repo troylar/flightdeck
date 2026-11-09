@@ -2,7 +2,7 @@
   "texts": {
     "CHANGELOG.md": {
       "sha256": "69e4e1aabbf8486093b5654a57364d90f6709e43b752c9bee26aede4a1d1835b",
-      "reviewed": "4.0 slice 1, commit 1: check_folder.py reads to-do records as 4.0; starts the 4.0.0 release entry"
+      "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
@@ -10,7 +10,7 @@
     },
     "README.md": {
       "sha256": "cd36d7e71d5d4d92098340e21b22df60ff9530d5bccc6c8cc2c254cb19b50bc0",
-      "reviewed": "4.0 slice 1, commit 1: check_folder.py reads to-do records as 4.0; starts the 4.0.0 release entry"
+      "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
       "sha256": "1c19f0abd8237f2122a6a4562c3632b66a0d029cb71a5ddffc43e7d211947755",
@@ -25,8 +25,8 @@
       "reviewed": "loop guard builder for every loop parent and child write, undo on drop; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "330d32ed48770cf194dd7547856d473b0733a236ffe4695a2ff256137eac008a",
-      "reviewed": "4.0 slice 1, commit 1: to-do records and their reduction (src/core/todos.js), loop settle and paging shared, living-runs feature, design §45"
+      "sha256": "776039f6e06a91bfa15053fc43ba4242efc4071cb6d65b8e5a0e64a41b937227",
+      "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -54,7 +54,7 @@
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
       "sha256": "a0f59e6e0a162d055810817c1005c55a2b4ea494490c0b92d51c26cce76de6b1",
-      "reviewed": "4.0 slice 1, commit 1: check_folder.py reads to-do records as 4.0; starts the 4.0.0 release entry"
+      "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
       "sha256": "49d0d083e46b366224edb2e93df3927ede63a2efebc57a2990810460bbe7d7b7",
@@ -174,7 +174,7 @@
     },
     "package.json": {
       "sha256": "377c52c7f28ba508e01826e26d0ba81d3139aff9918252fb4cc6273c4686c831",
-      "reviewed": "4.0 slice 1, commit 1: check_folder.py reads to-do records as 4.0; starts the 4.0.0 release entry"
+      "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "rendered: the merge README, AGENTS.md held": {
       "sha256": "587c6fe0a4080614f1661c880aa058e9dd8180b5595d72bfaaf90b9f297f8d95",
@@ -194,7 +194,7 @@
     },
     "src/baselines.json": {
       "sha256": "e1f84e408b42daef17c245b6fad8726198c4831c968474d1917a6ec02b63b255",
-      "reviewed": "4.0 slice 1, commit 1: check_folder.py reads to-do records as 4.0; starts the 4.0.0 release entry"
+      "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "src/core/appjson.js": {
       "sha256": "4baa465110a534478bbeaf2d9d1cc6a8ce846ab9a911da62298ce1dce9fc4729",
@@ -305,8 +305,8 @@
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "src/core/run.js": {
-      "sha256": "b62b46976e2e4c7a336aa9d783ce388149596208c28725d12c98d68217f40eb9",
-      "reviewed": "Approve and send-back carry the request id; recognized before replay."
+      "sha256": "905e0db7e12f4ca7ce8c50720a3dac62ee0b5acc34d784c4c9f006a971c6c113",
+      "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "src/core/save.js": {
       "sha256": "096b8282d8dd62623b608ad2a9ae6a8f78e5a8260615eaf74aa9c9fb9c3a3f26",
@@ -345,8 +345,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "9939fd7a6d3715e30350c58364fa32b1a2377aad6c182320bdae1fe1d13e4520",
-      "reviewed": "4.0 slice 1, commit 1: check_folder.py reads to-do records as 4.0; starts the 4.0.0 release entry; authority read by name"
+      "sha256": "7bd2f2c55a398d1af1f286e25cbbde14a6f0f9eb32325406ff6e3e5bebfb59f2",
+      "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",
@@ -390,7 +390,7 @@
     },
     "src/releases.json": {
       "sha256": "8d826286ab66c60ebdf40c52ec438143950c6c62d931c6d369e6afb5c0ddcf0d",
-      "reviewed": "4.0 slice 1, commit 1: check_folder.py reads to-do records as 4.0; starts the 4.0.0 release entry"
+      "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",

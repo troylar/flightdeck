@@ -5,7 +5,7 @@ const assert = require('assert');
 const { load, rule, budget, run } = require('./harness');
 const PF = load(), T = PF.todos, M = PF.map, E = PF.envelope, LP = PF.loop;
 const plain = (v) => JSON.parse(JSON.stringify(v));
-const same = (a, b, m) => assert.deepStrictEqual(plain(a), plain(b), m);
+const same = (a, b, m) => m === undefined ? assert.deepStrictEqual(plain(a), plain(b)) : assert.deepStrictEqual(plain(a), plain(b), m);
 const AT = '2026-11-09T09:00:00.000Z';
 
 const MD = ['---', 'process: release-notes', 'title: Release notes', 'context: fix_version', '---', '',
