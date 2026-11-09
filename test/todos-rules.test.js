@@ -544,6 +544,24 @@ rule('A second application imported after one landed keeps the work disputed unt
 });
 /* ---------- The run file ---------- */
 const reread = (r) => R.sanitize(JSON.parse(JSON.stringify(Object.assign({}, r, { _todos: undefined }))));
+rule('An approval refused for counting too many to-do records leaves the gate as it was', () => {
+  for (const how of ['pass', 'waive']) {
+    const { r } = newRun(), map = R.mapOf(r);
+    R.done(r, map, 'write', 'person-avery', AT);
+    r.living = { head: T.idFor('flightdeck', 'ag0') + '.status-rec-00000001' };
+    const ids = []; for (let i = 0; i < T.LIMITS.cut + 1; i++) ids.push(T.idFor('flightdeck', 'ag' + i));
+    r._todos = { all: [], phases: Object.create(null), loops: Object.create(null), stale: { gate: Object.create(null), loop: Object.create(null) }, scope: { gate: { 'draft-confirm': ids }, loop: Object.create(null) }, open: 0 };
+    const before = JSON.stringify(Object.assign({}, r, { _todos: undefined }));
+    assert.throws(() => how === 'pass' ? R.pass(r, map, 0, 'person-avery', AT) : R.waive(r, map, 0, 'Not needed', 'person-avery', AT), /Nothing was approved/, how);
+    same(JSON.stringify(Object.assign({}, r, { _todos: undefined })), before, how + ': the run is as it was');
+  }
+  const lr = loopRun(), lm = R.mapOf(lr), ids = []; for (let i = 0; i < T.LIMITS.cut + 1; i++) ids.push(T.idFor('flightdeck', 'agl' + i));
+  lr.living = { head: T.idFor('flightdeck', 'agl') + '.status-rec-00000001' };
+  lr._todos = { all: [], phases: Object.create(null), loops: Object.create(null), stale: { gate: Object.create(null), loop: Object.create(null) }, scope: { gate: Object.create(null), loop: { each: ids } }, open: 0 };
+  const lb = JSON.stringify(Object.assign({}, lr, { _todos: undefined }));
+  assert.throws(() => R.done(lr, lm, 'each', 'person-avery', AT, { _loop: { ok: true, snapshot: { by: 'person-avery', at: AT, onBehalf: '', records: [], summary: '0 in scope', counts: {}, items: [] } } }), /Nothing was approved/, 'a loop');
+  same(JSON.stringify(Object.assign({}, lr, { _todos: undefined })), lb, 'a loop: the run is as it was');
+});
 rule('A living run reads back with its head, its feature and its approvals\' cuts; a malformed marker is read-only', () => {
   const { r, map, p, a, recs } = withTodo();
   R.done(r, map, 'write', 'person-avery', AT);

@@ -1302,8 +1302,11 @@ PF.run = (function () {
     if (!canPass(r, map, pi)) throw new Error('This gate isn\'t ready to pass.');
     var g = map.phases[pi].gate, waiting = consumption(r, g.binds);
     if (waiting) throw new Error(waiting);
-    r.gates[g.id] = { s: 'passed', by: who, at: now, approved: gateInputs(r, map, g) };
-    if (r.living && r._todos) r.gates[g.id].todos = PF.todos.cutFor(r._todos, 'gate', g.id);
+    /* The record is built whole before the gate is set: a refusal (an approval counting too many to-do records) leaves the
+       run as it was. */
+    var rec = { s: 'passed', by: who, at: now, approved: gateInputs(r, map, g) };
+    if (r.living && r._todos) rec.todos = PF.todos.cutFor(r._todos, 'gate', g.id);
+    r.gates[g.id] = rec;
     addLog(r, who, now, 'Passed gate "' + g.title + '"' + (g.binds.length ? ' for ' + describe(r.gates[g.id].approved) : ''));
   }
   function waive(r, map, pi, reason, who, now) {
@@ -1312,8 +1315,9 @@ PF.run = (function () {
     if (!String(reason || '').trim()) throw new Error('Say why the gate is waived.');
     var g = map.phases[pi].gate, waiting = consumption(r, g.binds);
     if (waiting) throw new Error(waiting);
-    r.gates[g.id] = { s: 'waived', reason: String(reason).slice(0, 200), by: who, at: now, approved: gateInputs(r, map, g) };
-    if (r.living && r._todos) r.gates[g.id].todos = PF.todos.cutFor(r._todos, 'gate', g.id);
+    var rec = { s: 'waived', reason: String(reason).slice(0, 200), by: who, at: now, approved: gateInputs(r, map, g) };
+    if (r.living && r._todos) rec.todos = PF.todos.cutFor(r._todos, 'gate', g.id);
+    r.gates[g.id] = rec;
     addLog(r, who, now, 'Waived gate "' + g.title + '": ' + r.gates[g.id].reason);
   }
   function fail(r, map, pi, reason, who, now) {
