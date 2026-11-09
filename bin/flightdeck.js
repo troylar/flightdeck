@@ -2838,9 +2838,11 @@ async function todoMain(argv) {
       const q0 = T.requestsOf(V).filter((q) => q.id === id)[0];
       return done({ run: { process: proc, id: runId }, status: 'already', request: { id, file }, preview: 'Already requested (' + (q0 ? T.WORDS[q0.status] || q0.status : 'not read in order yet') + '). Nothing written.' });
     }
+    /* After a retry is recognized, before anything is judged: a dependency that can't be read holds the ask (exit 4), never
+       a refusal that reading it again could lift. */
+    if (problems().length) return done({ run: { process: proc, id: runId }, status: 'held', request: { id, file }, preview: 'Part of the team folder this depends on couldn\'t be read, so nothing was written. Check folder availability, then retry with the same key.' });
     const P = T.prepare(r, { body, by: { tool: tool.name, version: tool.version, key: val['--key'] }, records, unread, people, at: new Date().toISOString(), app: eng.version });
     if (P.why) return failOut('invalid', P.why + ' Nothing was written.', problems());
-    if (problems().length) return done({ run: { process: proc, id: runId }, status: 'held', request: { id, file }, preview: 'Part of the team folder this depends on couldn\'t be read, so nothing was written. Check folder availability, then retry with the same key.' });
     const pv = P.preview, needs = pv.status === 'waiting' ? 'person' : pv.status === 'queued' ? 'delegation' : 'none';
     const data = (status) => ({ run: { process: proc, id: runId }, status, request: { id, file }, op: pv.op, todo: pv.todo, placement: pv.placement, gate: pv.gate || null,
       authority: { needs, why: pv.why || null, requester: body.requester || null, approvesNothing: true },

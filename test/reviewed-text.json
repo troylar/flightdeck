@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "712ad4850964ab9d41dd015be699f9345016ebefd941e94ff65f1b467a1e5418",
-      "reviewed": "AS: a to-do record from a newer Flightdeck keeps its refusal's kind (newer) in run, next and todo list; checked for direct writes and unconditional deletes (none)"
+      "sha256": "f6729c9ccb2cd760d98ebcffab301deb2e01a275aa7996d38df6c77a0aa3835f",
+      "reviewed": "AR: flightdeck todo returns held (exit 4) for an unreadable dependency before preparing the request; checked for direct writes and unconditional deletes (none)"
     },
     "build.py": {
       "sha256": "3ccfcefff2f5c647ab6a3703c5b303f5e1de7073bc26ead84f7b84902fdd50de",

@@ -189,6 +189,19 @@ rule('run (contract 2) says who asked for each to-do request: a person, or a too
   assert.deepStrictEqual(x.todoRequests.map(q => q.by), [{ person: 'person-avery' }, { tool: 'notes-bot', version: '1.2' }]);
   assert.deepStrictEqual(x.todoRequests.map(q => q.by), l.requests.map(q => q.by), 'the same as todo list');
 });
+rule('A dependency that can\'t be read holds the ask (exit 4), even when what it asks would otherwise be refused for it', async () => {
+  const { root, d } = await folder();
+  const r = JSON.parse(fs.readFileSync(path.join(root, 'runs/release-notes/r-1/run.json'), 'utf8'));
+  await seed(d, r);
+  fs.writeFileSync(path.join(root, 'people.json'), '{ not json');
+  for (const extra of [['--as', 'person-blake'], []]) {
+    const before = ls(root);
+    const a = json('todo', 'add', root, 'release-notes/r-1', '--text', 'Needs people', '--phase', 'draft', '--json', ...TOOL, ...extra);
+    assert.deepStrictEqual([a.code, a.data && a.data.status], [4, 'held'], JSON.stringify(a).slice(0, 500));
+    assert.ok(a.problems.some(p => p.path === 'people.json'), 'names what it depends on');
+    assert.deepStrictEqual(ls(root), before, 'nothing written');
+  }
+});
 rule('Usage, an unknown run, a run that ended and a folder part that can\'t be read write nothing', async () => {
   const { root } = await folder();
   assert.strictEqual(json('todo', 'add', root, 'release-notes/r-1', '--text', 'x', '--phase', 'draft', '--json').code, 1, 'no --tool');
