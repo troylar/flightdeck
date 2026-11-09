@@ -337,8 +337,8 @@
       "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
     },
     "src/core/spreads.js": {
-      "sha256": "91a7ef7605390d2ab60e9379ae862dd5ced5fe1f594ced99f49e5602a42c57e2",
-      "reviewed": "a stopped spread owes only what is still required on the current attempt; no writes or deletes"
+      "sha256": "8c29d55e3fb19fb6552894698d234e812380e6220915711c5403f347c65e6f42",
+      "reviewed": "a settled current-attempt exception resolves coverage regardless of display status; no writes or deletes"
     },
     "src/core/staging.js": {
       "sha256": "d01a3204178bd0b055c05524916f55774c4404cca10f86fbb10a2ca675bd6b07",

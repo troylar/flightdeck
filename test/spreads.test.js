@@ -611,4 +611,30 @@ rule('TC: a stopped spread owes nothing on an earlier attempt, and its new attem
   same(W.loopView().rollup.items.filter(i => i.key === 'ABC-101').map(i => i.attempt), [2], 'set-up: attempt 2');
   same(W.one().items.filter(i => i.owed).map(i => i.key + '#' + i.attempt), ['ABC-102#1']);
 });
+/* Review round 2 (TD): a settled exception for the current attempt resolves coverage whatever the loop shows as its status. */
+rule('TD: an exception settled for the current attempt resolves coverage even when the item\'s run already cleared', () => {
+  const W = world([101]); const k = W.kid(101);
+  W.spreadAdd(); W.land(W.r);
+  same(W.one().items[0].state, 'owed');
+  W.clear(k);
+  loopChange(W, 'ex-td', { op: 'exception', item: { key: 'ABC-101' }, reason: 'Docs only', approver: 'person-morgan' });
+  const row = W.loopView().rollup.items[0];
+  same([row.status, !!row.exception], ['cleared', true], 'set-up: cleared, with a settled exception');
+  same([W.one().items[0].state, W.one().items[0].resolved], ['excepted', true]);
+  same(W.mark().loops.each || [], []);
+});
+rule('TD: an exception decided two ways never resolves coverage, whatever the item\'s run shows', () => {
+  const W = world([101]); const k = W.kid(101);
+  W.spreadAdd(); W.land(W.r);
+  W.clear(k);
+  const base = W.scopes[W.scopes.length - 1].id;
+  for (const [key, op] of [['ex-a', 'exception'], ['ex-b', 'withdraw']]) {
+    const c = LP.cleanIntent({ loop: LOOPT, observation: null, changes: [Object.assign({ op, item: { key: 'ABC-101' } }, op === 'exception' ? { reason: 'Docs only', approver: 'person-morgan' } : {})] }, key, { name: 'release-helper', version: '1.0' });
+    same(c.errors, []);
+    const f = LP.buildRequest(c.intent, { seen: [base], children: [], now: AT, app: '3.0.0' });
+    W.scopes.push(LP.cleanRequest(JSON.parse(LP.text(f)), f.id + '.json').record);
+  }
+  assert.ok(W.loopView().rollup.items[0].excReview, 'set-up: decided two ways');
+  assert.ok(W.one().items[0].state !== 'excepted' && !W.one().items[0].resolved, JSON.stringify(W.one().items[0]));
+});
 run();
