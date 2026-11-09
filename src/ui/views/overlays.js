@@ -348,7 +348,7 @@
         return b + '</li>';
       }).join('') + '</ul>';
     } });
-    if (gs.length) h += '<h3>Delegations you can end</h3><ul class="todos">' + gs.map(function (g) {
+    if (gs.length) h += '<h3 id="tdi-g" tabindex="-1">Delegations you can end</h3><ul class="todos">' + gs.map(function (g) {
       return '<li class="todo"><div><b>' + esc(g.title) + '</b>: ' + esc(tdWho(ctx, g.subject)) + ' may ' + esc(K.capJoin(g.ops)) + ' on ' + g.targets.length + ' place' + (g.targets.length === 1 ? '' : 's') + (g.ops.indexOf('add') >= 0 ? ', up to ' + g.adds + ' addition' + (g.adds === 1 ? '' : 's') : '') + '</div>' +
         '<button type="button" class="mini" data-act="td-revoke" data-id="' + esc(g.id) + '" data-run="' + esc(g.run.process + '/' + g.run.id) + '">Revoke</button></li>';
     }).join('') + '</ul>';

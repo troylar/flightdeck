@@ -168,6 +168,29 @@ rule('A decline\'s reason belongs to its request: picking another with a reason 
   app.click('td-decline-pick', y.id, { run: y.run }); await app.tick(10);
   assert.strictEqual(app.draft('td-dec-why'), '', 'nothing carried');
 });
+rule('An active delegation can always be ended: the run screen and Home offer Delegations when nothing waits for a decision', async () => {
+  const app = await setup();
+  app.click('td-delegate'); await app.tick(10);
+  app.set('tdg-who', 'notes-bot'); app.check('tdg-add', true); app.set('tdg-adds', '3'); app.click('td-delegate-save'); await app.tick(80);
+  app.click('close-overlay'); await app.tick(10);
+  await refresh(app, 400);
+  assert.ok(!/data-act="td-inbox"/.test(app.html()), 'set-up: nothing waits for a decision');
+  const r = theRun(app), rk = r.process + '/' + r.id;
+  assert.ok(new RegExp('data-act="td-grants" data-id="' + rk + '"').test(app.html()), 'the run screen offers Delegations');
+  app.click('td-grants', rk); await app.tick(20);
+  assert.ok(/data-act="td-revoke"/.test(ov(app)), 'which lists the one to end');
+  app.click('close-overlay'); await app.tick(10);
+  app.click('go', '', { view: 'home' }); await app.tick(40);
+  assert.ok(/1 delegation you can end/.test(app.html()) && /data-act="td-grants"/.test(app.html()), 'Home offers it too');
+  app.click('td-grants', ''); await app.tick(20);
+  const m = /data-act="td-revoke" data-id="([^"]+)" data-run="([^"]+)"/.exec(ov(app));
+  const before = recs(app);
+  app.click('td-revoke', m[1], { run: m[2] }); await app.tick(60);
+  assert.deepStrictEqual(fresh(app, before).map(x => x.kind), ['revoke']);
+  await refresh(app, 400);
+  app.click('go', '', { view: 'home' }); await app.tick(40);
+  assert.ok(!/data-act="td-grants"/.test(app.html()), 'none left: no entry');
+});
 rule('More than ten wait: ten at a time, and Show more brings the rest', async () => {
   const app = await setup();
   await asked(app, 12);

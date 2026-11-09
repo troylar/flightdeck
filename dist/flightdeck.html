@@ -25505,6 +25505,9 @@ PF.vk = (function () {
     });
     /* Living runs (4.0): to-do requests waiting for this person's decision, one row for all of them; it opens exactly that list. */
     var tdi = me && ctx.todoInbox ? ctx.todoInbox() : [];
+    /* Delegations this person may end, whether or not anything waits for them: a grant can always be revoked from here. */
+    var tdg = me && ctx.todoGrants ? ctx.todoGrants() : [];
+    if (tdg.length) add('todo-grants', function () { return [tdg.length + ' delegation' + (tdg.length === 1 ? '' : 's') + ' you can end', 'A tool or a person may change to-dos without asking on ' + (tdg.length === 1 ? 'a run' : 'runs') + ' you decide for.']; }, 'td-grants', '', 'Delegations');
     if (tdi.length) add('todo-req', function () { var runs = []; tdi.forEach(function (x) { if (runs.indexOf(x.title) < 0) runs.push(x.title); }); return [tdi.length + ' to-do request' + (tdi.length === 1 ? ' needs' : 's need') + ' your decision', 'On ' + esc(K.capJoin(runs, null, ', ', null, function (left) { return ' and ' + left + ' more runs'; })) + '.']; }, 'td-inbox', '', 'Decide');
     /* A plan with a time shows here from 24 hours before it; one without a time shows until someone decides on it. */
     var now = ctx.now(), clash = 'Two decisions on it disagree; check Runs before starting it.';
@@ -28054,6 +28057,9 @@ PF.vk = (function () {
     /* Living runs (4.0): to-do requests on this run waiting for this person's decision. */
     var tdi = ctx.todoInbox ? ctx.todoInbox().filter(function (x) { return x.run.process === r.process && x.run.id === r.id; }) : [];
     if (tdi.length) al += '<div class="notice" role="status"><span>' + tdi.length + ' to-do request' + (tdi.length === 1 ? ' on this run needs' : 's on this run need') + ' your decision.</span><button class="btn" data-act="td-inbox" data-id="' + esc(runKey(r)) + '">Decide</button></div>';
+    /* Its active delegations, whether or not anything waits: a grant can always be ended from the run it covers. */
+    var tdg = ctx.todoGrants ? ctx.todoGrants().filter(function (g) { return g.run.process === r.process && g.run.id === r.id; }) : [];
+    if (tdg.length) al += '<div class="notice" role="status"><span>' + tdg.length + ' delegation' + (tdg.length === 1 ? ' is' : 's are') + ' active on this run.</span><button class="mini" data-act="td-grants" data-id="' + esc(runKey(r)) + '">Delegations</button></div>';
     al += recovery(ctx, r, ctx.canRecover(r));
     if (K.connBanner) al += K.connBanner(ctx);
     if (s.runDetails) al += details(ctx, r, map, rec);
@@ -28802,7 +28808,7 @@ PF.vk = (function () {
         return b + '</li>';
       }).join('') + '</ul>';
     } });
-    if (gs.length) h += '<h3>Delegations you can end</h3><ul class="todos">' + gs.map(function (g) {
+    if (gs.length) h += '<h3 id="tdi-g" tabindex="-1">Delegations you can end</h3><ul class="todos">' + gs.map(function (g) {
       return '<li class="todo"><div><b>' + esc(g.title) + '</b>: ' + esc(tdWho(ctx, g.subject)) + ' may ' + esc(K.capJoin(g.ops)) + ' on ' + g.targets.length + ' place' + (g.targets.length === 1 ? '' : 's') + (g.ops.indexOf('add') >= 0 ? ', up to ' + g.adds + ' addition' + (g.adds === 1 ? '' : 's') : '') + '</div>' +
         '<button type="button" class="mini" data-act="td-revoke" data-id="' + esc(g.id) + '" data-run="' + esc(g.run.process + '/' + g.run.id) + '">Revoke</button></li>';
     }).join('') + '</ul>';
@@ -39987,6 +39993,8 @@ PF.examples = (function () {
       todoAsk({ op: 'add', text: text, target: { phase: phase } }, function () { if (tdClearIf(sent)) state.focus = '#td-add'; });
     },
     'td-inbox': function (id) { var mem = loopMem(); mem.tdInboxRun = id || ''; mem.tdSaid = ''; mem.tdDec = null; state.overlayFocus = '#tdi-h'; openOverlay({ tdInbox: true, html: function () { return V.todoInbox(ctx); }, held: function () { return !!loopMem().tdDec && !!String(val('td-dec-why') || '').trim(); } }); },
+    /* The same dialog, opened at its delegations: any active one can be ended whether or not a request waits. */
+    'td-grants': function (id) { var mem = loopMem(); mem.tdInboxRun = id || ''; mem.tdSaid = ''; mem.tdDec = null; state.overlayFocus = '#tdi-g'; openOverlay({ tdInbox: true, html: function () { return V.todoInbox(ctx); }, held: function () { return !!loopMem().tdDec && !!String(val('td-dec-why') || '').trim(); } }); },
     'td-accept': function (id, b) { tdDecide(b.dataset.run, id, 'accept', b.dataset.fp, ''); },
     'td-decline-pick': function (id, b) {
       var mem = loopMem(), was = mem.tdDec, el = document.getElementById('td-dec-why');

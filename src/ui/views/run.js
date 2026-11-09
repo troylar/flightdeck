@@ -1363,6 +1363,9 @@
     /* Living runs (4.0): to-do requests on this run waiting for this person's decision. */
     var tdi = ctx.todoInbox ? ctx.todoInbox().filter(function (x) { return x.run.process === r.process && x.run.id === r.id; }) : [];
     if (tdi.length) al += '<div class="notice" role="status"><span>' + tdi.length + ' to-do request' + (tdi.length === 1 ? ' on this run needs' : 's on this run need') + ' your decision.</span><button class="btn" data-act="td-inbox" data-id="' + esc(runKey(r)) + '">Decide</button></div>';
+    /* Its active delegations, whether or not anything waits: a grant can always be ended from the run it covers. */
+    var tdg = ctx.todoGrants ? ctx.todoGrants().filter(function (g) { return g.run.process === r.process && g.run.id === r.id; }) : [];
+    if (tdg.length) al += '<div class="notice" role="status"><span>' + tdg.length + ' delegation' + (tdg.length === 1 ? ' is' : 's are') + ' active on this run.</span><button class="mini" data-act="td-grants" data-id="' + esc(runKey(r)) + '">Delegations</button></div>';
     al += recovery(ctx, r, ctx.canRecover(r));
     if (K.connBanner) al += K.connBanner(ctx);
     if (s.runDetails) al += details(ctx, r, map, rec);

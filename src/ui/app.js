@@ -8002,6 +8002,8 @@
       todoAsk({ op: 'add', text: text, target: { phase: phase } }, function () { if (tdClearIf(sent)) state.focus = '#td-add'; });
     },
     'td-inbox': function (id) { var mem = loopMem(); mem.tdInboxRun = id || ''; mem.tdSaid = ''; mem.tdDec = null; state.overlayFocus = '#tdi-h'; openOverlay({ tdInbox: true, html: function () { return V.todoInbox(ctx); }, held: function () { return !!loopMem().tdDec && !!String(val('td-dec-why') || '').trim(); } }); },
+    /* The same dialog, opened at its delegations: any active one can be ended whether or not a request waits. */
+    'td-grants': function (id) { var mem = loopMem(); mem.tdInboxRun = id || ''; mem.tdSaid = ''; mem.tdDec = null; state.overlayFocus = '#tdi-g'; openOverlay({ tdInbox: true, html: function () { return V.todoInbox(ctx); }, held: function () { return !!loopMem().tdDec && !!String(val('td-dec-why') || '').trim(); } }); },
     'td-accept': function (id, b) { tdDecide(b.dataset.run, id, 'accept', b.dataset.fp, ''); },
     'td-decline-pick': function (id, b) {
       var mem = loopMem(), was = mem.tdDec, el = document.getElementById('td-dec-why');

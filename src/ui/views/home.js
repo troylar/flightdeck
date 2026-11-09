@@ -88,6 +88,9 @@
     });
     /* Living runs (4.0): to-do requests waiting for this person's decision, one row for all of them; it opens exactly that list. */
     var tdi = me && ctx.todoInbox ? ctx.todoInbox() : [];
+    /* Delegations this person may end, whether or not anything waits for them: a grant can always be revoked from here. */
+    var tdg = me && ctx.todoGrants ? ctx.todoGrants() : [];
+    if (tdg.length) add('todo-grants', function () { return [tdg.length + ' delegation' + (tdg.length === 1 ? '' : 's') + ' you can end', 'A tool or a person may change to-dos without asking on ' + (tdg.length === 1 ? 'a run' : 'runs') + ' you decide for.']; }, 'td-grants', '', 'Delegations');
     if (tdi.length) add('todo-req', function () { var runs = []; tdi.forEach(function (x) { if (runs.indexOf(x.title) < 0) runs.push(x.title); }); return [tdi.length + ' to-do request' + (tdi.length === 1 ? ' needs' : 's need') + ' your decision', 'On ' + esc(K.capJoin(runs, null, ', ', null, function (left) { return ' and ' + left + ' more runs'; })) + '.']; }, 'td-inbox', '', 'Decide');
     /* A plan with a time shows here from 24 hours before it; one without a time shows until someone decides on it. */
     var now = ctx.now(), clash = 'Two decisions on it disagree; check Runs before starting it.';
