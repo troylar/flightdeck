@@ -55,14 +55,15 @@ PF.spreads = (function () {
       return views[k];
     };
     (T.spreads || []).forEach(function (s) {
-      var C = { scope: [], id: s.id, text: s.text, loopStep: s.loopStep, child: s.child, owner: s.owner || '', state: s.state, stop: s.stop, request: s.request, added: s.added, items: [], unresolved: [], notices: [], counts: null, summary: '', row: '' };
+      var C = { complete: false, scope: [], id: s.id, text: s.text, loopStep: s.loopStep, child: s.child, owner: s.owner || '', state: s.state, stop: s.stop, request: s.request, added: s.added, items: [], unresolved: [], notices: [], counts: null, summary: '', row: '' };
       out.push(C);
       var hold = function (why) { C.unresolved.push(why); };
       if (!o.loops) { hold('Spread "' + s.text + '": its loop can\'t be read here, so its coverage can\'t be checked.'); return finish(C); }
       var V = null; try { V = PF.loop.view(r, s.loopStep, { records: o.loops.records, unread: o.loops.unread, runs: o.runs, procOf: o.loops.procOf }); } catch (e) { V = null; }
       if (!V) { hold('Spread "' + s.text + '": its loop ' + s.loopStep + ' can\'t be read here.'); return finish(C); }
       if (V.ledger.held.length) { hold('Spread "' + s.text + '": a scope record of its loop can\'t be read yet, so who owes it isn\'t known.'); return finish(C); }
-      C.noun = V.noun;
+      /* Who owes it is known only from here on: before this, coverage is incomplete, never empty. */
+      C.complete = true; C.noun = V.noun;
       var rows = Object.create(null); V.rollup.items.forEach(function (i) { rows[i.uid] = i; });
       /* Who owes it: while it stands, every item in scope on its current attempt, apart from those cleared when it was added
          (unless included one by one); once stopped, exactly the obligations it had then. */

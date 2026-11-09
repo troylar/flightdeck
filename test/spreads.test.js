@@ -56,6 +56,8 @@ function world(ns) {
   };
   W.clear = (c, value) => { const m = R.mapOf(c); R.done(c, m, 'read', 'person-avery', AT); R.done(c, m, 'verdict', 'person-avery', AT, { decision: value || 'cleared' }); W.mark(); R.pass(c, m, 0, 'person-avery', AT); R.end(c, m, 'Completed', 'person-avery', 'Avery', AT); return c; };
   W.loops = () => ({ records: W.scopes, unread: [], procOf });
+  /* What every reader of a spread passes: every record, the loop's scope records and every run. */
+  W.inputs = () => ({ records: W.recs, unread: W.unread, people: PEOPLE, loops: W.loops(), runs: W.runs() });
   W.view = (x) => T.view(x || W.r, { records: W.recs, unread: W.unread, people: PEOPLE });
   W.mark = () => { LP.markStale(W.runs(), { records: W.scopes, procOf }); T.markHolds(W.runs(), { records: W.recs, unread: W.unread, people: PEOPLE, loops: W.loops() }); return W.r._todos; };
   W.cov = () => S.coverage(W.r, W.view(), { runs: W.runs(), records: W.recs, unread: W.unread, people: PEOPLE, loops: W.loops() });
@@ -64,7 +66,7 @@ function world(ns) {
   W.push = (rec, name) => { rec._file = name || rec.id + '.json'; W.recs.push(rec); return rec; };
   /* Asks through the one rule (PF.todos.prepare) and files what it builds. */
   W.ask = (x, body, by, extra) => {
-    const Pp = T.prepare(x, Object.assign({ body, by, key: 'k-' + rev(), records: W.recs, unread: W.unread, people: PEOPLE, at: AT, app: '4.0.0' }, extra || {}));
+    const Pp = T.prepare(x, Object.assign({ body, by, key: 'k-' + rev(), records: W.recs, unread: W.unread, people: PEOPLE, at: AT, app: '4.0.0', loops: W.loops(), runs: W.runs() }, extra || {}));
     assert.ok(!Pp.why, Pp.why);
     W.push(Pp.record, Pp.name);
     return Pp;
@@ -73,9 +75,9 @@ function world(ns) {
   /* The recorder's window: land every queued request of a run, one at a time, as todoApply does. */
   W.land = (x) => {
     for (let i = 0; i < 100; i++) {
-      const V = W.view(x), q = T.nextQueued(V);
+      const V = W.view(x), q = T.nextQueued(V, x, W.inputs());
       if (!q) return;
-      const plan = T.applyPlan(x, V, q);
+      const plan = T.applyPlan(x, V, q, W.inputs());
       if (plan.adopt) { x.living = { head: plan.adopt.id }; continue; }
       assert.ok(plan.write, JSON.stringify(plan));
       const s = T.buildStatus(Object.assign({}, plan.write, { by: (x.recorder && x.recorder.person) || 'person-morgan', at: AT, writer: 'rec', rev: rev(), app: '4.0.0' }));
@@ -88,7 +90,7 @@ function world(ns) {
   W.decide = (x, id, by, op, reason) => {
     const it = T.inbox([x], { records: W.recs, unread: W.unread, people: PEOPLE, me: by }).filter(y => y.id === id)[0];
     assert.ok(it, 'in ' + by + '\'s inbox: ' + id);
-    const d = T.decide(x, { request: id, op: op || 'accept', by, shown: it.consequence.fingerprint, reason, records: W.recs, unread: W.unread, people: PEOPLE, at: AT, writer: 'w' + rev(), rev: rev(), app: '4.0.0' });
+    const d = T.decide(x, Object.assign({ request: id, op: op || 'accept', by, shown: it.consequence.fingerprint, reason, at: AT, writer: 'w' + rev(), rev: rev(), app: '4.0.0' }, W.inputs()));
     assert.ok(!d.why, d.why);
     return W.push(d.record, d.name);
   };
@@ -419,5 +421,47 @@ rule('Exact inbox counts: each story\'s request once, on its own run, beside oth
   same(box('person-morgan').filter(x => x.run.id === 'r-41').map(x => x.op), ['spread-add']);
   W.decide(ks[1], qs[1].id, 'person-avery');
   same(box('person-avery').length, 3);
+});
+/* Review round 1 (SA): a stop keeps exactly what is owed when it lands, or it doesn't land. */
+const stopBody = (W, owed) => ({ op: 'spread-stop', spread: spreadOf(W).id, reason: 'Covered by the platform review', owed: owed.map(n => ({ uid: uid(n), attempt: 1 })) });
+rule('SA: a stop is never prepared while what it is owed on can\'t be read; incomplete never looks empty', () => {
+  const W = world([101]); W.kid(101);
+  W.spreadAdd(); W.land(W.r);
+  const P0 = T.prepare(W.r, { body: stopBody(W, [101]), by: { tool: 'release-helper', version: '1.0', key: 'st-0' }, records: W.recs, unread: W.unread, people: PEOPLE, at: AT, app: '4.0.0' });
+  assert.ok(P0.why && /can't be checked here/.test(P0.why), 'without the loop: ' + P0.why);
+  /* A scope record whose predecessor hasn't arrived: the loop's ledger is held. */
+  W.scopes.push(scope('s2', [101, 102], ['req-release-helper-' + 'f'.repeat(24)]));
+  same(W.one().complete, false);
+  same(W.one().items, [], 'nothing can be listed');
+  const P1 = T.prepare(W.r, { body: stopBody(W, []), by: { tool: 'release-helper', version: '1.0', key: 'st-1' }, records: W.recs, unread: W.unread, people: PEOPLE, at: AT, app: '4.0.0', loops: W.loops(), runs: W.runs() });
+  assert.ok(P1.why && /can't all be read/.test(P1.why), 'held scope: ' + P1.why);
+});
+rule('SA: a stop asked before an item joined is refused at the decision and at every application write; the item stays owed', () => {
+  const W = world([101]); W.kid(101);
+  W.spreadAdd(); W.land(W.r);
+  const st = W.ask(W.r, stopBody(W, [101]), { tool: 'release-helper', version: '1.0', key: 'st-2' });
+  /* Accepted while it was right... */
+  const it = T.inbox([W.r], Object.assign({ me: 'person-morgan' }, W.inputs())).filter(x => x.id === st.id)[0];
+  W.decide(W.r, st.id, 'person-morgan');
+  /* ...then ABC-102 joins before the recorder applies it. */
+  W.scopes.push(scope('s2', [101, 102], [W.scopes[0].id])); W.kid(102);
+  const V = W.view(), plan = T.applyPlan(W.r, V, V.requests[st.id], W.inputs());
+  assert.ok(plan.skip && plan.stale && /changed since this stop was asked/.test(plan.skip), JSON.stringify(plan));
+  const blind = T.applyPlan(W.r, V, V.requests[st.id], { records: W.recs, unread: W.unread, people: PEOPLE });
+  assert.ok(blind.skip && !blind.write && !blind.adopt, 'a recorder that can\'t read the loop applies nothing: ' + JSON.stringify(blind));
+  W.land(W.r);
+  same(spreadOf(W).state, 'active', 'the stale stop never lands');
+  same(W.one().items.filter(i => i.owed).map(i => i.key), ['ABC-101', 'ABC-102']);
+  /* A decision made on a stop that is stale already is refused too. */
+  const st2 = W.ask(W.r, Object.assign(stopBody(W, [101, 102]), { reason: 'Again' }), { tool: 'release-helper', version: '1.0', key: 'st-3' });
+  W.scopes.push(scope('s3', [101, 102, 103], [W.scopes[1].id])); W.kid(103);
+  const it2 = T.inbox([W.r], Object.assign({ me: 'person-morgan' }, W.inputs())).filter(x => x.id === st2.id)[0];
+  const d = T.decide(W.r, Object.assign({ request: st2.id, op: 'accept', by: 'person-morgan', shown: it2.consequence.fingerprint, at: AT, writer: 'wx', rev: rev(), app: '4.0.0' }, W.inputs()));
+  assert.ok(d.why && /Ask for the stop again/.test(d.why), d.why);
+  /* And a fresh stop naming everything owed now lands. */
+  W.ask(W.r, Object.assign(stopBody(W, [101, 102, 103]), { reason: 'Fresh' }), { person: 'person-morgan' }); W.land(W.r);
+  same(spreadOf(W).state, 'stopped');
+  same(W.one().items.map(i => i.key), ['ABC-101', 'ABC-102', 'ABC-103']);
+  assert.ok(it, 'set-up');
 });
 run();

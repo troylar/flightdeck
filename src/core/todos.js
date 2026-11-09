@@ -932,8 +932,21 @@ PF.todos = (function () {
      writing anything: a request the head already reaches is done (whatever authority says now); an application already
      written for the head as it stands, with the same effect and authority, is landed as it is; otherwise a new one is
      prepared. A request that isn't queued now (authority lost, held, disputed) is left alone. ---- */
+  /* A stop keeps exactly what its spread is owed on when it lands (docs/design.md 45.1). Asked, decided and applied only while
+     that can be read in full, and only while it is still exactly the list the stop names: one asked before an item joined (or
+     left) is refused, and a fresh stop is asked. Returns null, or { why, stale } (stale: it can't land as it is; else it waits). */
+  function stopCheck(r, T, q, o) {
+    var name = (T.bySpread[q.spread] || {}).text || q.spread;
+    if (!o || !o.loops) return { why: 'What spread "' + name + '" is owed on can\'t be checked here (its loop and its items\' runs aren\'t read), so a stop waits.' };
+    var cov = null; try { cov = PF.spreads.coverage(r, T, { runs: o.runs || [r], records: o.records || T.records, unread: o.unread || [], people: o.people, loops: o.loops }); } catch (e) { cov = null; }
+    var C = cov ? cov.spreads.filter(function (c) { return c.id === q.spread; })[0] : null;
+    if (!C || !C.complete) return { why: 'What spread "' + name + '" is owed on can\'t all be read yet, so a stop waits until it can.' };
+    var key = function (p) { return p.uid + '#' + p.attempt; }, now = C.items.filter(function (i) { return i.owed; }).map(key).sort(), was = (q.owed || []).map(key).sort();
+    if (now.join('\n') !== was.join('\n')) return { stale: true, why: 'What spread "' + name + '" is owed on changed since this stop was asked (' + now.length + ' now; it keeps ' + was.length + '). Ask for the stop again, so every obligation is kept.' };
+    return null;
+  }
   function sameVia(a, b) { return !!a && !!b && JSON.stringify(canon(a)) === JSON.stringify(canon(b)); }
-  function applyPlan(r, T, q) {
+  function applyPlan(r, T, q, o) {
     if (!q) return { skip: 'There is no such request.' };
     var unsettled = (q.appOut || []).length > 0;
     if (q.landed && !unsettled) return { landed: q.landed };
@@ -953,6 +966,7 @@ PF.todos = (function () {
     /* Two applications prepared at once (two windows, neither landed) block nothing: a new one that saw both settles them. */
     var appOnly = q.status === 'disputed' && q.appOnly && q.via;
     if (q.status !== 'queued' && !appOnly) return { skip: q.why || 'It is ' + q.status + '.' };
+    if (q.op === 'spread-stop') { var sc = stopCheck(r, T, q, o); if (sc) return { skip: sc.why, stale: !!sc.stale }; }
     var head = r.living && typeof r.living.head === 'string' ? r.living.head : '', byId = Object.create(null);
     T.records.forEach(function (y) { byId[y.id] = y; });
     var p = byId[q.id];
@@ -992,7 +1006,7 @@ PF.todos = (function () {
     for (var i = 0; i < extra.length; i++) {
       var a = extra[i], t = JSON.parse(JSON.stringify(cur, function (k, v) { return this === cur && k.charAt(0) === '_' ? undefined : v; }));
       if (good) t.living = { head: good }; else delete t.living;
-      var V = view(t, { records: o.records, unread: o.unread, people: o.people }), q = V.requests[a.kind === 'compound' ? a.id : a.proposal], plan = q ? applyPlan(t, V, q) : null;
+      var V = view(t, { records: o.records, unread: o.unread, people: o.people }), q = V.requests[a.kind === 'compound' ? a.id : a.proposal], plan = q ? applyPlan(t, V, q, o) : null;
       if (!(plan && plan.adopt && plan.adopt.id === a.id)) return { head: good, dropped: a.id };
       good = a.id;
     }
@@ -1130,6 +1144,8 @@ PF.todos = (function () {
       if (!(typeof b.reason === 'string' && b.reason.trim())) return { why: 'Say why it stops.' };
       var oe = [], owed = cleanPairs(b.owed || [], LIMITS.items, oe, 'What it is owed on');
       if (!owed) return { why: oe[0] + ' Nothing was cut.' };
+      var sc = stopCheck(r, T, { spread: sp.id, owed: owed }, o);
+      if (sc) return { why: sc.why + ' Nothing was asked.' };
       body.owed = owed;
     }
     if (b.reason != null && String(b.reason).trim()) body.reason = String(b.reason).trim();
@@ -1248,6 +1264,7 @@ PF.todos = (function () {
     if (!it) return { why: 'That request isn\'t waiting for a decision on this run (it may be decided, applied or held already). Nothing was decided.' };
     if (DOPS.indexOf(o.op) < 0) return { why: 'Say accept or decline.' };
     if (o.op === 'accept' && o.shown !== it.consequence.fingerprint) return { renewed: true, item: it, why: 'What it would do changed since you saw it: ' + it.words + ' Look again, then decide.' };
+    if (o.op === 'accept' && it.op === 'spread-stop' && !it.landed) { var T0 = view(r, { records: recordsFor(o.records, r), unread: unreadFor(o, r), people: people, deps: depsOf(o) }), sc0 = stopCheck(r, T0, T0.requests[o.request], o); if (sc0) return { why: sc0.why + ' Nothing was decided.' }; }
     var reason = o.reason == null ? '' : String(o.reason).trim();
     if (reason.length > LIMITS.reason) return { why: 'A reason is at most ' + LIMITS.reason + ' characters (this is ' + reason.length + ').' };
     var T = view(r, { records: recordsFor(o.records, r), unread: unreadFor(o, r), people: people, deps: depsOf(o) }), q = T.requests[o.request];
@@ -1297,7 +1314,11 @@ PF.todos = (function () {
   }
   /* The first queued request of a run, in causal order: one lands at a time, so each is checked against the work as the one
      before it left it. */
-  function nextQueued(T) { return requestsOf(T).filter(function (q) { return q.status === 'queued' && !q.landed; })[0] || null; }
+  function nextQueued(T, r, o) {
+    /* A stop that can't land as it is (what its spread is owed on changed since it was asked) is passed over, never applied
+       and never blocking the requests after it; a fresh stop is asked. Without r, every queued request counts. */
+    return requestsOf(T).filter(function (q) { return q.status === 'queued' && !q.landed && !(r && q.op === 'spread-stop' && (stopCheck(r, T, q, o) || {}).stale); })[0] || null;
+  }
 
   return { SOPS: SOPS, ALL_OPS: ALL_OPS, isSpreadOp: isSpreadOp, hasPair: hasPair, loopWhy: loopWhy, FORMAT: FORMAT, STATUS: STATUS, FEATURE: FEATURE, LIMITS: LIMITS, OPS: OPS, WORDS: WORDS, STATE_WORDS: STATE_WORDS, idFor: idFor, todoIdFor: todoIdFor, statusName: statusName, isTodo: isTodo, claims: claims, familyOf: familyOf,
     targetKey: targetKey, placeOf: placeOf, placementWhy: placementWhy, placementFor: placementFor, effectOf: effectOf, fingerprint: fp, text: text,

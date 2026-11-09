@@ -248,4 +248,19 @@ rule('A record this depends on that can\'t be read holds sync (exit 4) and write
   assert.deepStrictEqual(snap(root), before, 'nothing written');
 });
 
+rule('SA: stop is refused (exit 4, nothing written) while a scope record of the loop is missing; list says coverage is incomplete', async () => {
+  const { root, d, sp } = await spread();
+  /* A scope record whose predecessor hasn't arrived. */
+  const c = LP.cleanIntent({ loop: { process: 'release-readiness', run: 'r-41', step: 'each' }, observation: obs([101, 102, 103, 104]), changes: [] }, 's9', { name: 'release-helper', version: '1.0' });
+  const f = LP.buildRequest(c.intent, { seen: ['req-release-helper-' + 'e'.repeat(24)], children: [], now: AT, app: '4.0.0' });
+  await d.write('proposals/' + f.id + '.json', LP.text(f));
+  const l = json('spread', 'list', root, PR, '--json');
+  assert.deepStrictEqual([l.data.spreads[0].complete, l.data.spreads[0].items], [false, []]);
+  const before = snap(root);
+  const st = json('spread', 'stop', root, PR, '--spread', sp.id, '--reason', 'Not needed', '--key', 'stop-h', '--json', ...TOOL);
+  assert.deepStrictEqual([st.code, st.data && st.data.status], [4, 'held'], JSON.stringify(st));
+  assert.ok(/can't all be read/.test(st.data.preview), st.data.preview);
+  assert.deepStrictEqual(snap(root), before, 'nothing written');
+});
+
 run();

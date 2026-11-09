@@ -2830,13 +2830,13 @@ async function spreadMain(argv) {
     const records = got.todos || [], people = one.people, deps = { records, unread };
     const V = T.view(r, { records, unread, people, deps }), title = String(r.title || r.process);
     const cov = S.coverage(r, V, { runs, records, unread, people, loops: { records: got.scopes || [], unread: sunread, procOf } });
-    const shape = (C) => ({ id: C.id, text: C.text, loop: C.loopStep, beforeGate: C.child.beforeGate, state: C.state, row: C.row, summary: C.summary, preview: C.preview, counts: C.counts ? { owed: C.counts.owed, done: C.counts.resolved, unchanged: C.counts.exempt, arrivals: C.counts.arrivals } : null,
+    const shape = (C) => ({ id: C.id, complete: !!C.complete, text: C.text, loop: C.loopStep, beforeGate: C.child.beforeGate, state: C.state, row: C.row, summary: C.summary, preview: C.preview, counts: C.counts ? { owed: C.counts.owed, done: C.counts.resolved, unchanged: C.counts.exempt, arrivals: C.counts.arrivals } : null,
       items: C.items.map((i) => ({ uid: i.uid, key: i.key || null, attempt: i.attempt, state: i.state, words: i.words, why: i.why || null, owed: i.owed, resolved: i.resolved, arrival: !!i.arrival, run: i.run || null, request: i.request || null, todo: i.todo || null })),
       notices: C.notices, holds: C.unresolved, stop: C.stop ? { reason: C.stop.reason } : null });
     const spreadReqs = T.requestsOf(V).filter((q) => T.isSpreadOp(q.op)).map((q) => ({ id: q.id, op: q.op, spread: q.spread || null, status: q.status, statusWords: T.WORDS[q.status] || q.status, why: q.why || null, by: q.by || null, at: q.at || null }));
     if (sub === 'list') return done({ run: { process: proc, id: runId }, title, living: !!r.living, spreads: cov.spreads.map(shape), requests: spreadReqs, held: (V.broken ? [V.broken.why] : []).concat(V.unread.map((u) => String(u.file) + ': ' + u.why), V.held.map((h) => h.record + ': ' + h.why)) });
     /* Anything this depends on that couldn't be read holds the write (exit 4): reading it again could change the answer. */
-    const held = (why) => done({ run: { process: proc, id: runId }, status: 'held', preview: why + ' Nothing was written. Check folder availability, then retry' + (sub === 'sync' ? '.' : ' with the same key.') });
+    const held = (why) => done({ run: { process: proc, id: runId }, status: 'held', preview: why + ' Nothing was written. Check folder availability, then retry' + (sub === 'sync' ? '.' : ' with the same key.') }, EXIT.partial);
     const C = val['--spread'] ? cov.spreads.filter((x) => x.id === val['--spread'])[0] : null;
     if (sub === 'sync') {
       if (!C) return failOut('invalid', 'That spread isn\'t on ' + proc + '/' + runId + ' (flightdeck spread list shows them).' + nothing, problems());
@@ -2888,6 +2888,7 @@ async function spreadMain(argv) {
       if (val['--owner'] != null) body.owner = val['--owner'];
     } else {
       if (!C) return failOut('invalid', 'That spread isn\'t on ' + proc + '/' + runId + ' (flightdeck spread list shows them).' + nothing, problems());
+      if (sub === 'stop' && !C.complete) return held('What the spread is owed on can\'t all be read yet (a scope record of its loop is missing or unreadable), so a stop can\'t name it.');
       if (sub === 'stop') body = { op: 'spread-stop', spread: C.id, owed: C.items.filter((i) => i.owed).map((i) => ({ uid: i.uid, attempt: i.attempt })) };
       else {
         const LV = LP.view(r, C.loopStep, { records: got.scopes || [], unread: sunread, runs, procOf }), it = LV ? LV.rollup.items.filter((i) => i.key === val['--item'] || i.uid === val['--item'])[0] : null;
@@ -2907,7 +2908,7 @@ async function spreadMain(argv) {
       return done({ run: { process: proc, id: runId }, status: 'already', request: { id, file }, preview: 'Already requested (' + (q0 ? T.WORDS[q0.status] || q0.status : 'not read in order yet') + '). Nothing written.' });
     }
     if (problems().length) return held('Part of the team folder this depends on couldn\'t be read.');
-    const P = T.prepare(r, { body, by: { tool: tool.name, version: tool.version, key: val['--key'] }, records, unread, people, deps, childMap, at: new Date().toISOString(), app: eng.version });
+    const P = T.prepare(r, { body, by: { tool: tool.name, version: tool.version, key: val['--key'] }, records, unread, people, deps, childMap, loops: { records: got.scopes || [], unread: sunread, procOf }, runs, at: new Date().toISOString(), app: eng.version });
     if (P.why) return failOut('invalid', P.why + nothing, problems());
     const pv = P.preview, needs = pv.status === 'waiting' ? 'person' : pv.status === 'queued' ? 'delegation' : 'none';
     const data = (status) => ({ run: { process: proc, id: runId }, status, request: { id, file }, op: pv.op, spread: pv.spread,

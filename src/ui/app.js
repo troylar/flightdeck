@@ -3017,7 +3017,7 @@
     if (!t.pre) return true;
     var pre; try { pre = R.sanitize(JSON.parse(t.pre)); } catch (e) { return false; }
     if (!pre || pre._unrunnable) return false;
-    var ok = function (run) { var kh = PF.todos.keepHead(run, { living: t.from ? { head: t.from } : null }, { records: data.todos || [], unread: data.todosUnread || [], people: data.people }); return kh.head === t.head && kh.dropped === (t.dropped || ''); };
+    var ok = function (run) { var kh = PF.todos.keepHead(run, { living: t.from ? { head: t.from } : null }, spInputs()); return kh.head === t.head && kh.dropped === (t.dropped || ''); };
     if (!ok(pre)) return false;
     /* Asked again with the roles the run has now (the durable head stays the one before): a role reassigned meanwhile takes
        its holder's authority with it. */
@@ -3282,7 +3282,7 @@
       if (applying[gk]) return;
       var V = todoView(r);
       if (!V || V.broken) return;
-      var q = PF.todos.nextQueued(V) || PF.todos.requestsOf(V).filter(function (y) { return (y.status === 'disputed' && y.appOnly && y.via) || (y.landed && (y.appOut || []).length); })[0];
+      var q = PF.todos.nextQueued(V, r, spInputs()) || PF.todos.requestsOf(V).filter(function (y) { return (y.status === 'disputed' && y.appOnly && y.via) || (y.landed && (y.appOut || []).length); })[0];
       if (!q) return;
       applying[gk] = true;
       var cx = loopGuard({ run: key, readable: true });
@@ -3298,6 +3298,8 @@
   }
   var TODO_PAGES = 20;
   function todoView(r) { return PF.todos.view(r, { records: data.todos || [], unread: data.todosUnread || [], people: data.people }); }
+  /* What a spread's coverage reads (its loop's scope records and every run), for stops: asked, decided and applied only on it. */
+  function spInputs() { return { records: data.todos || [], unread: data.todosUnread || [], people: data.people, loops: { records: data.scopes || [], unread: data.scopesUnread || [], procOf: ctx.procOf }, runs: data.runs || [] }; }
   /* The screen's copy (ctx.todoView): the same view, kept while the records, unread files, people and the run are the ones it
      was worked out from. */
   var tdMemo = null;
@@ -3319,7 +3321,7 @@
     if (!r || !state.me) return;
     var sig = JSON.stringify([fsKey(), r.process + '/' + r.id, state.me, body]), keep = state.tdKey;
     var key = keep && keep.sig === sig ? keep.key : 'ui-' + loopHex(20);
-    var P = PF.todos.prepare(r, { body: body, by: { person: state.me }, key: key, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION });
+    var P = PF.todos.prepare(r, Object.assign(spInputs(), { body: body, by: { person: state.me }, key: key, at: new Date().toISOString(), app: APP_VERSION }));
     if (P.why) { say(P.why + ' Nothing was written.', 'warn'); render(); return; }
     if (runUnread(r)) { say(runUnread(r) + ' Nothing was written.', 'warn'); render(); return; }
     /* Asked again after a write that may have happened: exactly the bytes of the first ask, so it is found as the same. */
@@ -3398,7 +3400,7 @@
     if (!r || !state.me) return;
     if (runUnread(r)) { mem.tdSaid = runUnread(r) + ' Nothing was decided.'; render(); return; }
     var sent = op === 'decline' ? tdSent(['td-dec-why'], 'dec') : null, tok = tdTok('dec'), open = mem.tdDec, slot = 'dec', sig = JSON.stringify([key, id, op, shown || '', reason == null ? '' : String(reason), state.me]);
-    var made = tdKept(slot, sig, function (seed) { return PF.todos.decide(r, { request: id, op: op, by: state.me, shown: shown, reason: reason, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION, writer: seed.writer, rev: seed.rev }); });
+    var made = tdKept(slot, sig, function (seed) { return PF.todos.decide(r, Object.assign(spInputs(), { request: id, op: op, by: state.me, shown: shown, reason: reason, at: new Date().toISOString(), app: APP_VERSION, writer: seed.writer, rev: seed.rev })); });
     if (made.why) { mem.tdSaid = made.why; render(); return; }
     tdWrite(r, made, made.words, slot, tok).then(function (ok) { if (ok && mem.tdDec === open && tok === tdTok('dec') && (!sent || tdClearIf(sent))) { mem.tdDec = null; render(); } });
   }
@@ -3423,7 +3425,7 @@
       var x = list[i], r = findRun(x.run);
       if (!r || runUnread(r)) { failed.push({ why: (r ? runUnread(r) : 'The run ' + x.run + ' isn\'t in this folder.') }); step(i + 1); return; }
       var slot = 'dec-all:' + x.run + '|' + x.id, sig = JSON.stringify([x.run, x.id, 'accept', x.fp, state.me]);
-      var made = tdKept(slot, sig, function (seed) { return PF.todos.decide(r, { request: x.id, op: 'accept', by: state.me, shown: x.fp, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION, writer: seed.writer, rev: seed.rev }); });
+      var made = tdKept(slot, sig, function (seed) { return PF.todos.decide(r, Object.assign(spInputs(), { request: x.id, op: 'accept', by: state.me, shown: x.fp, at: new Date().toISOString(), app: APP_VERSION, writer: seed.writer, rev: seed.rev })); });
       if (made.why) { if (made.renewed) changed.push(x); else failed.push({ why: made.why }); step(i + 1); return; }
       var cx = loopGuard({ run: r.process + '/' + r.id, readable: true }), endBusy = busyStart(), sg = gen;
       repo.saveScope(cx.fs, made.name, made.file, { still: function () { return guardOk(cx); } }).then(function (res) {
@@ -3541,7 +3543,7 @@
     return pub && typeof pub.info.typesHash === 'string' ? pub.info.typesHash : '';
   }
   function todoCarry(r, V, q, cx) {
-    var key = r.process + '/' + r.id, plan = PF.todos.applyPlan(r, V, q);
+    var key = r.process + '/' + r.id, plan = PF.todos.applyPlan(r, V, q, spInputs());
     if (plan.landed || plan.skip) return Promise.resolve(false);
     var prepared;
     if (plan.adopt) prepared = Promise.resolve(plan.adopt);
@@ -3559,7 +3561,7 @@
       /* A settlement of applications made after one landed is written, never landed: the landed effect isn't replayed. */
       if (plan.settle) return true;
       /* A settlement page that leaves others outstanding is written, never landed: the next read writes the next page. */
-      var V1 = todoView(r), q1 = V1.requests[q.id], p1 = q1 ? PF.todos.applyPlan(r, V1, q1) : { skip: 'gone' };
+      var V1 = todoView(r), q1 = V1.requests[q.id], p1 = q1 ? PF.todos.applyPlan(r, V1, q1, spInputs()) : { skip: 'gone' };
       if (p1.write) return 'again';
       if (!p1.adopt || p1.adopt.id !== a.id) return false;
       var types = todoTypes(r), lcx = loopGuard({ run: key, readable: true });
@@ -3568,7 +3570,7 @@
         lcx.todo = { key: key, from: a.id, head: a.id, pre: todoPre(rr) };
         /* Asked again in the write queue, on the run as it is: still queued (or only its prepared applications disagree), the
            same head, the same authority. */
-        var V2 = todoView(rr), q2 = V2 && V2.requests[q.id], plan2 = q2 ? PF.todos.applyPlan(rr, V2, q2) : { skip: 'gone' };
+        var V2 = todoView(rr), q2 = V2 && V2.requests[q.id], plan2 = q2 ? PF.todos.applyPlan(rr, V2, q2, spInputs()) : { skip: 'gone' };
         if (V2.broken || plan2.landed || plan2.skip) throw new Error('The to-do request changed while it was carried out.');
         if (plan2.adopt && plan2.adopt.id !== a.id) throw new Error('Another application of it is in the folder now.');
         if (!plan2.adopt) throw new Error('The to-do request changed while it was carried out.');
@@ -9217,7 +9219,7 @@
           var extra = c._overflow || [];
           /* A copy's to-dos this run never landed are kept only while they would land now (PF.todos.keepHead); the rest are
              prepared again. */
-          var kh = PF.todos.keepHead(run, c, { records: data.todos || [], unread: data.todosUnread || [], people: data.people }), ko = { typesHash: todoTypes(run), head: kh.head };
+          var kh = PF.todos.keepHead(run, c, spInputs()), ko = { typesHash: todoTypes(run), head: kh.head };
           rcx.todo = { key: key, from: c.living && typeof c.living.head === 'string' ? c.living.head : '', head: kh.head, dropped: kh.dropped, pre: todoPre(run) };
           var keep = function (t) {
             R.adopt(t, c, me, now, ko);
