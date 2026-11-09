@@ -179,6 +179,16 @@ rule('A to-do record from a newer Flightdeck is named newer, not malformed, by r
   const l = json('todo', 'list', root, 'release-notes/r-1', '--json');
   assert.deepStrictEqual(l.problems.filter(x => x.path === 'proposals/' + id + '.json').map(x => x.kind), ['newer'], 'todo list too: ' + JSON.stringify(l.problems));
 });
+rule('run (contract 2) says who asked for each to-do request: a person, or a tool and its version, as todo list does', async () => {
+  const { root, d } = await folder();
+  const r = JSON.parse(fs.readFileSync(path.join(root, 'runs/release-notes/r-1/run.json'), 'utf8'));
+  await seed(d, r);
+  const a = json('todo', 'add', root, 'release-notes/r-1', '--text', 'From the bot', '--phase', 'draft', '--json', ...TOOL);
+  assert.strictEqual(a.code, 0, JSON.stringify(a));
+  const x = json('run', root, 'release-notes/r-1', '--contract', '2', '--json').data.run, l = json('todo', 'list', root, 'release-notes/r-1', '--json').data;
+  assert.deepStrictEqual(x.todoRequests.map(q => q.by), [{ person: 'person-avery' }, { tool: 'notes-bot', version: '1.2' }]);
+  assert.deepStrictEqual(x.todoRequests.map(q => q.by), l.requests.map(q => q.by), 'the same as todo list');
+});
 rule('Usage, an unknown run, a run that ended and a folder part that can\'t be read write nothing', async () => {
   const { root } = await folder();
   assert.strictEqual(json('todo', 'add', root, 'release-notes/r-1', '--text', 'x', '--phase', 'draft', '--json').code, 1, 'no --tool');

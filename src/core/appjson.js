@@ -105,7 +105,9 @@ PF.appjson = (function () {
      for a person, and whether a to-do record couldn't be read (held: approval waits). todoHolds: why any gate is held by them. */
   var TODO_COUNTS = { open: 'number', total: 'number', waiting: 'number', held: 'boolean' };
   var TODO_ROW = { id: 'string', text: 'string', state: 'string', beforeGate: opt('string'), gate: opt('string'), owner: opt(PERSON), reason: opt('string'), to: opt('string') };
-  var TODO_REQ = { id: 'string', op: 'string', todo: opt('string'), status: 'string', why: opt('string'), by: opt('string'), requester: opt('string') };
+  /* Who asked: a person, or a tool and its version, as the record says (and flightdeck todo list prints). */
+  var TODO_BY = { $or: [{ person: 'string' }, { tool: 'string', version: 'string' }] };
+  var TODO_REQ = { id: 'string', op: 'string', todo: opt('string'), status: 'string', why: opt('string'), by: opt(TODO_BY), requester: opt('string') };
   var NEXT2 = extend(SCHEMA.next, { next: opt(extend(SCHEMA.next.next.$or[0], { step: opt(orResult(orSearch({ id: 'string', text: 'string', roles: [ROLE] }, 'run'), { heldBy: opt(HELD_BY), awaiting: opt(AWAITING) })) })) });
   var SCHEMA2 = {
     envelope: SCHEMA.envelope, error: SCHEMA.error, processes: SCHEMA.processes,
@@ -413,13 +415,14 @@ PF.appjson = (function () {
     mp.phases.forEach(function (p, pi) { (R.phaseHeld(r, mp, pi) || []).forEach(function (w) { if (out.indexOf(s(w)) < 0) out.push(s(w)); }); });
     return out;
   }
+  function todoBy(b) { return !b || typeof b !== 'object' ? null : typeof b.tool === 'string' ? { tool: s(b.tool), version: s(b.version) } : typeof b.person === 'string' ? { person: s(b.person) } : null; }
   function todoRows(r, nameOf) {
     var V = r._tdv, mp = R.mapOf(r);
     if (!V) return { todos: [], todoRequests: [] };
     return {
       todos: V.todos.map(function (x) { return { id: s(x.id), text: s(x.text), state: s(x.state), beforeGate: x.placement ? s(x.placement.beforeGate) : null, gate: x.placement ? s(PF.todos.gateTitle(mp, x.placement.beforeGate)) || null : null,
         owner: x.owner ? nameOf(x.owner) : null, reason: x.reason ? s(x.reason) : null, to: x.to ? s(x.to.ticket || x.to.run || x.to.link) : null }; }),
-      todoRequests: PF.todos.requestsOf(V).map(function (q) { return { id: s(q.id), op: s(q.op), todo: q.todo ? s(q.todo) : null, status: s(q.status), why: q.why ? s(q.why) : null, by: q.by ? s(q.by) : null, requester: q.requester ? s(q.requester) : null }; })
+      todoRequests: PF.todos.requestsOf(V).map(function (q) { return { id: s(q.id), op: s(q.op), todo: q.todo ? s(q.todo) : null, status: s(q.status), why: q.why ? s(q.why) : null, by: todoBy(q.by), requester: q.requester ? s(q.requester) : null }; })
     };
   }
   /* A step that carries module results' fields: a linked step that accepts results, or whose link recorded one. */

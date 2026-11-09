@@ -21,8 +21,8 @@
       "reviewed": "4.0 slice 1, commit 1: to-do records and their reduction (src/core/todos.js), loop settle and paging shared, living-runs feature, design §45"
     },
     "docs/apps.md": {
-      "sha256": "79725f0b684dda35f8859c62358197045694c45f519473adf29240af8458d3a3",
-      "reviewed": "4.0 slice 2 commit 6: flightdeck todo (list, add, done, wont, move, reopen) asks through PF.todos.prepare and writes one request in proposals/ once; run/next/runs add to-do fields only on a living run; the checker reads to-do records as the app does; docs, AGENTS.md rows, command guide To-dos, status skill and the new living-run skill. Checked for direct writes and unconditional deletes: the skill and guide forbid writing proposals/ and run.json by hand; the CLI creates one file exclusively and never deletes"
+      "sha256": "cb2b3687762ba2c5cb177a7f3942d5a018d1cdb0b6fba2f7bf26b512f82d81b2",
+      "reviewed": "AP: the run reader serializes who asked for a to-do request as {person} or {tool, version}; schema and docs say so; checked for direct writes and unconditional deletes (none)"
     },
     "docs/design.md": {
       "sha256": "3bcda05e2ed6d12db8cc15c3a4da2db7de4f742ec43592959461926a4c252e1f",
@@ -201,8 +201,8 @@
       "reviewed": "AN/AO: baselines for the checker's new text; checked for direct writes and unconditional deletes (none)"
     },
     "src/core/appjson.js": {
-      "sha256": "18403398e93c8857720eea5603134178fa95ebd3599ec50f8edaac16eb8b5d5d",
-      "reviewed": "4.0 slice 2 commit 6: flightdeck todo (list, add, done, wont, move, reopen) asks through PF.todos.prepare and writes one request in proposals/ once; run/next/runs add to-do fields only on a living run; the checker reads to-do records as the app does; docs, AGENTS.md rows, command guide To-dos, status skill and the new living-run skill. Checked for direct writes and unconditional deletes: the skill and guide forbid writing proposals/ and run.json by hand; the CLI creates one file exclusively and never deletes"
+      "sha256": "b22146ed72188c14a5eae51d97a9c1da567e8276c6881cbc11ac010c38066255",
+      "reviewed": "AP: the run reader serializes who asked for a to-do request as {person} or {tool, version}; schema and docs say so; checked for direct writes and unconditional deletes (none)"
     },
     "src/core/attach.js": {
       "sha256": "0e75bc0c0d748fe10aaf5657662e4ce8679c27f9d10d85c1e34891b1c9d58df0",
