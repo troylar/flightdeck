@@ -25,8 +25,8 @@
       "reviewed": "loop guard builder for every loop parent and child write, undo on drop; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "b9dd1ff1b5c0ed547c89806c9bb55dfc83f796f9134abacbb7832f1b9fb9d707",
-      "reviewed": "Round 1 C: any record naming living-runs goes to the to-do reader; checked for direct writes and unconditional deletes"
+      "sha256": "adf44f15d84cfd31151d0132da72b580f1e266f05bab5647b376d7ea3ac098ee",
+      "reviewed": "Round 1 D: wide application disputes settle a page at a time; only the settling application lands; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -345,8 +345,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "c591333c8cc2ef635fb7050e87b505d6502a44c3acefc6d5211ca4793691f60b",
-      "reviewed": "Round 1 C: any record naming living-runs goes to the to-do reader; checked for direct writes and unconditional deletes"
+      "sha256": "c150c08e945c048efae2fe2ef72c99d41fc921c0738193e34506bfed6bb8843b",
+      "reviewed": "Round 1 D: wide application disputes settle a page at a time; only the settling application lands; checked for direct writes and unconditional deletes"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",
@@ -401,8 +401,8 @@
       "reviewed": "Round 1 C: any record naming living-runs goes to the to-do reader; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "66fd5ae5978a5c470d1c5d596bf3412f5b66a1f5d482623c6cfe376cc599357a",
-      "reviewed": "4.0 slice 1, commit 3: the recorder's window applies queued to-dos and recovers every interruption from the folder"
+      "sha256": "ca3d139e6b60686744342b04f435d1bfd99c4e4d2f4fce6d12c6f2c0bf3b9d3e",
+      "reviewed": "Round 1 D: wide application disputes settle a page at a time; only the settling application lands; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

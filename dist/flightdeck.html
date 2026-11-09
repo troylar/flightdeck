@@ -18164,14 +18164,15 @@ PF.todos = (function () {
       if (T.added >= LIMITS.todos) return set('held', 'This run has had ' + LIMITS.todos + ' to-dos added, the most it takes. Nothing was cut.');
     } else if (!x) return set('held', 'It names ' + q.todo + ', which hasn\'t been added to this run' + (q.todo && Object.keys(T.requests).some(function (id) { return T.requests[id].todo === q.todo && T.requests[id].op === 'add'; }) ? ' yet' : '') + '.');
     else if (q.op === 'reopen' ? x.state === 'open' : x.state !== 'open') return set('held', 'It no longer fits: ' + x.id + ' is ' + STATE_WORDS[x.state].toLowerCase() + ' now.');
-    var wide = ['dec', 'app'].filter(function (s) { return (q[s + 'Out'] || []).length > LIMITS.seen; });
-    if (wide.length) return set('disputed', (q[wide[0] + 'Out'].length) + ' decisions on this request were made at once, more than one record can settle (' + LIMITS.seen + '). Settle these ' + LIMITS.seen + ' first, then the rest.');
+    var wideDec = (q.decOut || []).length > LIMITS.seen, wideApp = (q.appOut || []).length > LIMITS.seen;
+    if (wideDec) return set('disputed', q.decOut.length + ' decisions on this request were made at once, more than one record can settle (' + LIMITS.seen + '). Settle these ' + LIMITS.seen + ' first, then the rest.');
     if (q.decReview.length) return set('disputed', q.decReview[0].why);
-    if (q.appReview.length) {
-      /* Only prepared applications disagree, and none landed: the request is still authorized or not as before. */
+    if (wideApp || q.appReview.length) {
+      /* Only prepared applications disagree, and none landed: the request is still authorized or not as before, and the
+         recorder settles them, a page of LIMITS.seen at a time, held until the last page is covered. */
       var au = o.authority ? o.authority(q, T) : { ok: false };
       if (au.ok) { q.via = au.via; q.appOnly = true; }
-      return set('disputed', q.appReview[0].why);
+      return set('disputed', wideApp ? q.appOut.length + ' applications of this request were prepared at once, more than one record can settle (' + LIMITS.seen + '); the recorder settles them a page at a time.' : q.appReview[0].why);
     }
     if (q.dec && q.dec.op === 'decline') return set('declined', '');
     var auth = o.authority ? o.authority(q, T) : { ok: false, why: '' };
@@ -18363,7 +18364,9 @@ PF.todos = (function () {
     if (!p) return { skip: 'Its request can\'t be read in order yet.' };
     var eff = effectOf(p), f = fp(eff);
     if (p.kind === 'compound' && q.via && q.via.compound === p.id && (p.application.previous || '') === head && p.application.fingerprint === f) return { adopt: p };
-    var c = q.candidates.map(function (id) { return byId[id]; }).filter(function (a) { return a && (a.previous || '') === head && a.fingerprint === f && sameVia(a.authority, q.via); }).sort(function (a, b) { return cmpStr(a.id, b.id); })[0];
+    /* The candidate that settled them, when there is one, else the first by id: the same one in every window. */
+    var fit = q.candidates.map(function (id) { return byId[id]; }).filter(function (a) { return a && (a.previous || '') === head && a.fingerprint === f && sameVia(a.authority, q.via); }).sort(function (a, b) { return cmpStr(a.id, b.id); });
+    var c = fit.filter(function (a) { return q.app && a.id === q.app.record; })[0] || fit[0];
     if (c && !appOnly) return { adopt: c };
     var must = [q.id]; if (head) must.push(head); if (q.via && q.via.decision) must.push(q.via.decision); if (q.via && q.via.grant) must.push(q.via.grant);
     return { write: { kind: 'application', proposal: q.id, run: { process: T.run.process, id: T.run.id }, seen: seenFor(T, must, [q.id], ['app']).seen, authority: q.via, previous: head, effect: eff } };
@@ -34637,9 +34640,17 @@ PF.examples = (function () {
       if (!q) return;
       applying[gk] = true;
       var cx = loopGuard({ run: key });
-      todoCarry(r, V, q, cx).then(function (wrote) { delete applying[gk]; if (wrote && cx.g === gen) return load(true); }, function () { delete applying[gk]; });
+      /* A settlement page that leaves more to settle reads again at once; each page covers more, and a request is paged at
+         most TODO_PAGES times in a row before it waits for the next refresh. */
+      var pages = loopMem().todoPages || (loopMem().todoPages = Object.create(null));
+      todoCarry(r, V, q, cx).then(function (wrote) {
+        delete applying[gk];
+        if (wrote === 'again') { pages[key] = (pages[key] || 0) + 1; if (pages[key] > TODO_PAGES) return; } else delete pages[key];
+        if (wrote && cx.g === gen) return load(true);
+      }, function () { delete applying[gk]; });
     });
   }
+  var TODO_PAGES = 20;
   function todoView(r) { return PF.todos.view(r, { records: data.todos || [], unread: data.todosUnread || [], people: data.people }); }
   /* The types fingerprint of a run's own version, for a run/2 its first to-do makes a run/3; '' when the version can't be read. */
   function todoTypes(r) {
@@ -34662,6 +34673,10 @@ PF.examples = (function () {
     }
     return prepared.then(function (a) {
       if (!a || !guardOk(cx)) return false;
+      /* A settlement page that leaves others outstanding is written, never landed: the next read writes the next page. */
+      var V1 = todoView(r), q1 = V1.requests[q.id], p1 = q1 ? PF.todos.applyPlan(r, V1, q1) : { skip: 'gone' };
+      if (p1.write) return 'again';
+      if (!p1.adopt || p1.adopt.id !== a.id) return false;
       var types = todoTypes(r);
       var ed = loopEdit(loopGuard({ run: key }), key, function (rr, m, me, now) {
         /* Asked again in the write queue, on the run as it is: still queued (or only its prepared applications disagree), the
@@ -34669,7 +34684,7 @@ PF.examples = (function () {
         var V2 = todoView(rr), q2 = V2 && V2.requests[q.id], plan2 = q2 ? PF.todos.applyPlan(rr, V2, q2) : { skip: 'gone' };
         if (V2.broken || plan2.landed || plan2.skip) throw new Error('The to-do request changed while it was carried out.');
         if (plan2.adopt && plan2.adopt.id !== a.id) throw new Error('Another application of it is in the folder now.');
-        if (plan2.write && !q2.candidates.some(function (id) { return id === a.id; })) throw new Error('The to-do request changed while it was carried out.');
+        if (!plan2.adopt) throw new Error('The to-do request changed while it was carried out.');
         var x = V2.byTodo[(a.kind === 'compound' ? a.application : a).effect.todo] || null;
         R.todoLand(rr, m, a, { who: me, now: now, typesHash: types, app: APP_VERSION, todo: x });
       }, { background: true });

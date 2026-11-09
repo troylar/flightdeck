@@ -447,14 +447,15 @@ PF.todos = (function () {
       if (T.added >= LIMITS.todos) return set('held', 'This run has had ' + LIMITS.todos + ' to-dos added, the most it takes. Nothing was cut.');
     } else if (!x) return set('held', 'It names ' + q.todo + ', which hasn\'t been added to this run' + (q.todo && Object.keys(T.requests).some(function (id) { return T.requests[id].todo === q.todo && T.requests[id].op === 'add'; }) ? ' yet' : '') + '.');
     else if (q.op === 'reopen' ? x.state === 'open' : x.state !== 'open') return set('held', 'It no longer fits: ' + x.id + ' is ' + STATE_WORDS[x.state].toLowerCase() + ' now.');
-    var wide = ['dec', 'app'].filter(function (s) { return (q[s + 'Out'] || []).length > LIMITS.seen; });
-    if (wide.length) return set('disputed', (q[wide[0] + 'Out'].length) + ' decisions on this request were made at once, more than one record can settle (' + LIMITS.seen + '). Settle these ' + LIMITS.seen + ' first, then the rest.');
+    var wideDec = (q.decOut || []).length > LIMITS.seen, wideApp = (q.appOut || []).length > LIMITS.seen;
+    if (wideDec) return set('disputed', q.decOut.length + ' decisions on this request were made at once, more than one record can settle (' + LIMITS.seen + '). Settle these ' + LIMITS.seen + ' first, then the rest.');
     if (q.decReview.length) return set('disputed', q.decReview[0].why);
-    if (q.appReview.length) {
-      /* Only prepared applications disagree, and none landed: the request is still authorized or not as before. */
+    if (wideApp || q.appReview.length) {
+      /* Only prepared applications disagree, and none landed: the request is still authorized or not as before, and the
+         recorder settles them, a page of LIMITS.seen at a time, held until the last page is covered. */
       var au = o.authority ? o.authority(q, T) : { ok: false };
       if (au.ok) { q.via = au.via; q.appOnly = true; }
-      return set('disputed', q.appReview[0].why);
+      return set('disputed', wideApp ? q.appOut.length + ' applications of this request were prepared at once, more than one record can settle (' + LIMITS.seen + '); the recorder settles them a page at a time.' : q.appReview[0].why);
     }
     if (q.dec && q.dec.op === 'decline') return set('declined', '');
     var auth = o.authority ? o.authority(q, T) : { ok: false, why: '' };
@@ -646,7 +647,9 @@ PF.todos = (function () {
     if (!p) return { skip: 'Its request can\'t be read in order yet.' };
     var eff = effectOf(p), f = fp(eff);
     if (p.kind === 'compound' && q.via && q.via.compound === p.id && (p.application.previous || '') === head && p.application.fingerprint === f) return { adopt: p };
-    var c = q.candidates.map(function (id) { return byId[id]; }).filter(function (a) { return a && (a.previous || '') === head && a.fingerprint === f && sameVia(a.authority, q.via); }).sort(function (a, b) { return cmpStr(a.id, b.id); })[0];
+    /* The candidate that settled them, when there is one, else the first by id: the same one in every window. */
+    var fit = q.candidates.map(function (id) { return byId[id]; }).filter(function (a) { return a && (a.previous || '') === head && a.fingerprint === f && sameVia(a.authority, q.via); }).sort(function (a, b) { return cmpStr(a.id, b.id); });
+    var c = fit.filter(function (a) { return q.app && a.id === q.app.record; })[0] || fit[0];
     if (c && !appOnly) return { adopt: c };
     var must = [q.id]; if (head) must.push(head); if (q.via && q.via.decision) must.push(q.via.decision); if (q.via && q.via.grant) must.push(q.via.grant);
     return { write: { kind: 'application', proposal: q.id, run: { process: T.run.process, id: T.run.id }, seen: seenFor(T, must, [q.id], ['app']).seen, authority: q.via, previous: head, effect: eff } };

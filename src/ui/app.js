@@ -3216,9 +3216,17 @@
       if (!q) return;
       applying[gk] = true;
       var cx = loopGuard({ run: key });
-      todoCarry(r, V, q, cx).then(function (wrote) { delete applying[gk]; if (wrote && cx.g === gen) return load(true); }, function () { delete applying[gk]; });
+      /* A settlement page that leaves more to settle reads again at once; each page covers more, and a request is paged at
+         most TODO_PAGES times in a row before it waits for the next refresh. */
+      var pages = loopMem().todoPages || (loopMem().todoPages = Object.create(null));
+      todoCarry(r, V, q, cx).then(function (wrote) {
+        delete applying[gk];
+        if (wrote === 'again') { pages[key] = (pages[key] || 0) + 1; if (pages[key] > TODO_PAGES) return; } else delete pages[key];
+        if (wrote && cx.g === gen) return load(true);
+      }, function () { delete applying[gk]; });
     });
   }
+  var TODO_PAGES = 20;
   function todoView(r) { return PF.todos.view(r, { records: data.todos || [], unread: data.todosUnread || [], people: data.people }); }
   /* The types fingerprint of a run's own version, for a run/2 its first to-do makes a run/3; '' when the version can't be read. */
   function todoTypes(r) {
@@ -3241,6 +3249,10 @@
     }
     return prepared.then(function (a) {
       if (!a || !guardOk(cx)) return false;
+      /* A settlement page that leaves others outstanding is written, never landed: the next read writes the next page. */
+      var V1 = todoView(r), q1 = V1.requests[q.id], p1 = q1 ? PF.todos.applyPlan(r, V1, q1) : { skip: 'gone' };
+      if (p1.write) return 'again';
+      if (!p1.adopt || p1.adopt.id !== a.id) return false;
       var types = todoTypes(r);
       var ed = loopEdit(loopGuard({ run: key }), key, function (rr, m, me, now) {
         /* Asked again in the write queue, on the run as it is: still queued (or only its prepared applications disagree), the
@@ -3248,7 +3260,7 @@
         var V2 = todoView(rr), q2 = V2 && V2.requests[q.id], plan2 = q2 ? PF.todos.applyPlan(rr, V2, q2) : { skip: 'gone' };
         if (V2.broken || plan2.landed || plan2.skip) throw new Error('The to-do request changed while it was carried out.');
         if (plan2.adopt && plan2.adopt.id !== a.id) throw new Error('Another application of it is in the folder now.');
-        if (plan2.write && !q2.candidates.some(function (id) { return id === a.id; })) throw new Error('The to-do request changed while it was carried out.');
+        if (!plan2.adopt) throw new Error('The to-do request changed while it was carried out.');
         var x = V2.byTodo[(a.kind === 'compound' ? a.application : a).effect.todo] || null;
         R.todoLand(rr, m, a, { who: me, now: now, typesHash: types, app: APP_VERSION, todo: x });
       }, { background: true });

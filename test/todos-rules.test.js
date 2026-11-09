@@ -302,6 +302,23 @@ rule('Landing names the application, stamps the feature, makes a run/2 a run/3 a
   assert.throws(() => R.todoLand(r2, map, b, { who: 'person-avery', now: AT }), /changed since/);
 });
 
+rule('A dispute among more than 50 prepared applications settles a page at a time and then lands once', () => {
+  const { r } = newRun(), map = R.mapOf(r), p = prop('dd1', add('Wide', { phase: 'draft' }), [], 'person-avery');
+  const C = T.consequenceOf(r, map, p, V(r, [p])).fingerprint, d = decide(p, 'accept', 'person-avery', C);
+  const recs = [p, d];
+  for (let i = 0; i < 51; i++) recs.push(applied(p, T.idFor('x', 'prev' + i), { decision: d.id }, [p.id, d.id]));
+  let W = V(r, recs), q = W.requests[p.id];
+  same([q.status, q.appOnly, q.via], ['disputed', true, { decision: d.id }]);
+  let plan, rounds = 0;
+  while ((plan = T.applyPlan(r, W, W.requests[p.id])).write && rounds < 5) {
+    rounds++; assert.ok(plan.write.seen.length <= 50);
+    const s = T.buildStatus(Object.assign({}, plan.write, { by: 'person-avery', at: AT, writer: 'rec', rev: rev() }));
+    recs.push(clean(s.file, s.name)); W = V(r, recs);
+    if (rounds === 1) same(W.requests[p.id].status, 'disputed', 'held until every one is covered');
+  }
+  assert.ok(plan.adopt, JSON.stringify(plan)); assert.ok(rounds >= 2 && rounds <= 3, rounds);
+  same(W.requests[p.id].status, 'queued');
+});
 /* ---------- The run file ---------- */
 const reread = (r) => R.sanitize(JSON.parse(JSON.stringify(Object.assign({}, r, { _todos: undefined }))));
 rule('A living run reads back with its head, its feature and its approvals\' cuts; a malformed marker is read-only', () => {
