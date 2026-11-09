@@ -338,6 +338,16 @@ rule('Identical OneDrive copies reduce as one record under their id; different o
   mark(r, d.todos); assert.ok(r._todos.all.some(w => /two different copies/.test(w)), JSON.stringify(r._todos.all));
   same(T.cleanFile(JSON.parse(T.text(p)), p.id + '-laptop.json').ok, false, 'a lowercase suffix is not a copy name');
 });
+rule('An unread or held record for the run stops preparing and landing', () => {
+  const { r } = newRun(), map = R.mapOf(r), p = prop('g1', add('One', { phase: 'draft' }), [], 'person-avery');
+  const d = decide(p, 'accept', 'person-avery', T.consequenceOf(r, map, p, V(r, [p])).fingerprint);
+  const W = T.view(r, { records: [p, d], unread: [{ file: 'req-x.json', why: 'torn', run: null }], people: PEOPLE });
+  assert.ok(T.applyPlan(r, W, W.requests[p.id]).skip, 'unread');
+  const ghost = decide(p, 'decline', 'person-blake', 'aaaaaaaaaaaaaaaa', [p.id, T.idFor('x', 'missing')]);
+  const W2 = V(r, [p, d, ghost]);
+  assert.ok(W2.held.length, 'set-up: held');
+  assert.ok(T.applyPlan(r, W2, W2.requests[p.id]).skip, 'held');
+});
 /* ---------- The run file ---------- */
 const reread = (r) => R.sanitize(JSON.parse(JSON.stringify(Object.assign({}, r, { _todos: undefined }))));
 rule('A living run reads back with its head, its feature and its approvals\' cuts; a malformed marker is read-only', () => {

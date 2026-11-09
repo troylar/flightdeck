@@ -25,8 +25,8 @@
       "reviewed": "loop guard builder for every loop parent and child write, undo on drop; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "230232495d8b31037d6edf1e9c60691949d992a05bb627559c1dc862f962639f",
-      "reviewed": "Round 1 F: to-do and scope records are capped in UTF-8 bytes before they are parsed; checked for direct writes and unconditional deletes"
+      "sha256": "2febffc2c5a84e9f89f858f3927609fb030dee849954867adb55429581a4f230",
+      "reviewed": "Round 1 G: nothing is prepared or landed while a run's to-do record is unread or held; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -345,8 +345,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "050260e65f4949928996d5b29c9c41bda1bfacc979fc4b25645211afff91ead0",
-      "reviewed": "Round 1 F: to-do and scope records are capped in UTF-8 bytes before they are parsed; checked for direct writes and unconditional deletes"
+      "sha256": "9238cceef1b00e52b3424e74f2208771378070c00fe227e7e34050675a9dd1f8",
+      "reviewed": "Round 1 G: nothing is prepared or landed while a run's to-do record is unread or held; checked for direct writes and unconditional deletes"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",

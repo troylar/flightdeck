@@ -18366,6 +18366,10 @@ PF.todos = (function () {
   function applyPlan(r, T, q) {
     if (!q) return { skip: 'There is no such request.' };
     if (q.landed) return { landed: q.landed };
+    /* Nothing is prepared or landed while any of the run's records can't be read or read in order: what it says isn't known. */
+    if (T.broken) return { skip: T.broken.why };
+    if (T.unread.length) return { skip: 'A to-do record (' + String(T.unread[0].file || '').slice(0, 120) + ') can\'t be read yet, so nothing is applied until it is.' };
+    if (T.held.length) return { skip: 'A to-do record (' + T.held[0].record + ') can\'t be read in order yet, so nothing is applied until it is.' };
     /* Two applications prepared at once (two windows, neither landed) block nothing: a new one that saw both settles them. */
     var appOnly = q.status === 'disputed' && q.appOnly && q.via;
     if (q.status !== 'queued' && !appOnly) return { skip: q.why || 'It is ' + q.status + '.' };

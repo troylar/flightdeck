@@ -172,6 +172,16 @@ rule('An addition landing in a passed phase sends its gate to review, logged, in
   const r = theRun(app);
   assert.deepStrictEqual([r.gates['draft-confirm'].s, r.gates['draft-confirm'].was], ['review', 'passed']);
 });
+rule('A to-do record that can\'t be read yet stops the recorder from preparing or landing anything', async () => {
+  const app = await setup();
+  const torn = 'proposals/' + app.PF.todos.idFor('flightdeck', 'torn-1') + '.json';
+  app.fs.files[torn] = { t: '{"format": "flightdeck-plan/4", "kind": "rev', m: Date.now() };
+  const p = await request(app, { op: 'add', text: 'Held by a torn file', target: { phase: 'draft' } });
+  await refresh(app, 400);
+  assert.deepStrictEqual([apps(app, p.id).length, theRun(app).living], [0, undefined], 'nothing prepared, nothing landed');
+  delete app.fs.files[torn]; await refresh(app, 400);
+  assert.strictEqual(theRun(app).living.head, apps(app, p.id)[0].id, 'read, it lands');
+});
 rule('Every save, backup and retry of a living run goes through the run guard: loopy() counts a living run', () => {
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
   const i = src.indexOf('function loopy('), body = src.slice(i, src.indexOf('\n  }', i));
