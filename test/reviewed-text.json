@@ -53,8 +53,8 @@
       "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "44d32f259593c1ce7d9d2b43ae657f3833896fdc7ea0c9119cd7320497f04c64",
-      "reviewed": "whole-set tip points to for.each; checked for direct writes and unconditional deletes"
+      "sha256": "24c5a846ef74e5b1d549fd6039dafee044d13f9be55b22b693c87d85df3c3192",
+      "reviewed": "check_folder.py leaves an international domain name in a scope record's link unjudged and says so"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
       "sha256": "49d0d083e46b366224edb2e93df3927ede63a2efebc57a2990810460bbe7d7b7",

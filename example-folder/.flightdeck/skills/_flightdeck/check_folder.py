@@ -117,6 +117,17 @@ def js_number(x):
     return sign + out
 
 
+def json_safe(x):
+    """x as JSON.stringify would write it: a number that isn't finite (1e309 in a file) becomes null."""
+    if isinstance(x, float) and not math.isfinite(x):
+        return None
+    if isinstance(x, dict):
+        return {k: json_safe(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return [json_safe(v) for v in x]
+    return x
+
+
 def js_string(s):
     """A string written the way JSON.stringify writes it, including a lone surrogate as an escape like \\ud800."""
     out = json.dumps(s, ensure_ascii=False)
@@ -206,7 +217,33 @@ def loop_noun_ok(v):
 # The checklist parser's rules (src/core/map.js), as far as the check needs them: its errors, and each step's text, type and fields.
 # JavaScript's \w is ASCII, so W spells it out.
 W = r"[A-Za-z0-9_]"
-ID_RE = re.compile(r"\s*\{#([a-z0-9][a-z0-9-]*)\}\s*$", re.I)
+# JavaScript's \s: its white space and line terminators. Python's \s also takes \x1c-\x1f and \x85 and leaves out U+FEFF.
+_JS_SPACE_CLASS = "\t\n\x0b\x0c\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
+
+
+def jsre(p):
+    r"""A pattern as JavaScript reads it: \s and \S spelled out as JavaScript's. Used with re.A, so \d, \w and re.I are ASCII
+    too (JavaScript's i flag never matches U+017F to s or U+212A to k, and its \d is 0 to 9)."""
+    out, cls, i = [], False, 0
+    while i < len(p):
+        c = p[i]
+        if c == "\\" and i + 1 < len(p):
+            e = p[i + 1]
+            if e == "s":
+                out.append(_JS_SPACE_CLASS if cls else "[" + _JS_SPACE_CLASS + "]")
+            elif e == "S" and not cls:
+                out.append("[^" + _JS_SPACE_CLASS + "]")
+            else:
+                out.append(p[i:i + 2])
+            i += 2
+            continue
+        cls = True if c == "[" else False if c == "]" else cls
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+ID_RE = re.compile(jsre(r"\s*\{#([a-z0-9][a-z0-9-]*)\}\s*$"), re.I | re.A)
 
 
 def js_str(v):
@@ -215,7 +252,11 @@ def js_str(v):
     if isinstance(v, bool):
         return "true" if v else "false"
     if isinstance(v, (int, float)):
-        return js_number(_f(v))
+        f = _f(v)
+        if not math.isfinite(f):
+            # String(1e309) is "Infinity"; js_number writes JSON's null.
+            return "NaN" if f != f else "Infinity" if f > 0 else "-Infinity"
+        return js_number(f)
     if isinstance(v, list):
         return ",".join(js_str(x) for x in v)
     if isinstance(v, dict):
@@ -256,7 +297,7 @@ def step_name(s):
 
 def tokens(s, ch):
     out = []
-    rest = re.sub(r"\s*\%s(%s+)" % (ch, r"[A-Za-z0-9_-]"), lambda m: out.append(m.group(1)) or "", s)
+    rest = re.sub(jsre(r"\s*\%s(%s+)" % (ch, r"[A-Za-z0-9_-]")), lambda m: out.append(m.group(1)) or "", s, flags=re.A)
     return out, rest.strip()
 
 
@@ -306,7 +347,7 @@ def detail_types(entries):
         if spec in DETAIL_KINDS:
             typed[name] = {"kind": spec}
             continue
-        pm = re.fullmatch(r"pattern\(([\s\S]*)\)", spec)
+        pm = re.fullmatch(r"pattern\(([\s\S]*)\)", spec, re.A)
         if pm:
             pc = compile_pattern(pm.group(1))
             if not pc["ok"]:
@@ -479,7 +520,7 @@ def parse_map(md):
     if lines[0] and lines[0].strip() == "---":
         i = 1
         while i < len(lines) and lines[i].strip() != "---":
-            kv = re.match(r"^((?:%s|-)+):\s*(.*)$" % W, lines[i])
+            kv = re.match(jsre(r"^((?:%s|-)+):\s*(.*)$" % W), lines[i], re.A)
             if not kv and lines[i].strip():
                 err(i, "Front matter line isn't \"key: value\".")
             elif kv and kv.group(1) == "context":
@@ -502,7 +543,7 @@ def parse_map(md):
         if not line.strip():
             i += 1
             continue
-        m = re.match(r"^###\s+Track:\s*(.+?)\s*$", line, re.I)
+        m = re.match(jsre(r"^###\s+Track:\s*(.+?)\s*$"), line, re.I | re.A)
         if m:
             step = None
             if not phase or gate:
@@ -513,14 +554,14 @@ def parse_map(md):
                 phase.setdefault("tracks", []).append(track)
             i += 1
             continue
-        m = re.match(r"^##\s+(.+?)\s*$", line)
+        m = re.match(jsre(r"^##\s+(.+?)\s*$"), line, re.A)
         if m:
             step, gate, track = None, None, None
             head_id, head = take_id(m.group(1))
-            if re.match(r"^questions(?![A-Za-z0-9_])", head, re.I):
+            if re.match(r"^questions(?![A-Za-z0-9_])", head, re.I | re.A):
                 questions, phase = True, None
             else:
-                g = re.match(r"^Gate:\s*(.+)$", head, re.I)
+                g = re.match(jsre(r"^Gate:\s*(.+)$"), head, re.I | re.A)
                 if g:
                     if not phase:
                         err(i, "A gate must come after a phase.")
@@ -528,8 +569,8 @@ def parse_map(md):
                         err(i, "Phase \"%s\" already has a gate." % phase["title"])
                     else:
                         owner = None
-                        for part in re.split(r"\s+·\s+", g.group(1))[1:]:
-                            om = re.match(r"^owner\s+@((?:%s|-)+)$" % W, part.strip(), re.I)
+                        for part in re.split(jsre(r"\s+·\s+"), g.group(1), flags=re.A)[1:]:
+                            om = re.match(jsre(r"^owner\s+@((?:%s|-)+)$" % W), part.strip(), re.I | re.A)
                             if not om:
                                 err(i, "Gate option not understood: \"%s\"." % part)
                             else:
@@ -537,7 +578,7 @@ def parse_map(md):
                         gate = {"id": head_id, "kind": "gate", "note": "", "shots": [], "owner": owner}
                         phase["gate"] = gate
                 else:
-                    pm = re.match(r"^(.*?)\s+·\s+(READ-DO|DO-CONFIRM)$", head)
+                    pm = re.match(jsre(r"^(.*?)\s+·\s+(READ-DO|DO-CONFIRM)$"), head, re.A)
                     phase = {"id": head_id, "title": (pm.group(1) if pm else head).strip(), "gate": None, "note": "", "shots": [], "noted": False}
                     phases.append(phase)
             i += 1
@@ -545,14 +586,14 @@ def parse_map(md):
         if questions:
             i += 1
             continue
-        m = re.match(r"^- \[( |!|~)\]\s+(.+)$", line)
+        m = re.match(jsre(r"^- \[( |!|~)\]\s+(.+)$"), line, re.A)
         if m:
             if not phase or gate:
                 err(i, "A step must be inside a phase, before its gate.")
             else:
                 body = take_id(m.group(2))[1]
                 typ, t2 = "", body
-                tm = re.match(r"^\{([a-zA-Z](?:%s|[.-])*)\}\s+(.*)$" % W, t2)
+                tm = re.match(jsre(r"^\{([a-zA-Z](?:%s|[.-])*)\}\s+(.*)$" % W), t2, re.A)
                 if tm:
                     typ, t2 = tm.group(1), tm.group(2)
                 step_roles, rest = tokens(t2, "@")
@@ -580,7 +621,7 @@ def parse_map(md):
             continue
         # Notes and screenshots belong to the step or gate above, or to the phase right under its heading (2.0).
         owner = step or gate or (phase if phase is not None and not track else None)
-        m = re.match(r"^\s{2,}>\s?(.*)$", line)
+        m = re.match(jsre(r"^\s{2,}>\s?(.*)$"), line, re.A)
         if m:
             if not owner:
                 err(i, "A note must follow a phase heading, a step or a gate.")
@@ -590,7 +631,7 @@ def parse_map(md):
                     phase["noted"] = True
             i += 1
             continue
-        m = owner and re.match(r"^\s{2,}!\[(.*?)\]\(([^)\s]+)\)\s*$", line)
+        m = owner and re.match(jsre(r"^\s{2,}!\[(.*?)\]\(([^)\s]+)\)\s*$"), line, re.A)
         if m:
             if not re.match(r"^images/(%s|[./-])+$" % W, m.group(2)) or ".." in m.group(2):
                 err(i, "Screenshots must be under images/: \"%s\"." % m.group(2))
@@ -598,7 +639,7 @@ def parse_map(md):
                 owner["shots"].append(m.group(2))
             i += 1
             continue
-        m = re.match(r"^\s{2,}((?:%s|-)+):\s*(.*)$" % W, line)
+        m = re.match(jsre(r"^\s{2,}((?:%s|-)+):\s*(.*)$" % W), line, re.A)
         if m:
             name = m.group(1)
             if gate and name in ("approves", "at", "due", "after"):
@@ -814,7 +855,7 @@ def loop_blockers(parsed):
                 out.append(label + ": from: names #%s, which isn't a {jira.search} step. Name a search step, or leave from: out for a list kept by hand." % fid)
         if "max" in f:
             t = js_trim(f["max"])
-            if not re.match(r"^[1-9]\d{0,2}\Z", t) or int(t) > LOOP_MAX_ITEMS:
+            if not re.match(r"^[1-9]\d{0,2}\Z", t, re.A) or int(t) > LOOP_MAX_ITEMS:
                 out.append(label + ": \"max\" should be a whole number from 1 to %d." % LOOP_MAX_ITEMS)
         if f.get("carry"):
             out.append(label + ": a loop passes details with pass:, not carry:.")
@@ -845,7 +886,7 @@ def pass_entries(text):
 
 
 def js_duration(s):
-    m = re.match(r"^\s*(?:([0-9]+)h)?\s*(?:([0-9]+)m)?\s*(?:([0-9]+)s)?\s*$", js_str(s), re.I)
+    m = re.match(jsre(r"^\s*(?:([0-9]+)h)?\s*(?:([0-9]+)m)?\s*(?:([0-9]+)s)?\s*$"), js_str(s), re.I | re.A)
     return bool(m and (m.group(1) or m.group(2) or m.group(3)))
 
 
@@ -972,9 +1013,9 @@ def field_errors(type_def, fields, context=None):
             errors.append("\"%s\" should be a time like 15:00." % f)
         if kind == "duration" and f == "after" and not js_duration(v):
             errors.append("\"after\" should be a duration like 2h or 30m.")
-        if kind == "pin" and f == "version" and not re.match(r"^[1-9]\d{0,5}$", v.strip()):
+        if kind == "pin" and f == "version" and not re.match(r"^[1-9]\d{0,5}$", v.strip(), re.A):
             errors.append("\"version\" should be a version number, like 4.")
-        if kind == "pin" and f == "skillVersion" and not re.match(r"^[\w.+-]{1,40}$", v.strip()):
+        if kind == "pin" and f == "skillVersion" and not re.match(r"^[\w.+-]{1,40}$", v.strip(), re.A):
             errors.append("\"skillVersion\" should be the skill's version, like 1.2.0.")
         if kind == "pass":
             errors.extend(pass_errors(v, tid == "for.each" and not (isinstance(type_def, dict) and type_def.get("custom"))))
@@ -1162,7 +1203,7 @@ def search_errors(f, context):
     rule, why = parse_results(get("results"))
     if rule is None:
         errors.append(why)
-    req = [x for x in re.split(r"[,\s]+", (get("require") or "").lower()) if x]
+    req = [x for x in re.split(jsre(r"[,\s]+"), (get("require") or "").lower(), flags=re.A) if x]
     if rule is not None and "keys" in req and rule["n"] == 0 and rule["op"] in ("eq", "le"):
         errors.append("requires keys, but results: %s passes only with no results, and no results have no issue keys. Take keys out of require: (require: all already leaves them out when there are none)." % rule["text"])
     if get("what") is not None and js_len(get("what")) > WHAT_MAX:
@@ -1196,7 +1237,7 @@ def context_entries(line):
     s, out, buf, in_pat, i = str(line or ""), [], "", False, 0
     while i < len(s):
         c = s[i]
-        if not in_pat and re.search(r":\s*pattern\($", buf + c):
+        if not in_pat and re.search(jsre(r":\s*pattern\($"), buf + c, re.A):
             in_pat, buf = True, buf + c
         elif in_pat and c == "\\":
             buf += c + (s[i + 1] if i + 1 < len(s) else "")
@@ -1300,7 +1341,7 @@ def compile_pattern(src):
         elif q == "+":
             hi, i = None, i + 1
         elif q == "{":
-            m = re.match(r"\{(\d{1,3})(,(\d{0,3}))?\}", "".join(s[i:i + 9]))
+            m = re.match(r"\{(\d{1,3})(,(\d{0,3}))?\}", "".join(s[i:i + 9]), re.A)
             if not m:
                 return {"ok": False, "why": "a repeat is {n}, {n,} or {n,m}."}
             lo = int(m.group(1))
@@ -1359,7 +1400,7 @@ def match_pattern(p, value):
 # character the URL parser strips or trims. An xn-- host can't be verified here, so it's "unverified", never ok.
 LINK_FORBIDDEN = re.compile("[\u0000-\u0020\u007f-\u009f\u00a0\u00ad\u1680\u180e\u2000-\u200f\u2028-\u202f\u205f-\u206f\u3000\ufeff\ud800-\udfff]")
 _LABEL = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\Z")
-_QUERY_NAME = re.compile(r"^(jql|jqlquery|cql|query|q|filter|search)\Z", re.I)
+_QUERY_NAME = re.compile(r"^(jql|jqlquery|cql|query|q|filter|search)\Z", re.I | re.A)
 
 
 def authority_problem(auth):
@@ -1394,10 +1435,10 @@ def authority_problem(auth):
         if not h or len(h) > 253 or any(not _LABEL.match(l) for l in labels):
             return "has a host that isn't letters, digits, dots and inner hyphens (write an international name in its xn-- form)."
         last = labels[-1]
-        if re.match(r"^\d+\Z", last) or re.match(r"^0x", last, re.I):
-            if not (len(labels) == 4 and all(re.match(r"^(0|[1-9]\d{0,2})\Z", l) and int(l) <= 255 for l in labels)):
+        if re.match(r"^\d+\Z", last, re.A) or re.match(r"^0x", last, re.I | re.A):
+            if not (len(labels) == 4 and all(re.match(r"^(0|[1-9]\d{0,2})\Z", l, re.A) and int(l) <= 255 for l in labels)):
                 return "has a host that looks like an IPv4 address but isn't a plain one (like 10.0.0.1)."
-    if port is not None and not (re.match(r"^\d{1,5}\Z", port) and 1 <= int(port) <= 65535):
+    if port is not None and not (re.match(r"^\d{1,5}\Z", port, re.A) and 1 <= int(port) <= 65535):
         return "has a port that isn't a number from 1 to 65535."
     return ""
 
@@ -1413,14 +1454,14 @@ def classify_link(template, context):
         return {"code": "static"}
     if re.match(r"^\^([A-Za-z0-9_-]+)\Z", t):
         return {"code": "whole"}
-    mm = re.match(r"^(mailto:[^?#]*)(\?[^#]*)?\Z", t, re.I)
-    hm = re.match(r"^(https?://[^/?#]*)([^?#]*)(\?[^#]*)?(#.*)?\Z", t, re.I | re.S)
+    mm = re.match(r"^(mailto:[^?#]*)(\?[^#]*)?\Z", t, re.I | re.A)
+    hm = re.match(r"^(https?://[^/?#]*)([^?#]*)(\?[^#]*)?(#.*)?\Z", t, re.I | re.S | re.A)
     if not mm and not hm:
         return {"code": "malformed"}
     head = mm.group(1) if mm else hm.group(1)
     if any(n in context for n in re.findall(r"\^([A-Za-z0-9_-]+)", head)):
         return {"code": "address"}
-    auth = re.sub(r"^https?://", "", hm.group(1), flags=re.I) if hm else ""
+    auth = re.sub(r"^https?://", "", hm.group(1), flags=re.I | re.A) if hm else ""
     if hm:
         ap = authority_problem(auth)
         if ap:
@@ -1582,7 +1623,7 @@ def _minimum(features):
 
 
 def _semver(v):
-    m = re.match(r"^(\d{1,4})\.(\d{1,4})\.(\d{1,4})\Z", v) if isinstance(v, str) else None
+    m = re.match(r"^(\d{1,4})\.(\d{1,4})\.(\d{1,4})\Z", v, re.A) if isinstance(v, str) else None
     return [int(x) for x in m.groups()] if m else None
 
 
@@ -1597,8 +1638,8 @@ def _needs(fam, major, features, o):
 
 
 def _txt(v):
-    """PF.envelope.txt, cut to 60 characters: a string as is, anything else as JSON."""
-    return (v if isinstance(v, str) else js_json(v))[:60]
+    """PF.envelope.txt, cut to 60 UTF-16 units as slice(0, 60) cuts it: a string as is, anything else as JSON."""
+    return js_slice(v if isinstance(v, str) else js_json(v), 60)
 
 
 def judge(family, o):
@@ -1613,7 +1654,7 @@ def judge(family, o):
         return bad("isn't a JSON object")
     major = None
     if o.get("format") is not None:
-        m = re.match(r"^([a-z][a-z0-9-]{1,59})/([1-9]\d{0,3})\Z", o["format"]) if isinstance(o["format"], str) else None
+        m = re.match(r"^([a-z][a-z0-9-]{1,59})/([1-9]\d{0,3})\Z", o["format"], re.A) if isinstance(o["format"], str) else None
         if not m:
             return bad("has a format this copy can't read (\"" + _txt(o["format"]) + "\")")
         if m.group(1) != family:
@@ -1632,7 +1673,7 @@ def judge(family, o):
     features = []
     if o.get("features") is not None:
         f = o["features"]
-        if not isinstance(f, list) or len(f) > 32 or not all(isinstance(x, str) and re.match(r"^[a-z][a-z0-9-]{1,39}\Z", x) for x in f):
+        if not isinstance(f, list) or len(f) > 32 or not all(isinstance(x, str) and re.match(r"^[a-z][a-z0-9-]{1,39}\Z", x, re.A) for x in f):
             return bad("has a \"features\" list this copy can't read")
         features = list(f)
     if major not in fam["majors"]:
@@ -1730,10 +1771,395 @@ def held_why(pid, torn, refused):
     return "A decision on this plan (" + path + ") can't be read, so it isn't known whether someone already started it. It may still be arriving; if it stays this way, restore it from a backup or delete it." + held
 
 
+# A loop's scope records (3.0, PF.loop): requests (flightdeck-plan/3) and decisions on them (flightdeck-plan-status/3). The
+# folder reader dispatches them before the plan reader (repo.readPlans), so one is never a plan or a plan decision.
+SCOPE_REQUEST, SCOPE_DECISION = "flightdeck-plan/3", "flightdeck-plan-status/3"
+SCOPE_REQ = re.compile(r"^req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24}\Z", re.A)
+SCOPE_DNAME = re.compile(r"^(req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})\.status-([a-z0-9][a-z0-9-]{0,39})-([0-9a-f]{8})\.json\Z", re.A)
+SCOPE_PERSON = re.compile(r"^[A-Za-z0-9_.-]{1,80}\Z", re.A)
+SCOPE_NOTE = ("Scope records are a loop's list, written by Flightdeck and flightdeck loop. This lists them and checks their format "
+              "and names; it doesn't check what they ask or work out a loop's items. For a loop's items, counts, approval and "
+              "anything held, run flightdeck loop read.")
+
+
+def scope_loop(l):
+    """PF.loop's cleanLoop: {"process", "run", "step"} and nothing else, each as String() reads it, or None."""
+    if not isinstance(l, dict) or len(l) != 3:
+        return None
+    p, r, st = (js_String(l.get(k, _scope_MISSING)) for k in ("process", "run", "step"))
+    ok = (re.match(r"^[a-z0-9][a-z0-9-]{0,59}\Z", p, re.A) and re.match(r"^[a-z0-9-]{1,40}\Z", r, re.I | re.A)
+          and re.match(r"^[a-z0-9][a-z0-9-]{0,59}\Z", st, re.I | re.A))
+    return {"process": l.get("process"), "run": l.get("run"), "step": l.get("step")} if ok else None
+
+# 3.0.1: a scope request's body as PF.loop.cleanRequest reads it (its observation, changes and planned children), so the first
+# refusal reason is the app's. What they ask (a loop's items) is still worked out only by flightdeck loop read.
+SCOPE_LIMITS = {"title": 200, "reason": 300, "query": 500, "generation": 80, "errors": 20, "error": 200, "changes": 500, "inputs": 40, "input": 240, "seen": 50, "candidates": 50}
+SCOPE_CONTROL = re.compile("[\u0000-\u001f\u007f\u2028\u2029]")
+# JavaScript's \s: JS_WS and the line terminators.
+SCOPE_JS_SPACE = set(JS_WS + "\n\r\u2028\u2029")
+SCOPE_ISO = re.compile(r"^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?(?:Z|[+-](\d{2}):(\d{2}))\Z", re.A)
+SCOPE_FEED = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,59}\Z", re.A)
+SCOPE_KINDS = {"jira.issue": {"id": re.compile(r"^[0-9]{1,18}\Z", re.A), "key": re.compile(r"^[A-Z][A-Z0-9_]{0,29}-[1-9][0-9]{0,8}\Z", re.A)},
+               "item": {"id": None, "key": re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,39}\Z", re.A)}}
+SCOPE_OPS = ["add", "exclude", "restore", "owner", "exception", "withdraw", "choose", "plan", "start", "approve", "send-back", "resolve"]
+SCOPE_ACTIONS = ["start", "approve", "send-back", "resolve"]
+SCOPE_CHANGE_KEYS = ["op", "item", "reason", "owner", "approver", "onBehalf", "as", "all", "run", "attempt", "candidates", "record", "outcome"]
+JS_OBJECT_NAMES = {"constructor", "__defineGetter__", "__defineSetter__", "hasOwnProperty", "__lookupGetter__", "__lookupSetter__",
+                   "isPrototypeOf", "propertyIsEnumerable", "toString", "valueOf", "__proto__", "toLocaleString", "prototype"}
+_scope_MISSING = object()
+
+
+def js_slice(s, n):
+    """String(s).slice(0, n), counted in UTF-16 code units."""
+    b = s.encode("utf-16-le", "surrogatepass")[:2 * n]
+    return b.decode("utf-16-le", "surrogatepass")
+
+
+def js_String(v):
+    """JavaScript's String(v) for a value read from JSON (undefined when the key is missing)."""
+    if v is _scope_MISSING:
+        return "undefined"
+    if v is None:
+        return "null"
+    if isinstance(v, dict):
+        return "[object Object]"
+    if isinstance(v, list):
+        return ",".join("" if x is None else js_String(x) for x in v)
+    return js_str(v)
+
+
+def _scope_sq(k):
+    return '"' + js_slice(str(k), 70) + '"'
+
+
+def _scope_whole(v):
+    return _num(v) and math.isfinite(v) and math.floor(v) == v and 0 <= v <= 1e6
+
+
+def _scope_reserved(k):
+    return k in JS_OBJECT_NAMES
+
+
+def _scope_sline(v, mx, what, errors, opt=False):
+    """loop.js line(): text of at most mx, without control characters ('' when optional and left out, None when refused)."""
+    if v is None and opt:
+        return ""
+    if not isinstance(v, str) or (not opt and not js_trim(v)):
+        errors.append(what + " is text.")
+        return None
+    if js_len(v) > mx:
+        errors.append(what + " is " + str(js_len(v)) + " characters; the most is " + str(mx) + ".")
+        return None
+    if SCOPE_CONTROL.search(v):
+        errors.append(what + " has a line break or another control character.")
+        return None
+    return v
+
+
+def _scope_iso_ok(v):
+    """ISO and Date.parse as V8 reads them: month 1-12, day 1-31, 24:00 only on the hour, offsets under 24:00."""
+    m = SCOPE_ISO.match(v) if isinstance(v, str) else None
+    if not m:
+        return False
+    mo, dd, hh, mi = int(m.group(2)), int(m.group(3)), int(m.group(4)), int(m.group(5))
+    ss, ms = int(m.group(6) or 0), int(m.group(7) or 0)
+    if not (1 <= mo <= 12 and 1 <= dd <= 31 and mi <= 59 and ss <= 59 and (hh < 24 or (hh == 24 and mi == 0 and ss == 0 and ms == 0))):
+        return False
+    return m.group(8) is None or (int(m.group(8)) <= 23 and int(m.group(9)) <= 59)
+
+
+def _scope_ipv4_part(t):
+    """The URL parser's IPv4 number: 0x hex (empty is 0), a leading 0 octal, else decimal; None when it isn't one."""
+    if t[:2] in ("0x", "0X"):
+        return 0 if t[2:] == "" else int(t[2:], 16) if re.match(r"^[0-9A-Fa-f]+\Z", t[2:], re.A) else None
+    if len(t) > 1 and t[0] == "0":
+        return int(t, 8) if re.match(r"^[0-7]+\Z", t, re.A) else None
+    return int(t) if re.match(r"^[0-9]+\Z", t, re.A) else None
+
+
+class _ScopeUnchecked(str):
+    """A link this check doesn't judge, kept apart from the errors: never a reason to read or refuse a record."""
+
+
+SCOPE_IDN = "idn"
+
+
+def _scope_http_link(v):
+    """loop.js httpLink: absolute http(s), a host, no spaces or control characters, and a host the URL parser takes. A host
+    with an xn-- label gives SCOPE_IDN: whether the URL parser takes an international domain name rests on Unicode's IDNA
+    tables (UTS #46), which this check doesn't have, so it doesn't judge one."""
+    if not isinstance(v, str) or js_len(v) > 2048 or SCOPE_CONTROL.search(v) or any(c in SCOPE_JS_SPACE for c in v):
+        return False
+    m = re.match(r"^https?://([A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?)(?::([0-9]{1,5}))?(?:[/?#][\x21-\x7e]*)?\Z", v, re.A)
+    if not m or re.search(r"[<>\"'`\\]", v):
+        return False
+    if m.group(2) is not None and not (1 <= int(m.group(2)) <= 65535):
+        return False
+    host = m.group(1)
+    if re.match(r"^[0-9.]+\Z", host, re.A):
+        return bool(re.match(r"^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\Z", host, re.A))
+    # The URL parser reads a host that ends in a number (a last label of digits, or 0x and hex) as an IPv4 address, and
+    # refuses one that isn't (https://foo.09/: 09 isn't octal).
+    parts = host.split(".")
+    last = parts[-1]
+    if not (re.match(r"^[0-9]+\Z", last, re.A) or (last[:2] in ("0x", "0X") and re.match(r"^[0-9A-Fa-f]*\Z", last[2:], re.A))):
+        return SCOPE_IDN if any(l[:4].lower() == "xn--" for l in parts) else True
+    nums = [_scope_ipv4_part(t) for t in parts]
+    if len(parts) > 4 or any(n is None for n in nums) or any(n > 255 for n in nums[:-1]) or nums[-1] >= 256 ** (5 - len(parts)):
+        return False
+    return True
+
+
+def _scope_item(it, errors, where, kind):
+    K = SCOPE_KINDS.get(kind)
+    if not K["id"]:
+        if not isinstance(it, dict):
+            errors.append(where + ' is {"key": "staging", "title": "...", "link": "https://..."}.')
+            return None
+        out = {"key": "", "title": ""}
+        for k in js_keys(it):
+            if k not in ("key", "title", "link"):
+                errors.append(where + " has " + _scope_sq(k) + "; an item has key, title and link.")
+        if not isinstance(it.get("key"), str) or not K["key"].match(it["key"]):
+            errors.append(where + ': "key" is 1 to 40 letters, digits, hyphens or underscores, starting with a letter or digit, like staging.')
+        elif _scope_reserved(it["key"]):
+            errors.append(where + ': "key" ' + _scope_sq(it["key"]) + " is a name Flightdeck keeps for itself; use another.")
+        else:
+            out["key"] = it["key"]
+        _scope_sline(it.get("title"), SCOPE_LIMITS["title"], where + ' "title"', errors, True)
+        if it.get("link") is not None and it.get("link") != "":
+            ok = _scope_http_link(it["link"])
+            if ok == SCOPE_IDN:
+                errors.append(_ScopeUnchecked(where + ' "link"'))
+            elif not ok:
+                errors.append(where + ': "link" is an http or https address of at most 2,048 characters, like https://example.com/.')
+        return out
+    if not isinstance(it, dict):
+        errors.append(where + ' is {"id": "10042", "key": "ABC-101", "title": "..."}.')
+        return None
+    out = {"id": "", "key": ""}
+    for k in js_keys(it):
+        if k not in ("id", "key", "title", "status", "assignee"):
+            errors.append(where + " has " + _scope_sq(k) + "; an item has id, key, title, status and assignee.")
+    if it.get("id") is not None and it.get("id") != "":
+        if not isinstance(it["id"], str) or not K["id"].match(it["id"]):
+            errors.append(where + ': "id" is the issue\'s id, digits only, like "10042".')
+        else:
+            out["id"] = it["id"]
+    if not isinstance(it.get("key"), str) or not K["key"].match(it["key"]):
+        errors.append(where + ': "key" is an issue key, like ABC-101.')
+    else:
+        out["key"] = it["key"]
+    _scope_sline(it.get("title"), SCOPE_LIMITS["title"], where + ' "title"', errors, True)
+    for k in ("status", "assignee"):
+        _scope_sline(it.get(k), 80, where + " " + _scope_sq(k), errors, True)
+    return out
+
+
+def _scope_observation(o, errors, kind):
+    K = SCOPE_KINDS[kind]
+    keys = ["source", "generation", "query", "observedAt", "items", "reported", "fetched", "complete", "errors"]
+    if not isinstance(o, dict):
+        errors.append("The observation is a JSON object with source, generation, query, observedAt, items, reported, fetched, complete and errors.")
+        return
+    for k in js_keys(o):
+        if k not in keys:
+            errors.append("The observation has " + _scope_sq(k) + ", which an observation doesn't have. It has: " + ", ".join(keys) + ".")
+    src = o.get("source")
+    if not K["id"]:
+        if not isinstance(src, dict) or not isinstance(src.get("feed"), str) or not SCOPE_FEED.match(src["feed"]) or any(k not in ("feed", "site", "account") for k in src):
+            errors.append('"source" is {"feed": "<the loop\'s source: id>", "site": "...", "account": "..."} (site and account when the feed has them).')
+        else:
+            for k in ("site", "account"):
+                if src.get(k) is not None:
+                    _scope_sline(src[k], 200, '"source" ' + k, errors)
+    elif not isinstance(src, dict) or src.get("system") != "jira" or any(k not in ("system", "site") for k in src):
+        errors.append('"source" is {"system": "jira", "site": "<its address>"}.')
+    elif src.get("site") is not None:
+        _scope_sline(src["site"], 200, '"source" site', errors)
+    _scope_sline(o.get("generation"), SCOPE_LIMITS["generation"], '"generation"', errors)
+    _scope_sline(o.get("query"), SCOPE_LIMITS["query"], '"query"', errors, not K["id"])
+    if not _scope_iso_ok(o.get("observedAt")):
+        errors.append('"observedAt" is a date and time with its zone, like 2026-11-07T09:42:00Z.')
+    if not _scope_whole(o.get("reported")):
+        errors.append(_scope_sq("reported") + " is a whole number.")
+    if not _scope_whole(o.get("fetched")):
+        errors.append(_scope_sq("fetched") + " is a whole number.")
+    if not isinstance(o.get("complete"), bool):
+        errors.append('"complete" is true or false: whether every page of the search was read.')
+    errs = o.get("errors")
+    if not isinstance(errs, list) or len(errs) > SCOPE_LIMITS["errors"]:
+        errors.append('"errors" is a list of at most ' + str(SCOPE_LIMITS["errors"]) + " messages ([] when none).")
+    else:
+        for i, e in enumerate(errs):
+            _scope_sline(e, SCOPE_LIMITS["error"], '"errors" ' + str(i + 1), errors)
+    items = o.get("items")
+    if not isinstance(items, list):
+        errors.append('"items" is a list of the items found.')
+    elif len(items) > 500:
+        errors.append("An observation holds at most 500 items; this one has " + str(len(items)) + ". Nothing is cut: narrow the search or raise max: within the limit.")
+    else:
+        seen_keys, seen_ids = set(), set()
+        for i, it in enumerate(items):
+            c = _scope_item(it, errors, "Item " + str(i + 1), kind)
+            if c is None:
+                continue
+            if K["id"] and not c["id"]:
+                errors.append("Item " + str(i + 1) + ": an observation gives each issue's \"id\".")
+            if c["key"] in seen_keys or (c.get("id") and c["id"] in seen_ids):
+                errors.append("Item " + str(i + 1) + " (" + c["key"] + ") is listed twice.")
+                continue
+            seen_keys.add(c["key"])
+            if c.get("id"):
+                seen_ids.add(c["id"])
+
+
+def _scope_changes(lst, errors, kind):
+    if lst is None:
+        return
+    if not isinstance(lst, list) or len(lst) > SCOPE_LIMITS["changes"]:
+        errors.append('"changes" is a list of at most ' + str(SCOPE_LIMITS["changes"]) + " changes.")
+        return
+    added = set()
+    for i, ch in enumerate(lst):
+        where = "Change " + str(i + 1)
+        op = ch.get("op") if isinstance(ch, dict) else None
+        if not isinstance(op, str) or op not in SCOPE_OPS:
+            errors.append(where + " is {\"op\": " + " | ".join(_scope_sq(x) for x in SCOPE_OPS) + ", \"item\": {...}}.")
+            continue
+        for k in js_keys(ch):
+            if (k not in SCOPE_CHANGE_KEYS or (k == "all" and not (op == "start" and ch.get("all") is True)) or (k in ("run", "candidates") and op != "choose")
+                    or (k == "attempt" and op not in ("choose", "plan")) or (k == "record" and op not in ("plan", "resolve")) or (k == "outcome" and op != "resolve")):
+                errors.append(where + " has " + _scope_sq(k) + ".")
+        if op in SCOPE_ACTIONS:
+            if op == "start":
+                if _scope_item(ch.get("item"), errors, where + " item", kind) is None:
+                    continue
+            elif ch.get("item") is not None:
+                errors.append(where + ": " + _scope_sq(op) + " names no item.")
+            if op == "resolve":
+                if not isinstance(ch.get("record"), str) or not SCOPE_REQ.match(ch["record"]):
+                    errors.append(where + ': "record" is the id of the request whose outcome was recorded two ways.')
+                if ch.get("outcome") not in ("applied", "refused") or not isinstance(ch.get("outcome"), str):
+                    errors.append(where + ': "outcome" is "applied" or "refused": what happened.')
+            if not isinstance(ch.get("as"), str) or not SCOPE_PERSON.match(ch["as"]):
+                errors.append(where + ': "as" is the ID from people.json of the person who asks.')
+            if ch.get("reason") is not None:
+                _scope_sline(ch["reason"], SCOPE_LIMITS["reason"], where + ' "reason"', errors, True)
+            continue
+        it = _scope_item(ch.get("item"), errors, where + " item", kind)
+        if it is None:
+            continue
+        if op == "add" and it["key"]:
+            if it["key"] in added:
+                errors.append(where + " adds " + it["key"] + " again; each item is added once.")
+                continue
+            added.add(it["key"])
+        if op in ("exclude", "exception"):
+            _scope_sline(ch.get("reason"), SCOPE_LIMITS["reason"], where + ' "reason"', errors)
+        elif ch.get("reason") is not None:
+            _scope_sline(ch["reason"], SCOPE_LIMITS["reason"], where + ' "reason"', errors, True)
+        if op == "plan":
+            if not _scope_whole(ch.get("attempt")) or ch["attempt"] < 1 or ch["attempt"] > 999:
+                errors.append(where + ': "attempt" is the attempt the plans are for.')
+            if not isinstance(ch.get("record"), str) or not SCOPE_REQ.match(ch["record"]):
+                errors.append(where + ': "record" is the id of the plan chosen.')
+        if op == "choose":
+            if not isinstance(ch.get("run"), str) or not re.match(r"^[a-z0-9-]{1,40}\Z", ch["run"], re.I | re.A):
+                errors.append(where + ': "run" is the id of the story\'s run that counts.')
+            if not _scope_whole(ch.get("attempt")) or ch["attempt"] < 1 or ch["attempt"] > 999:
+                errors.append(where + ': "attempt" is the attempt the runs were started for.')
+            cands = ch.get("candidates")
+            if not isinstance(cands, list) or not 2 <= len(cands) <= SCOPE_LIMITS["candidates"] or not all(isinstance(v, str) and re.match(r"^[a-z0-9-]{1,40}\Z", v, re.I | re.A) for v in cands):
+                errors.append(where + ': "candidates" are the ids of the competing runs it chose among (2 to ' + str(SCOPE_LIMITS["candidates"]) + ").")
+        if op == "owner" and ch.get("owner") != "" and (not isinstance(ch.get("owner"), str) or not SCOPE_PERSON.match(ch["owner"])):
+            errors.append(where + ': "owner" is a person\'s ID from people.json, or "" for none.')
+        if op == "exception":
+            if not isinstance(ch.get("approver"), str) or not SCOPE_PERSON.match(ch["approver"]):
+                errors.append(where + ': "approver" is the person\'s ID from people.json who approved it.')
+            if ch.get("onBehalf") is not None and not isinstance(ch.get("onBehalf"), bool):
+                errors.append(where + ': "onBehalf" is true or false.')
+
+
+def _scope_children(kids, errors, kind):
+    if not isinstance(kids, list):
+        errors.append("its children isn't a list")
+        return
+    for i, k in enumerate(kids):
+        it = _scope_item(k.get("item"), errors, "child " + str(i + 1), kind) if isinstance(k, dict) else None
+        ins = k.get("inputs") if isinstance(k, dict) else None
+        if (it is None or not _scope_whole(k.get("attempt")) or k["attempt"] < 1 or not isinstance(ins, dict) or len(ins) > SCOPE_LIMITS["inputs"]
+                or any(_scope_reserved(n) or not isinstance(ins[n], str) or js_len(ins[n]) > SCOPE_LIMITS["input"] for n in ins)
+                or (k.get("owner", _scope_MISSING) != "" and not SCOPE_PERSON.match(js_String(k.get("owner", _scope_MISSING))))):
+            errors.append("child " + str(i + 1) + " isn't a planned child")
+
+def scope_verdict(o, name):
+    """scope_why, and the first link it didn't judge (an international domain name), as the note an assistant reads."""
+    unchecked = []
+    kind, needs, why = scope_why(o, name, unchecked)
+    return kind, needs, why, (unchecked[0] + ": an international domain name; Flightdeck decides whether it reads") if unchecked else ""
+
+
+def scope_why(o, name, unchecked=None):
+    """Why a scope record can't be read (PF.loop.cleanFile), or "": its envelope, id, name and loop, and a request's
+    observation, changes and planned children (3.0.1), in the app's words and order. What they ask isn't worked out here
+    (see SCOPE_NOTE)."""
+    dec = o.get("format") == SCOPE_DECISION
+    what, fam = ("decision", "flightdeck-plan-status") if dec else ("request", "flightdeck-plan")
+    v = judge(fam, o)
+    if not v["ok"]:
+        return v["kind"], v.get("needs") or "", ("is a scope " + what + " made with a newer Flightdeck. " + ("Needs Flightdeck " + v["needs"] + "." if v["needs"] else "Needs a newer Flightdeck.")) if v["kind"] == "newer" else v["why"]
+    if v["major"] != 3 or "loops" not in (o.get("features") or []):
+        return "malformed", "", "isn't a scope " + what + " (it doesn't name the loops feature)"
+    seen = o.get("seen")
+    seen_ok = isinstance(seen, list) and len(seen) <= 50
+    if dec:
+        m = SCOPE_DNAME.match(name)
+        if not m or m.group(1) != o.get("proposal"):
+            return "malformed", "", "is a scope decision whose name doesn't say its request"
+        bad_loop = scope_loop(o.get("loop")) is None
+        if o.get("op") not in ("accept", "keep", "applied", "refused"):
+            return "malformed", "", "is a scope decision that isn't accept, keep, applied or refused"
+        items = o.get("items")
+        if not isinstance(items, list) or (not items and o.get("op") in ("accept", "keep")) or len(items) > 500 or not all(isinstance(x, str) and js_len(x) <= 80 for x in items):
+            return "malformed", "", "is a scope decision without its items"
+        if not seen_ok or not all(isinstance(x, str) for x in seen):
+            return "malformed", "", "is a scope decision without what it saw (its seen is at most 50 records)"
+        if not isinstance(o.get("by"), str) or not SCOPE_PERSON.match(o["by"]):
+            return "malformed", "", "is a scope decision without who made it"
+        if bad_loop:
+            return "malformed", "", "is a scope decision that isn't in its format: \"loop\" is {\"process\": \"<checklist>\", \"run\": \"<run id>\", \"step\": \"<the loop step's id>\"}."
+        if o.get("resolver") is not None and not (isinstance(o["resolver"], str) and SCOPE_REQ.match(o["resolver"])):
+            return "malformed", "", "is a scope decision that isn't in its format: its resolver isn't a request id"
+        return "", "", ""
+    if not isinstance(o.get("id"), str) or not SCOPE_REQ.match(o["id"]):
+        return "malformed", "", "is a scope request without a request id"
+    if not name.startswith(o["id"]):
+        return "malformed", "", "is a scope request whose name isn't its id"
+    if o.get("kind") is not None and o.get("kind") not in ("jira.issue", "item"):
+        return "malformed", "", "is a scope request for items of kind " + js_string(js_slice(js_String(o["kind"]), 40)) + ", which this copy of Flightdeck doesn't know"
+    kind = "jira.issue" if o.get("kind") is None else o["kind"]
+    errors = []
+    if scope_loop(o.get("loop")) is None:
+        errors.append("\"loop\" is {\"process\": \"<checklist>\", \"run\": \"<run id>\", \"step\": \"<the loop step's id>\"}.")
+    if o.get("observation") is not None:
+        _scope_observation(o["observation"], errors, kind)
+    _scope_changes(o.get("changes"), errors, kind)
+    if not seen_ok or not all(isinstance(x, str) and (SCOPE_REQ.match(x) or SCOPE_DNAME.match(x + ".json")) for x in seen):
+        errors.append("its seen isn't a list of scope records")
+    _scope_children(o.get("children"), errors, kind)
+    if unchecked is not None:
+        unchecked.extend(e for e in errors if isinstance(e, _ScopeUnchecked))
+    errors = [e for e in errors if not isinstance(e, _ScopeUnchecked)]
+    if errors:
+        return "malformed", "", "is a scope request that isn't in its format: " + errors[0]
+    return "", "", ""
+
+
 def plan_family(o):
     """Which of the two a file in proposals/ is (PF.plans.familyOf): its format's family, else its kind."""
     f = o.get("format")
-    m = re.match(r"^([a-z][a-z0-9-]{1,59})/([1-9]\d{0,3})\Z", f) if isinstance(f, str) else None
+    m = re.match(r"^([a-z][a-z0-9-]{1,59})/([1-9]\d{0,3})\Z", f, re.A) if isinstance(f, str) else None
     if m and m.group(1) in ("flightdeck-plan", "flightdeck-plan-status"):
         return m.group(1)
     if o.get("kind") == "status":
@@ -1761,7 +2187,7 @@ def sha(data):
 
 
 HASH8 = re.compile(r"^[0-9a-f]{8}\Z")
-PIN_STEP = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}\Z", re.I)
+PIN_STEP = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}\Z", re.I | re.A)
 
 
 def child_pin_ok(p):
@@ -1769,7 +2195,7 @@ def child_pin_ok(p):
     if not isinstance(p, dict) or set(p) - {"process", "version", "folder", "mapHash", "typesHash"}:
         return False
     v, f = p.get("version"), p.get("folder")
-    m = re.match(r"^v(\d+)-[a-z0-9]+\Z", f) if isinstance(f, str) else None
+    m = re.match(r"^v(\d+)-[a-z0-9]+\Z", f, re.A) if isinstance(f, str) else None
     return (isinstance(p.get("process"), str) and bool(re.match(r"^[a-z0-9][a-z0-9-]{0,59}\Z", p["process"])) and _whole(v)
             and 1 <= js_num(v) <= 9007199254740991 and bool(m) and float(m.group(1)) == js_num(v) and isinstance(p.get("mapHash"), str) and bool(HASH8.match(p["mapHash"]))
             and isinstance(p.get("typesHash"), str) and bool(HASH8.match(p["typesHash"])))
@@ -1779,7 +2205,7 @@ def skill_pin_ok(p):
     if not isinstance(p, dict) or set(p) - {"name", "version"}:
         return False
     n, v = p.get("name"), p.get("version")
-    return isinstance(n, str) and 1 <= len(n) <= 80 and n.strip() == n and not re.search(r"[\x00-\x1f]", n) and isinstance(v, str) and bool(re.match(r"^\S{1,40}\Z", v))
+    return isinstance(n, str) and 1 <= len(n) <= 80 and n.strip() == n and not re.search(r"[\x00-\x1f]", n) and isinstance(v, str) and bool(re.match(jsre(r"^\S{1,40}\Z"), v, re.A))
 
 
 def pins_ok(pins):
@@ -1798,8 +2224,8 @@ def pins_problem(info, parsed):
     want, have = {"children": {}, "skills": {}}, {"children": {}, "skills": {}}
     for st in parsed["steps"]:
         f = st["fields"]
-        if st["type"] == "run.process" and "version" in f:
-            want["children"][st["id"]] = {"process": f.get("process"), "version": _jsint(f["version"].strip()) if re.match(r"^\d+$", f["version"].strip()) else f["version"]}
+        if st["type"] in ("run.process", "for.each") and "version" in f:
+            want["children"][st["id"]] = {"process": f.get("process"), "version": _jsint(f["version"].strip()) if re.match(r"^\d+$", f["version"].strip(), re.A) else f["version"]}
         if st["type"] == "run.skill" and "skillVersion" in f:
             want["skills"][st["id"]] = {"name": (f.get("skill") or "").strip(), "version": f["skillVersion"].strip()}
     for k, p in pins.get("children", {}).items():
@@ -1859,7 +2285,7 @@ def check_publication(folder, name):
     # A staged version (2.1) lives under staged/ and only test runs use it: never a version here (PF.publish.verify).
     if isinstance(info.get("features"), list) and "staged" in info["features"]:
         return "unusable", "It's a staged version, which only test runs use. Edited by hand: a stage belongs under staged/.", info
-    m = re.match(r"^v(\d+)-[a-z0-9]+\Z", name)
+    m = re.match(r"^v(\d+)-[a-z0-9]+\Z", name, re.A)
     if info.get("folder") != name or not m or int(m.group(1)) != info.get("version"):
         return "damaged", "folder name doesn't match the publication record", info
     try:
@@ -1901,7 +2327,7 @@ def check_publication(folder, name):
 
 # Skills: the one verdict for a skill name (PF.skills.resolve), ported. test/skills-parity.test.js runs a generated matrix of
 # legacy files and revisions through the app, flightdeck skill register and this checker, and fails on any difference.
-REG_PATH = re.compile(r"^skill-registrations/([^/]+)/(sk-[a-z0-9]{8})\.([1-9]\d{0,5})\.([A-Za-z0-9_-]{1,40})\.json\Z")
+REG_PATH = re.compile(r"^skill-registrations/([^/]+)/(sk-[a-z0-9]{8})\.([1-9]\d{0,5})\.([A-Za-z0-9_-]{1,40})\.json\Z", re.A)
 STEP_ID = re.compile(r"^[A-Za-z0-9_-]{1,60}\Z")
 SKILL_BLOCKS = ["legacy-unreadable", "legacy-refused", "name-mismatch", "revision-refused", "revisions-unlisted", "review"]
 MAX_SKILLS = 500
@@ -1961,7 +2387,7 @@ def check_registration(rel, o, digest):
         errors.append('"seen" must be the revision it replaced, or null')
     pin = None
     if isinstance(imp, dict) and not set(imp) - {"process", "folder", "mapHash", "typesHash"} and isinstance(imp.get("folder"), str):
-        n = re.match(r"^v(\d+)-", imp["folder"])
+        n = re.match(r"^v(\d+)-", imp["folder"], re.A)
         pin = dict(imp, version=_jsint(n.group(1))) if n else None
     if not pin or not child_pin_ok(pin):
         errors.append('"implements" must name the exact version: { process, folder, mapHash, typesHash }')
@@ -1995,7 +2421,7 @@ def check_legacy(o, file):
     name, errors = _str(o.get("name"), 80), []
     if not name:
         errors.append('needs a "name"')
-    if not re.match(r"^([a-z0-9][a-z0-9-]*)@v?(\d+)\Z", _str(o.get("implements"), 80), re.I):
+    if not re.match(r"^([a-z0-9][a-z0-9-]*)@v?(\d+)\Z", _str(o.get("implements"), 80), re.I | re.A):
         errors.append('"implements" must be <process>@<version>, like release@4')
     st = o.get("steps")
     if st is not None:
@@ -2249,7 +2675,7 @@ def team_values(root):
     if not j["ok"]:
         # PF.envelope.judge's words for a newer file: another family, a newer major, or features this copy doesn't know.
         needs = j.get("needs") or ""
-        m = re.match(r"^([a-z][a-z0-9-]{1,59})/([1-9]\d{0,3})\Z", o["format"]) if isinstance(o.get("format"), str) else None
+        m = re.match(r"^([a-z][a-z0-9-]{1,59})/([1-9]\d{0,3})\Z", o["format"], re.A) if isinstance(o.get("format"), str) else None
         if m and m.group(1) != "flightdeck-team-values":
             what = "is a " + m.group(1) + " file, which this copy doesn't know."
         elif m and int(m.group(2)) not in FAMILIES["flightdeck-team-values"]["majors"]:
@@ -2371,14 +2797,14 @@ def _quoted(rx, text):
 
 
 def _words(v):
-    return [x for x in re.split(r"[,\s]+", js_str(v) if v is not None else "") if x]
+    return [x for x in re.split(jsre(r"[,\s]+"), js_str(v) if v is not None else "", flags=re.A) if x]
 
 
 def design_tips(md):
     """PF.library.lints(md) without a library: each tip's id, at, ref and text, as flightdeck draft check's design.tips."""
     parsed, out = parse_map(md), []
     text = md.replace("\r\n", "\n").replace("\r", "\n")
-    fm = re.match(r"^---\n[\s\S]*?\n---[ \t]*(?:\n|$)", text)
+    fm = re.match(r"^---\n[\s\S]*?\n---[ \t]*(?:\n|$)", text, re.A)
     text = text[fm.end():] if fm else text
 
     def add(i, at, ref, t):
@@ -2472,11 +2898,11 @@ def draft_main(args):
         with open(path, encoding="utf-8") as f:
             md = f.read()
     except (OSError, UnicodeDecodeError) as e:
-        json.dump({"draft": path, "error": "couldn't be read: %s" % e.__class__.__name__}, sys.stdout, indent=2)
+        json.dump({"draft": path, "error": "couldn't be read: %s" % e.__class__.__name__}, sys.stdout, indent=2, allow_nan=False)
         sys.stdout.write("\n")
         return 1
     out = dict({"draft": path, "folder": root}, **draft_check(md, team_files(root)["stepTypes"]))
-    json.dump(out, sys.stdout, indent=2, ensure_ascii=False)
+    json.dump(json_safe(out), sys.stdout, indent=2, ensure_ascii=False, allow_nan=False)
     sys.stdout.write("\n")
     return 0
 
@@ -2493,7 +2919,7 @@ def main():
             continue
         versions = []
         for name in sorted(os.listdir(pdir)):
-            if os.path.isdir(os.path.join(pdir, name)) and re.match(r"^v\d+-", name):
+            if os.path.isdir(os.path.join(pdir, name)) and re.match(r"^v\d+-", name, re.A):
                 status, why, info = check_publication(os.path.join(pdir, name), name)
                 versions.append({"folder": name, "version": info.get("version") if info else None, "status": status, "why": why,
                                  "publishedBy": info.get("publishedBy") if info else None, "publishedAt": info.get("publishedAt") if info else None})
@@ -2511,6 +2937,7 @@ def main():
 
     prop_dir = os.path.join(root, "proposals")
     plans, decisions, torn, refused_decisions = {}, {}, [], []
+    out["scopes"] = []
     for name in sorted(os.listdir(prop_dir)) if os.path.isdir(prop_dir) else []:
         if not name.lower().endswith(".json") or not os.path.isfile(os.path.join(prop_dir, name)):
             continue
@@ -2525,6 +2952,15 @@ def main():
             # Not complete JSON (it may still be arriving): named, and whether its name says which plan it's for.
             torn.append(name)
         if not isinstance(obj, dict):
+            continue
+        # A loop's scope record goes to its own reader first and never reaches the plan reader (repo.readPlans).
+        if obj.get("format") in (SCOPE_REQUEST, SCOPE_DECISION):
+            kind, needs, why, unchecked = scope_verdict(obj, name)
+            if kind:
+                out["refused"].append(dict({"file": "proposals/" + name, "why": why}, **({"linkUnchecked": unchecked} if unchecked else {})))
+                refused_decisions.append((name, kind, needs))
+            else:
+                out["scopes"].append(dict({"file": "proposals/" + name, "type": "decision" if obj["format"] == SCOPE_DECISION else "request", "loop": obj.get("loop")}, **({"linkUnchecked": unchecked} if unchecked else {})))
             continue
         # The app's one reader of plans and plan decisions (PF.plans.clean): a file from a newer Flightdeck (flightdeck-plan/2,
         # a feature this copy doesn't know) is refused and named, never a plan or a decision; one it can't read is left out.
@@ -2602,7 +3038,7 @@ def main():
             alike = all(same_plan(c[2], copies[0][2]) for c in copies)
             exact = bool(matching) if alike else any(d.get("proposalHash") == copies[0][1] for d in mine)
             procs = [copies[0][2].get("process")] if exact else (sorted(os.listdir(os.path.join(root, "runs"))) if os.path.isdir(os.path.join(root, "runs")) else [])
-            safe = re.match(r"^[a-z0-9-]{1,40}\Z", run, re.I)
+            safe = re.match(r"^[a-z0-9-]{1,40}\Z", run, re.I | re.A)
             found = safe and any(isinstance(proc, str) and re.match(r"^[a-z0-9][a-z0-9-]*\Z", proc) and os.path.exists(os.path.join(root, "runs", proc, run, "run.json")) for proc in procs)
             if not found:
                 entry["runMissing"] = run
@@ -2614,6 +3050,8 @@ def main():
             return True
         return any(n.startswith(pid) and n[len(pid):len(pid) + 1] in (".", " ", "-", "(") for pid in plans if isinstance(pid, str) and pid)
     out["unreadablePlans"] = [{"file": "proposals/" + n, "unnamed": not named(n)} for n in torn]
+    if out["scopes"] or any(n.startswith("req-") for n in torn):
+        out["scopeNote"] = SCOPE_NOTE
 
     runs_dir = os.path.join(root, "runs")
     for proc in sorted(os.listdir(runs_dir)) if os.path.isdir(runs_dir) else []:
@@ -2622,7 +3060,7 @@ def main():
             rdir = os.path.join(pdir, rid)
             if os.path.isdir(rdir):
                 names = sorted(os.listdir(rdir))
-                copies = [n for n in names if re.match(r"^run.*\.json\Z", n, re.I) and n != "run.json"]
+                copies = [n for n in names if re.match(r"^run.*\.json\Z", n, re.I | re.A) and n != "run.json"]
                 # A save's candidate file that run.json doesn't list was overwritten by another window or computer.
                 try:
                     lineage = json.loads(read_text(os.path.join(rdir, "run.json")) or "{}", parse_constant=_no_constant).get("lineage") or []
@@ -2646,7 +3084,7 @@ def main():
         out["teamFiles"]["problems"].append({"file": TEAM_FILE, "problem": tv["why"]})
     out["teamMissing"] = team_missing(root, out["publications"], tv)
     out["skills"] = skill_registrations(root)
-    json.dump(out, sys.stdout, indent=2, ensure_ascii=False)
+    json.dump(json_safe(out), sys.stdout, indent=2, ensure_ascii=False, allow_nan=False)
     sys.stdout.write("\n")
 
 
