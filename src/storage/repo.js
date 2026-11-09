@@ -2584,7 +2584,8 @@ PF.repo = (function () {
         /* A to-do record (4.0, PF.todos), or any record naming living-runs, goes to its own reader first; one that can't be
            read (newer, malformed) holds its run (or, when which run it is for can't be told, every living run). */
         if (PF.todos.claims(p)) {
-          var raw = {}; Object.keys(p).forEach(function (k) { if (k !== '_file') raw[k] = p[k]; });
+          /* Copied into a map with no prototype, so a "__proto__" key in the file is a field the checks refuse, never the copy's prototype. */
+          var raw = Object.create(null); Object.keys(p).forEach(function (k) { if (k !== '_file') raw[k] = p[k]; });
           /* A record the checks can't even look at (a value that can't be turned into text) is one unread file, never a read
              that fails. */
           var tv; try { tv = PF.todos.cleanFile(raw, p._file, p._bytes); } catch (e) { tv = { ok: false, kind: 'malformed', why: 'is a to-do record that isn\'t in its format', needs: '' }; }

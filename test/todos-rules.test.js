@@ -443,6 +443,14 @@ rule('Identical OneDrive copies reduce as one record under their id; different o
   mark(r, d.todos); assert.ok(r._todos.all.some(w => /two different copies/.test(w)), JSON.stringify(r._todos.all));
   same(T.cleanFile(JSON.parse(T.text(p)), p.id + '-laptop.json').ok, false, 'a lowercase suffix is not a copy name');
 });
+rule('A to-do record naming __proto__ is unread, never read with another prototype', async () => {
+  const { r } = newRun(), map = R.mapOf(r), p = T.buildProposal({ run: RUN, id: T.idFor('flightdeck', 'z1'), by: 'person-avery', seen: [], at: AT, body: add('Proto', { phase: 'draft' }) }), pr = clean(p);
+  const s = T.buildStatus({ kind: 'decision', proposal: p.id, run: RUN, seen: [p.id], by: 'person-avery', at: AT, op: 'accept', consequence: T.consequenceOf(r, map, pr, V(r, [pr])).fingerprint, writer: 'w1', rev: '0000abce' });
+  const o = JSON.parse(T.text(s.file)); delete o.by;
+  const text = '{"__proto__": {"by": "person-avery"}, ' + JSON.stringify(o).slice(1);
+  const d = await PF.repo.readPlans(memFs({ ['proposals/' + p.id + '.json']: T.text(p), ['proposals/' + s.name]: text }));
+  same([d.todos.map(x => x.id), d.todosUnread.map(x => x.file)], [[p.id], [s.name]]);
+});
 rule('An unread or held record for the run stops preparing and landing', () => {
   const { r } = newRun(), map = R.mapOf(r), p = prop('g1', add('One', { phase: 'draft' }), [], 'person-avery');
   const d = decide(p, 'accept', 'person-avery', T.consequenceOf(r, map, p, V(r, [p])).fingerprint);

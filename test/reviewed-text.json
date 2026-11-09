@@ -25,8 +25,8 @@
       "reviewed": "loop guard builder for every loop parent and child write, undo on drop; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "71c298371b415dcefc62000140f7c32ed38a59847f7b907905e16d523885fb0b",
-      "reviewed": "Slice 1 round 3 AA: adoption checks replay's causal preconditions"
+      "sha256": "ef94267ed35306e0fbf875b5f0807c6e56cc8db51ffa5442104b19085bbc48da",
+      "reviewed": "Slice 1 round 3 Z: to-do reader copies into a map with no prototype"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -397,8 +397,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "135eefacab7a4d6b2c434a3177867f5b569bf601b8cf9397cea6210916a01fe6",
-      "reviewed": "Round 2 U: only to-do records are capped in bytes; scope records read and write as in 3.0; checked for direct writes and unconditional deletes"
+      "sha256": "c286d5cdad5535dee459dfec4c1531e09c3948f26b6c4349fbae1bd6fcb3f96a",
+      "reviewed": "Slice 1 round 3 Z: to-do reader copies into a map with no prototype"
     },
     "src/ui/app.js": {
       "sha256": "d7b729d6bf7394d0ec77b12181e5d671895e5eb1d9fb0a30ff368e2fa3b8aa30",
