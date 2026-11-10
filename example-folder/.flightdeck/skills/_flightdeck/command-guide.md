@@ -196,6 +196,10 @@ Read them with `flightdeck fact list <team folder> <process>/<run> --json`: each
 
 To ask for a to-do done on a fact's evidence, run `flightdeck todo suggest-done <team folder> <process>/<run> --todo <to-do id> --fact <fact id> --tool <name>@<version> --dry-run --json` first (no `--key`: the evidence names it). It is refused, with why, unless the fact is current, fresh, complete where it needs to be, shows the work done, and nothing else about the item disagrees. It is an ordinary request: a person decides it (or a delegation covers it), and applying it checks the evidence again.
 
+### Keep for next time
+
+To suggest that a to-do or a spread become a step of its checklist next time, run `flightdeck todo keep <team folder> <process>/<run> --todo <to-do id> --tool <name>@<version> --dry-run --json` (or `flightdeck spread keep ... --spread <spread id>`) first, then again without `--dry-run`. No `--key`: the run, the to-do and the place name it, so asking again is `already`. Phase and step to-dos go to the run's own checklist (the end of the phase, or after the step); spreads go to the checklist the loop's items run, at the end of the phase with their gate. A to-do on one item needs `--phase <phase id>` or `--after <step id>` in the items' checklist; without one it is kept as needing placement. `--text` keeps it in other words and `--reason` says why. It changes nothing on the run. The checklist's owner reviews it with the other corrections in the app; never say it is in the checklist until a version is published with it. `held` (exit 4) names what couldn't be read: nothing was written.
+
 ## Evidence packs
 
 **Evidence packs:** when a person asks for a run's evidence, run `flightdeck export <team folder> --run <process>/<id> --out <a folder outside the team folder>` (or `--process <id> --from YYYY-MM-DD --through YYYY-MM-DD --tz Area/City` for the runs started on those days). It only reads. Exit code 0 is a complete pack, 4 a partial one (its top lists what changed or was missing), 1 no pack.

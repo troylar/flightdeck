@@ -46,9 +46,16 @@ function valid() {
   const sug = T.buildProposal({ run: RUN, producer: bot, seen: [], at: AT, body: { op: 'done', todo: T.todoIdFor(tool.id), support: sup } });
   const sge = T.effectOf(T.cleanFile(JSON.parse(T.text(sug)), sug.id + '.json').record);
   const sga = T.buildStatus({ kind: 'application', proposal: sug.id, run: RUN, seen: [sug.id], by: 'person-avery', at: AT, authority: { grant: g.id }, previous: app.name.replace(/\.json$/, ''), effect: sge, writer: 'w1', rev: '0a1b2c41' });
+  /* Keeps (4.0 slice 5): placed after a step by a person, at a phase's end by a tool, and two that need placement. */
+  const L = PF.learn, tpl = { process: 'validate-story', folder: 'v2-k3m9p2q8', version: 2, mapHash: '0123abcd', typesHash: '4567ef01' };
+  const kpa = L.build({ run: RUN, by: 'person-blake', at: AT, source: { todo: T.todoIdFor(tool.id) }, template: tpl, anchor: { phase: 'assess', after: 'check' }, base: '89abcdef', change: { text: 'Check the links', where: 'after' }, reason: 'We missed it twice' });
+  const kpe = L.build({ run: RUN, producer: bot, at: AT, source: { spread: sp.spread }, template: tpl, anchor: { phase: 'wrap' }, base: '89abcdef', change: { text: 'Security sign-off', where: 'end' } });
+  const kna = L.build({ run: RUN, by: 'person-blake', at: AT, source: { todo: T.todoIdFor(cid) }, template: tpl, change: { text: 'Check the links', where: 'end' }, needs: 'The to-do says nothing about where in validate-story it goes.' });
+  const knb = L.build({ run: RUN, producer: bot, at: AT, source: { todo: T.todoIdFor(tool.id) }, change: { text: 'Check the links', where: 'end' }, needs: 'The checklist its items run can\'t be read here.' });
   return [[tool.id + '.json', tool], [asked.id + '.json', asked], [person.id + '.json', person], [mv.id + '.json', mv], [cid + '.json', comp], [g.id + '.json', g], [rv.id + '.json', rv], [dec.name, dec.file], [app.name, app.file],
     [sp.id + '.json', sp], [inc.id + '.json', inc], [bnd.id + '.json', bnd], [stp.id + '.json', stp], [fil.id + '.json', fil], [sap.name, sap.file], [fap.name, fap.file],
-    [fct.id + '.json', fct], [fbk.id + '.json', fbk], [fst.id + '.json', fst], [fcm.id + '.json', fcm], [sug.id + '.json', sug], [sga.name, sga.file]];
+    [fct.id + '.json', fct], [fbk.id + '.json', fbk], [fst.id + '.json', fst], [fcm.id + '.json', fcm], [sug.id + '.json', sug], [sga.name, sga.file],
+    [kpa.id + '.json', kpa], [kpe.id + '.json', kpe], [kna.id + '.json', kna], [knb.id + '.json', knb]];
 }
 /* Each record damaged one way at a time: every field dropped, retyped and nulled, an extra field, a newer or unmarked format,
    over-long text, a prototype key, another file name. */
@@ -132,6 +139,7 @@ rule('The checker refuses exactly the to-do records the app refuses, over every 
   ['spread-add', 'spread-include', 'spread-bind', 'spread-stop'].forEach((op) => assert.ok(cs.some((c) => c.label === 'valid' && JSON.parse(c.text).op === op), 'the corpus has a ' + op));
   ['prs', 'commits', 'status', 'blockers'].forEach((d) => assert.ok(cs.some((c) => c.label === 'valid' && JSON.parse(c.text).domain === d), 'the corpus has a fact on ' + d));
   assert.ok(cs.some((c) => c.label === 'valid' && JSON.parse(c.text).support), 'the corpus has a done on evidence');
+  assert.ok(cs.filter((c) => c.label === 'valid' && JSON.parse(c.text).kind === 'keep').length === 4, 'the corpus has four keeps');
   const pyOut = JSON.parse(cp.execFileSync(py, ['-I', '-B', '-c', DRIVER, DIR], { input: JSON.stringify(cs), encoding: 'utf8', maxBuffer: 256 * 1048576 }));
   const off = [];
   const idn = (c) => IDN.some((v) => c.label === 'link ' + v || c.label === 'origin link ' + v || c.label === 'entry link ' + v), un = [];
@@ -172,6 +180,34 @@ rule('A done on evidence with more than one damaged field is refused by the chec
   assert.deepStrictEqual(off, [], off.length + ' first reasons differ');
 });
 
+rule('A keep with more than one damaged field is refused by the checker for the same field first as the app', () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const all = valid().filter(([n, f]) => f.kind === 'keep');
+  const cases = [];
+  all.forEach(([name, f]) => {
+    const o = JSON.parse(T.text(f));
+    const edit = (label, fn) => { const c = JSON.parse(JSON.stringify(o)); fn(c); cases.push({ name, label: label + ' (' + name + ')', text: JSON.stringify(c) }); };
+    edit('run bad, at bad', (c) => { c.run = 'x'; c.at = 'now'; });
+    edit('source bad, change bad', (c) => { c.source = { todo: 'x' }; c.change = 'x'; });
+    edit('template version, anchor bad', (c) => { c.template = Object.assign({}, c.template || {}, { version: 9 }); c.anchor = { phase: 'a b' }; });
+    edit('change where, needs extra', (c) => { c.change.where = 'after'; c.needs = 'x'; });
+    edit('text roles, reason long', (c) => { c.change.text = 'Ask @qa'; c.reason = 'r'.repeat(301); });
+    edit('text control, base bad', (c) => { c.change.text = 'a\u2028b'; c.base = 'zz'; });
+    edit('text long', (c) => { c.change.text = 'w '.repeat(1001); });
+    edit('by and producer', (c) => { c.by = 'person-blake'; c.producer = { name: 'notes-bot', version: '1.2' }; });
+    edit('key on a person', (c) => { if (c.by) c.key = 'kp-x'; else c.key = 'kp-0'; });
+    edit('id moved', (c) => { c.source = { todo: T.todoIdFor(T.idFor('flightdeck', 'other')) }; });
+    edit('folder version mismatch', (c) => { c.template = { process: 'validate-story', folder: 'v3-k3m9p2q8', version: 2, mapHash: '0123abcd', typesHash: '4567ef01' }; });
+  });
+  const pyOut = JSON.parse(cp.execFileSync(py, ['-I', '-B', '-c', DRIVER, DIR], { input: JSON.stringify(cases), encoding: 'utf8', maxBuffer: 64 * 1048576 }));
+  const off = [];
+  cases.forEach((c, i) => {
+    const j = jsRefuses(c), x = pyOut[i], p = Array.isArray(x) ? x[0] : x;
+    if (j !== p) off.push(c.label + ' · app: ' + (j || 'reads it') + ' · checker: ' + (p || 'reads it'));
+  });
+  assert.deepStrictEqual(off, [], off.length + ' first reasons differ');
+});
 rule('An unknown field is named first in the app\'s key order, numeric-like keys first, in every 4.0 record and part of one', () => {
   const py = python();
   if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
@@ -192,6 +228,11 @@ rule('An unknown field is named first in the app\'s key order, numeric-like keys
   add('proposal placement', prop, (c) => { c.placement = two(c.placement); });
   add('grant', grant, top);
   add('spread scope', spread, (c) => { c.scope = two(c.scope); });
+  const keep = pick((f) => f.kind === 'keep' && f.anchor && f.by);
+  add('keep', keep, top);
+  add('keep template', keep, (c) => { c.template = two(c.template); });
+  add('keep anchor', keep, (c) => { c.anchor = two(c.anchor); });
+  add('keep change', keep, (c) => { c.change = two(c.change); });
   const pyOut = JSON.parse(cp.execFileSync(py, ['-I', '-B', '-c', DRIVER, DIR], { input: JSON.stringify(cases), encoding: 'utf8', maxBuffer: 64 * 1048576 }));
   const key = (w) => { const m = /has "?([^".\s]+)"?/.exec(w || ''); return m ? m[1] : 'no field named: ' + w; };
   const off = [];

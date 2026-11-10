@@ -42,11 +42,20 @@ A fact is what a tool observed about one item of a loop (its PRs, commits, statu
 2. **File what you observed** with `flightdeck fact sync ... --from <file> --tool <name>@<version> --dry-run --json` first, then without `--dry-run`. Give each observation a new `key`, and say `complete: true` only when you read the whole list without an error. If the exit code is 4 and `status` is `partial`, run the same `sync` again; it files only what is missing. Filing facts the person asked for may go on: they change no work.
 3. **Suggest a to-do done** on a fact only when the person asks, or when a fact plainly shows the to-do's work done: `flightdeck todo suggest-done ... --todo <to-do id> --fact <fact id> --tool <name>@<version> --dry-run --json` first. If it is refused, say why (stale, incomplete, replaced, another fact disagrees) and don't work around it. Otherwise write it: it waits for a person's decision (or a delegation), and the recorder applies it only if the evidence still holds then.
 
+## Keep for next time
+
+When a to-do or a spread shows a step the checklist itself is missing, it can be kept as a suggestion for next time. It changes nothing on this run.
+
+1. **Keep one** only when the person asks, or offer it when the same to-do keeps coming back: `flightdeck todo keep <team folder> <process>/<run id> --todo <to-do id> --tool <name>@<version> --dry-run --json` first (`flightdeck spread keep ... --spread <spread id>` for a spread). No `--key`: asking again is `already`. Say the preview: which checklist and version it goes to, and where (the end of a phase, or after a step). Then write it.
+2. **Place item work.** A to-do on one item of a loop belongs to the checklist the items run, and needs `--phase <phase id>` or `--after <step id>` in that checklist; read it first (`flightdeck read`) and ask the person if where it goes isn't plain. Without one it is kept as needing placement, and says so.
+3. **Say where it stands** as it is: Suggested, Applied to draft, or Published in vN. Only the checklist's owner decides it, in Flightdeck.
+
 ## Never
 
 - Never say a to-do is done, dropped or moved, or that an item has met a spread, until `todo list` or `spread list` shows it applied. A suggestion on evidence is a request like any other.
 - Never use a new key to retry. If the command can't confirm the save, retry with the same key: a new key could ask twice.
 - Never drop or move work, stop a spread or send an approval back without the person's agreement. Never ask for any of them to make a gate pass, and never pass a gate. A person decides that.
-- Never put secrets, tokens or customer data in a to-do's or a spread's text, reason or destination, or in a fact's entries, errors or source.
+- Never say a kept step is in the checklist until a published version has it.
+- Never put secrets, tokens or customer data in a to-do's or a spread's text, reason or destination, in a keep's text or reason, or in a fact's entries, errors or source.
 
 Remember that OneDrive may be up to a minute behind, so say what you read, not what is guaranteed.

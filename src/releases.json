@@ -38,6 +38,13 @@
         "title": "See what is known about each story, and check a to-do off on its evidence",
         "now": "A tool can record what it found about a loop's items (PRs, commits, status, blockers), how complete and when. The loop shows it under each item; anything not checked says so, never \"no blockers\". Facts never change work: a to-do is checked off on their evidence only when a person accepts the suggestion, or a delegation covers it, and only if the evidence still holds when applied.",
         "where": "A run's loop, flightdeck fact, the living-run skill"
+      },
+      {
+        "kind": "new",
+        "area": "Corrections",
+        "title": "Keep a to-do for next time, as a step its checklist's owner reviews",
+        "now": "Keep for next time on a to-do or a spread suggests it as a missing step of its checklist; the run doesn't change. Item work goes to the checklist the items run. Keeps for one place join one correction with each wording shown, and only the checklist's owner decides it. The to-do says Suggested, Applied to draft or Published in vN. flightdeck todo keep does the same.",
+        "where": "A run's screen, a checklist's Corrections, flightdeck todo keep, the living-run and learn-from-runs skills"
       }
     ]
   },

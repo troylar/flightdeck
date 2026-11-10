@@ -206,7 +206,7 @@
     var SPC = ctx.spreadCoverage ? ctx.spreadCoverage(r) : null;
     ((SPC && SPC.spreads) || []).filter(function (C) { return C.loopStep === s.id; }).forEach(function (C) {
       var owed = C.items.filter(function (i) { return i.owed; });
-      h += '<div class="sp-row"><p><b>' + esc(C.row) + '</b>' + (C.summary ? ' <span class="small">' + esc(C.summary) + '</span>' : '') + '</p><p class="small">' + esc(C.preview) + (C.stop ? '. Stopped: ' + esc(C.stop.reason || '') + '; ' + (C.stop.reason ? 'the ' : 'The ') + esc(PF.loop.count(owed.length, N)) + ' it was owed on stay owed' : '') + '.</p>';
+      h += '<div class="sp-row"><p><b>' + esc(C.row) + '</b>' + (C.summary ? ' <span class="small">' + esc(C.summary) + '</span>' : '') + '</p><p class="small">' + esc(C.preview) + (C.stop ? '. Stopped: ' + esc(C.stop.reason || '') + '; ' + (C.stop.reason ? 'the ' : 'The ') + esc(PF.loop.count(owed.length, N)) + ' it was owed on stay owed' : '') + '.' + keepLine(ctx, r, 'spread', C.id) + '</p>';
       if (C.notices.length) h += '<div class="notice" role="status"><span>' + C.notices.slice(0, 10).map(esc).join(' ') + (C.notices.length > 10 ? ' And ' + (C.notices.length - 10) + ' more.' : '') + '</span></div>';
       if (owed.length) h += '<ul class="sp-chips small">' + owed.slice(0, 50).map(function (i) { return '<li class="sp-chip sp-' + esc(i.state) + '"' + (i.why ? ' title="' + esc(i.why) + '"' : '') + '>' + esc((i.key || i.uid) + (i.attempt > 1 ? ' (attempt ' + i.attempt + ')' : '')) + ' · ' + esc(i.words) + '</li>'; }).join('') + '</ul>' + (owed.length > 50 ? '<p class="small">and ' + (owed.length - 50) + ' more (flightdeck spread list shows all).</p>' : '');
       h += '</div>';
@@ -1229,6 +1229,13 @@
     return out;
   }
   function tdPhaseOf(map, t) { var P = t ? PF.todos.placeOf(map, t) : { why: 'x' }; return P.why ? '' : P.phaseId; }
+  /* Keep for next time (4.0 slice 5): where a to-do or a spread stands as kept for its checklist, opening that correction, or
+     the one button that keeps it. Placing it elsewhere and rewording go through flightdeck todo keep and the skills. */
+  function keepLine(ctx, r, kind, id) {
+    var K = ctx.keepFor ? ctx.keepFor(r, kind === 'spread' ? { spread: id } : { todo: id }) : null;
+    if (K) return ' <span class="small td-keep">' + (K.group ? '<button type="button" class="linkish" data-act="keep-open" data-id="' + esc(K.group.id) + '" data-process="' + esc(K.process) + '">' + esc(K.words) + '</button>' : esc(K.words)) + '</span>';
+    return ctx.keepCan && ctx.keepCan(r) ? ' <button type="button" class="mini" data-act="keep" data-kind="' + kind + '" data-id="' + esc(id) + '">Keep for next time</button>' : '';
+  }
   function tdRow(ctx, r, map, x, pend, can) {
     var s = ctx.state, id = esc(x.id), open = x.state === 'open', mine = (pend[x.id] || []).filter(function (q) { return q.op !== 'add'; }), busy = mine.length > 0;
     var where = x.target && x.target.item ? ' <span class="small">· ' + esc(x.target.item.loopStep) + ' item</span>' : x.target && x.target.step ? ' <span class="small">· step ' + esc(x.target.step) + '</span>' : '';
@@ -1247,6 +1254,7 @@
       if (open) h += ' <span class="row td-acts"><button type="button" class="mini" data-act="td-pick" data-kind="wont" data-id="' + id + '">Won\'t do…</button><button type="button" class="mini" data-act="td-pick" data-kind="move" data-id="' + id + '">Move or defer…</button></span>';
       else h += ' <span class="row td-acts"><button type="button" class="mini" data-act="td-reopen" data-id="' + id + '">Reopen</button></span>';
     }
+    h += keepLine(ctx, r, 'todo', x.id);
     var pk = s.tdPick, rk = r.process + '/' + r.id, shown = '';
     if (can && !busy && open && pk && pk.id === x.id && pk.fs === ctx.fsKey && pk.run === rk) {
       var wont = pk.kind === 'wont', dk = tdKeyOf(ctx, rk, x.id, pk.kind);

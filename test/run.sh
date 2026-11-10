@@ -122,6 +122,8 @@ test/todos.test.js -
 test/todos-rules.test.js -
 test/spreads.test.js -
 test/facts.test.js -
+test/learn.test.js -
+test/learn-cli.test.js -
 test/loop-cli.test.js -
 test/todo-cli.test.js -
 test/spread-cli.test.js -
@@ -156,6 +158,7 @@ test/app-todos-ui.test.js -
 test/app-todos-inbox.test.js -
 test/app-spreads.test.js -
 test/app-facts.test.js -
+test/app-learn.test.js -
 test/staging-app.test.js -
 test/test-runs-app.test.js -
 test/readiness-stage-app.test.js -

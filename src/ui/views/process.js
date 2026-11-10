@@ -308,11 +308,17 @@
       if (m.happened) dl += '<dt' + tag() + '>What happened · ' + esc(nameOf(ctx, m.by)) + '</dt><dd>' + esc(m.happened) + '</dd>';
     });
     if (dl) h += '<dl class="corr-dl">' + dl + '</dl>';
-    ms.forEach(function (x) { h += V.attachments(ctx, x.m.id, x.m.files, x.m.fileInfo, 'corr', ctx.findRun && ctx.findRun(x.m.process + '/' + x.m.run), x.m.note); });
+    /* Kept for next time (4.0 slice 5): from a run's to-do or spread, each wording as it was kept, the owner choosing one. */
+    if (g.keep) {
+      var alts = g.alternatives || [];
+      h += '<p class="small fx-keep">Kept for next time from ' + (g.members.length === 1 ? (g.first.keep.source.spread ? 'a spread' : 'a to-do') : g.members.length + ' to-dos and spreads') + '.' + (alts.length > 1 ? ' ' + alts.length + ' wordings; review and apply one, or write your own:' : '') + '</p>';
+      if (alts.length > 1) h += '<ol class="small fx-alts">' + alts.slice(0, 50).map(function (a) { return '<li>' + esc(a.text) + ' <span class="small">(' + a.members.length + ')</span></li>'; }).join('') + '</ol>' + (alts.length > 50 ? '<p class="small">and ' + (alts.length - 50) + ' more.</p>' : '');
+    }
+    ms.forEach(function (x) { h += V.attachments(ctx, x.m.id, x.m.files, x.m.fileInfo, 'corr', ctx.findRun && ctx.findRun(x.m.runKey || x.m.process + '/' + x.m.run), x.m.note); });
     /* The runs behind it, with names inside: a count of runs, never a vote. */
     h += '<details class="corr-runs"><summary class="small">Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + '</summary><ul class="small">' + ms.map(function (x) {
       var m = x.m;
-      return '<li' + (focused[x.i] ? '' : ' id="' + esc(fid(x)) + '" tabindex="-1"') + '>' + esc(nameOf(ctx, m.by)) + ' · ' + esc(U.day(m.at)) + ' · <button class="linkish" data-act="open-run" data-id="' + esc(m.process + '/' + m.run) + '">' + esc(m.runTitle) + '</button> · ' + (m.test ? 'test run, staged v' : 'v') + esc(m.version) + '</li>';
+      return '<li' + (focused[x.i] ? '' : ' id="' + esc(fid(x)) + '" tabindex="-1"') + '>' + esc(nameOf(ctx, m.by)) + ' · ' + esc(U.day(m.at)) + ' · <button class="linkish" data-act="open-run" data-id="' + esc(m.runKey || m.process + '/' + m.run) + '">' + esc(m.runTitle) + '</button> · ' + (m.test ? 'test run, staged v' : 'v') + esc(m.version) + '</li>';
     }).join('') + '</ul></details>';
     var left = g.members.length - ms.length;
     if (left > 0) h += '<p class="small fx-more">' + left.toLocaleString('en-US') + ' more in this group</p>';
@@ -328,7 +334,8 @@
     if (C.changedSince(g, corrBase(ctx, p).text)) h += '<div class="small corr-since"><span class="pill review">Changed since applied</span> The draft\'s step no longer matches what was applied.</div>';
     if (!st.me || g.status === 'legacy') return h + '</li>';
     if (declining) return h + '<div class="row">' + ferr(st, 'corr-decline') + '<label class="sr" for="pick-input">Why not? The runs will show this.</label><input id="pick-input" maxlength="300" placeholder="Why not? The runs will show this." data-enter="corr-decline" data-id="' + esc(g.id) + '"' + (st.fieldErr && st.fieldErr.id === 'corr-decline' ? ' aria-invalid="true" aria-describedby="ferr-corr-decline"' : '') + '><button class="btn" data-act="corr-decline" data-id="' + esc(g.id) + '">Decline</button><button class="mini" data-act="unpick">Cancel</button></div></li>';
-    var acts = '';
+    var acts = '', ownerWhy = ctx.keepOwnerWhy ? ctx.keepOwnerWhy(g, p.id) : '';
+    if (ownerWhy) return h + '<p class="small fx-owner" role="note">' + esc(ownerWhy) + '</p>' + (g.status === 'open' && C.canWithdraw(g, st.me) ? '<div class="row"><button class="mini" data-act="corr-withdraw" data-id="' + esc(g.id) + '" data-process="' + esc(p.id) + '">Withdraw</button></div>' : '') + '</li>';
     if (g.status === 'open' || g.tie) acts += '<button class="btn" data-act="corr-review" data-id="' + esc(g.id) + '">' + (C.applies(g) ? 'Review and apply' : 'Review') + '</button><button class="mini" data-act="corr-applied" data-id="' + esc(g.id) + '">Mark as applied</button><button class="mini" data-act="pick" data-kind="corr-decline" data-id="' + esc(g.id) + '">Decline</button>';
     if (g.status !== 'open' || g.tie) acts += '<button class="mini" data-act="corr-reopen" data-id="' + esc(g.id) + '">Reopen</button>';
     if (g.status === 'open' && C.canWithdraw(g, st.me)) acts += '<button class="mini" data-act="corr-withdraw" data-id="' + esc(g.id) + '" data-process="' + esc(p.id) + '">Withdraw</button>';

@@ -226,9 +226,14 @@
     /* Runs this person records, with how many reports on each nobody has decided yet (Home). */
     reportsWaiting: function () { return reportsWaiting(); },
     corrections: function (pid) {
-      if (!fixMemo[pid]) { var proc = procFind(pid); fixMemo[pid] = PF.corrections.forProcess(procRuns(pid), pid, data.corrDecisions, proc); }
+      if (!fixMemo[pid]) { var proc = procFind(pid); fixMemo[pid] = PF.corrections.forProcess(procRuns(pid), pid, data.corrDecisions, proc, PF.learn.members(data.todos || [], data.runs || [], pid)); }
       return fixMemo[pid];
     },
+    /* Keep for next time (4.0 slice 5): where a run's to-do or spread stands as kept, whether this person can keep one, and
+       why they can't decide a group of keeps ('' when they can, and for every other correction). */
+    keepFor: function (r, source) { return keepFor(r, source); },
+    keepCan: function (r) { return keepCan(r); },
+    keepOwnerWhy: function (g, pid) { return keepOwnerWhy(g, pid); },
     /* The release history and what this person has seen of it (for "New for you" and the dot on What's new). */
     get releases() { var seen = state.relShownSeen || relSeen(); return { list: RELEASES, version: APP_VERSION, lastSeen: seen, fresh: APP_VERSION !== 'dev' && V.semverCmp(APP_VERSION, relSeen()) > 0, newer: state.newer }; },
     /* How many images this window is adding to a draft's step right now (the builder's Screenshots section says so). */
@@ -3420,6 +3425,42 @@
       render();
     }, function (err) { endBusy(); if (sg !== gen) return; say('Couldn\'t save the request: ' + (err && err.message || err) + ' It may or may not have been saved; asking again is the same request.', 'bad'); render(); });
   }
+  /* Keep for next time (4.0 slice 5, PF.learn): one gesture keeps a to-do or a spread as a suggestion for its checklist, as
+     exactly one keep record (the rule flightdeck todo keep uses). It changes nothing on the run. Under the run guard taken at
+     the click, asked again with the keep made again from what this window reads right before the write: the same name and
+     the same bytes, or nothing is written. Kept again after a write that may have happened: exactly the first bytes. */
+  function keepFor(r, source) { try { return PF.learn.forSource(data.todos || [], function (pid) { return ctx.corrections(pid); }, r, source); } catch (e) { return null; } }
+  function keepCan(r) { return !!(r && state.me && !r._unrunnable && !runUnread(r)); }
+  function keepOwnerWhy(g, pid) { return g && g.keep ? PF.learn.ownerWhy(g, procFind(pid), data.people, state.me, !!(data.failed || {}).people) : ''; }
+  function keepWrite(r, source) {
+    if (!r || !state.me) return;
+    var rk = r.process + '/' + r.id, sig = JSON.stringify([fsKey(), rk, state.me, source]), kept = state.keepTry && state.keepTry.sig === sig ? state.keepTry.K : null;
+    var ask = function (run, at) { return PF.learn.prepare(run, { source: source, by: { person: state.me }, records: data.todos || [], unread: data.todosUnread || [], people: data.people, procOf: ctx.procOf, at: at, app: APP_VERSION, now: tdNow() }); };
+    var K = ask(r, kept ? kept.record.at : new Date().toISOString());
+    if (K.why) { say(K.why + ' Nothing was written.', 'warn'); render(); return; }
+    if (K.status === 'already') { say('Already kept for next time. ' + K.preview.words, 'good'); render(); return; }
+    if (runUnread(r)) { say(runUnread(r) + ' Nothing was written.', 'warn'); render(); return; }
+    if (kept && kept.id === K.id) K = kept;
+    state.keepTry = { sig: sig, K: K };
+    var cx = loopGuard({ run: rk, readable: true }), text = PF.todos.text(K.file), endBusy = busyStart(), sg = gen;
+    var still = function () {
+      if (!guardOk(cx)) return false;
+      var A = ask(findRun(rk), K.record.at);
+      return !A.why && A.status === 'new' && A.id === K.id && PF.todos.text(A.file) === text;
+    };
+    repo.saveScope(cx.fs, K.name, K.file, { still: still }).then(function (res) {
+      endBusy(); if (sg !== gen) return;
+      if (res && res.dropped) { say('Nothing was kept: the folder, the person or the run changed before it was written. Keep it again if it still matters.', 'warn'); render(); return; }
+      if (res && res.conflict && res.theirs !== text) { say('Something else is already saved under this keep\'s name. Nothing was written; read the folder again, then keep it again.', 'bad'); render(); return; }
+      state.keepTry = null;
+      var rec = K.record; rec._file = K.name;
+      if (!(data.todos || []).some(function (x) { return x.id === rec.id; })) data.todos = (data.todos || []).concat([rec]);
+      fixMemo = Object.create(null);
+      say(K.preview.words, 'good');
+      lastAll = -Infinity;
+      render();
+    }, function (err) { endBusy(); if (sg !== gen) return; say('Couldn\'t save what was kept: ' + (err && err.message || err) + ' It may or may not have been saved; keeping it again is the same keep.', 'bad'); render(); });
+  }
   var spBox = null;
   function spreadCoverageOf(r) {
     if (!r || r._unrunnable) return null;
@@ -5256,12 +5297,13 @@
   /* A decision of applied, with the result it records, written once; Link, Already addressed and Mark as applied in the dialog. */
   function caDecide(ov, status, reason, msg, result, more) {
     var x = caFind(ov.pid, ov.gid), g = x.g; if (!g || !state.me) return;
+    if (keepOwnerWhy(g, ov.pid)) { caErr(ov, keepOwnerWhy(g, ov.pid)); return; }
     var rec;
     try { rec = PF.corrections.decision(g, state.me, status, reason, new Date().toISOString(), Object.assign({ current: g.decision, act: U.randomId(10), result: result }, more || {})); }
     catch (e) { caErr(ov, e.message, status === 'declined' ? 'ca-reason' : null); return; }
     var dfs = state.fs, gg = gen;
     ov.busy = true;
-    queued(function () { return repo.decideCorrection(dfs, rec, WRITER); }).then(function () {
+    queued(function () { if (gg !== gen || dfs !== state.fs || keepOwnerWhy(g, ov.pid)) return Promise.reject(new Error(keepOwnerWhy(g, ov.pid) || 'the folder changed.')); return repo.decideCorrection(dfs, rec, WRITER); }).then(function () {
       if (gg !== gen) return; if (caOv() === ov) closeOverlay(); state.focus = 'fx-h'; say(msg, 'good'); return load(true);
     }, function (e) { if (gg !== gen) return; ov.busy = false; if (caOv() === ov) caErr(ov, 'Couldn\'t save the decision: ' + e.message); else { say('Couldn\'t save the decision: ' + e.message, 'bad'); render(); } });
   }
@@ -5270,7 +5312,7 @@
      draft already has the change: the next look shows "already" with Link this correction. */
   function applyCorr(ov, how) {
     var x = caFind(ov.pid, ov.gid), p = x.p, g = x.g, C = PF.corrections; if (!g || !p || !state.me) return;
-    var why = caBlocked(p); if (why) { caErr(ov, why); return; }
+    var why = caBlocked(p) || keepOwnerWhy(g, p.id); if (why) { caErr(ov, why); return; }
     var ed = openEditor(p), base = ed.base, op = g.change.op, edited = null;
     if (how === 'edit' && (op === 'wording' || op === 'add')) {
       var el = document.getElementById('ca-edit'); edited = String(el ? el.value : ov.edit ? ov.edit.text : '').replace(/\s+/g, ' ').trim();
@@ -5293,7 +5335,7 @@
       act: { act: 'tl-undo', id: 'draft', label: 'Undo' }, source: 'correction', expectText: ed.baseHash == null ? null : base,
       /* Not saved: the change waits in the editor as unsaved, so the editor opens rather than hiding it. */
       failed: function () { if (gg !== gen || state.processId !== p.id || state.view !== 'process') return ''; state.ptab = 'edit'; state.focus = 'ed-h'; return ' The correction is in the editor, not saved yet. Save draft to try again.'; },
-      write: function (f, file, t, h, o) { return repo.applyCorrection(f, { process: p.id, file: file, base: base, expect: h, group: g, edited: edited, confirmed: how === 'edit', text: t }, o); },
+      write: function (f, file, t, h, o) { var ow = keepOwnerWhy(g, p.id); if (ow) return Promise.reject(new Error(ow)); return repo.applyCorrection(f, { process: p.id, file: file, base: base, expect: h, group: g, edited: edited, confirmed: how === 'edit', text: t }, o); },
       after: function () {
         if (gg !== gen) return null;
         return gs.reduce(function (pr, y) {
@@ -8264,6 +8306,13 @@
       tdWrite(r, made, made.words, 'grant', tdTok('dg'));
     },
     'td-done': function (id) { todoAsk({ op: 'done', todo: id }); },
+    /* Keep for next time (4.0 slice 5): on a to-do or a spread; its status opens the correction it is in. */
+    keep: function (id, b) { var r = ctx.run(); if (!r || !id) return; keepWrite(r, b && b.dataset.kind === 'spread' ? { spread: id } : { todo: id }); },
+    'keep-open': function (id, b) {
+      var pid = b && b.dataset.process; if (!pid || !id) return;
+      ACTIONS['open-process'](pid); state.fixFilter = 'all'; (state.disc = state.disc || {})['fx:' + pid] = true; state.focus = 'fx-h';
+      corrShow(pid, id); render();
+    },
     'td-reopen': function (id) { todoAsk({ op: 'reopen', todo: id }); },
     'td-pick': function (id, b) {
       var k = b && b.dataset && b.dataset.kind, r = ctx.run(); if ((k !== 'wont' && k !== 'move') || !r) return;
@@ -8988,11 +9037,14 @@
   function decideCorr(id, status, reason, done, pid, more) {
     var p = pid ? procFind(pid) : currentProcess(), g = p && ctx.corrections(p.id).filter(function (x) { return x.id === id; })[0];
     if (!g || !state.me) return;
+    /* What was kept for next time is decided by the checklist's active owner only; withdrawing one's own stays its author's. */
+    var ownerWhy = function () { return status === 'withdrawn' ? '' : keepOwnerWhy(g, p.id); };
+    if (ownerWhy()) { say(ownerWhy() + ' Nothing was written.', 'warn'); render(); return; }
     var rec;
     try { rec = PF.corrections.decision(g, state.me, status, reason, new Date().toISOString(), Object.assign({ current: g.decision, act: U.randomId(10) }, more || {})); }
     catch (e) { if (status === 'declined') { state.fieldErr = { id: 'corr-decline', msg: e.message }; state.focus = 'pick-input'; } else say(e.message, 'warn'); render(); return; }
     var dfs = state.fs, gg = gen;
-    queued(function () { return repo.decideCorrection(dfs, rec, WRITER); }).then(function () {
+    queued(function () { if (gg !== gen || dfs !== state.fs || ownerWhy()) return Promise.reject(new Error(ownerWhy() || 'the folder changed.')); return repo.decideCorrection(dfs, rec, WRITER); }).then(function () {
       if (gg !== gen) return; state.pick = null; state.fieldErr = null; if (state.view === 'process') state.focus = 'fx-h'; say(done, 'good'); return load(true);
     }, function (e) { if (gg !== gen) return; say('Couldn\'t save the decision: ' + e.message, 'bad'); render(); });
   }

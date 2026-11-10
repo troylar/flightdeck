@@ -226,13 +226,15 @@ PF.corrections = (function () {
   function groups(list) {
     var by = Object.create(null), out = [];
     list.forEach(function (c) {
-      var k = groupKey(c), g = by[k];
-      if (!g) { g = by[k] = { id: 'g' + U.hash(k) + U.hash(k + '|2'), process: c.process, target: c.target, change: c.change, from: c.from, sig: c.sig, members: [], legacy: !!c.legacy }; out.push(g); }
+      /* A step kept for next time (4.0 slice 5, PF.learn) groups on its checklist and place, never its wording. */
+      var k = c.keep ? PF.learn.groupKey(c) : groupKey(c), g = by[k];
+      if (!g) { g = by[k] = { id: 'g' + U.hash(k) + U.hash(k + '|2'), process: c.process, target: c.target, change: c.change, from: c.from, sig: c.sig, members: [], legacy: !!c.legacy }; if (c.keep) g.keep = true; out.push(g); }
       g.members.push(c);
     });
     out.forEach(function (g) {
       var runs = Object.create(null); g.members.forEach(function (c) { runs[c.run] = 1; });
-      g.runs = Object.keys(runs).length; g.first = g.members[0]; g.authors = g.members.map(function (c) { return c.by; }).filter(function (b, i, a) { return a.indexOf(b) === i; });
+      g.runs = Object.keys(runs).length; g.first = g.members[0];
+      if (g.keep) g.alternatives = PF.learn.alternatives(g); g.authors = g.members.map(function (c) { return c.by; }).filter(function (b, i, a) { return a.indexOf(b) === i; });
     });
     return out;
   }
@@ -319,10 +321,10 @@ PF.corrections = (function () {
         var known = d.members || [], fresh = g.members.filter(function (c) { return known.indexOf(c.id) < 0; });
         if (fresh.length && (st === 'declined' || st === 'withdrawn')) { again = { reason: d.reason, by: d.by, status: st }; st = 'open'; }
       }
-      return Object.assign({}, g, { status: st, decision: d, tie: !!(hit && hit.tie), again: again, label: hit && hit.tie ? 'Needs review' : st === 'applied' && d && d.addressed ? 'Addressed differently' : STATUS[st] });
+      return Object.assign({}, g, { status: st, decision: d, tie: !!(hit && hit.tie), again: again, label: hit && hit.tie ? 'Needs review' : st === 'applied' && d && d.addressed ? 'Addressed differently' : g.keep && st === 'open' ? 'Suggested' : g.keep && st === 'applied' ? 'Applied to draft' : STATUS[st] });
     });
   }
-  function label(g) { return g.tie ? 'Needs review' : g.landed ? 'Published in v' + g.landed.version : g.status === 'applied' && g.decision && g.decision.addressed ? 'Addressed differently' : STATUS[g.status] || STATUS.open; }
+  function label(g) { return g.keep ? PF.learn.label(g) : g.tie ? 'Needs review' : g.landed ? 'Published in v' + g.landed.version : g.status === 'applied' && g.decision && g.decision.addressed ? 'Addressed differently' : STATUS[g.status] || STATUS.open; }
   /* Open groups per step ID, for marking steps in the editor's preview. */
   function openCounts(gs) {
     var c = Object.create(null);
@@ -550,6 +552,9 @@ PF.corrections = (function () {
       if (ch.op === 'add') out.now = view(o, r0);
       return Object.assign(out, { state: 'already', result: ch.op === 'remove' ? null : view(o, r0), removed: ch.op === 'remove', text: text });
     }
+    /* Kept for next time (4.0 slice 5): the draft already has one of the wordings at the place asked for. */
+    var alts = g.keep && g.alternatives && g.alternatives.length > 1 ? g.alternatives : null, atNow = alts && edited == null ? placed(g, o) : null;
+    if (atNow && alts.some(function (a) { return norm(a.text) === norm(atNow.text); })) return Object.assign(out, { state: 'already', now: view(o, atNow), result: view(o, atNow), text: text });
     if (t.gone) return Object.assign(out, { state: 'gone', reason: t.gone });
     if (!t.ops.length) return Object.assign(out, { state: 'already', result: out.now, text: text });
     var res = run(text, t.ops);
@@ -559,6 +564,10 @@ PF.corrections = (function () {
     /* The step as the run saw it is the group's signature; for a new step, the step it goes after. */
     var anchor = ch.op === 'add' && ch.where === 'end' ? null : s, map = M.parse(text);
     if (anchor && g.sig && stepSig(map, anchor.id) !== g.sig) { out.state = 'changed'; out.reason = ch.op === 'add' ? 'The step it goes after changed in the draft since the run\'s version.' : 'This step changed in the draft since the run\'s version.'; }
+    /* A step kept for the end of a phase: the phase as the run's version had it is its place; one that gained, lost or changed
+       a step since needs a person, as a changed step does. Several wordings: the owner chooses one (or writes their own). */
+    else if (g.keep && !anchor && g.sig && PF.learn.phaseSig(map, g.target.phase) !== g.sig) { out.state = 'changed'; out.reason = 'Its phase changed in the draft since the run\'s version. Check where it goes before applying it.'; }
+    if (alts && edited == null) { out.state = 'changed'; out.reason = 'It was kept for next time in ' + alts.length + ' wordings. Choose one, or write your own, before applying it (this shows the first).' + (out.reason ? ' ' + out.reason : ''); }
     return out;
   }
   /* review() for a phase's note or a gate's: the note as the draft has it, and as it would be. */
@@ -684,8 +693,12 @@ PF.corrections = (function () {
     });
   }
   /* Every group on a process with where it stands and which version has it. proc: { all, clashes } (its publications). */
-  function forProcess(runs, pid, decisions, proc) {
-    return landing(status(groups(collect(runs, pid)), decisions), proc ? proc.all : [], proc ? proc.clashes : []);
+  /* keeps (4.0 slice 5): the steps kept for next time on this process (PF.learn.members), corrections like any other. Without
+     them every group is exactly as before. */
+  function forProcess(runs, pid, decisions, proc, keeps) {
+    var list = collect(runs, pid);
+    if (keeps && keeps.length) list = list.concat(keeps).sort(function (a, b) { return a.at < b.at ? -1 : a.at > b.at ? 1 : a.id < b.id ? -1 : 1; });
+    return landing(status(groups(list), decisions), proc ? proc.all : [], proc ? proc.clashes : []);
   }
   /* What a publish of this text includes: applied groups not yet published whose change the text makes, with each one's
      result (for publication.json, capped at 500), and the applied ones left out because the draft no longer matches what was

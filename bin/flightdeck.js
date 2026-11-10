@@ -2707,7 +2707,10 @@ const HELP = `flightdeck: team process checklists, in one HTML file
   flightdeck todo add <team folder> <process>/<run> --text "..." --phase <id> --tool <name>@<version> --key <key> [--dry-run] [--json]
                                       ask for a to-do (or --step <id>, --item <loop step>/<uid>; done, wont --reason,
                                       move --to, reopen take --todo <id>). Writes one file in proposals/, once;
-                                      --dry-run previews; --as names who asks, never their approval; never writes a run
+                                      --dry-run previews; --as names who asks, never their approval; never writes a run.
+                                      todo keep --todo <id> (spread keep --spread <id>) --tool ... keeps it for next
+                                      time: one suggestion its checklist's owner reviews, named by the to-do and the
+                                      place (no --key; --phase or --after places item work); never changes the run
   flightdeck spread list <team folder> <process>/<run> --json
                                       for AI assistants: a run's spreads (a requirement every item of a loop must
                                       meet), each item's state, what joined since, and what holds the loop. Only reads
@@ -2784,7 +2787,7 @@ default goes to .flightdeck/updates/<version>/, with a README.md to hand to your
    is asked on the parent run (add, include, stop: one request each, decided by a person or a delegation, applied by the
    recorder); sync asks each story's own run for it, one request per obligation, each decided by that run's people. The CLI
    asks; it never decides and never writes run.json. */
-const SPREAD_SUBS = ['list', 'add', 'sync', 'include', 'stop'];
+const SPREAD_SUBS = ['list', 'add', 'sync', 'include', 'stop', 'keep'];
 const SPREAD_VAL = ['--tool', '--key', '--loop', '--text', '--before', '--owner', '--reason', '--spread', '--item', '--attempt', '--run', '--as'];
 function spreadWords(json, sub) {
   if (json.error) return 'flightdeck: ' + json.error.why + json.problems.map((x) => '\n  ' + x.path + ': ' + x.why).join('');
@@ -2804,6 +2807,7 @@ function spreadWords(json, sub) {
 }
 async function spreadMain(argv) {
   const val = {}, args = argv.filter((a, i) => !a.startsWith('--') && !(i > 0 && SPREAD_VAL.indexOf(argv[i - 1]) >= 0));
+  if (args[1] === 'keep') return keepMain(argv, 'spread');
   let eng = null;
   const C2 = 2, asJson = argv.includes('--json'), dryRun = argv.includes('--dry-run'), sub = args[1], appOf = () => (eng ? eng.version : versionOf(app()) || '');
   const out = (json, code) => ({ out: asJson ? JSON.stringify(json, null, 2) : spreadWords(json, sub), code });
@@ -3131,7 +3135,100 @@ async function factMain(argv) {
    one request in proposals/, once (PF.todos.prepare: the rules every window's buttons use). Nothing here writes run.json or
    decides: a person decides in Flightdeck (or a delegation covers it), and the recorder's window applies it. --as names who the
    tool asks for; it never stands for that person's approval. */
-const TODO_SUBS = ['list', 'add', 'done', 'wont', 'move', 'reopen', 'suggest-done'];
+/* flightdeck todo keep / spread keep (4.0 slice 5, docs/design.md 45.3): a to-do or a spread kept for next time, as one keep
+   record (PF.learn). Named by the run, what it keeps and where, never by a key: the same keep again is already, the same
+   place in other words is refused. It changes no work and never writes run.json; what it rests on that can't be read holds
+   it (exit 4) with the path named. */
+const KEEP_VAL = ['--tool', '--key', '--todo', '--spread', '--text', '--reason', '--phase', '--after'];
+async function keepMain(argv, noun) {
+  const val = {}, args = argv.filter((a, i) => !a.startsWith('--') && !(i > 0 && KEEP_VAL.indexOf(argv[i - 1]) >= 0));
+  let eng = null;
+  const C2 = 2, asJson = argv.includes('--json'), dryRun = argv.includes('--dry-run'), appOf = () => (eng ? eng.version : versionOf(app()) || '');
+  const out = (json, code) => ({ out: asJson ? JSON.stringify(json, null, 2) : todoWords(json, 'keep'), code });
+  const failOut = (kind, why, problems, code) => { const F = eng ? eng.PF.appjson : null; return out(F ? F.failure(appOf(), kind, why, problems || [], C2) : { contract: 'flightdeck-read/2', app: appOf(), error: { kind, why }, problems: problems || [] }, code || (kind === 'not-found' ? EXIT.notFound : EXIT.error)); };
+  const usage = (why) => failOut('usage', why);
+  for (const f of KEEP_VAL) {
+    const i = argv.indexOf(f);
+    if (i < 0) continue;
+    if (argv.indexOf(f, i + 1) >= 0) return usage('say ' + f + ' once.');
+    if (argv[i + 1] == null || (argv[i + 1].startsWith('--') && f !== '--reason' && f !== '--text')) return usage('say what goes after ' + f + '.');
+    val[f] = argv[i + 1];
+  }
+  const own = noun === 'todo' ? '--todo' : '--spread', unknown = argv.filter((a, i) => a.startsWith('--') && ['--json', '--dry-run'].concat(KEEP_VAL).indexOf(a) < 0 && !(i > 0 && KEEP_VAL.indexOf(argv[i - 1]) >= 0));
+  if (unknown.length) return usage(noun + ' keep doesn\'t take ' + unknown.join(', ') + '.');
+  if (val['--key'] != null) return usage('keep is named by the run, what it keeps and where, so it takes no --key: keeping the same thing for the same place again is already.');
+  if (val[noun === 'todo' ? '--spread' : '--todo'] != null) return usage(noun + ' keep names its ' + (noun === 'todo' ? 'to-do with --todo' : 'spread with --spread') + '.');
+  const m = RUN_KEY.exec(args[3] || '');
+  if (!args[2] || !m || args[4]) return usage('say the team folder and the run, for example: flightdeck ' + noun + ' keep <team folder> release-readiness/k3m9p2q8 ' + own + ' <id> --tool <name>@<version> --json');
+  const tm = /^([a-z0-9][a-z0-9-]{0,29})@([A-Za-z0-9][A-Za-z0-9._+-]{0,39})$/.exec(val['--tool'] || '');
+  if (!tm) return usage('say which tool keeps it, with its version, for example --tool release-helper@1.4.0.');
+  if (!val[own]) return usage('say which ' + (noun === 'todo' ? 'to-do with --todo <to-do id> (flightdeck todo list shows them)' : 'spread with --spread <spread id> (flightdeck spread list shows them)') + '.');
+  if (val['--phase'] != null && val['--after'] != null) return usage('say where it goes with one of --phase <phase id> (at its end) or --after <step id>, not both.');
+  let dir;
+  try { eng = loadEngine(); dir = folderArg(args[2], noun + ' keep'); } catch (e) { return failOut('failed', e.message); }
+  const PF = eng.PF, A = PF.appjson, T = PF.todos, L = PF.learn, R = PF.run, repo = PF.repo, proc = m[1], runId = m[2];
+  const ra = readAdapter(dir, { maxBytes: READ_MAX }), LG = repo.ledger(repo.readOnly(ra, 'Reading what to keep'));
+  let kid = '';
+  const relevant = (p) => p === '' || p === 'people.json' || /^proposals(\/|$)/.test(p) || p.indexOf('runs/' + proc + '/' + runId) === 0 || p === 'runs' || p === 'runs/' + proc || (kid && (p === 'publications' || p.indexOf('publications/' + kid) === 0));
+  const extra = [];
+  const problems = () => { const all = LG.problems(), seen = {}; all.forEach((x) => { seen[x.path + '\u0000' + x.kind] = true; }); adapterProblems(ra).forEach((x) => { if (!seen[x.path + '\u0000' + x.kind]) all.push(x); }); return all.filter((x) => relevant(x.path)).concat(extra); };
+  const done = (data, code) => { const e = A.envelope(eng.version, new Date().toISOString(), problems(), data, C2); return out(e, code != null ? code : e.complete ? 0 : EXIT.partial); };
+  const run0 = { run: { process: proc, id: runId } };
+  const held = (why) => done(Object.assign(run0, { status: 'held', preview: why + ' Nothing was written. Check folder availability, then try again.' }), EXIT.partial);
+  const nothing = ' Nothing was written.';
+  try {
+    const one = await repo.readRunOnly(LG.fs, proc, runId);
+    if (!one.found) return failOut('not-found', 'There\'s no run ' + proc + '/' + runId + ' in the team folder.' + nothing, problems());
+    const r = one.run;
+    if (!r) return failOut('failed', 'The run ' + proc + '/' + runId + ' couldn\'t be read, so nothing can be kept from it.' + nothing, problems());
+    if (newerRun(PF, r)) return failOut('failed', 'The run ' + proc + '/' + runId + ' was made with a newer Flightdeck: ' + r._unrunnable + nothing, problems());
+    let map; try { map = R.mapOf(r); } catch (e) { return failOut('failed', 'The run\'s checklist can\'t be read here.' + nothing, problems()); }
+    if (one.peopleWhy) LG.note('people.json', one.peopleKind || 'unreadable', fileWhy(one.peopleWhy));
+    const pw = peopleWhy(one.people);
+    if (pw) LG.note('people.json', 'malformed', pw);
+    const bad = [], got = await repo.readPlans(LG.fs, bad, null, true), unread = (got.todosUnread || []).slice();
+    unread.filter((u) => !u.run || (u.run.process === proc && u.run.id === runId)).forEach((u) => extra.push({ path: 'proposals/' + u.file, kind: u.kind === 'newer' ? 'newer' : 'malformed', why: u.kind === 'newer' ? u.why : fileWhy(u.why) }));
+    const records = got.todos || [], people = one.people, NOW = Date.now(), title = String(r.title || r.process);
+    /* Item work and spreads go to the checklist the items run: that one's publications are what this keep rests on too. */
+    const V = T.view(r, { records: T.recordsFor(records, r), unread: unread.filter((u) => !u.run || (u.run.process === proc && u.run.id === runId)), people, now: NOW });
+    const src = noun === 'todo' ? V.byTodo[val['--todo']] : V.bySpread[val['--spread']], loopStep = src ? (noun === 'spread' ? src.loopStep : src.target && src.target.item ? src.target.item.loopStep : '') : '';
+    if (loopStep) { const x = PF.map.findStep(map, loopStep); kid = x && x.step.type === 'for.each' ? String(R.fieldsOf(r, x.step).process || '') : ''; }
+    const d = kid ? await repo.loadAll(dependsOn(LG.fs, ['publications/' + kid]), { readOnly: true, explain: true, deep: true }) : { processes: [] };
+    /* The items' checklist is read whole: a version that fails its check, or none there at all, holds the keep (named), never
+       a guess that it needs placement. */
+    if (kid) {
+      const e = (d.processes || []).filter((x) => x.process === kid)[0];
+      if (!e || !(e.pubs || []).length) extra.push({ path: 'publications/' + kid, kind: 'missing', why: 'The checklist ' + kid + ' that the loop\'s items run isn\'t published in this folder.' });
+      else e.pubs.filter((x) => x && !x.ok).forEach((x) => extra.push({ path: 'publications/' + kid + '/' + x.folder + '/', kind: 'malformed', why: x.folder + ' can\'t be used: ' + String(x.why || 'it doesn\'t pass its check') }));
+    }
+    if (problems().length) return held('Part of the team folder this keep rests on couldn\'t be read.');
+    const place = val['--after'] != null ? { after: val['--after'] } : val['--phase'] != null ? { phase: val['--phase'] } : null;
+    const K = L.prepare(r, { source: noun === 'todo' ? { todo: val['--todo'] } : { spread: val['--spread'] }, text: val['--text'], reason: val['--reason'], place, by: { tool: tm[1], version: tm[2] },
+      records, unread, people, procOf: procOfFrom(d), at: new Date().toISOString(), app: eng.version, now: NOW });
+    if (K.held) return held(K.why);
+    if (K.taken) return failOut('key-taken', K.why + nothing, problems());
+    if (K.why) return failOut('invalid', K.why + nothing, problems());
+    const file = 'proposals/' + K.name, pv = K.preview;
+    const data = (status) => Object.assign(run0, { status, keep: { id: K.id, file }, source: K.record.source, placed: pv.placed, template: pv.template, anchor: pv.anchor, where: pv.where, needs: pv.needs,
+      text: K.record.change.text, reason: K.record.reason || null, changesRun: false,
+      preview: status === 'already' ? 'Already kept for next time. Nothing written.\n\n' + pv.words : title + (status === 'would-keep' ? ' — preview only; no files written.' : ' — kept for next time.') + '\n\n' + pv.words });
+    if (K.status === 'already') return done(data('already'));
+    if (dryRun) return done(data('would-keep'));
+    let res;
+    try { res = writeOnce(dir, ['proposals'], K.name, T.text(K.file)); } catch (e) { return failOut('failed', 'Could not confirm whether the keep was saved. Try again: the same keep is never filed twice. (' + (e && e.message || String(e)) + ')', problems()); }
+    if (res !== 'written') {
+      /* Filed meanwhile: the same keep is already; anything else under its name is refused. */
+      const tk = await takenRecord(PF, dir, K.name), there = tk.record || null;
+      if (tk.problem) { extra.push(tk.problem); return held('Something is under this keep\'s name (' + file + ') that can\'t be read back, so whether it is this keep isn\'t known.'); }
+      if (!there) return failOut('failed', 'Could not confirm whether the keep was saved. Try again: the same keep is never filed twice.', problems());
+      const again = L.prepare(r, { source: K.record.source, text: val['--text'], reason: val['--reason'], place, by: { tool: tm[1], version: tm[2] }, records: records.concat([there]), unread, people, procOf: procOfFrom(d), at: K.record.at, app: eng.version, now: NOW });
+      if (again.status !== 'already') return failOut('key-taken', (again.why || 'Something else is already filed under this keep\'s name (' + file + ').') + nothing, problems());
+      return done(data('already'));
+    }
+    return done(data('kept'));
+  } catch (e) { return failOut('failed', (e && e.message || String(e)) + nothing, problems()); }
+}
+const TODO_SUBS = ['list', 'add', 'done', 'wont', 'move', 'reopen', 'suggest-done', 'keep'];
 const TODO_VAL = ['--tool', '--key', '--text', '--phase', '--step', '--item', '--attempt', '--todo', '--reason', '--to', '--owner', '--as', '--fact'];
 function todoWords(json, sub) {
   if (json.error) return 'flightdeck: ' + json.error.why + json.problems.map((x) => '\n  ' + x.path + ': ' + x.why).join('');
@@ -3147,6 +3244,7 @@ function todoWords(json, sub) {
 }
 async function todoMain(argv) {
   const val = {}, args = argv.filter((a, i) => !a.startsWith('--') && !(i > 0 && TODO_VAL.indexOf(argv[i - 1]) >= 0));
+  if (args[1] === 'keep') return keepMain(argv, 'todo');
   let eng = null;
   const C2 = 2, asJson = argv.includes('--json'), dryRun = argv.includes('--dry-run'), sub = args[1], appOf = () => (eng ? eng.version : versionOf(app()) || '');
   const out = (json, code) => ({ out: asJson ? JSON.stringify(json, null, 2) : todoWords(json, sub), code });

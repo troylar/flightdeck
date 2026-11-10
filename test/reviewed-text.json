@@ -1,8 +1,8 @@
 {
   "texts": {
     "CHANGELOG.md": {
-      "sha256": "fd27a2dac8a64d5aaeefab021e9ec06d710a80e79316dfda02da9fb4d8fceb2d",
-      "reviewed": "4.0 slice 4 commit 4: fact sync/list and todo suggest-done (writes only through writeOnce, created once; no deletes), now threaded into every to-do view and guard, application save re-asks its plan, loop fact lines and evidence/ack in the to-do row, docs and skills; checked for direct writes and unconditional deletes"
+      "sha256": "03a2b492f4e94286a9e23ab30b78f19d073e870c66cf5d0dacb7602dce12d9d2",
+      "reviewed": "4.0 slice 5 keep for next time: PF.learn keep records, todo keep and spread keep (written once through writeOnce), the app's Keep for next time (repo.saveScope under the run guard), owner-only keep decisions, checker keep_why, docs and skills; checked for direct writes and unconditional deletes: none"
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
@@ -13,20 +13,20 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "bb7bec1de804c9a237b0bdcdc96c5ed47d8e32c984edf1aeedc44e5f40d6135d",
-      "reviewed": "MB: a record's read error is named by path in the proposals read; checked for direct writes and unconditional deletes"
+      "sha256": "28e8f7b2b4b52573db11836fe0f3d690303990a7cc27a6b604b4467173666bf0",
+      "reviewed": "4.0 slice 5 keep for next time: PF.learn keep records, todo keep and spread keep (written once through writeOnce), the app's Keep for next time (repo.saveScope under the run guard), owner-only keep decisions, checker keep_why, docs and skills; checked for direct writes and unconditional deletes: none"
     },
     "build.py": {
-      "sha256": "cf0a7c0289f08fc6d138b4feaddbdc118b45af451a7732e5ee68c9480c752b38",
-      "reviewed": "slice 4 commit 3: facts core (facts.js: records, reduction, freshness, support, de-duplication), todos hooks (fact dispatch, done support, now), Python checker parity; pure code, no direct writes or unconditional deletes"
+      "sha256": "9e31f98c9bfa7ce0a4be309f0c31b727253f6c309d6f915b4b5a25fa4829f7e9",
+      "reviewed": "4.0 slice 5 keep for next time: PF.learn keep records, todo keep and spread keep (written once through writeOnce), the app's Keep for next time (repo.saveScope under the run guard), owner-only keep decisions, checker keep_why, docs and skills; checked for direct writes and unconditional deletes: none"
     },
     "docs/apps.md": {
-      "sha256": "3a290a56ea9d448ba18f1bd79a29309071bd95ba04a988e9b533855e9573622e",
-      "reviewed": "takenAt: not-JSON and refused records under a taken name are problems with path and reason; checked for direct writes and unconditional deletes"
+      "sha256": "283417d07e26a9ba57f57d4c3ae8da6094402c8aee0242e128ddacfcc29b9412",
+      "reviewed": "4.0 slice 5 keep for next time: PF.learn keep records, todo keep and spread keep (written once through writeOnce), the app's Keep for next time (repo.saveScope under the run guard), owner-only keep decisions, checker keep_why, docs and skills; checked for direct writes and unconditional deletes: none"
     },
     "docs/design.md": {
-      "sha256": "11e7640ac33d287d24d80feca5569ad5b46291aeffb6088c16fe9630e6fd1a28",
-      "reviewed": "MB: a record's read error is named by path in the proposals read; checked for direct writes and unconditional deletes"
+      "sha256": "9fd65852042473141c23b3c5fa63abaec5e748d39f04a1de55a6393c3b8753a3",
+      "reviewed": "4.0 slice 5 keep for next time: PF.learn keep records, todo keep and spread keep (written once through writeOnce), the app's Keep for next time (repo.saveScope under the run guard), owner-only keep decisions, checker keep_why, docs and skills; checked for direct writes and unconditional deletes: none"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -53,16 +53,16 @@
       "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "72625e8f51ccf7ac2254830c84133d91a13ff5c2e17b72f1168e8b475d5fd075",
-      "reviewed": "one JSON depth bound at every loading boundary, mirrored in the checker; checked for direct writes and unconditional deletes"
+      "sha256": "87efcd44be20191374a3ee4db8e3b418c2357305d15b861c3917b776d34180dd",
+      "reviewed": "4.0 slice 5 keep for next time: PF.learn keep records, todo keep and spread keep (written once through writeOnce), the app's Keep for next time (repo.saveScope under the run guard), owner-only keep decisions, checker keep_why, docs and skills; checked for direct writes and unconditional deletes: none"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
       "sha256": "197779e5fb047d6137527db0211659a2db320470f3086d61b5126d6e868b0cf8",
       "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
     },
     "example-folder/.flightdeck/skills/_flightdeck/command-guide.md": {
-      "sha256": "f3bbe2a7bf835fabcea1d8eab9a5ca5a91e5d8ebc61406b906a62b9bd4d87bbe",
-      "reviewed": "4.0 slice 4 commit 4: fact sync/list and todo suggest-done (writes only through writeOnce, created once; no deletes), now threaded into every to-do view and guard, application save re-asks its plan, loop fact lines and evidence/ack in the to-do row, docs and skills; checked for direct writes and unconditional deletes"
+      "sha256": "06b1a40ab8ced1a4923b68b121ee6576143d53fc53cf767e2d9de6ef6fc69b81",
+      "reviewed": "4.0 slice 5 keep for next time: PF.learn keep records, todo keep and spread keep (written once through writeOnce), the app's Keep for next time (repo.saveScope under the run guard), owner-only keep decisions, checker keep_why, docs and skills; checked for direct writes and unconditional deletes: none"
     },
     "example-folder/.flightdeck/skills/_flightdeck/file-formats.md": {
       "sha256": "3e696299bc5971a578831ad4c25330bcb87a4036c10666469e39b794a9a1bba3",
@@ -81,12 +81,12 @@
       "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
     },
     "example-folder/.flightdeck/skills/flightdeck-learn-from-runs/SKILL.md": {
-      "sha256": "23218b1cfcb218c7dc1a414c5255e90e8100c0fb02144b55589722c25857fc2d",
-      "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
+      "sha256": "1ceb4e7f20872d5ad209033d98f4e15f79975d7cd67e4b37008b109a09292d52",
+      "reviewed": "4.0 slice 5 keep for next time: PF.learn keep records, todo keep and spread keep (written once through writeOnce), the app's Keep for next time (repo.saveScope under the run guard), owner-only keep decisions, checker keep_why, docs and skills; checked for direct writes and unconditional deletes: none"
     },
     "example-folder/.flightdeck/skills/flightdeck-living-run/SKILL.md": {
-      "sha256": "9070d47a90d01582e46e2ed4e26600be38ec7aa51cfb1ec9fd3952bcec77c1cb",
-      "reviewed": "4.0 slice 4 commit 4: fact sync/list and todo suggest-done (writes only through writeOnce, created once; no deletes), now threaded into every to-do view and guard, application save re-asks its plan, loop fact lines and evidence/ack in the to-do row, docs and skills; checked for direct writes and unconditional deletes"
+      "sha256": "e673d966a6327de509ae2f2efb3f4ceb80f04de01e1e7a5218a186e185581f50",
+      "reviewed": "4.0 slice 5 keep for next time: PF.learn keep records, todo keep and spread keep (written once through writeOnce), the app's Keep for next time (repo.saveScope under the run guard), owner-only keep decisions, checker keep_why, docs and skills; checked for direct writes and unconditional deletes: none"
     },
     "example-folder/.flightdeck/skills/flightdeck-new-checklist/SKILL.md": {
       "sha256": "3a6eb58e264583f36fb072835912f61bbb9a3fcf619f5932b2f0bdea2cfa6099",
@@ -221,8 +221,8 @@
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "src/core/corrections.js": {
-      "sha256": "b02fc562d2e75abfd16950971997f57216db040e66c246a5bebccde30d4c6a5d",
-      "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
+      "sha256": "123101dcbb6bad899d04c2cb8c232239674d3bb2c9b4f87ebedc9c5117847182",
+      "reviewed": "4.0 slice 5 keep for next time: PF.learn keep records, todo keep and spread keep (written once through writeOnce), the app's Keep for next time (repo.saveScope under the run guard), owner-only keep decisions, checker keep_why, docs and skills; checked for direct writes and unconditional deletes: none"
     },
     "src/core/envelope.js": {
       "sha256": "55710b76ab73ab450583c0d6262a25ac9b05004dd8cce86cdf67c8810f46dbd2",
@@ -251,6 +251,10 @@
     "src/core/jira.js": {
       "sha256": "4622510629eeafc4b8a393ddb6efbaf2b373d0b7e3a022329dd5e89eb51e04ae",
       "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
+    },
+    "src/core/learn.js": {
+      "sha256": "710b880dc5f58f3f956192495f3691a2d7abb5bb275b7eabcc21ddf1ef66acca",
+      "reviewed": "4.0 slice 5 keep for next time: PF.learn keep records, todo keep and spread keep (written once through writeOnce), the app's Keep for next time (repo.saveScope under the run guard), owner-only keep decisions, checker keep_why, docs and skills; checked for direct writes and unconditional deletes: none"
     },
     "src/core/library.js": {
       "sha256": "5c8555ff9b8bc67aa90ea4f556bddebbe47d17ae37e296d44b815187d776bd44",
@@ -357,8 +361,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "96241a3a1d4240091e5e8928668ddd5cf236cf3c802228491e32a1e90ef9083e",
-      "reviewed": "decision write guard decideStill, asked by every app decision write; checked for direct writes and unconditional deletes"
+      "sha256": "9a4e46f77cd8a061729f7f7bebfe83ef6d281553fc55eef06a09b8e5ca9bdfd6",
+      "reviewed": "4.0 slice 5 keep for next time: PF.learn keep records, todo keep and spread keep (written once through writeOnce), the app's Keep for next time (repo.saveScope under the run guard), owner-only keep decisions, checker keep_why, docs and skills; checked for direct writes and unconditional deletes: none"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",
@@ -401,8 +405,8 @@
       "reviewed": "FD: every fact line reachable on the run screen (count left out, Show all), contrary lines first; checked for direct writes and unconditional deletes"
     },
     "src/releases.json": {
-      "sha256": "e1335e7b5583440236c9b149a83602155daff2e17dd32d00179d4658eb49e73c",
-      "reviewed": "4.0 slice 4 commit 4: fact sync/list and todo suggest-done (writes only through writeOnce, created once; no deletes), now threaded into every to-do view and guard, application save re-asks its plan, loop fact lines and evidence/ack in the to-do row, docs and skills; checked for direct writes and unconditional deletes"
+      "sha256": "bd0f9090d5ce7027585dfdf4a676260d6ced2280a53c712a5382a3f8d6d255b5",
+      "reviewed": "4.0 slice 5 keep for next time: PF.learn keep records, todo keep and spread keep (written once through writeOnce), the app's Keep for next time (repo.saveScope under the run guard), owner-only keep decisions, checker keep_why, docs and skills; checked for direct writes and unconditional deletes: none"
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",
@@ -413,8 +417,8 @@
       "reviewed": "MB: a record's read error is named by path in the proposals read; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "47e444786d6382d422ef02b1d3ec56a0d11e9f0dc00ad9ea065742010cf04b85",
-      "reviewed": "MA: a failed copy keep holding living work is put back (redo); checked for direct writes and unconditional deletes"
+      "sha256": "5ca9f7c0bd4db35ccf6eeb2165e436e4b83fc94aea1c50dd8f6f9a7b0df248e1",
+      "reviewed": "4.0 slice 5 keep for next time: PF.learn keep records, todo keep and spread keep (written once through writeOnce), the app's Keep for next time (repo.saveScope under the run guard), owner-only keep decisions, checker keep_why, docs and skills; checked for direct writes and unconditional deletes: none"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
@@ -481,16 +485,16 @@
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "src/ui/views/process.js": {
-      "sha256": "a0958d699bf9beafced53f0aff3330eb0128e32d2955cfe421e789c12548ac46",
-      "reviewed": "3.0.0 release notes, the 3.0.0 rehearsal waiver and its list line, and the Publish panel naming 2.16 as the last release that can't run a 3.0 version; checked for direct writes and unconditional deletes"
+      "sha256": "aa4b6d544d11dff2948eef04c32d9e88d75a47d4ede7e23a1f9377c926b78d80",
+      "reviewed": "4.0 slice 5 keep for next time: PF.learn keep records, todo keep and spread keep (written once through writeOnce), the app's Keep for next time (repo.saveScope under the run guard), owner-only keep decisions, checker keep_why, docs and skills; checked for direct writes and unconditional deletes: none"
     },
     "src/ui/views/reports.js": {
       "sha256": "5b1f9581d45a53bcb915ce479f4bef70ecb0e3c9132ae498baba4835a955f875",
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "src/ui/views/run.js": {
-      "sha256": "ccba5bd9ada75b72dad18526131f27e1139f698e542200857c28f8b8677912fa",
-      "reviewed": "KB: every contrary fact line shows at first display; checked for direct writes and unconditional deletes"
+      "sha256": "8f48000618c49c2e9090d1b80e97f1d120fcb86d36035406fe44ffb75c6f488c",
+      "reviewed": "4.0 slice 5 keep for next time: PF.learn keep records, todo keep and spread keep (written once through writeOnce), the app's Keep for next time (repo.saveScope under the run guard), owner-only keep decisions, checker keep_why, docs and skills; checked for direct writes and unconditional deletes: none"
     },
     "src/ui/views/setup.js": {
       "sha256": "2393b54abde45fa1ba4ac110f394984d29b04ca728c3f1a46e8c22fb2c60dd80",
