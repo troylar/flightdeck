@@ -3449,7 +3449,7 @@
       if (!r || runUnread(r)) { failed.push({ why: (r ? runUnread(r) : 'The run ' + x.run + ' isn\'t in this folder.') }); step(i + 1); return; }
       var slot = 'dec-all:' + x.run + '|' + x.id, sig = JSON.stringify([x.run, x.id, 'accept', x.fp, state.me]);
       var o1 = { request: x.id, op: 'accept', by: state.me, shown: x.fp, app: APP_VERSION };
-      var made = tdKept(slot, sig, function (seed) { return PF.todos.decide(r, Object.assign({ records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), writer: seed.writer, rev: seed.rev, now: tdNow() }, o1)); });
+      var made = tdKept(slot, sig, function (seed) { o1 = Object.assign({}, o1, { at: new Date().toISOString(), writer: seed.writer, rev: seed.rev }); return PF.todos.decide(r, Object.assign({ records: data.todos || [], unread: data.todosUnread || [], people: data.people, now: tdNow() }, o1)); });
       if (made.why) { if (made.renewed) changed.push(x); else failed.push({ why: made.why }); step(i + 1); return; }
       var cx = loopGuard({ run: r.process + '/' + r.id, readable: true }), endBusy = busyStart(), sg = gen;
       var late = '';
