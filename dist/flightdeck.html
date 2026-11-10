@@ -20301,7 +20301,14 @@ PF.detours = (function () {
 
   /* ---- Evidence. ---- */
   function findRun(ev, process, id) { return (ev.runs || []).filter(function (y) { return y && y.process === process && y.id === id; })[0] || null; }
-  function unreadRun(ev, process, id) { return (ev.unreadRuns || []).indexOf(process + '/' + id) >= 0; }
+  /* ev.judge(run) (the app's evidence, tdEv): the shared run verdict (PF.appjson.judgeRun) on what this window read; a run
+     with any problem is unread here as readEvidence has it, so the screen never offers what the write guard refuses. */
+  function unreadRun(ev, process, id) {
+    if ((ev.unreadRuns || []).indexOf(process + '/' + id) >= 0) return true;
+    if (typeof ev.judge !== 'function') return false;
+    var r = findRun(ev, process, id);
+    return !!r && ev.judge(r).length > 0;
+  }
   function planIn(ev, id) { return (ev.plans || []).filter(function (p) { return p && p.id === id; })[0] || null; }
   /* What can't be read of one evidence plan, as problems ({ path, kind, why }): its own file or a decision on it refused or torn
      (ev.holds, readEvidence), a decision held (_statusHeld), or copies that differ. [] when all of it reads. */
@@ -25337,6 +25344,13 @@ PF.repo = (function () {
     var holds = (got.torn || []).filter(function (u) { return !u.link && !u.deep; }).map(function (u) { return { path: u.path, _file: u._file, kind: 'unreadable' }; })
       .concat((got.refused || []).map(function (x) { return { path: x.path, _file: String(x.path).slice('proposals/'.length), kind: x.kind, needs: x.needs || '' }; }));
     var plans = groupPlans((got.plans || []).map(function (p) { return Object.assign({}, p); }), got.statuses || [], holds), keys = Object.keys(want).sort(), runs = [], unreadRuns = [];
+    /* A run asked for by name (also: --evidence-run, the run about to be written on) is named like one a record names once an
+       evidence plan started it, or while an evidence plan's file or decision can't be read (which runs it started isn't known). */
+    var evHeld = holds.some(function (h) { return /^plan-ev-[0-9a-f]{24}\./.test(String(h._file || '')); });
+    (also || []).forEach(function (r) {
+      if (!r || typeof r.process !== 'string' || typeof r.id !== 'string') return;
+      if (evHeld || plans.some(function (p) { return p && p.process === r.process && /^plan-ev-/.test(String(p.id)) && ((p._starts || []).indexOf(r.id) >= 0 || (p._statusHeld || []).length || p._copiesDiffer); })) named[r.process + '/' + r.id] = true;
+    });
     return keys.reduce(function (pr, k) {
       return pr.then(function () {
         return readRunOnly(fs, want[k].process, want[k].id).then(function (one) {
@@ -25344,6 +25358,8 @@ PF.repo = (function () {
              its version, it is unread here, with each problem named, never evidence. */
           if (one.found && one.run) {
             var jp = PF.appjson.judgeRun(one.run, one.pub);
+            /* Its version couldn't be read at all (judgeRun leaves that to its caller): never usable evidence. */
+            if (one.pub && one.pub._readFailed) jp.push({ path: PF.run.pubDir(one.run), kind: 'unreadable', why: 'The version the run a to-do\'s evidence names couldn\'t be read (' + String(one.pub.why || 'it couldn\'t be read') + '), so what rests on it can\'t be checked.' });
             if (!jp.length) { runs.push(one.run); return; }
             unreadRuns.push(k); jp.forEach(function (q) { problemAt(k, q.path, q.kind, q.why); }); return;
           }
@@ -37338,9 +37354,22 @@ PF.examples = (function () {
   var TODO_PAGES = 20;
   function todoView(r) { return PF.todos.view(r, { records: data.todos || [], unread: data.todosUnread || [], people: data.people, now: tdNow(), evidence: tdEv() }); }
   /* What a done on a run's result (4.0 slice 5, PF.detours) is checked against: the runs and plans this window read. */
+  /* What a done on a run's result is checked against here, judged as readEvidence judges it: each run by the shared verdict
+     (PF.appjson.judgeRun, on a copy, with its version as this window read it; one that couldn't be read is a problem), worked
+     out once per run read, and the plan files and decisions that couldn't be read (holds), so a view shows the hold. */
+  var evJudged = null;
   function tdEv() {
     var u = state.unread || {}, gone = Object.keys(state.missing || {}).concat(Object.keys(u.runs || {}));
-    return { runs: data.runs || [], plans: data.plans || [], unreadRuns: gone };
+    if (!evJudged || evJudged.runs !== data.runs || evJudged.procs !== processes()) evJudged = { runs: data.runs, procs: processes(), by: new Map() };
+    var memo = evJudged;
+    var judge = function (r) {
+      if (memo.by.has(r)) return memo.by.get(r);
+      var p = procFind(r.process), all = p ? (p.all || []).concat(p.broken || []) : [], pub = all.filter(function (x) { return x && (x.info ? x.info.folder : x.folder) === r.folder; })[0] || null, out;
+      try { out = PF.appjson.judgeRun(Object.assign({}, r), pub); if (pub && pub._readFailed) out.push({ path: PF.run.pubDir(r), kind: 'unreadable', why: String(pub.why || '') }); } catch (e) { out = [{ path: 'runs/' + r.process + '/' + r.id + '/run.json', kind: 'malformed', why: String(e && e.message || e) }]; }
+      memo.by.set(r, out); return out;
+    };
+    var holds = (data.planUnread || []).filter(function (x) { return x && x.kind === 'unreadable'; }).concat((data.refused || []).filter(function (x) { return x && /^proposals\//.test(String(x.path)); }).map(function (x) { return { path: x.path, _file: String(x.path).slice('proposals/'.length), kind: x.kind }; }));
+    return { runs: data.runs || [], plans: data.plans || [], unreadRuns: gone, judge: judge, holds: holds };
   }
   /* The time a to-do's evidence (4.0 slice 4: facts) is judged at: now, asked again at every view and before every write. */
   function tdNow() { return Date.now(); }
@@ -37549,8 +37578,8 @@ PF.examples = (function () {
         var fx = f || dfs, ok = true;
         /* The path's own reads first, people.json last: nothing read after it before the write. */
         return Promise.resolve(o.fresh ? o.fresh(fx) : true).then(function (v) { ok = v !== false; return fx.read(PF.people.FILE); }).then(function (x) {
-          var d; try { d = x ? JSON.parse(x.text) : null; } catch (e) { d = null; }
-          if (d && PF.people.verdict(d).ok) ppl = PF.people.clean(d);
+          var o; try { o = x ? JSON.parse(x.text) : null; } catch (e) { return; }
+          if (PF.people.verdict(o).ok) ppl = PF.people.clean(o);
         }, function () { ppl = null; }).then(function () { read = true; return ok; });
       },
       still: function () {

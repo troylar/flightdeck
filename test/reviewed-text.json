@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "b45b4292acba45af520ea6b5eb8bb2b1b6a48def27f8e9566e8609d022e9038b",
-      "reviewed": "DF: an absent evidence run or plan and an unpublished keep child are nofile, the existing kind; missing dropped from KINDS; checked for direct writes and unconditional deletes"
+      "sha256": "020ab367fbf636b44206a7bf58d407eba3f87421d48760b5be312a40c2c5b7f5",
+      "reviewed": "HB: one judged evidence verdict (publication read failures, runs via readEvidence, explicit evidence runs, the app view's judge); checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "e641a0f9f4655b4634b9d2661fe4e4b97222f23ece79f5917e6c99f174218087",
@@ -25,8 +25,8 @@
       "reviewed": "DF: an absent evidence run or plan and an unpublished keep child are nofile, the existing kind; missing dropped from KINDS; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "721dcc5a1ffaf7b290b2cc8a739ddfb0d5064394c74518de35c474cf05868798",
-      "reviewed": "HC: a keep decision over 500 members is refused before writes or draft changes; checked for direct writes and unconditional deletes"
+      "sha256": "4339d1973cb5d3c1f495bc05caa777f13cccf57b56d1f4fae50639e343b3076a",
+      "reviewed": "HB: one judged evidence verdict (publication read failures, runs via readEvidence, explicit evidence runs, the app view's judge); checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -225,8 +225,8 @@
       "reviewed": "HC: a keep decision over 500 members is refused before writes or draft changes; checked for direct writes and unconditional deletes"
     },
     "src/core/detours.js": {
-      "sha256": "bc21e23aa03fdf9c5de8d81889304faa90b7d6b0b73b5e9c321adf4dd3459f48",
-      "reviewed": "DC: evidence runs judged by the shared run verdict (PF.appjson.judgeRun, moved from the CLI), evidence plan and decision refusals and an absent plan are problems; no writes added; checked for direct writes and unconditional deletes"
+      "sha256": "d098d6cc46e50879d4d91b05af495a69ab94decfdd380dd18ad6807d726a7735",
+      "reviewed": "HB: one judged evidence verdict (publication read failures, runs via readEvidence, explicit evidence runs, the app view's judge); checked for direct writes and unconditional deletes"
     },
     "src/core/envelope.js": {
       "sha256": "55710b76ab73ab450583c0d6262a25ac9b05004dd8cce86cdf67c8810f46dbd2",
@@ -417,12 +417,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "e08b6992a2f0cc992c2a8b92398597ae022d5e04f70c332d26c4c70939f4b98c",
-      "reviewed": "DF: an absent evidence run or plan and an unpublished keep child are nofile, the existing kind; missing dropped from KINDS; checked for direct writes and unconditional deletes"
+      "sha256": "bc072ab852486786a6246f34781aee3c4c55d44958db661384390de7d14d1a74",
+      "reviewed": "HB: one judged evidence verdict (publication read failures, runs via readEvidence, explicit evidence runs, the app view's judge); checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "69cc92065e5bba62f9d26652eea53716c5c63a46d2402950974f01dadaf84673",
-      "reviewed": "HC: a keep decision over 500 members is refused before writes or draft changes; checked for direct writes and unconditional deletes"
+      "sha256": "d80217eb070cd171d223ed626489746b3b2ea8607209fb1529508de88d6020f1",
+      "reviewed": "HB: one judged evidence verdict (publication read failures, runs via readEvidence, explicit evidence runs, the app view's judge); checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

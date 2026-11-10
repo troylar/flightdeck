@@ -2699,6 +2699,13 @@ PF.repo = (function () {
     var holds = (got.torn || []).filter(function (u) { return !u.link && !u.deep; }).map(function (u) { return { path: u.path, _file: u._file, kind: 'unreadable' }; })
       .concat((got.refused || []).map(function (x) { return { path: x.path, _file: String(x.path).slice('proposals/'.length), kind: x.kind, needs: x.needs || '' }; }));
     var plans = groupPlans((got.plans || []).map(function (p) { return Object.assign({}, p); }), got.statuses || [], holds), keys = Object.keys(want).sort(), runs = [], unreadRuns = [];
+    /* A run asked for by name (also: --evidence-run, the run about to be written on) is named like one a record names once an
+       evidence plan started it, or while an evidence plan's file or decision can't be read (which runs it started isn't known). */
+    var evHeld = holds.some(function (h) { return /^plan-ev-[0-9a-f]{24}\./.test(String(h._file || '')); });
+    (also || []).forEach(function (r) {
+      if (!r || typeof r.process !== 'string' || typeof r.id !== 'string') return;
+      if (evHeld || plans.some(function (p) { return p && p.process === r.process && /^plan-ev-/.test(String(p.id)) && ((p._starts || []).indexOf(r.id) >= 0 || (p._statusHeld || []).length || p._copiesDiffer); })) named[r.process + '/' + r.id] = true;
+    });
     return keys.reduce(function (pr, k) {
       return pr.then(function () {
         return readRunOnly(fs, want[k].process, want[k].id).then(function (one) {
@@ -2706,6 +2713,8 @@ PF.repo = (function () {
              its version, it is unread here, with each problem named, never evidence. */
           if (one.found && one.run) {
             var jp = PF.appjson.judgeRun(one.run, one.pub);
+            /* Its version couldn't be read at all (judgeRun leaves that to its caller): never usable evidence. */
+            if (one.pub && one.pub._readFailed) jp.push({ path: PF.run.pubDir(one.run), kind: 'unreadable', why: 'The version the run a to-do\'s evidence names couldn\'t be read (' + String(one.pub.why || 'it couldn\'t be read') + '), so what rests on it can\'t be checked.' });
             if (!jp.length) { runs.push(one.run); return; }
             unreadRuns.push(k); jp.forEach(function (q) { problemAt(k, q.path, q.kind, q.why); }); return;
           }

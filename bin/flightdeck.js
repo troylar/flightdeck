@@ -1009,17 +1009,13 @@ async function readData(eng, adapter, req) {
     const nameOf = A.names(d.people), runs = d.runs.filter((r) => !newerRun(PF, r)), all = (list) => list;
     /* Living runs (4.0): what to-dos hold, as in every window. */
     if (two && req.cmd === 'runs') {
-      markTodos(PF, runs, { todos: d.todos || [], todosUnread: d.todosUnread || [] }, d.people, !!(d.failed && 'people' in d.failed), { runs: [], loops: { records: d.scopes || [], unread: d.scopesUnread || [], procOf: procOfFrom(d) } }, { runs: d.runs || runs, plans: d.plans || [] });
-      /* A run a to-do's evidence names that isn't in the folder is a problem, named, as run and next name it (one that is
-         there but can't be read is already the folder's). */
-      const have = {}, seen = {};
-      (d.runs || []).forEach((x) => { have[x.process + '/' + x.id] = true; });
-      (d.todos || []).forEach((x) => [x && x.evidence, x && x.effect && x.effect.evidence, x && x.application && x.application.effect && x.application.effect.evidence].forEach((e) => {
-        if (!e || !e.run || !PROC_ID.test(String(e.run.process)) || !/^[a-z0-9-]{1,40}$/i.test(String(e.run.id))) return;
-        const k = e.run.process + '/' + e.run.id, p = 'runs/' + k + '/run.json';
-        if (have[k] || seen[k] || L.problems().some((q) => q.path === p || q.path.indexOf('runs/' + k + '/') === 0)) return;
-        seen[k] = true; L.note(p, 'nofile', 'The run a to-do\'s evidence names isn\'t in the team folder, so what rests on it can\'t be checked.');
-      }));
+      /* Living runs (4.0): evidence judged as run and next judge it (PF.repo.readEvidence, one verdict): every run, version,
+         plan and started decision a to-do record rests on, each problem named at its path. */
+      const gp = (d.todos || []).length ? await repo.readPlans(L.fs, [], null, true).catch(() => null) : null;
+      const ev = gp ? await evidenceRead(PF, L.fs, gp, d.todos || []) : { runs: d.runs || runs, plans: d.plans || [], unreadRuns: [], holds: [], problems: [], paths: [] };
+      ev.problems.forEach((q) => L.note(q.path, q.kind, q.why));
+      markTodos(PF, runs, { todos: d.todos || [], todosUnread: d.todosUnread || [] }, d.people, !!(d.failed && 'people' in d.failed), { runs: [], loops: { records: d.scopes || [], unread: d.scopesUnread || [], procOf: procOfFrom(d) } }, ev);
+      runs.forEach((r) => { if (r && r._tdv) PF.detours.planProblems(r, r._tdv.todos, ev).forEach((q) => L.note(q.path, q.kind, q.why)); });
     }
     const known = (p) => d.processes.some((x) => x.process === p) || d.runs.some((r) => r.process === p) || d.plans.some((x) => x.process === p);
     if (req.proc && !known(req.proc) && !req.stage) return notFound('There\'s no process ' + req.proc + ' in the team folder.');

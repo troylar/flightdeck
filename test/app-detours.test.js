@@ -142,6 +142,18 @@ rule('A run that changed since the screen was drawn is never accepted: checked a
   assert.ok(/changed since this screen|Nothing was written/.test(txt(app.html())), txt(app.html()).slice(0, 2000));
 });
 
+rule('Evidence the write guard would refuse is never offered: a conflict copy beside the run it rests on shows the hold, not Accept', async () => {
+  const { app, todo } = await setup();
+  const key = await runIt(app, todo);
+  finish(app, key, 'pass'); await toParent(app); await refresh(app, 300);
+  assert.ok(/data-act="td-evidence"/.test(app.html()), 'set-up: Accept offered');
+  const c = JSON.parse(app.fs.files['runs/' + key + '/run.json'].t); c.title = 'Another copy';
+  app.fs.files['runs/' + key + '/run.conflict-w99-1.json'] = { t: JSON.stringify(c, null, 2), m: Date.now() };
+  await refresh(app, 400); await toParent(app); await refresh(app, 300);
+  assert.ok(!/data-act="td-evidence"/.test(app.html()), 'no Accept while the run it rests on has a conflict copy');
+  assert.ok(/can.t be read now|can only be read here|Conflict/i.test(txt(app.html())), 'the hold is said: ' + txt(app.html()).slice(0, 1500));
+});
+
 rule('Run this checklist whose folder or person changes before the plan is written writes nothing; a pin that can\'t be used offers nothing', async () => {
   const { app, todo } = await setup();
   const fs = app.fs, read = fs.read.bind(fs); let release = null;

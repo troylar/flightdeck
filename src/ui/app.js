@@ -3364,9 +3364,22 @@
   var TODO_PAGES = 20;
   function todoView(r) { return PF.todos.view(r, { records: data.todos || [], unread: data.todosUnread || [], people: data.people, now: tdNow(), evidence: tdEv() }); }
   /* What a done on a run's result (4.0 slice 5, PF.detours) is checked against: the runs and plans this window read. */
+  /* What a done on a run's result is checked against here, judged as readEvidence judges it: each run by the shared verdict
+     (PF.appjson.judgeRun, on a copy, with its version as this window read it; one that couldn't be read is a problem), worked
+     out once per run read, and the plan files and decisions that couldn't be read (holds), so a view shows the hold. */
+  var evJudged = null;
   function tdEv() {
     var u = state.unread || {}, gone = Object.keys(state.missing || {}).concat(Object.keys(u.runs || {}));
-    return { runs: data.runs || [], plans: data.plans || [], unreadRuns: gone };
+    if (!evJudged || evJudged.runs !== data.runs || evJudged.procs !== processes()) evJudged = { runs: data.runs, procs: processes(), by: new Map() };
+    var memo = evJudged;
+    var judge = function (r) {
+      if (memo.by.has(r)) return memo.by.get(r);
+      var p = procFind(r.process), all = p ? (p.all || []).concat(p.broken || []) : [], pub = all.filter(function (x) { return x && (x.info ? x.info.folder : x.folder) === r.folder; })[0] || null, out;
+      try { out = PF.appjson.judgeRun(Object.assign({}, r), pub); if (pub && pub._readFailed) out.push({ path: PF.run.pubDir(r), kind: 'unreadable', why: String(pub.why || '') }); } catch (e) { out = [{ path: 'runs/' + r.process + '/' + r.id + '/run.json', kind: 'malformed', why: String(e && e.message || e) }]; }
+      memo.by.set(r, out); return out;
+    };
+    var holds = (data.planUnread || []).filter(function (x) { return x && x.kind === 'unreadable'; }).concat((data.refused || []).filter(function (x) { return x && /^proposals\//.test(String(x.path)); }).map(function (x) { return { path: x.path, _file: String(x.path).slice('proposals/'.length), kind: x.kind }; }));
+    return { runs: data.runs || [], plans: data.plans || [], unreadRuns: gone, judge: judge, holds: holds };
   }
   /* The time a to-do's evidence (4.0 slice 4: facts) is judged at: now, asked again at every view and before every write. */
   function tdNow() { return Date.now(); }
@@ -3575,8 +3588,8 @@
         var fx = f || dfs, ok = true;
         /* The path's own reads first, people.json last: nothing read after it before the write. */
         return Promise.resolve(o.fresh ? o.fresh(fx) : true).then(function (v) { ok = v !== false; return fx.read(PF.people.FILE); }).then(function (x) {
-          var d; try { d = x ? JSON.parse(x.text) : null; } catch (e) { d = null; }
-          if (d && PF.people.verdict(d).ok) ppl = PF.people.clean(d);
+          var o; try { o = x ? JSON.parse(x.text) : null; } catch (e) { return; }
+          if (PF.people.verdict(o).ok) ppl = PF.people.clean(o);
         }, function () { ppl = null; }).then(function () { read = true; return ok; });
       },
       still: function () {

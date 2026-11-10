@@ -214,7 +214,10 @@ rule('Evidence that reads but isn\'t trusted, and an evidence plan or decision t
     snapshot: (F, S) => { const f = runFile(F.root, 'smoke-test/k1'), o = JSON.parse(fs.readFileSync(f, 'utf8')); o.snapshot = 42; fs.writeFileSync(f, JSON.stringify(o)); },
     decision: (F, S) => { fs.writeFileSync(path.join(F.root, 'proposals', S.plan.id + '.status-sk1-d.json'), '{ torn'); },
     plan: (F, S) => { fs.writeFileSync(path.join(F.root, 'proposals', S.plan.id + '.json'), '{ torn'); },
-    absent: (F, S) => { fs.rmSync(path.join(F.root, 'proposals', S.plan.id + '.json')); fs.rmSync(path.join(F.root, 'proposals', S.plan.id + '.status-sk1-d.json')); }
+    absent: (F, S) => { fs.rmSync(path.join(F.root, 'proposals', S.plan.id + '.json')); fs.rmSync(path.join(F.root, 'proposals', S.plan.id + '.status-sk1-d.json')); },
+    planonly: (F, S) => { fs.rmSync(path.join(F.root, 'proposals', S.plan.id + '.json')); },
+    /* The evidence run's version can't be read at all (EACCES): never usable evidence. */
+    pubread: (F, S) => { fs.chmodSync(path.join(F.root, 'publications', 'smoke-test', F.kp.info.folder, 'publication.json'), 0); }
   };
   for (const how of Object.keys(cases)) {
     const F = await folder(), L = await linked(F, 'pass'), S = await started(F, L, 'k1', 'pass');
@@ -225,17 +228,30 @@ rule('Evidence that reads but isn\'t trusted, and an evidence plan or decision t
     /* What runs says of the run is the verdict; a plan or decision is named at its own file. */
     const want = how === 'decision' ? { path: 'proposals/' + S.plan.id + '.status-sk1-d.json', kinds: ['unreadable', 'malformed'] }
       : how === 'plan' ? { path: 'proposals/' + S.plan.id + '.json', kinds: ['unreadable', 'malformed'] }
-        : how === 'absent' ? { path: 'proposals/' + S.plan.id + '.json', kinds: ['nofile'] }
+        : how === 'absent' || how === 'planonly' ? { path: 'proposals/' + S.plan.id + '.json', kinds: ['nofile'] }
+          : how === 'pubread' ? { path: 'publications/smoke-test/' + F.kp.info.folder + '/publication.json', prefix: 'publications/smoke-test/' + F.kp.info.folder, kinds: ['unreadable'] }
           : { path: runPath, kinds: (runs.problems || []).filter(q => q.path === runPath).map(q => q.kind) };
     assert.ok(want.kinds.length, how + ': set-up: runs names the run: ' + JSON.stringify(runs.problems));
-    const readers = { run: json('run', F.root, PR, '--contract', '2', '--json'), next: json('next', F.root, PR, '--contract', '2', '--json'), 'todo list': json('todo', 'list', F.root, PR, '--json'),
+    const readers = { runs, run: json('run', F.root, PR, '--contract', '2', '--json'), next: json('next', F.root, PR, '--contract', '2', '--json'), 'todo list': json('todo', 'list', F.root, PR, '--json'),
       'suggest-done --dry-run': json('todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--dry-run', '--json', ...TOOL) };
     Object.keys(readers).forEach((k) => {
-      const x = readers[k], hit = (x.problems || []).filter(q => q.path === want.path && want.kinds.indexOf(q.kind) >= 0);
+      const x = readers[k], at = (q) => q.path === want.path || (want.prefix && q.path.indexOf(want.prefix) === 0), hit = (x.problems || []).filter(q => at(q) && want.kinds.indexOf(q.kind) >= 0);
       assert.strictEqual(x.code === 4, x.complete === false, k + ' (' + how + '): exit ' + x.code + ' with complete ' + x.complete);
+      assert.strictEqual(x.code === 4, (x.problems || []).length > 0, k + ' (' + how + '): exit ' + x.code + ' with problems ' + JSON.stringify(x.problems));
       if (k === 'suggest-done --dry-run') return;
-      assert.deepStrictEqual([k, how, x.code, x.complete, hit.length], [k, how, 4, false, 1], k + ' (' + how + '): ' + JSON.stringify(x.problems));
+      assert.deepStrictEqual([k, how, x.code, x.complete, hit.length > 0], [k, how, 4, false, true], k + ' (' + how + '): ' + JSON.stringify(x.problems));
     });
+  }
+  /* The first suggest-done on a run, before any request names it: what it rests on is named all the same. */
+  for (const how of ['newer', 'gone', 'pubread']) {
+    const F = await folder(), L = await linked(F, 'pass'); await started(F, L, 'k1', 'pass');
+    const f = runFile(F.root, 'smoke-test/k1');
+    if (how === 'newer') { const o = JSON.parse(fs.readFileSync(f, 'utf8')); o.format = 'preflight-run/99'; fs.writeFileSync(f, JSON.stringify(o)); }
+    if (how === 'gone') fs.rmSync(path.dirname(f), { recursive: true });
+    if (how === 'pubread') fs.chmodSync(path.join(F.root, 'publications', 'smoke-test', F.kp.info.folder, 'publication.json'), 0);
+    const x = json('todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--dry-run', '--json', ...TOOL);
+    const kind = how === 'gone' ? 'nofile' : how === 'newer' ? 'newer' : 'unreadable', where = how === 'pubread' ? 'publications/smoke-test/' : 'runs/smoke-test/k1/';
+    assert.deepStrictEqual([how, x.code, x.complete, (x.problems || []).some(q => q.path.indexOf(where) === 0 && q.kind === kind)], [how, 4, false, true], 'first ' + how + ': ' + JSON.stringify([x.data && x.data.status, x.problems]));
   }
 });
 

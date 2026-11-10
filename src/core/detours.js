@@ -97,7 +97,14 @@ PF.detours = (function () {
 
   /* ---- Evidence. ---- */
   function findRun(ev, process, id) { return (ev.runs || []).filter(function (y) { return y && y.process === process && y.id === id; })[0] || null; }
-  function unreadRun(ev, process, id) { return (ev.unreadRuns || []).indexOf(process + '/' + id) >= 0; }
+  /* ev.judge(run) (the app's evidence, tdEv): the shared run verdict (PF.appjson.judgeRun) on what this window read; a run
+     with any problem is unread here as readEvidence has it, so the screen never offers what the write guard refuses. */
+  function unreadRun(ev, process, id) {
+    if ((ev.unreadRuns || []).indexOf(process + '/' + id) >= 0) return true;
+    if (typeof ev.judge !== 'function') return false;
+    var r = findRun(ev, process, id);
+    return !!r && ev.judge(r).length > 0;
+  }
   function planIn(ev, id) { return (ev.plans || []).filter(function (p) { return p && p.id === id; })[0] || null; }
   /* What can't be read of one evidence plan, as problems ({ path, kind, why }): its own file or a decision on it refused or torn
      (ev.holds, readEvidence), a decision held (_statusHeld), or copies that differ. [] when all of it reads. */
