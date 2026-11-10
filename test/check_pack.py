@@ -58,10 +58,34 @@ def check_living(z, man):
     def load(path):
         return json.loads(z.read(by_path[path]).decode("utf-8"))
 
+    cache = {}
+
     def packed(path):
         if path not in by_path:
             return None
-        return load(path)
+        if path not in cache:
+            try:
+                cache[path] = load(path)
+            except ValueError:
+                cache[path] = None
+        return cache[path]
+
+    def on_run(me):
+        """Every packed record the export counts for a run whatever saw it (PF.receipts.deps): each to-do record naming it, the
+        facts they rest on and its loops' scope records."""
+        for path in by_path:
+            if not path.startswith("proposals/") or not path.endswith(".json"):
+                continue
+            o = packed(path)
+            if not isinstance(o, dict):
+                continue
+            lp = o.get("loop")
+            if o.get("run") == me or (isinstance(lp, dict) and lp.get("process") == me["process"] and lp.get("run") == me["id"]):
+                reached.add(path)
+                for b in (o, o.get("effect") or {}, (o.get("application") or {}).get("effect") or {}):
+                    fact = ((b or {}).get("support") or {}).get("fact") if isinstance((b or {}).get("support"), dict) else None
+                    if isinstance(fact, str) and "proposals/" + fact + ".json" in by_path:
+                        reached.add("proposals/" + fact + ".json")
 
     reached = set()
 
@@ -86,6 +110,7 @@ def check_living(z, man):
         head = own.get("head", "")
         me = {"process": run.get("process"), "id": run.get("id")}
         copies = [False]
+        on_run(me)
 
         def wit(rid):
             rec, amb = witness(rid)

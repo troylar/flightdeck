@@ -489,4 +489,34 @@ rule('Python counts every record reached and every dependency run together again
   assert.ok(!over.ok && /more|bound|holds at most/.test(over.out), 'over the bound in total: ' + over.out);
 });
 
+/* NG: Python counts what the export counts (PF.receipts.deps): every record naming a run the work rests on, whether or not
+   anything saw it, with the records reached and the dependency runs, against the one 5,000 bound. */
+rule('Python counts every record on the run, seen or not, toward the 5,000 bound, as the export does: 5,000 independent requests refuse both', async () => {
+  const W = await made({ todos: 1, pending: true }), PF = W.PF, T = PF.todos, r0 = JSON.parse(W.files[W.runPath]), RUN = { process: r0.process, id: r0.id };
+  const placement = T.placementFor(PF.run.mapOf(PF.run.sanitize(JSON.parse(JSON.stringify(r0)))), { phase: 'review' }), at = new Date().toISOString(), made5k = [];
+  for (let i = 0; i < 5000; i++) { const q = T.buildProposal({ run: RUN, producer: { name: 'notes-bot', version: '1.0' }, key: 'k-ng' + i, seen: [], at, body: { op: 'add', text: 'Independent ' + i, target: { phase: 'review' }, placement } }); made5k.push([q.id, T.text(q)]); }
+  const ids = (N) => made5k.slice(0, N).map((x) => x[0]), texts = {}; made5k.forEach((x) => { texts[x[0]] = x[1]; });
+  const rec = (rid) => texts[rid];
+  const files = Object.assign({}, W.files);
+  ids(5000).forEach((rid) => { files['proposals/' + rid + '.json'] = rec(rid); });
+  let refused = null;
+  try { const x = await pack(PF, new BytesFS(files), W.key); refused = x.res.status !== 'complete' ? JSON.stringify(x.res).slice(0, 300) : null; } catch (e) { refused = String(e && e.message || e); }
+  assert.ok(refused && /at most 5000|holds at most/.test(refused), 'the export refuses it: ' + refused);
+  if (!PY) return;
+  const full = await pack(PF, new BytesFS(W.files), W.key);
+  assert.strictEqual(full.res.status, 'complete', JSON.stringify(full.res.col.unresolved));
+  const make = (N) => repacked(PF, full.zip, (e, man) => {
+    const x = man.files.filter((f) => /^proposals\//.test(f.path))[0];
+    ids(N).forEach((rid) => {
+      const path = 'proposals/' + rid + '.json', pk = x.pack.slice(0, x.pack.length - x.path.length) + path;
+      e[pk] = Buffer.from(rec(rid));
+      man.files.push(Object.assign({}, x, { path, pack: pk }));
+    });
+  });
+  const small = checkPack(await make(10));
+  assert.ok(small.ok, 'under the bound it holds: ' + small.out);
+  const over = checkPack(await make(5000));
+  assert.ok(!over.ok && /holds at most/.test(over.out), 'over the bound in total: ' + over.out);
+});
+
 run();
