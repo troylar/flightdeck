@@ -36034,7 +36034,9 @@ PF.examples = (function () {
       if (c.living && c.living.head && !PF.todos.recordsFor(data.todos || [], c).some(function (x) { return x.id === c.living.head; })) bad = true;
     });
     if (bad) return Promise.resolve(false);
-    var depsOk = freshRecords(src, loops, [r].concat(kids));
+    /* Round 13 (GB): the run's own version, checked as its reader checks it, every time too. */
+    var ownPub = PF.repo.readRunOnly(src, r.process, r.id).then(function (one) { return !!(one && one.found && one.pub && one.pub.ok && !one.pub._readFailed); }, function () { return false; });
+    var depsOk = Promise.all([freshRecords(src, loops, [r].concat(kids)), ownPub]).then(function (v) { return v[0] && v[1]; });
     return depsOk.then(function (ok) { if (!ok) return [false]; return Promise.all(kids.map(function (c) {
       return PF.repo.readRunOnly(src, c.process, c.id).then(function (one) {
         if (!one || !one.found || one.nofile || !one.run || (one.bad && one.bad.length) || one.run._unrunnable) return false;

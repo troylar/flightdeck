@@ -29,8 +29,8 @@ const DEPS = {
   'the story\'s application absent': (app, kid) => gone(app, headFile(app, kid)),
   'the story\'s application EIO': (app, kid) => eio(app, headFile(app, kid))
 };
-/* Round 13 (GA): a scope record that arrives while the write waits (ABC-105 added), and a conflicting copy of one there
-   ("<id> (1).json" saying something else). */
+/* Round 13 (GA, GB): a scope record that arrives while the write waits (ABC-105 added), a conflicting copy of one there
+   ("<id> (1).json" saying something else), and the run's own version gone or unreadable. */
 const newScope = (app) => {
   const PF = app.PF, LP = PF.loop, r = parentRun(app);
   const c = LP.cleanIntent({ loop: { process: 'release-readiness', run: r.id, step: 'each' }, changes: [{ op: 'add', item: { key: 'ABC-105', id: '10105' } }] }, 'ga-' + Math.random().toString(36).slice(2, 10), { name: 'release-helper', version: '1.0' });
@@ -47,9 +47,12 @@ const copyScope = (app) => {
   app.fs.files[path] = { t: JSON.stringify(j, null, 2), m: Date.now() };
   return () => { delete app.fs.files[path]; };
 };
+const parentPub = (app) => { const r = parentRun(app); return 'publications/release-readiness/' + r.folder + '/publication.json'; };
 const GA_GB = {
   'a new scope record': (app) => newScope(app),
-  'a conflicting copy of a scope record': (app) => copyScope(app)
+  'a conflicting copy of a scope record': (app) => copyScope(app),
+  'the run\'s publication absent': (app) => gone(app, parentPub(app)),
+  'the run\'s publication EIO': (app) => eio(app, parentPub(app))
 };
 Object.assign(BREAKS, DEPS, GA_GB);
 const RUN_BREAKS = ['the story\'s run absent', 'the story\'s run EIO', 'its publication EIO'];

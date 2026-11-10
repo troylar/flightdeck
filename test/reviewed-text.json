@@ -25,8 +25,8 @@
       "reviewed": "Round 6 XD: sync dry-run partial status from preparation refusals"
     },
     "docs/design.md": {
-      "sha256": "94f812b3053abd505b0e767e7ab7df355d180b45574a4742b79f33cc983cf88e",
-      "reviewed": "GA: approval reread from a fresh proposals listing"
+      "sha256": "f180f7a466ff75f39ddc95a94e7adc959dac5ea4500b162df4187fea531bf847",
+      "reviewed": "GB: the run's own publication in the fresh approval guard"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -409,8 +409,8 @@
       "reviewed": "BB: one still per write"
     },
     "src/ui/app.js": {
-      "sha256": "1e87ed55bdff7e4e690a4f165b54afa2ad4adbe9abbee8dac93daa7b1282bd8f",
-      "reviewed": "GA: approval reread from a fresh proposals listing"
+      "sha256": "0353f8a5a7f708f0561124ed8b4ebe3107be507aecef55be175a3e1ac060fb21",
+      "reviewed": "GB: the run's own publication in the fresh approval guard"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
