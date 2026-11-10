@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "078720c5a9030e3264488a66d4eb27f22326d3f29b752a62e816e57cee7e0190",
-      "reviewed": "readers expect and name every dependency of a spread; a failed dependency holds before a spread is called absent; checked for direct writes and unconditional deletes"
+      "sha256": "79b81dfc2fae1a4e3d86677628f2eeac173059a338ff63236c7d68e3b43859ff",
+      "reviewed": "Round 6 XA: one coverage input builder for the CLI and the app; the loop write guard asks it"
     },
     "build.py": {
       "sha256": "1dce012e7269422f84c2c2aeb7b327b242a28e4990a5c5c95a22dc98228122dc",
@@ -25,8 +25,8 @@
       "reviewed": "readers expect and name every dependency of a spread; a failed dependency holds before a spread is called absent; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "334d686ab6d43360ecccec2cd33b03a5229184ae929b16f04998056b8b282f65",
-      "reviewed": "4.0.0 notes name spreads; the living-run skill names no facts; section 45 says slices 1 to 3 are built"
+      "sha256": "de76ca8c37df56b2b7c1007729d4b8c90d5db045c52eb9a5e4eb45f86e7666f8",
+      "reviewed": "Round 6 XA: one coverage input builder for the CLI and the app; the loop write guard asks it"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -337,8 +337,8 @@
       "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
     },
     "src/core/spreads.js": {
-      "sha256": "06169e41bf4b38f1c112a91f45a7ad029108b5ad5cf980cb072e93e35cd9ab24",
-      "reviewed": "a spread's summary counts additions apart from approvals without a run; checked for direct writes and unconditional deletes"
+      "sha256": "f048130ae3575d6d9457eab3e7227769ec7aef69d8db5a39045506d7f8e56f4b",
+      "reviewed": "Round 6 XA: one coverage input builder for the CLI and the app; the loop write guard asks it"
     },
     "src/core/staging.js": {
       "sha256": "d01a3204178bd0b055c05524916f55774c4404cca10f86fbb10a2ca675bd6b07",
@@ -409,8 +409,8 @@
       "reviewed": "readers expect and name every dependency of a spread; a failed dependency holds before a spread is called absent; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "0721cdde8bf1668989154322089ed906b9979b8baae491d167f78183158b339f",
-      "reviewed": "app coverage inputs treat a run whose last read failed as unknown; checked for direct writes and unconditional deletes"
+      "sha256": "0be7f1eae09e6739a59aa64b1492fb959dbf19881df347300e1299d54b213846",
+      "reviewed": "Round 6 XA: one coverage input builder for the CLI and the app; the loop write guard asks it"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

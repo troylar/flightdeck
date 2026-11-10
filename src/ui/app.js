@@ -3006,7 +3006,19 @@
     if (!r || runSig(r) !== cx.sig) return false;
     if (cx.readable && runUnread(r)) return false;
     if (cx.view && viewSig(r, cx.step) !== cx.vsig) return false;
+    if (cx.view && loopUnread(r, cx.step)) return false;
     return !(cx.q && cx.step && PF.loop.askerWhy(r, loopView(r, cx.step), cx.q, data.people));
+  }
+  /* A loop write (round 6, XA) stops while the run or any run of that loop isn't read fresh, by the same inputs coverage reads
+     (PF.spreads.inputs): a result that reads as none only because its run or version couldn't be read is never a change. */
+  function loopUnread(r, step) {
+    var L = spInputs().loops, un = L.unreadRun;
+    if (r._unrunnable || un(r)) return true;
+    if ((data.runs || []).some(function (c) { return c && c.parent && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === step && (c._unrunnable || un(c)); })) return true;
+    /* A run of its loop not read at all (newer, damaged) isn't in data.runs: any failed read under its process's runs counts. */
+    var x; try { x = M.findStep(R.mapOf(r), step); } catch (e) { return true; }
+    var kp = x ? String(PF.run.fieldsOf(r, x.step).process || '') : '';
+    return !!kp && L.failed.some(function (f) { return String(f).indexOf('runs/' + kp + '/') === 0; });
   }
   /* The one to-do guard (4.0), for a landing and for keeping a conflict copy alike, asked before every write of either
      (candidate, final, backup): on the run as it was before (t.pre: its tentative head never counts), with the records, people
@@ -3299,8 +3311,17 @@
   var TODO_PAGES = 20;
   function todoView(r) { return PF.todos.view(r, { records: data.todos || [], unread: data.todosUnread || [], people: data.people }); }
   /* What a spread's coverage reads (its loop's scope records and every run), for stops: asked, decided and applied only on it. */
-  function spLoops() { return { records: data.scopes || [], unread: data.scopesUnread || [], procOf: ctx.procOf, unreadRun: runUnread }; }
-  function spInputs() { return { records: data.todos || [], unread: data.todosUnread || [], people: data.people, loops: spLoops(), runs: data.runs || [] }; }
+  /* Coverage's inputs from this window's loaded folder, built by the one builder the CLI uses too (PF.spreads.inputs): a run
+     whose last read failed, or whose version wasn't read fresh (missing, damaged, or publications/ not read this time), is
+     unknown, never the copy kept on screen. */
+  function spInputs() {
+    var failed = [].concat(data.unreadable || [], data.nofile || [], data.malformed || [], data.refused || []).map(function (u) { return u && u.path; }).filter(Boolean);
+    /* A run this copy can only name (made with a newer Flightdeck) says nothing of whose it is: refused, by its path. */
+    (data.runs || []).forEach(function (c) { if (c && c._unrunnable && (c._needs != null || c.snapshot === '') && typeof c.process === 'string' && typeof c.id === 'string') failed.push('runs/' + c.process + '/' + c.id + '/run.json'); });
+    return PF.spreads.inputs({ runs: data.runs || [], records: data.todos || [], unread: data.todosUnread || [], scopes: data.scopes || [], scopesUnread: data.scopesUnread || [], people: data.people, procOf: ctx.procOf,
+      processes: data.processes || [], procsRead: function () { return !('publications' in (data.failed || {})); }, partsFailed: data.failed || {}, failed: failed, runFailed: runUnread });
+  }
+  function spLoops() { return spInputs().loops; }
   /* The screen's copy (ctx.todoView): the same view, kept while the records, unread files, people and the run are the ones it
      was worked out from. */
   var tdMemo = null;

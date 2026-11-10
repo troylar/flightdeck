@@ -115,12 +115,49 @@ PF.spreads = (function () {
       why = why || nm + ': ' + k + ', a run its requests were filed on, isn\'t here, so how it stands isn\'t known.';
     });
     if (why) return why;
+    /* The run itself and every run of its loop read fresh, with their versions (o.loops.unreadRun, from PF.spreads.inputs). */
     var mineRun = function (c) { return !!c && !!c.parent && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === s.loopStep; };
-    var stale = o.loops.unreadRun ? (o.runs || []).filter(function (c) { return mineRun(c) && o.loops.unreadRun(c); }) : [];
-    if (stale.length) return nm + ': ' + stale[0].process + '/' + stale[0].id + ' couldn\'t be read on the last check, so how it stands isn\'t known until it is.';
-    var gone = (o.loops.runsUnread || []).filter(function (p) { return child && String(p).indexOf('runs/' + child + '/') === 0; });
-    if (gone.length) return nm + ': a run of its loop (' + gone[0] + ') can\'t be read here, so who owes it isn\'t known.';
+    var un = o.loops.unreadRun || function () { return null; };
+    [r].concat((o.runs || []).filter(mineRun)).forEach(function (c) {
+      var u = un(c); if (!u) return;
+      if (!C.missing.some(function (m) { return m.path === u.path; })) C.missing.push({ path: u.path, kind: u.kind || 'unreadable', why: u.why });
+      why = why || nm + ': ' + c.process + '/' + c.id + (c === r ? ' (this run)' : '') + ' can\'t be read fresh here (' + u.why + '), so how it stands isn\'t known until it is.';
+    });
+    if (why) return why;
+    var gone = (o.loops.failed || []).filter(function (p) { return child && String(p).indexOf('runs/' + child + '/') === 0; });
+    if (gone.length) { if (!C.missing.some(function (m) { return m.path === gone[0]; })) C.missing.push({ path: gone[0], kind: 'unreadable', why: 'A run of spread "' + s.text + '"\'s loop can\'t be read here.' }); return nm + ': a run of its loop (' + gone[0] + ') can\'t be read here, so who owes it isn\'t known.'; }
     return '';
+  }
+  /* The coverage inputs, built one way for the app's loaded folder and the CLI's shared reader alike (XA): o: { runs, records,
+     unread, scopes, scopesUnread, people, procOf, processes (the versions read, by process), procsRead(process) (whether that
+     process's versions were read, so an absent one is known absent), failed (every path a read failed on, or found missing or
+     refused: runs, versions, records), partsFailed ({ publications, runs }: whole parts not read this time), runFailed(run)
+     (why a run's last read failed, or '') }. A run is read fresh only when its file and its version were; anything else is
+     unknown, with the path that says why. */
+  function inputs(o) {
+    o = o || {};
+    var failed = (o.failed || []).map(function (p) { return String(p && p.path != null ? p.path : p); }), parts = o.partsFailed || {};
+    var under = function (dir) { dir = dir.replace(/\/$/, ''); return failed.filter(function (p) { var q = p.replace(/\/$/, ''); return q === dir || q.indexOf(dir + '/') === 0; })[0] || ''; };
+    var unreadRun = function (c) {
+      if (!c || typeof c.process !== 'string' || typeof c.id !== 'string') return null;
+      var rd = 'runs/' + c.process + '/' + c.id, rf = 'runs/' + c.process + '/' + c.id + '/run.json';
+      var w = o.runFailed ? o.runFailed(c) : '';
+      if (w) return { path: rf, kind: 'unreadable', why: w };
+      if (parts.runs) return { path: 'runs', kind: 'unreadable', why: 'The runs couldn\'t be read on the last check.' };
+      var hit = under(rd); if (hit) return { path: hit, kind: 'unreadable', why: 'This run couldn\'t be read here.' };
+      if (PF.run.isTest(c) || typeof c.folder !== 'string') return null;
+      var pd = 'publications/' + c.process + '/' + c.folder + '/';
+      if (parts.publications) return { path: 'publications', kind: 'unreadable', why: 'The versions couldn\'t be read on the last check, so ' + c.process + '/' + c.id + '\'s version ' + c.folder + ' wasn\'t checked.' };
+      hit = under(pd); if (hit) return { path: hit, kind: 'unreadable', why: 'The version ' + c.process + '/' + c.id + ' runs on couldn\'t be read here.' };
+      if (o.processes && (!o.procsRead || o.procsRead(c.process))) {
+        var e = o.processes.filter(function (p) { return p && p.process === c.process; })[0], pub = e ? (e.pubs || []).filter(function (p) { return p && p.folder === c.folder; })[0] : null;
+        if (!pub) return { path: pd, kind: 'nofile', why: 'Run ' + c.process + '/' + c.id + ' runs on this version, and it isn\'t in the folder.' };
+        if (!pub.ok) return { path: pd, kind: pub.kind === 'newer' ? 'newer' : 'unreadable', why: 'The version ' + c.process + '/' + c.id + ' runs on can\'t be read here' + (pub.why ? ': ' + pub.why : '') + '.' };
+      }
+      return null;
+    };
+    return { runs: o.runs || [], records: o.records || [], unread: o.unread || [], people: o.people,
+      loops: { records: o.scopes || [], unread: o.scopesUnread || [], procOf: o.procOf, unreadRun: unreadRun, failed: failed } };
   }
   /* One obligation's state: where it is fulfilled (a binding, else the one run the loop counts for that attempt) and how its
      request and to-do stand there. */
@@ -213,5 +250,5 @@ PF.spreads = (function () {
     });
     return { file: file, skip: skip };
   }
-  return { LIMITS: LIMITS, STATE: STATE, RESOLVED: RESOLVED, idFor: idFor, obligationId: obligationId, childRequestId: childRequestId, pairKey: pairKey, hasPair: hasPair, snapshot: snapshot, phaseOfGate: phaseOfGate, coverage: coverage, manifest: manifest };
+  return { LIMITS: LIMITS, STATE: STATE, RESOLVED: RESOLVED, idFor: idFor, obligationId: obligationId, childRequestId: childRequestId, pairKey: pairKey, hasPair: hasPair, snapshot: snapshot, phaseOfGate: phaseOfGate, coverage: coverage, manifest: manifest, inputs: inputs };
 })();

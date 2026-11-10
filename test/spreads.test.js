@@ -854,4 +854,20 @@ rule('WB: an exception before any addition reads "1 approved without a run", nev
   assert.ok(!/added/.test(C.summary), C.summary);
   assert.ok(/1 approved without a run/.test(C.summary), C.summary);
 });
+rule('XA: one input builder: a run whose version is missing, unread or not checked this time is unknown, with its path', () => {
+  const S0 = applied(), W = S0.W, pd = 'publications/validate-story/' + S0.k2.folder + '/';
+  const base = { runs: W.runs(), records: W.recs, unread: W.unread, scopes: W.scopes, people: PEOPLE, procOf: W.procOf };
+  const cases = [
+    ['absent', { processes: [{ process: 'validate-story', pubs: [] }, { process: 'release-readiness', pubs: [{ folder: W.r.folder, ok: true }] }] }, pd],
+    ['unread', { processes: [], procsRead: () => false, failed: [pd + 'publication.json'] }, pd + 'publication.json'],
+    ['not read this time', { partsFailed: { publications: 'EIO' } }, 'publications'],
+    ['the run\'s own version, absent', { processes: [{ process: 'validate-story', pubs: [{ folder: S0.k2.folder, ok: true }] }, { process: 'release-readiness', pubs: [] }] }, 'publications/release-readiness/' + W.r.folder + '/']
+  ];
+  for (const [how, extra, path0] of cases) {
+    const cov = S.coverage(W.r, W.view(), S.inputs(Object.assign({}, base, extra)));
+    same(cov.spreads[0].complete, false, how);
+    assert.ok(cov.spreads[0].missing.some(m => m.path === path0), how + ': ' + JSON.stringify(cov.spreads[0].missing));
+  }
+  same(S.coverage(W.r, W.view(), S.inputs(base)).spreads[0].complete, true, 'nothing failed: complete');
+});
 run();
