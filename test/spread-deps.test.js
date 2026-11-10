@@ -186,8 +186,13 @@ const FACT_READERS = (root) => ({
   'fact sync': ['fact', 'sync', root, PR, '--from', factIn(root, prsObs('id-prs-3', 'merged', 1)), '--json', ...FTOOL]
 });
 /* refused (JC): a fact in a later format with its features gone, still a fact by its kind. */
-const FACT_MODES = Object.assign({}, MODES);
+/* refused (JC): a fact in a later format with its features gone is still a fact by its kind, refused by the to-do reader as
+   newer, never read as a plan. */
+const FACT_MODES = Object.assign({}, MODES, {
+  refused: (root, f) => { const j = jsonOf(root, f); if (j.kind !== 'fact') return 'n/a'; j.format = 'flightdeck-plan/5'; delete j.features; fs.writeFileSync(path.join(root, f), JSON.stringify(j, null, 2)); }
+});
 for (const kind of Object.keys(FACT_KINDS)) for (const mode of Object.keys(FACT_MODES)) {
+  if (mode === 'refused' && !/fact/.test(kind.replace(/facts/g, ''))) continue;
   rule('ID: ' + kind + ', ' + mode + ': every reader of a done on evidence exits 4 naming it, suggest-done is held, nothing is written, and the guards hold', async () => {
     if (mode === 'unreadable' && process.getuid && process.getuid() === 0) return;
     const F = await factWorld(), root = F.root;
@@ -215,4 +220,23 @@ for (const kind of Object.keys(FACT_KINDS)) for (const mode of Object.keys(FACT_
     assert.deepStrictEqual(off, [], kind + ', ' + mode);
   });
 }
+/* JC: a later observation of the same slot in a later format, its features gone: still a fact by its kind, so it holds its
+   slot (an observation can't be read), never reads as a plan, and what rests on that slot holds. */
+rule('JC: a newer fact with its features gone holds its slot and every suggestion on it, named as a fact, never as a plan', async () => {
+  const F = await factWorld(), root = F.root, o = jsonOf(root, 'proposals/' + F.f2 + '.json');
+  const id = FX.idFor('git-bot', 'id-prs-newer'), n = Object.assign({}, o, { id, key: 'id-prs-newer', seen: [F.f2], format: 'flightdeck-plan/5', app: '9.0.0' });
+  delete n.features;
+  fs.writeFileSync(path.join(root, 'proposals', id + '.json'), JSON.stringify(n, null, 2));
+  const off = [], p = 'proposals/' + id + '.json';
+  const l = json('fact', 'list', root, PR, '--json'), it = (l.data && l.data.items || []).find((i) => i.key === 'ABC-102'), prs = it && it.facts.find((x) => x.domain === 'prs');
+  if (!prs || prs.state !== 'held') off.push('fact list · prs ' + (prs && prs.state));
+  for (const [rd, r] of [['fact list', l], ['story todo list', json('todo', 'list', root, KID, '--json')]]) {
+    const named = (r.problems || []).filter((x) => x.path === p);
+    if (r.code !== 4 || !named.length) off.push(rd + ' · exit ' + r.code + ' · ' + JSON.stringify(r.problems));
+    else if (named[0].kind !== 'newer' || /\bplan\b/.test(named[0].why)) off.push(rd + ' · named as ' + named[0].kind + ': ' + named[0].why);
+    if (rd === 'story todo list' && r.data) { const q = (r.data.requests || []).filter(x => x.op === 'done' && x.status !== 'held'); if (q.length) off.push('todo list · ' + q.map(x => x.status).join(', ')); }
+  }
+  off.push(...await guards(F));
+  assert.deepStrictEqual(off, []);
+});
 run();

@@ -1941,7 +1941,8 @@ def todo_request_file(name, rid):
 
 
 def todo_claims(o):
-    return isinstance(o, dict) and (o.get("format") in (TODO_FORMAT, TODO_STATUS) or (isinstance(o.get("features"), list) and TODO_FEATURE in o["features"]))
+    # A fact by its kind, whatever its envelope says (JC), as PF.todos.claims takes it.
+    return isinstance(o, dict) and (o.get("format") in (TODO_FORMAT, TODO_STATUS) or (isinstance(o.get("features"), list) and TODO_FEATURE in o["features"]) or o.get("kind") == "fact")
 
 
 def _todo_id(tool, key):

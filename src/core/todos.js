@@ -64,9 +64,10 @@ PF.todos = (function () {
   function todoIdFor(proposal) { return 'td-' + PF.sha256.hex(JSON.stringify(['td', proposal])).slice(0, 24); }
   function statusName(proposal, writer, rev) { return proposal + '.status-' + writer + '-' + rev + '.json'; }
   function isTodo(o) { return isMap(o) && (o.format === FORMAT || o.format === STATUS); }
-  /* Whether the to-do reader takes a file: one in its format, or any record naming the living-runs feature (a newer or
-     malformed one included), so a record this copy can't read holds its run rather than reaching another reader. */
-  function claims(o) { return isTodo(o) || (isMap(o) && Array.isArray(o.features) && o.features.indexOf(FEATURE) >= 0); }
+  /* Whether the to-do reader takes a file: one in its format, any record naming the living-runs feature (a newer or
+     malformed one included), or a fact by its kind whatever its envelope says (JC: a later format with its features gone),
+     so a record this copy can't read holds its run rather than reaching another reader. */
+  function claims(o) { return isTodo(o) || (isMap(o) && ((Array.isArray(o.features) && o.features.indexOf(FEATURE) >= 0) || o.kind === 'fact')); }
   function familyOf(o) { return isMap(o) && typeof o.format === 'string' && /^flightdeck-plan-status\//.test(o.format) ? 'flightdeck-plan-status' : 'flightdeck-plan'; }
 
   /* ---- Where a to-do belongs: exactly one target, by immutable ids in the run's frozen checklist. ---- */

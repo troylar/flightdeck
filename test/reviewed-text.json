@@ -25,8 +25,8 @@
       "reviewed": "Merge of feat/4.0 (slice 3 round 7) into feat/4.0-facts: both sides' texts kept, spread inputs and fact clocks combined; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "357439f2cd954189c5ff9ce594aacbdb9b6779aa85628502b2257bfda5a16a27",
-      "reviewed": "ID: what a done on evidence rests on is expected, present and checked (the shared manifest); checked for direct writes and unconditional deletes"
+      "sha256": "6849498f8ada27d2fbebdc50174312aed08eee5372b6e19097fc2e00224f67a5",
+      "reviewed": "JC: a fact by its kind goes to the to-do reader whatever its envelope; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -53,8 +53,8 @@
       "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "1167408fd0925ff075bf1baf4fe265bea08099ade339ad3ff7617b3c81fc0432",
-      "reviewed": "Merge of feat/4.0 (slice 3 round 7) into feat/4.0-facts: both sides' texts kept, spread inputs and fact clocks combined; checked for direct writes and unconditional deletes"
+      "sha256": "c40f9be701a8acf570329bf42d1f36de2ff2248d60924c2ed2fa5d1399a9ceef",
+      "reviewed": "JC: a fact by its kind goes to the to-do reader whatever its envelope; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
       "sha256": "197779e5fb047d6137527db0211659a2db320470f3086d61b5126d6e868b0cf8",
@@ -197,8 +197,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "81cd3502d0a73e3b3c5ed8ce7633752e71d31baf8f5bfab23e81ceb701e18f0f",
-      "reviewed": "Merge of feat/4.0 (slice 3 round 7): a batch's fresh read skips its own unconfirmed decisions; facts filed within the task go on; checked for direct writes and unconditional deletes"
+      "sha256": "40b906b907454769a01ea30951a0e3517ae67035af86a2777fdb53ba89c39c8e",
+      "reviewed": "JC: a fact by its kind goes to the to-do reader whatever its envelope; checked for direct writes and unconditional deletes"
     },
     "src/core/appjson.js": {
       "sha256": "aa5c7391f87ec2fa5ddacaf9f74b7b99c7413e77989cdaf9bc359397ce96807b",
@@ -357,8 +357,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "66314ec6acc0d1a5f33677b59910266c36436aef3866720becca47408644a8d6",
-      "reviewed": "ID: what a done on evidence rests on is expected, present and checked (the shared manifest); checked for direct writes and unconditional deletes"
+      "sha256": "4cdcbc18e70a83779890dd5feafa9b065711cf9ae853d62c3abe9aae952adb0a",
+      "reviewed": "JC: a fact by its kind goes to the to-do reader whatever its envelope; checked for direct writes and unconditional deletes"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",
