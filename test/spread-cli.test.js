@@ -354,6 +354,60 @@ rule('UC: an item\'s run file or a loop scope record that can\'t be read makes t
     if (how === 'unreadable run') fs.chmodSync(path.join(root, file), 0o644);
   }
 });
+/* Review round 4 (VA): one dependency reader for every command. Table-driven: every kind of dependency a run's to-dos and
+   spreads read, broken every way it can be, read by every command that reads it: exit 4, naming the file. */
+const BROKEN = {
+  malformed: (root, f) => { fs.writeFileSync(path.join(root, f), '{"truncated":'); },
+  unreadable: (root, f) => { fs.chmodSync(path.join(root, f), 0); },
+  newer: (root, f) => {
+    const full = path.join(root, f), j = JSON.parse(fs.readFileSync(full, 'utf8'));
+    if (/run\.json$/.test(f)) j.format = 'preflight-run/9';
+    else if (j.observation !== undefined) j.features = (j.features || []).concat(['teleport']);
+    else j.format = String(j.format).replace(/\/4$/, '/5');
+    fs.writeFileSync(full, JSON.stringify(j, null, 2));
+  },
+  nofile: (root, f) => { const dir = path.dirname(path.join(root, f)); fs.unlinkSync(path.join(root, f)); fs.writeFileSync(path.join(dir, 'notes-w1.jsonl'), ''); }
+};
+const walkFiles = (root) => { const out = []; const walk = (x) => fs.readdirSync(x, { withFileTypes: true }).forEach(e => { const p = path.join(x, e.name); if (e.isDirectory()) walk(p); else out.push(path.relative(root, p).split(path.sep).join('/')); }); walk(root); return out; };
+const PARENT_READERS = (root, sp) => ({
+  run: ['run', root, PR, '--contract', '2', '--json'],
+  next: ['next', root, PR, '--contract', '2', '--json'],
+  'spread list': ['spread', 'list', root, PR, '--json'],
+  'spread sync': ['spread', 'sync', root, PR, '--spread', sp.id, '--dry-run', '--json', ...TOOL],
+  'spread stop': ['spread', 'stop', root, PR, '--spread', sp.id, '--reason', 'Not needed', '--key', 'va-stop', '--dry-run', '--json', ...TOOL],
+  'todo list': ['todo', 'list', root, PR, '--json']
+});
+const KID = 'validate-story/k102';
+const CHILD_READERS = (root) => ({ run: ['run', root, KID, '--contract', '2', '--json'], next: ['next', root, KID, '--contract', '2', '--json'], 'todo list': ['todo', 'list', root, KID, '--json'] });
+/* [kind, how its file is found, failure modes, readers, whose readers] */
+const DEPS = [
+  ['an item\'s run file', (root) => 'runs/' + KID + '/run.json', ['malformed', 'unreadable', 'newer', 'nofile'], ['run', 'next', 'spread list', 'spread sync', 'spread stop'], 'parent'],
+  ['an item\'s publication', (root) => walkFiles(root).find(f => /^publications\/validate-story\/.*\/publication\.json$/.test(f)), ['malformed', 'unreadable'], ['run', 'next', 'spread list', 'spread sync', 'spread stop'], 'parent'],
+  ['an item\'s to-do record', (root, s) => s.data.items[0].file, ['malformed', 'unreadable', 'newer'], ['run', 'next', 'spread list', 'spread sync', 'spread stop'], 'parent'],
+  ['a loop scope record', (root) => walkFiles(root).find(f => { if (!/^proposals\/req-/.test(f)) return false; try { return JSON.parse(fs.readFileSync(path.join(root, f), 'utf8')).observation !== undefined; } catch (e) { return false; } }), ['malformed', 'unreadable', 'newer'], ['run', 'next', 'spread list', 'spread sync', 'spread stop'], 'parent'],
+  ['the run\'s own to-do record', () => 'proposals/' + T.idFor('release-helper', 'sec-1') + '.json', ['malformed', 'unreadable', 'newer'], ['run', 'next', 'spread list', 'todo list'], 'parent'],
+  ['its parent\'s record a story\'s request depends on', () => 'proposals/' + T.idFor('release-helper', 'sec-1') + '.json', ['malformed', 'unreadable', 'newer'], ['run', 'next', 'todo list'], 'child']
+];
+for (const [kind, fileOf, modes, readers, whose] of DEPS) {
+  rule('VA: ' + kind + ' that is ' + modes.join(', ') + ' makes ' + readers.join(', ') + ' exit 4, naming it', async () => {
+    const off = [];
+    for (const mode of modes) {
+      if (mode === 'unreadable' && process.getuid && process.getuid() === 0) continue;
+      const { root, sp } = await spread();
+      const s = json('spread', 'sync', root, PR, '--spread', sp.id, '--json', ...TOOL);
+      const file = fileOf(root, s);
+      assert.ok(file && fs.existsSync(path.join(root, file)), kind + ': set-up, its file');
+      BROKEN[mode](root, file);
+      const R0 = whose === 'child' ? CHILD_READERS(root) : PARENT_READERS(root, sp);
+      for (const rd of readers) {
+        const r = json(...R0[rd]);
+        if (r.code !== 4 || !(r.problems || []).some(p => p.path === file || p.path === file.replace(/[^/]+$/, ''))) off.push(mode + ' · ' + rd + ' · exit ' + r.code + ' · ' + JSON.stringify((r.problems || []).map(p => p.path)) + (r.error ? ' · ' + r.error.why : ''));
+      }
+      if (mode === 'unreadable') fs.chmodSync(path.join(root, file), 0o644);
+    }
+    assert.deepStrictEqual(off, [], kind);
+  });
+}
 rule('SI: text-mode sync says partial and names each item not asked, with why', async () => {
   const { root, sp } = await spread();
   const p = json('spread', 'sync', root, PR, '--spread', sp.id, '--dry-run', '--json', ...TOOL), names = p.data.items.map(i => i.file.slice('proposals/'.length));

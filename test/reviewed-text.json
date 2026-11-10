@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "61105e4bb837612a557dcd034aaa77aec96f29b970daa1509d5e449e73f07ff2",
-      "reviewed": "arrival notices say requested only when a request exists; included cleared items are not arrivals; no writes or deletes"
+      "sha256": "d805c6a770de8e2da6b1ed7354b5ad0bfc2c4a9c551690cd6b86117f8ad2f194",
+      "reviewed": "one shared dependency reader (readDeps) for run, next, spread and todo; reads only, no writes or deletes"
     },
     "build.py": {
       "sha256": "1dce012e7269422f84c2c2aeb7b327b242a28e4990a5c5c95a22dc98228122dc",
