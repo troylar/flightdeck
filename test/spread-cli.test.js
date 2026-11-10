@@ -408,6 +408,20 @@ for (const [kind, fileOf, modes, readers, whose] of DEPS) {
     assert.deepStrictEqual(off, [], kind);
   });
 }
+/* Review round 4 (VD): sync says, item by item, which approvals its additions would send back, so consent can be asked. */
+rule('VD: sync names each addition that would send an approval back, in JSON and in text, and the skill asks first', async () => {
+  const { root, sp } = await spread();
+  const f = runFile(root, 'validate-story/k102'), c = R.sanitize(JSON.parse(fs.readFileSync(f, 'utf8'))), m = R.mapOf(c);
+  R.done(c, m, 'verdict', 'person-avery', AT, { decision: 'needs-work' }); R.pass(c, m, 0, 'person-avery', AT);
+  const raw = JSON.parse(JSON.stringify(c, (k, v) => k.charAt(0) === '_' ? undefined : v)); fs.writeFileSync(f, JSON.stringify(raw, null, 2));
+  const j = json('spread', 'sync', root, PR, '--spread', sp.id, '--dry-run', '--json', ...TOOL);
+  const it = j.data.items.filter(i => i.key === 'ABC-102')[0], other = j.data.items.filter(i => i.key === 'ABC-103')[0];
+  assert.deepStrictEqual([it && it.consequence && it.consequence.reopens, other && other.consequence && other.consequence.reopens], [['gate:assess-confirm'], []], JSON.stringify(j.data.items));
+  const tx = cli('spread', 'sync', root, PR, '--spread', sp.id, '--dry-run', ...TOOL).out;
+  assert.ok(/ABC-102/.test(tx) && /sends? .*back for review|reopen/i.test(tx), tx);
+  const skill = fs.readFileSync(path.join(__dirname, '..', 'example-folder', '.flightdeck', 'skills', 'flightdeck-living-run', 'SKILL.md'), 'utf8');
+  assert.ok(/sync[^\n]*consequence\.reopens[^\n]*ask the person first|ask the person first[^\n]*sync[^\n]*consequence\.reopens/i.test(skill), 'the skill asks before a sync that sends an approval back');
+});
 rule('SI: text-mode sync says partial and names each item not asked, with why', async () => {
   const { root, sp } = await spread();
   const p = json('spread', 'sync', root, PR, '--spread', sp.id, '--dry-run', '--json', ...TOOL), names = p.data.items.map(i => i.file.slice('proposals/'.length));

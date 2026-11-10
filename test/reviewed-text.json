@@ -13,16 +13,16 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "d805c6a770de8e2da6b1ed7354b5ad0bfc2c4a9c551690cd6b86117f8ad2f194",
-      "reviewed": "one shared dependency reader (readDeps) for run, next, spread and todo; reads only, no writes or deletes"
+      "sha256": "fd00717def3909f9b8fda204b14ddfe60d143c3ed0f901e06808efa5106384cc",
+      "reviewed": "sync previews name each addition that would send an approval back; the living-run skill asks first"
     },
     "build.py": {
       "sha256": "1dce012e7269422f84c2c2aeb7b327b242a28e4990a5c5c95a22dc98228122dc",
       "reviewed": "slice 3 commit 1: spreads core (spreads.js), todos reduction and holds, run.js todoLand, app wiring, Python checker parity; no direct writes or unconditional deletes"
     },
     "docs/apps.md": {
-      "sha256": "96c0b0485daf4bfe84347d452b1c3e188c4d881dd78eff5f9a2e7ac1d89d83f8",
-      "reviewed": "arrival notices say requested only when a request exists; included cleared items are not arrivals; no writes or deletes"
+      "sha256": "5a74587e5a64901eeac9b7fe8c3b4b78366424718b3651f537180584724c71dc",
+      "reviewed": "sync previews name each addition that would send an approval back; the living-run skill asks first"
     },
     "docs/design.md": {
       "sha256": "037c23aa808634be79cc230009e0c4f5625706772c7c6efacae837e6767d5c20",
@@ -85,8 +85,8 @@
       "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
     },
     "example-folder/.flightdeck/skills/flightdeck-living-run/SKILL.md": {
-      "sha256": "baab0e89472068ab17713812ff6e49476de25e25e9b977fd6626b469b0c623f5",
-      "reviewed": "s3 review SJ: living-run skill consent rule per owner; instruction text only"
+      "sha256": "bbc890efd2e86a63f468184fb7cfe3867367e2b890e0845928f905a9054990b0",
+      "reviewed": "sync previews name each addition that would send an approval back; the living-run skill asks first"
     },
     "example-folder/.flightdeck/skills/flightdeck-new-checklist/SKILL.md": {
       "sha256": "3a6eb58e264583f36fb072835912f61bbb9a3fcf619f5932b2f0bdea2cfa6099",
@@ -197,8 +197,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "0cfa0e6686daf75337d091add08ede6cbd5c8648f54c8dd061999c632d478568",
-      "reviewed": "checker compares fulfils ids as given, in the app's order; no writes or deletes"
+      "sha256": "05cc1a0416103240e682238b911ce2222531227a5cad04ca2aedd73be4191c8e",
+      "reviewed": "sync previews name each addition that would send an approval back; the living-run skill asks first"
     },
     "src/core/appjson.js": {
       "sha256": "d3bcd6c56e778c6eba888b38b74415cf61bc96905589d51ce8c67b319f63c676",
