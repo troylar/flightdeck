@@ -25,8 +25,8 @@
       "reviewed": "OD: keep commands name source diagnostics and judge the source again before writing; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "ebfb23b4dad4e074691d8ef59784c3f706da0bdff2e726c6ac0f84bf4fd47f05",
-      "reviewed": "QB: process and folder pin drift are unusable at the plan path in every reader; checked for direct writes and unconditional deletes"
+      "sha256": "06cec96aa504ba08234ecde9f7c82541d57f3e054a272348eb1e1e0feb88dc49",
+      "reviewed": "QD: identical keep copies are one keep before retry, grouping and counting; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -257,8 +257,8 @@
       "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/learn.js": {
-      "sha256": "1b9940fee3dfad30ba0bc7c44569e86152b5d2cb499d433cc63413b4ac9be4b8",
-      "reviewed": "QA: unreadable proof holds everyone in keptIn; checked for direct writes and unconditional deletes"
+      "sha256": "c681783a96ed0cb73ea457031d2e92463825a1b4112fc7272dbbbd67a76d6314",
+      "reviewed": "QD: identical keep copies are one keep before retry, grouping and counting; checked for direct writes and unconditional deletes"
     },
     "src/core/library.js": {
       "sha256": "5c8555ff9b8bc67aa90ea4f556bddebbe47d17ae37e296d44b815187d776bd44",

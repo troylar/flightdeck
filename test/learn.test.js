@@ -352,6 +352,19 @@ rule('Without positive proof a change needs the owner: a deleted or unreadable d
   assert.strictEqual(L2.keptIn(withKept, null, { decisions: [ord()], keeps: [keep] }, 'p1').owner, true, 'no previous version to compare');
 });
 
+/* QD: OneDrive's identical copies of a keep (" (1)", "-COMPUTER") are one keep: a retry is already, grouping and the 500
+   count take it once; copies that differ stay refused. */
+rule('Identical copies of a keep are one keep: a retry is already and its group counts it once; copies that differ stay refused', () => {
+  const W = world(), t1 = W.todo('Post the release notes', { phase: 'ship' }), K = W.kept({ todo: t1 });
+  W.push(plain(K.record), K.id + ' (1).json');
+  W.push(plain(K.record), K.id + '-LAPTOP.json');
+  assert.strictEqual(W.keep({ todo: t1 }).status, 'already', 'a retry is already');
+  assert.strictEqual(L.keepsOf(W.recs).length, 1, 'one keep');
+  assert.strictEqual(W.groups('release-readiness').filter(g => g.keep)[0].members.length, 1, 'counted once');
+  const d = plain(K.record); d.reason = 'Another reason'; W.push(d, K.id + ' (2).json');
+  assert.ok(W.keep({ todo: t1 }).taken, 'a copy that differs stays refused');
+});
+
 rule('The 501st keep that would join a group is refused, naming the limit; a group at 500 is still decided and withdrawn', () => {
   const W = world(), t1 = W.todo('Post the release notes', { phase: 'ship' }), K = W.kept({ todo: t1 });
   for (let i = 1; i < 500; i++) W.push(Object.assign(JSON.parse(JSON.stringify(K.record)), { id: 'req-keep-' + i.toString(16).padStart(24, '0'), change: Object.assign({}, K.record.change, { text: 'Wording ' + i }) }));

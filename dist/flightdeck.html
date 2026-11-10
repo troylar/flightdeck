@@ -20021,7 +20021,22 @@ PF.learn = (function () {
     if (o.reason) f.reason = o.reason;
     return f;
   }
-  function keepsOf(records) { return (records || []).filter(function (x) { return x && x.kind === 'keep'; }); }
+  /* OneDrive's identical copies of one keep (" (1)", "-COMPUTER", the same record under another name) are one keep, under
+     its own name when that copy is there: before retry checks, grouping and the 500 count (QD). Copies that differ are all
+     kept, so the retry and the place stay refused as before. Every other record is untouched. */
+  function canon(x) { return JSON.stringify(x, function (k, v) { return k.charAt(0) === '_' ? undefined : v; }); }
+  function oneCopy(records) {
+    var seen = Object.create(null), out = [];
+    (records || []).forEach(function (x) {
+      if (!x || x.kind !== 'keep' || typeof x.id !== 'string') { out.push(x); return; }
+      var sig = canon(x), e = seen[x.id];
+      if (!e) { seen[x.id] = { sigs: [sig], at: out.length }; out.push(x); return; }
+      if (e.sigs.indexOf(sig) >= 0) { if (x._file === x.id + '.json' && canon(out[e.at]) === sig) out[e.at] = x; return; }
+      e.sigs.push(sig); out.push(x);
+    });
+    return out;
+  }
+  function keepsOf(records) { return oneCopy(records).filter(function (x) { return x && x.kind === 'keep'; }); }
 
   /* ---- Where it goes. Item work (a to-do on a loop's item, a spread) teaches the checklist the items run; phase and step
      work the run's own. Returns { template, map, anchor, base, where } or { needs, template? } (never a guessed place). ---- */
@@ -20130,7 +20145,7 @@ PF.learn = (function () {
     var f = build({ run: r, by: by.person, producer: by.tool ? { name: by.tool, version: by.version || '0' } : null, at: o.at, app: o.app, source: source, template: W.template || null, anchor: W.anchor || null, base: W.base,
       change: { text: text, where: W.anchor ? W.where : 'end' }, needs: needs, reason: reason });
     var name = f.id + '.json';
-    var prior = (o.records || []).filter(function (y) { return y && y.id === f.id; });
+    var prior = oneCopy(o.records).filter(function (y) { return y && y.id === f.id; });
     if (prior.length) {
       if (prior.length > 1 || prior[0].kind !== 'keep') return { why: 'Something else is already filed under this keep\'s name (proposals/' + name + ').', taken: true };
       var a = prior[0];
