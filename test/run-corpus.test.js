@@ -82,6 +82,27 @@ rule('a dependency run is confirmed only as the app writes it: the reviewers\' c
   console.log('    ' + cases.filter((c) => /^\(reviewer\)/.test(c.name)).length + ' reviewer cases over ' + roles.length + ' roles');
 });
 
+/* RF: with a conflict copy beside the run as well, the pack reader names the first problem depVerdict names: a newer run or
+   records it can't keep first, then the conflict copies, then why it's read-only, then anything not as the app writes it. */
+rule('with a conflict copy beside it too, the pack reader names the same first problem as depVerdict, in its order', async () => {
+  if (!PY) { console.log('    (skipped: no Python)'); return; }
+  const { roles, cases, worlds } = await corpus(), more = [], mw = [];
+  for (const R of roles) {
+    const w = worlds.filter((x) => x.world === R.X.role)[0], conflict = 'runs/' + R.X.depKey + '/run.conflict-w1.json', files = Object.assign({}, w.files, { [conflict]: R.X.files[R.X.path] });
+    mw.push({ world: R.X.role + '+conflict', files });
+    const mine = cases.filter((c) => c.role === R.X.role), pick = mine.filter((c, i) => /^\(reviewer\)|: null$|: an unknown key$|: empty$/.test(c.name) || i % 25 === 0);
+    for (const c of pick) {
+      const js = await C.jsVerdict(R.X.PF, Object.assign({}, R.X.files, { [R.X.path]: c.text, [conflict]: R.X.files[R.X.path] }), R.X.depKey);
+      more.push({ id: more.length, role: R.X.role + '+conflict', key: c.key, name: c.name, text: c.text, js });
+    }
+  }
+  const py = pyVerdicts(mw, more), off = [];
+  more.forEach((c) => { const p = py[c.id], jp = c.js ? c.js.path : null; if (!p || p.path !== jp) off.push(c.role + ' · ' + c.name + ': the app ' + (jp || 'holds') + ', Python ' + (p ? p.path || 'holds' : 'nothing') + (p && p.why ? ' (' + p.why + ')' : '')); });
+  assert.ok(more.some((c) => c.js && /\/$/.test(c.js.path)) && more.some((c) => c.js && /run\.json$/.test(c.js.path)), 'both orders are tried');
+  console.log('    ' + more.length + ' cases with a conflict copy beside');
+  assert.strictEqual(off.length, 0, off.length + ' differ:\n  ' + off.slice(0, 30).join('\n  '));
+});
+
 rule('the pack reader gives every case in the corpus the verdict the app gives it: accepted, or refused at the same first path', async () => {
   if (!PY) { console.log('    (skipped: no Python)'); return; }
   const { cases, worlds } = await corpus(), py = pyVerdicts(worlds, cases), off = [];

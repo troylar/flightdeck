@@ -237,7 +237,7 @@ def clean_skill(v):
     text = CF.js_json(snap) if snap_ok(snap) else ""
     if not text or CF.js_len(text) > 2048:
         return None
-    return {"id": sid, "rev": rev, "sha": sha, "snapshot": whole(snap)}
+    return {"id": sid, "rev": rev, "sha": sha, "snapshot": js_copy(whole(snap))}
 
 
 def clean_snapshot(v):
@@ -258,7 +258,7 @@ def clean_snapshot(v):
         items.append(item)
     ob = v.get("onBehalf", MISSING)
     out = {"by": CF.js_slice(v["by"], 80), "at": CF.js_slice(v["at"], 40), "onBehalf": CF.js_slice(ob, 80) if isinstance(ob, str) else "",
-           "records": list(v["records"]), "summary": CF.js_slice(v["summary"], 300), "counts": whole(v["counts"]), "items": items}
+           "records": list(v["records"]), "summary": CF.js_slice(v["summary"], 300), "counts": js_copy(whole(v["counts"])), "items": items}
     rq = v.get("request", MISSING)
     if isinstance(rq, str) and REQ_ID.match(rq):
         out["request"] = rq
@@ -1502,7 +1502,7 @@ def sanitize(o):
          "recorder": {"person": s(get(rec, "person"), 80), "session": CF.js_slice(get(rec, "session"), 40) if isinstance(get(rec, "session"), str) else None},
          "followUps": [], "shotsFrozen": o.get("shotsFrozen") is True, "jira": jira_check(o["jira"]) if truthy(o.get("jira", MISSING)) else {}, "pauses": [], "paused": None,
          "lineage": [t for t in o["lineage"] if isinstance(t, str) and LINEAGE.match(t)][-200:] if isinstance(o.get("lineage"), list) else [],
-         "state": o["state"] if isinstance(o.get("state"), str) and o["state"] in RUN_STATES else "running", "created": iso(o.get("created")) or "1970-01-01T00:00:00.000Z",
+         "state": o["state"] if own(RUN_STATES, o.get("state", MISSING)) else "running", "created": iso(o.get("created")) or "1970-01-01T00:00:00.000Z",
          "createdBy": s(o.get("createdBy"), 80), "tz": s(o.get("tz"), 60), "steps": {}, "gates": {}, "fields": {}, "log": [], "ended": None,
          "rev": count(o.get("rev", MISSING)), "savedAt": iso(o.get("savedAt")), "savedBy": s(o.get("savedBy"), 40)}
     for p in (o["pauses"][:500] if isinstance(o.get("pauses"), list) else []):
@@ -1554,7 +1554,7 @@ def sanitize(o):
         r["roles"][k] = s(get(rls, k), 80)
     for k in keys(o["steps"]):
         a = get(o["steps"], k)
-        if not truthy(a) or not isinstance(get(a, "s"), str) or get(a, "s") not in STEP_STATES or k == "__proto__":
+        if not truthy(a) or not own(STEP_STATES, get(a, "s")) or k == "__proto__":
             continue
         c = {"s": a["s"], "by": s(a.get("by"), 80), "at": iso(a.get("at"))}
         if s(a.get("reason"), 120):
@@ -1598,7 +1598,7 @@ def sanitize(o):
             hist = []
             for h in a["history"][-HISTORY_MAX:]:
                 hs = get(h, "s") if truthy(h) else MISSING
-                if not truthy(h) or not (isinstance(hs, str) and (hs in STEP_STATES or hs == "corrected")):
+                if not truthy(h) or not (own(STEP_STATES, hs) or hs == "corrected"):
                     continue
                 x = {"s": hs, "by": s(get(h, "by"), 80), "at": iso(get(h, "at"))}
                 if s(get(h, "reason"), 120):
@@ -1618,12 +1618,12 @@ def sanitize(o):
         r["steps"][k] = c
     for k in keys(o["gates"]):
         gt = get(o["gates"], k)
-        if not truthy(gt) or not isinstance(get(gt, "s"), str) or get(gt, "s") not in GATE_STATES or k == "__proto__":
+        if not truthy(gt) or not own(GATE_STATES, get(gt, "s")) or k == "__proto__":
             continue
         c = {"s": gt["s"], "by": s(gt.get("by"), 80), "at": iso(gt.get("at"))}
         if s(gt.get("reason"), 200):
             c["reason"] = s(gt.get("reason"), 200)
-        if isinstance(gt.get("was"), str) and gt["was"] in GATE_STATES:
+        if own(GATE_STATES, gt.get("was", MISSING)):
             c["was"] = gt["was"]
         c["approved"] = {}
         ap = gt.get("approved", MISSING)
@@ -1637,7 +1637,7 @@ def sanitize(o):
         if truthy(x) and iso(get(x, "at")):
             r["log"].append({"at": get(x, "at"), "by": s(get(x, "by"), 80), "what": s(get(x, "what"), 300)})
     e = o.get("ended", MISSING)
-    if truthy(e) and own(OUTCOMES, get(e, "outcome")) and isinstance(get(e, "outcome"), str) and iso(get(e, "at")):
+    if truthy(e) and own(OUTCOMES, get(e, "outcome")) and iso(get(e, "at")):
         r["ended"] = {"outcome": e["outcome"], "by": s(e.get("by"), 80), "byName": s(e.get("byName"), 80), "at": e["at"]}
     r["_bad_times"] = bad_times(o, r)
     why = ""
@@ -1656,12 +1656,12 @@ def sanitize(o):
             r["app"] = CF.js_slice(o["app"], 40)
         r["typesHash"] = s(o.get("typesHash"), 16)
         if o.get("payload") is not None and "payload" in o:
-            r["payload"] = whole(o["payload"])
+            r["payload"] = js_copy(whole(o["payload"]))
         pins = o.get("pins", MISSING)
         if truthy(pins) and truthy(get(pins, "children")) and keys(get(pins, "children")):
-            r["pins"] = {"children": whole(pins["children"])}
+            r["pins"] = {"children": js_copy(whole(pins["children"]))}
         if isinstance(o.get("migrations"), list):
-            r["migrations"] = whole(o["migrations"])
+            r["migrations"] = js_copy(whole(o["migrations"]))
         lv = o.get("living", MISSING)
         if lv is not MISSING and clean_living(lv):
             r["living"] = clean_living(lv)
@@ -2113,7 +2113,7 @@ def repairs(o):
     if pa is not MISSING and pa is not None:
         if not is_obj(pa):
             add("paused")
-        elif not (isinstance(o.get("state"), str) and o["state"] in RUN_STATES) or o["state"] == "running":
+        elif not own(RUN_STATES, o.get("state", MISSING)) or o.get("state") == "running":
             text(pa.get("by", MISSING), 80, "paused.by")
             text(pa.get("reason", MISSING), 120, "paused.reason")
     e = o.get("ended", MISSING)
@@ -2438,8 +2438,12 @@ def dep_verdict(key, text, read, beside=None):
             return path, "it doesn't match its version"
     if r.get("_name_only"):
         return path, "it can only be listed by name"
-    if r["_unrunnable"]:
-        return path, "it is read-only here (" + str(r["_unrunnable"]) + ")"
+    # depVerdict's order (PF.appjson.judgeRun, then why it's read-only, then R.canonical): a run from a newer Flightdeck
+    # (appjson.newerRun: its snapshot, fields or ids) first; else times and records it can't keep as written; then conflict
+    # copies beside it; then any other reason it's read-only; then anything not exactly as the app writes it.
+    why = r["_unrunnable"]
+    if why and (why not in ("detail-patterns", "test") or r["snapshot"] == ""):
+        return path, "it is read-only here (" + str(why) + ")"
     if r["_bad_times"]:
         return path, "some of its times can't be read"
     rp = repairs(o)
@@ -2448,15 +2452,17 @@ def dep_verdict(key, text, read, beside=None):
     d = drift(o, strip(r))
     if d:
         return path, "it holds what the app wouldn't keep as written (" + ", ".join(d[:5]) + ")"
-    cp = canonical(o, r)
-    if cp:
-        return path, "it isn't exactly as the app writes it, at " + cp
     beside = beside or {}
     lineage = r.get("lineage") or []
     copies = [n for n in beside if n != "run.json" and COPY.match(n)]
     lost = [n for n in beside if CAND.match(n) and (CAND.match(n).group(1) + "." + CAND.match(n).group(2)) not in lineage and same_run(beside[n].decode("utf-8", "replace")) != same_run(text if isinstance(text, str) else text.decode("utf-8"))]
     if copies or lost:
         return "runs/" + key + "/", "conflict copies beside it"
+    if why:
+        return path, "it is read-only here (" + str(why) + ")"
+    cp = canonical(o, r)
+    if cp:
+        return path, "it isn't exactly as the app writes it, at " + cp
     return None
 
 
