@@ -312,7 +312,12 @@
     if (g.keep) {
       var alts = g.alternatives || [];
       h += '<p class="small fx-keep">Kept for next time from ' + (g.members.length === 1 ? (g.first.keep.source.spread ? 'a spread' : 'a to-do') : g.members.length + ' to-dos and spreads') + '.' + (alts.length > 1 ? ' ' + alts.length + ' wordings; review and apply one, or write your own:' : '') + '</p>';
-      if (alts.length > 1) h += '<ol class="small fx-alts">' + alts.slice(0, 50).map(function (a) { return '<li>' + esc(a.text) + ' <span class="small">(' + a.members.length + ')</span></li>'; }).join('') + '</ol>' + (alts.length > 50 ? '<p class="small">and ' + (alts.length - 50) + ' more.</p>' : '');
+      /* Every wording, 50 at a time: Show more reveals the rest (OE). */
+      /* Each wording is keyed by the keep that first suggested it, never by its place in the list. */
+      var altNo = Object.create(null); alts.forEach(function (a, n) { altNo[a.members[0]] = n + 1; });
+      if (alts.length > 1) h += K.list(st, 'keep-alts-' + g.id, alts, { noun: 'wording',
+        draw: function (shown) { return '<ol class="small fx-alts">' + shown.map(function (a) { return '<li value="' + altNo[a.members[0]] + '" id="' + esc('kalt-' + K.domKey(g.id + '-' + a.members[0])) + '" tabindex="-1">' + esc(a.text) + ' <span class="small">(' + a.members.length + ')</span></li>'; }).join('') + '</ol>'; },
+        keyOf: function (a) { return a.members[0]; }, focusOf: function (key) { return K.byId('kalt-' + K.domKey(g.id + '-' + key)); } });
       /* A place pushed past what one decision names (two computers at once, OB): said, with each keep no decision names, its
          author's and, while it is over, the checklist owner's to withdraw. Nothing is applied or decided until it is within. */
       var MAX = C.MEMBERS_MAX, n = g.members.length, named = Object.create(null);

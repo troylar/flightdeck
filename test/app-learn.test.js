@@ -350,6 +350,23 @@ rule('A group over 500 stays recoverable: its owner sees the overflow and withdr
   assert.strictEqual(app.files('proposals/req-keep-').length, 499, 'the owner withdraws nothing once it is within the limit');
 });
 
+/* OE: more than 50 wordings page, so Show more reveals the 51st and on. */
+rule('A keep group\'s wordings page 50 at a time: Show more reveals the 51st', async () => {
+  const app = await setup(), id = await added(app, 'Post the release notes');
+  await keeps499(app, id);
+  app.choose('person-morgan'); await app.tick(80); await refresh(app, 1500); await openPage(app);
+  const d = await app.PF.repo.loadAll(app.fs, {}), G = app.PF.corrections.forProcess(d.runs, 'release-notes', d.corrDecisions, null, app.PF.learn.members(d.todos, d.runs, 'release-notes'))[0] || {}, g = G.id;
+  assert.ok(g && G.alternatives.length === 499, 'set-up: the group, with its wordings');
+  /* In the order the group gives them (first suggested first). */
+  const shows = (n) => app.html().indexOf('>' + G.alternatives[n].text + ' <') >= 0;
+  assert.ok(shows(0) && shows(49), 'the first 50 wordings');
+  assert.ok(!shows(50), 'the 51st waits for Show more');
+  const lid = 'keep-alts-' + g;
+  assert.ok(new RegExp('data-act="more" data-id="' + lid + '"').test(app.html()), 'a Show more for the wordings');
+  app.click('more', lid); await app.tick(120);
+  assert.ok(shows(50) && shows(99), 'Show more reveals the next 50');
+});
+
 rule('Promoting a staged version that includes a keep is the active owner\'s too', async () => {
   const { app } = await appliedKeep();
   await openPage(app);
