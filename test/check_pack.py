@@ -279,10 +279,31 @@ def check_living(z, man):
             if not isinstance(o, dict) or o.get("id") != name or CF.plan_why(o):
                 plans_bad.append(f["path"])
 
+    def has_work(key):
+        """Whether a packed run has work to check, from the packed originals alone (never the manifest): its run.json names a
+        work head or a receipt, or a packed to-do record (PF.todos.claims) names the run."""
+        run = packed("runs/" + key + "/run.json")
+        if not isinstance(run, dict):
+            return False
+        own = run.get("living")
+        if isinstance(own, dict) and (own.get("head") or own.get("receipt")):
+            return True
+        me = {"process": run.get("process"), "id": run.get("id")}
+        for path in by_path:
+            if path.startswith("proposals/") and path.endswith(".json"):
+                o = packed(path)
+                todo = isinstance(o, dict) and (o.get("format") in ("flightdeck-plan/4", "flightdeck-plan-status/4")
+                                                or (isinstance(o.get("features"), list) and "living-runs" in o["features"]))
+                if todo and o.get("run") == me:
+                    return True
+        return False
+
     n = 0
     for r in man["runs"]:
         lv = r.get("living")
         if not lv:
+            if has_work(r["key"]):
+                sys.exit("living: " + r["key"] + " has work its packed originals name (a work head, a receipt or a to-do record), but the manifest has no living section for it")
             continue
         n += 1
         run = packed("runs/" + r["key"] + "/run.json")
@@ -294,8 +315,11 @@ def check_living(z, man):
         reached.clear()
         plans_wanted.clear()
         facts_wanted.clear()
-        if lv["head"] != head:
+        if lv.get("head") != head:
             sys.exit("living: " + r["key"] + " names another work head than its run.json")
+        own_receipt = (run.get("living") or {}).get("receipt", "")
+        if own_receipt and (lv.get("receipt") or {}).get("id") != own_receipt:
+            sys.exit("living: " + r["key"] + " names another receipt than its run.json")
         whole, chain, closed, good_receipt, copies = check_run(run)
         if not lv.get("complete"):
             if man["status"] != "partial":

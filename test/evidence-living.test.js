@@ -536,6 +536,23 @@ rule('A scope record\'s seen is in the closure: a missing predecessor leaves the
   const ok = checkPack(full.zip);
   assert.ok(ok.ok, 'the control holds: ' + ok.out);
 });
+/* PF: whether a run's work is verified is worked out from the packed originals, never from the manifest alone: a run.json that
+   names a work head or a receipt, or a packed to-do record on the run, needs the manifest's living section. */
+rule('Python works out from the packed run.json whether its work is checked: the living section deleted with every record it rests on is refused', async () => {
+  if (!PY) return;
+  const W = await made({ todos: 2 }), { zip } = await pack(W.PF, new BytesFS(W.files), W.key);
+  const ok = checkPack(zip);
+  assert.ok(ok.ok && /living 1/.test(ok.out), 'the control holds: ' + ok.out);
+  const strip = (all) => repacked(W.PF, zip, (e, man) => {
+    delete man.runs[0].living;
+    if (all) man.files.filter((f) => /^proposals\//.test(f.path)).forEach((f) => { delete e[f.pack]; });
+    if (all) man.files = man.files.filter((f) => !/^proposals\//.test(f.path));
+  });
+  const bad = checkPack(await strip(true));
+  assert.ok(!bad.ok && /living/.test(bad.out) && bad.out.indexOf(W.key) >= 0, 'Python refuses it: ' + bad.out);
+  const bad2 = checkPack(await strip(false));
+  assert.ok(!bad2.ok && /living/.test(bad2.out), 'the section deleted alone is refused too: ' + bad2.out);
+});
 /* PB: Python requires each fact a to-do record rests on (support.fact), by that reference, as NF does for evidence plans: a
    fact removed from the pack, with a manifest made to match, is refused. */
 rule('Python requires every fact the work\'s records rest on: a fact removed from the pack, with a manifest made to match, is refused', async () => {
