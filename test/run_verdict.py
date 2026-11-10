@@ -1261,6 +1261,86 @@ def parse(text):
         return MISSING
 
 
+def stage_problem(info, folder):
+    """PF.publish.stageProblem: why a record isn't the stage record of this folder, or ''."""
+    st = info.get("stage")
+    if info.get("format") != CF.PUBLICATION_FORMAT2 or not isinstance(info.get("features"), list) or "staged" not in info["features"]:
+        return "It isn't a staged version."
+    if not STAGE.match(folder) or info.get("folder") != folder or "version" in info:
+        return "Folder name doesn't match the stage record."
+    p = st.get("proposed") if is_obj(st) else None
+    if not isinstance(p, (int, float)) or isinstance(p, bool) or not p >= 1 or math.floor(p) != p or p > 99999:
+        return "Its stage record doesn't say which number it proposes."
+    if not isinstance(info.get("stagedBy"), str) or not info["stagedBy"] or not isinstance(info.get("stagedAt"), str) or not info["stagedAt"]:
+        return "Its stage record doesn't say who staged it, or when."
+    return ""
+
+
+def check_stage(folder, name):
+    """CF.check_publication for a stage under staged/ (PF.publish.verify with stage): the same envelope, hashes, payload,
+    checklist and screenshot checks, with the stage record in place of the version's folder name and number."""
+    files = {n: CF.read_text(os.path.join(folder, n)) for n in ("map.md", "types.json", "publication.json")}
+    if files["publication.json"] is None:
+        return "syncing", "publication.json hasn't arrived", None
+    try:
+        info = json.loads(files["publication.json"], parse_constant=CF._no_constant)
+    except ValueError:
+        return "damaged", "publication.json is unreadable", None
+    if not isinstance(info, dict):
+        return "damaged", "publication.json isn't a publication record", None
+    two = info.get("format") == CF.PUBLICATION_FORMAT2
+    if info.get("format") != CF.PUBLICATION_FORMAT or info.get("features") is not None:
+        v = CF.judge("preflight-publication", info)
+        if not v["ok"]:
+            return "unusable", CF.newer_why(info, v["needs"]), info
+        if two and not CF.payload_ok(info):
+            return "unusable", CF.newer_why(info, CF.payload_needs(info)), info
+    if files["map.md"] is None or files["types.json"] is None:
+        return "syncing", "some files haven't arrived", info
+    if CF.text_hash(files["map.md"]) != info.get("mapHash") or CF.text_hash(files["types.json"]) != info.get("typesHash"):
+        return "damaged", "files don't match their publication record (still syncing, or edited by hand)", info
+    if two:
+        p = info["payload"]
+        if sorted((info.get("images") or {}).keys()) != sorted(p["images"].keys()):
+            return "unusable", "Its screenshots don't match its payload. Edited by hand.", info
+        if CF.sha(CF.read_bytes(os.path.join(folder, "map.md"))) != p["map"] or CF.sha(CF.read_bytes(os.path.join(folder, "types.json"))) != p["types"]:
+            return "damaged", "files don't match their publication record (still syncing, or edited by hand)", info
+    sp = stage_problem(info, name)
+    if sp:
+        return "unusable", sp, info
+    try:
+        types = json.loads(files["types.json"], parse_constant=CF._no_constant)
+    except ValueError:
+        return "damaged", "types.json is unreadable", info
+    if not isinstance(types, dict):
+        return "damaged", "types.json doesn't hold step types", info
+    try:
+        why = CF.unrunnable(files["map.md"], types)
+    except (TypeError, AttributeError, KeyError, ValueError):
+        why = CF.NEWER + " A step type in it can't be read."
+    if why:
+        return "unusable", why, info
+    parsed = CF.parse_map(files["map.md"])
+    unlisted2 = [f for f in CF.features(parsed, types) if f not in info["features"]]
+    if unlisted2:
+        return "unusable", "It uses %s, which its publication record doesn't list. Edited by hand." % ", ".join(unlisted2), info
+    bad = CF.pins_problem(info, parsed)
+    if bad:
+        return "unusable", bad, info
+    listed = info.get("images") if isinstance(info.get("images"), dict) else {}
+    unlisted = [src for src in CF.shot_sources(parsed) if src not in listed]
+    if unlisted:
+        return "unusable", "A screenshot it shows isn't in its publication record (%s). Edited by hand." % unlisted[0], info
+    for src, want in (info.get("images") or {}).items():
+        path = os.path.join(folder, *src.split("/"))
+        if not os.path.isfile(path):
+            return "syncing", "screenshot %s hasn't arrived" % src, info
+        data = CF.read_bytes(path)
+        if CF.fnv(data) != want or CF.sha(data) != info["payload"]["images"].get(src):
+            return "damaged", "screenshot %s doesn't match its record" % src, info
+    return "complete", "", info
+
+
 def version_verdict(r, read):
     """The version a run names, read as readRunOnly reads it: (ok, info), or None when it isn't read at all."""
     test = r.get("test") is True
@@ -1274,15 +1354,6 @@ def version_verdict(r, read):
     base = ("staged/" if test else "publications/") + r["process"] + "/" + r["folder"] + "/"
     names = ("map.md", "types.json", "publication.json")
     texts = {n: read(base + n) for n in names}
-    if test:
-        try:
-            info = json.loads(texts["publication.json"]) if texts["publication.json"] is not None else None
-        except ValueError:
-            info = None
-        if not is_obj(info) or texts["map.md"] is None or texts["types.json"] is None:
-            return base, False, None
-        st = info.get("stage") if is_obj(info.get("stage")) else {}
-        return base, True, {"folder": info.get("folder"), "mapHash": info.get("mapHash"), "version": st.get("proposed")}
     tmp = tempfile.mkdtemp(prefix="flightdeck-version-")
     try:
         vdir = os.path.join(tmp, r["folder"])
@@ -1291,11 +1362,16 @@ def version_verdict(r, read):
             if texts[n] is not None:
                 with open(os.path.join(vdir, n), "wb") as f:
                     f.write(texts[n])
-        state, why, info = CF.check_publication(vdir, r["folder"])
+        state, why, info = (check_stage if test else CF.check_publication)(vdir, r["folder"])
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     # A screenshot is verified when the run is judged in the folder; it isn't packed with a dependency's version.
     ok = state == "complete" or (state == "syncing" and why.startswith("screenshot "))
+    # A stage is its folder's process's (repo.readStage): a record or checklist naming another process is unusable.
+    if ok and test and (info.get("process") != r["process"] or CF.parse_map(texts["map.md"].decode("utf-8") if isinstance(texts["map.md"], bytes) else texts["map.md"]).get("process") != r["process"]):
+        ok = False
+    if ok and test:
+        info = {"folder": info.get("folder"), "mapHash": info.get("mapHash"), "version": info["stage"]["proposed"]}
     return base, ok, info
 
 

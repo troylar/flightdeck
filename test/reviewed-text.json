@@ -25,8 +25,8 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "da14af2ee2f43b739b36e85c57b6bdcb5ddb58a78755f511d68cbb18c27abca6",
-      "reviewed": "NF: scope records' seen followed in the closure; checked for direct writes and unconditional deletes"
+      "sha256": "b63ba2da4e36403ae5ac3ebdabe2d27af3e2a24215f9f59a445aecb55c7fc790",
+      "reviewed": "NC: staged dependency versions verified in full; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "8828d4ade3981b60bb45d9f25431de63af40dd49e2385a68bcb06d34ddf5e56c",

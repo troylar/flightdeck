@@ -8,7 +8,7 @@ const assert = require('assert');
 const fs = require('fs'), os = require('os'), path = require('path'), cp = require('child_process');
 const { rule, run } = require('./harness');
 const { BytesFS } = require('./evidence-fixture');
-const { pack, PY, checkPack, repacked, forced } = require('./living-worlds');
+const { pack, PY, checkPack, repacked, forced, roleWorlds } = require('./living-worlds');
 const C = require('./run-corpus');
 
 let built = null;
@@ -99,6 +99,54 @@ rule('the export names a dependency exactly when the app refuses it, and Python 
   }
   console.log('    ' + sample.length + ' sampled cases through the export');
   assert.strictEqual(off.length, 0, off.length + ' differ:\n  ' + off.slice(0, 40).join('\n  '));
+});
+
+/* NC: a test run's dependency on its stage is verified in full by both readers, as PF.publish.verify with stage: the envelope,
+   the hashes and payload, the stage record (folder, proposed number, who and when) and what the checklist uses, never only that
+   its three files are there. */
+rule('a test run\'s staged version is verified in full by the app and Python alike: every damaged stage file is refused at the same path', async () => {
+  const X = (await roleWorlds()).find((w) => w.role === 'fulfills'), PF = X.PF, P = PF.publish;
+  const r = JSON.parse(X.files[X.path]), md = String(X.files['publications/' + r.process + '/' + r.folder + '/map.md']);
+  const b = P.build(md, { by: 'person-avery', changes: 'Try it', now: '2026-11-01T10:00:00.000Z', stage: true, existing: [{ version: r.version }], rand: 'abcd1234', app: '4.0.0' });
+  const bytes = (t) => new Uint8Array(Buffer.from(t, 'utf8'));
+  const pub = P.verify(b.folder, b.files, P.exactOf({ 'map.md': bytes(b.files['map.md']), 'types.json': bytes(b.files['types.json']) }), { stage: true });
+  assert.ok(pub.ok, pub.why);
+  const t = PF.run.create(pub, { id: r.id, test: true, title: 'Try it', roles: r.roles, by: 'person-avery', session: 's-1', now: '2026-11-01T10:05:00.000Z', tz: 'UTC', app: '4.0.0', details: r.details });
+  const own = {}; Object.keys(t).forEach((k) => { if (k[0] !== '_') own[k] = t[k]; });
+  const text = JSON.stringify(own, null, 2), dir = 'staged/' + r.process + '/' + b.folder + '/', info = JSON.parse(b.files['publication.json']);
+  const variants = [['as staged', {}]];
+  const rec = (name, f) => { const o = JSON.parse(JSON.stringify(info)); f(o); variants.push([name, { 'publication.json': JSON.stringify(o, null, 2) }]); };
+  variants.push(['map.md edited', { 'map.md': md + '\nEdited.\n' }], ['types.json edited', { 'types.json': b.files['types.json'] + ' ' }], ['map.md missing', { 'map.md': null }], ['publication.json not JSON', { 'publication.json': '{' }]);
+  rec('payload map hash wrong', (o) => { o.payload.map = '0'.repeat(64); });
+  rec('payload types hash wrong', (o) => { o.payload.types = '0'.repeat(64); });
+  rec('stagedBy missing', (o) => { delete o.stagedBy; });
+  rec('stagedAt missing', (o) => { delete o.stagedAt; });
+  rec('stage missing', (o) => { delete o.stage; });
+  rec('stage.proposed not a number', (o) => { o.stage.proposed = '2'; });
+  rec('stage.proposed 0', (o) => { o.stage.proposed = 0; });
+  rec('a version number', (o) => { o.version = 2; });
+  rec('another folder', (o) => { o.folder = 'stage-zzzz9999'; });
+  rec('staged not listed', (o) => { o.features = o.features.filter((f) => f !== 'staged'); });
+  rec('a feature this copy doesn\'t know', (o) => { o.features = o.features.concat(['zz-later']); });
+  rec('format /1', (o) => { o.format = 'preflight-publication/1'; delete o.features; });
+  rec('mapHash wrong', (o) => { o.mapHash = '00000000'; });
+  rec('another process', (o) => { o.process = 'other-proc'; });
+  const worlds = [], cases = [];
+  for (const [name, change] of variants) {
+    const files = Object.assign({}, X.files, { [X.path]: text });
+    Object.keys(b.files).forEach((n) => { files[dir + n] = b.files[n]; });
+    Object.keys(change).forEach((n) => { if (change[n] == null) delete files[dir + n]; else files[dir + n] = change[n]; });
+    const js = await C.jsVerdict(PF, files, X.depKey), w = {};
+    Object.keys(files).forEach((p) => { if (/^(publications|staged)\//.test(p) || (p.indexOf('runs/' + X.depKey + '/') === 0 && p !== X.path)) w[p] = String(files[p]); });
+    worlds.push({ world: 'stage-' + cases.length, files: w });
+    cases.push({ id: cases.length, role: 'stage-' + cases.length, key: X.depKey, name, text, js });
+  }
+  assert.strictEqual(cases[0].js, null, 'the test run on its stage holds: ' + JSON.stringify(cases[0].js));
+  assert.ok(cases.slice(1).every((c) => c.js), 'the app refuses every damaged stage: ' + cases.filter((c) => !c.js).map((c) => c.name).join(', '));
+  if (!PY) return;
+  const py = pyVerdicts(worlds, cases), off = [];
+  cases.forEach((c) => { const p = py[c.id], want = c.js ? c.js.path : null, got = p ? p.path : 'no answer'; if (want !== got) off.push(c.name + ': the app ' + (want ? 'refuses at ' + want : 'accepts') + ', Python ' + (got ? 'refuses at ' + got + ' (' + (p && p.why) + ')' : 'accepts')); });
+  assert.strictEqual(off.length, 0, off.join('\n  '));
 });
 
 run();
