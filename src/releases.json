@@ -1,7 +1,7 @@
 [
   {
     "version": "4.0.0",
-    "date": "2026-11-09",
+    "date": "2026-11-10",
     "headline": "Living runs: to-dos a run takes on while it runs",
     "changes": [
       {
@@ -52,6 +52,35 @@
         "title": "Settle a to-do by running another checklist",
         "now": "A to-do can name a checklist whose run settles it. Run this checklist on the to-do starts it from the to-do's own plan, and the run leads back to the to-do. When it completes with a result the to-do accepts, Accept asks for the to-do done on that run; a person still decides, and a later change to that run is said. flightdeck todo does the same.",
         "where": "A run's screen, flightdeck todo add --checklist and suggest-done --evidence-run, the living-run skill"
+      },
+      {
+        "kind": "new",
+        "area": "Runs",
+        "title": "Plan versus now: what was asked and what landed, each out of its own total",
+        "now": "A run with to-dos shows chips under its counts: additions (how many asked were applied, and how many are queued for the recorder or waiting for approval), resolutions and where moved work went, each spread's coverage, and changes applied out of those asked. A request that hasn't landed is never counted as done. The checklist, a loop's items and the to-dos stay on their own lines.",
+        "where": "A run's screen, its receipt"
+      },
+      {
+        "kind": "new",
+        "area": "Runs",
+        "title": "A run with to-dos ends with a receipt that says what it ended with",
+        "now": "Ending a run with to-dos first writes a receipt: its work, counts, coverage, evidence and keeps. The same save then ends the run and names it. If anything it rests on can't be read, the run isn't ended, and Flightdeck says why. What arrives after the end shows apart, under After it ended, and never changes the outcome. flightdeck run says whether the receipt is there.",
+        "where": "Finishing a run, the receipt, flightdeck run"
+      },
+      {
+        "kind": "improved",
+        "area": "Evidence",
+        "title": "Evidence packs hold what a run's to-dos rest on",
+        "now": "A pack of a run with to-dos holds its to-do records: the chain of applications, the requests and decisions behind them, facts and runs used as evidence, its loops' records, its receipt, and the proof of what it kept for next time. Anything missing, unreadable or changing makes the pack partial and is named. The manifest's living section can be checked on its own.",
+        "where": "Export evidence, flightdeck export"
+      },
+      {
+        "kind": "improved",
+        "area": "Loops",
+        "title": "A loop's approval stays put while a story's run can't be read",
+        "before": "In 3.0, when a story's run or the version it runs on couldn't be read, the loop read that story's result as none and sent its approval back for review.",
+        "now": "The approval stays as it is and the loop's gate waits until the run and its version read again. If nothing changed, it stays approved; if the result changed, it goes back for review then. This applies to every loop, with or without spreads or to-dos.",
+        "where": "A run's loop"
       }
     ]
   },

@@ -178,6 +178,8 @@ Ask for one change with `flightdeck todo add --text "..." --phase <phase id>` (o
 
 Exit code 0 is requested, already requested, or (with `--dry-run`) what it would write; 4 nothing written, because a to-do record or part of the folder couldn't be read; 1 refused (a key already used for a different request, or a change the run doesn't allow, with why); 5 no such run. If it can't confirm the save, retry with the same key, never a new one. The formats are in docs/apps.md of the Flightdeck repository.
 
+A run with requests but no to-do applied yet lists them too (`todoRequests`). How a run stands is three numbers, each out of its own total: the checklist's steps, a loop's items and the run's to-dos; a request not applied yet is waiting or queued, never counted as applied. A run with to-dos ends with a receipt, a record in `proposals/` (`"kind": "receipt"`) the recorder's window writes as it ends the run, which the run then names (`living.receipt`). `flightdeck run --contract 2` gives its `receipt`: `confirmed` means it is there and says the run's work and outcome; `missing` or `mismatch` is a problem (exit 4) named by its path; `none` is a run that ended before receipts. Anything that arrived after the end is later, never part of the outcome.
+
 ### Spreads
 
 A spread is a requirement every item of a loop must meet, like "security sign-off on every open story". It is asked on the parent run and met by an addition on each item's own run, which that run's own people decide; the parent's approval never stands for theirs.
@@ -210,6 +212,6 @@ It is refused, with why, unless that run completed with a result the to-do accep
 
 ## Evidence packs
 
-**Evidence packs:** when a person asks for a run's evidence, run `flightdeck export <team folder> --run <process>/<id> --out <a folder outside the team folder>` (or `--process <id> --from YYYY-MM-DD --through YYYY-MM-DD --tz Area/City` for the runs started on those days). It only reads. Exit code 0 is a complete pack, 4 a partial one (its top lists what changed or was missing), 1 no pack.
+**Evidence packs:** when a person asks for a run's evidence, run `flightdeck export <team folder> --run <process>/<id> --out <a folder outside the team folder>` (or `--process <id> --from YYYY-MM-DD --through YYYY-MM-DD --tz Area/City` for the runs started on those days). It only reads. Exit code 0 is a complete pack, 4 a partial one (its top lists what changed or was missing), 1 no pack. A run with to-dos is packed with every record its work rests on (its applications, requests and decisions, the facts and runs used as evidence, its loops' records, its receipt); anything missing, unreadable or changing makes the pack partial, named by path.
 
 Where the pack goes, and what to give the person with it, is in *What you may write* in `AGENTS.md`.

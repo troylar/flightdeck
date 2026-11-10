@@ -48,6 +48,8 @@ For a version published before 2.0, `skills/<name>.json`:
 
 - **Linked runs:** a `{run.process}` step's child is in `steps.<stepId>.child` (`process`, `id`, `inputs`, `failed`, and in a 2.0 run also `folder` and `retired`); the child run's `parent` names `process`, `id` and `step`. A 2.0 run's `pins.children` records the exact version each linked step starts, by step ID.
 
+- **A run with to-dos** (Flightdeck 4.0): `living` is `{ "head": "<its last application>" }`, and once it has ended with its receipt, `{ "head": "…", "receipt": "req-receipt-<24 hex>" }`. The receipt is `proposals/req-receipt-<24 hex>.json`: `{ "format": "flightdeck-plan/4", "features": ["living-runs"], "app": "4.0.0", "kind": "receipt", "id": "req-receipt-…", "run": { "process", "id" }, "seen": [<at most 50 record ids>], "by": "<person>", "at": "…", "outcome": "Completed" | "Stopped early" | "Cancelled", "head": "<the run's last application>", "counts": { "steps", "answered", "items", "cleared", "abandoned", "todos", "resolved", "done", "wont", "moved", "ticket", "toRun", "link", "asked", "added", "queued", "waiting", "held", "disputed", "declined", "applied", "pending", "owed", "covered" }, "coverage": [{ "spread", "owed", "resolved" }], "evidence": [{ "todo", "fact", "content" } or { "todo", "plan", "run", "answer", "result" }], "keeps": [<keep ids>] }`. Its id comes from the run and what it says, not from who wrote it or when. It is written once, by the recorder's window.
+
 A version published by Flightdeck 1.16 or later can list the corrections it includes in `publication.json`: `"corrections": [{ "id": "g…", "result": { "step": "pods", "sig": "…" } }]` (`id` is a correction group, as in the decision files below).
 
 ## Corrections

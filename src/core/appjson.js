@@ -119,7 +119,7 @@ PF.appjson = (function () {
     runs: { runs: [orResult(orResult(SUMMARY2, RESULT2), { todoCounts: TODO_COUNTS })], planned: [extend(SCHEMA.runs.planned[0], { format: 'string', pin: opt({ folder: 'string', version: 'number' }) })], testRunsLeftOut: 'number' },
     run: { run: opt(orResult(orResult(orResult(extend(SUMMARY2, { roles: [ROLE], pins: map(PIN), migrations: [MIGRATION],
       steps: [orResult(orSearch(extend(SCHEMA.run.run.$or[0].steps[0], { values: map(VALUE), evidence: [EVIDENCE2], applies: APPLIES, held: opt('string') }), 'run'), { accepts: opt(['string']), result: opt('string'), heldBy: opt(HELD_BY), awaiting: opt(AWAITING) })],
-      gates: [extend(SCHEMA.run.run.$or[0].gates[0], { applies: APPLIES })], followUps: [FOLLOWUP2] }), RESULT2), { resultsChanged: [CHANGED] }), { todoCounts: TODO_COUNTS, todos: [TODO_ROW], todoRequests: [TODO_REQ], todoHolds: ['string'] })) },
+      gates: [extend(SCHEMA.run.run.$or[0].gates[0], { applies: APPLIES })], followUps: [FOLLOWUP2] }), RESULT2), { resultsChanged: [CHANGED] }), { todoCounts: TODO_COUNTS, todos: [TODO_ROW], todoRequests: [TODO_REQ], todoHolds: ['string'], receipt: opt({ id: 'string', state: 'string', why: opt('string') }) })) },
     /* flightdeck draft check (2.13): the verdict the Publish dialog gives the text, from the folder as it is now. from: the draft
        in maps/drafts/ (ref its path) or the file given with --from (ref null); rev: SHA-256 of the text checked. */
     draftCheck: { process: 'string', from: { kind: 'string', ref: opt('string'), rev: 'string' }, checks: { blockers: ['string'], suggestions: ['string'],
@@ -403,7 +403,9 @@ PF.appjson = (function () {
     return out;
   }
   /* ---- Living runs (4.0): a run's to-dos, as the reader read them (r._tdv). Without it, nothing is known: held. ---- */
-  function living(r) { return !!r && !r._unrunnable && !!r.living; }
+  /* A run with to-dos landed (r.living), or with to-do records that haven't landed yet (r._tdv set by the reader): pending
+     requests are visible before the run gains living (4.0 slice 6). A run with neither prints exactly as before. */
+  function living(r) { return !!r && !r._unrunnable && (!!r.living || !!r._tdv); }
   function todoCounts(r) {
     var V = r._tdv;
     if (!V) return { open: 0, total: 0, waiting: 0, held: true };
@@ -549,6 +551,8 @@ PF.appjson = (function () {
     });
     out.gates.forEach(function (g, pi) { g.applies = R.applies(r, mp, pi).applies; });
     if (living(r)) { var tr = todoRows(r, nameOf); out.todoCounts = base.todoCounts; out.todos = tr.todos; out.todoRequests = tr.todoRequests; out.todoHolds = todoHolds(r); }
+    /* The receipt an ended living run names (4.0 slice 6), as PF.receipts.stateOf reads it (r._rcpt, set by the reader). */
+    if (living(r) && r._rcpt) out.receipt = { id: s(r.living.receipt || ''), state: s(r._rcpt.state), why: r._rcpt.why ? s(r._rcpt.why) : null };
     return { run: out };
   }
 

@@ -181,6 +181,7 @@ test/compat-pass.test.js -
 test/compat-results.test.js -
 test/compat-loops.test.js -
 test/compat-todos.test.js -
+test/compat-receipts.test.js -
 test/compat-teamvalues.test.js -
 test/compat-typesave.test.js -
 test/skills-parity.test.js -

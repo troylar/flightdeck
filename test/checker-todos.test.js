@@ -62,11 +62,18 @@ function valid() {
   const eva = T.buildStatus({ kind: 'application', proposal: evt.id, run: RUN, seen: [evt.id], by: 'person-avery', at: AT, authority: { decision: dec.name.replace(/\.json$/, '') }, previous: '', effect: eve, writer: 'w1', rev: '0a1b2c42' });
   const evp = Object.assign({}, evd, { result: '', run: { process: 'smoke-test', id: 'k2' } }), epb = { op: 'done', todo: T.todoIdFor(cid), evidence: evp, reason: 'Ran it' }, epe = T.effectOf(epb);
   const evc = T.buildProposal({ kind: 'compound', run: RUN, id: D.requestId(epb.todo, evp), by: 'person-avery', seen: [], at: AT, body: epb, decision: { by: 'person-avery', consequence: '0123456789abcdef' }, application: { previous: '', effect: epe, fingerprint: T.fingerprint(epe) } });
+  /* Receipts (4.0 slice 6): one a living run ended with, naming coverage, both kinds of evidence and a keep, and a bare one. */
+  const RC = PF.receipts, cnt = {}; RC.COUNTS.forEach((k, i) => { cnt[k] = i % 5; });
+  const rca = RC.build({ run: RUN, by: 'person-avery', at: AT, app: '4.0.0', head: sga.name.replace(/\.json$/, ''), outcome: 'Completed', seen: [sga.name.replace(/\.json$/, ''), kpa.id].sort(), counts: cnt,
+    coverage: [{ spread: sp.spread, owed: 3, resolved: 2 }], evidence: [{ todo: T.todoIdFor(tool.id), fact: fct.id, content: '0123456789abcdef' }, Object.assign({ todo: ltd }, evd)], keeps: [kpa.id] });
+  const zero = {}; RC.COUNTS.forEach((k) => { zero[k] = 0; });
+  const rcb = RC.build({ run: RUN, by: 'person-blake', at: AT, head: cid, outcome: 'Stopped early', seen: [], counts: zero, coverage: [], evidence: [], keeps: [] });
   return [[tool.id + '.json', tool], [asked.id + '.json', asked], [person.id + '.json', person], [mv.id + '.json', mv], [cid + '.json', comp], [g.id + '.json', g], [rv.id + '.json', rv], [dec.name, dec.file], [app.name, app.file],
     [sp.id + '.json', sp], [inc.id + '.json', inc], [bnd.id + '.json', bnd], [stp.id + '.json', stp], [fil.id + '.json', fil], [sap.name, sap.file], [fap.name, fap.file],
     [fct.id + '.json', fct], [fbk.id + '.json', fbk], [fst.id + '.json', fst], [fcm.id + '.json', fcm], [sug.id + '.json', sug], [sga.name, sga.file],
     [kpa.id + '.json', kpa], [kpe.id + '.json', kpe], [kna.id + '.json', kna], [knb.id + '.json', knb],
-    [lnk.id + '.json', lnk], [evt.id + '.json', evt], [eva.name, eva.file], [evc.id + '.json', evc]];
+    [lnk.id + '.json', lnk], [evt.id + '.json', evt], [eva.name, eva.file], [evc.id + '.json', evc],
+    [rca.id + '.json', rca], [rcb.id + '.json', rcb]];
 }
 /* Each record damaged one way at a time: every field dropped, retyped and nulled, an extra field, a newer or unmarked format,
    over-long text, a prototype key, another file name. */
@@ -152,7 +159,8 @@ rule('The checker refuses exactly the to-do records the app refuses, over every 
   assert.ok(cs.some((c) => c.label === 'valid' && JSON.parse(c.text).support), 'the corpus has a done on evidence');
   assert.ok(cs.filter((c) => c.label === 'valid' && JSON.parse(c.text).kind === 'keep').length === 4, 'the corpus has four keeps');
   assert.ok(cs.some((c) => c.label === 'valid' && JSON.parse(c.text).checklist), 'the corpus has a checklist-linked addition');
-  assert.strictEqual(cs.filter((c) => c.label === 'valid' && (JSON.parse(c.text).evidence || ((JSON.parse(c.text).effect || {}).evidence))).length, 3, 'the corpus has a tool\'s and a person\'s done on a run, and an application of one');
+  assert.strictEqual(cs.filter((c) => c.label === 'valid' && JSON.parse(c.text).kind === 'receipt').length, 2, 'the corpus has two receipts');
+  assert.strictEqual(cs.filter((c) => c.label === 'valid' && JSON.parse(c.text).kind !== 'receipt' && (JSON.parse(c.text).evidence || ((JSON.parse(c.text).effect || {}).evidence))).length, 3, 'the corpus has a tool\'s and a person\'s done on a run, and an application of one');
   const pyOut = JSON.parse(cp.execFileSync(py, ['-I', '-B', '-c', DRIVER, DIR], { input: JSON.stringify(cs), encoding: 'utf8', maxBuffer: 256 * 1048576 }));
   const off = [];
   const idn = (c) => IDN.some((v) => c.label === 'link ' + v || c.label === 'origin link ' + v || c.label === 'entry link ' + v), un = [];
@@ -228,6 +236,44 @@ rule('A checklist-linked addition or a done on a run with more than one damaged 
   assert.deepStrictEqual(off, [], off.length + ' first reasons differ');
 });
 
+rule('A receipt with more than one damaged field, or at a limit, is refused by the checker for the same field first as the app', () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const all = valid().filter(([n, f]) => f.kind === 'receipt'), RC = PF.receipts;
+  assert.strictEqual(all.length, 2, 'two receipts');
+  const cases = [];
+  all.forEach(([name, f]) => {
+    const o = JSON.parse(T.text(f));
+    const edit = (label, fn) => { const c = JSON.parse(JSON.stringify(o)); fn(c); cases.push({ name, label: label + ' (' + name + ')', text: JSON.stringify(c) }); };
+    edit('run bad, at bad', (c) => { c.run = { process: 'x' }; c.at = 'now'; });
+    edit('seen twice, outcome bad', (c) => { c.seen = ['req-a-0123456789abcdef01234567', 'req-a-0123456789abcdef01234567']; c.outcome = 'Done'; });
+    edit('seen over the limit', (c) => { c.seen = Array.from({ length: RC.LIMITS.seen + 1 }, (_, i) => 'req-a-' + (i + '').padStart(24, '0')); });
+    edit('seen at the limit', (c) => { c.seen = Array.from({ length: RC.LIMITS.seen }, (_, i) => 'req-a-' + (i + '').padStart(24, '0')); });
+    edit('head bad, counts missing one', (c) => { c.head = 'x'; delete c.counts.covered; });
+    edit('counts over the limit, extra', (c) => { c.counts.steps = RC.LIMITS.count + 1; c.counts.more = 1; });
+    edit('counts at the limit', (c) => { c.counts.steps = RC.LIMITS.count; });
+    edit('counts fractional', (c) => { c.counts.items = 1.5; });
+    edit('coverage twice', (c) => { c.coverage = [{ spread: 'sp-' + '0'.repeat(24), owed: 1, resolved: 1 }, { spread: 'sp-' + '0'.repeat(24), owed: 1, resolved: 0 }]; });
+    edit('coverage over the limit', (c) => { c.coverage = Array.from({ length: RC.LIMITS.spreads + 1 }, (_, i) => ({ spread: 'sp-' + (i + '').padStart(24, '0'), owed: 1, resolved: 0 })); });
+    edit('evidence both kinds bad', (c) => { c.evidence = [{ todo: 'x', fact: 'y', content: 'z' }, { todo: 'td-' + '1'.repeat(24), plan: 'p', run: { process: 'a' }, answer: ' ', result: 'r'.repeat(61) }]; });
+    edit('evidence answer at the limit', (c) => { c.evidence = [{ todo: 'td-' + '1'.repeat(24), plan: 'plan-ev-' + '2'.repeat(24), run: { process: 'smoke-test', id: 'k1' }, answer: 'a'.repeat(RC.LIMITS.answer), result: '' }]; });
+    edit('evidence names a to-do twice', (c) => { const e = { todo: 'td-' + '1'.repeat(24), fact: 'req-a-' + '0'.repeat(24), content: '0123456789abcdef' }; c.evidence = [e, e]; });
+    edit('keeps twice, by bad', (c) => { c.keeps = ['req-keep-' + '0'.repeat(24), 'req-keep-' + '0'.repeat(24)]; c.by = 'a b'; });
+    edit('keeps bad id', (c) => { c.keeps = ['keep-1']; });
+    edit('id moved', (c) => { c.outcome = c.outcome === 'Completed' ? 'Cancelled' : 'Completed'; });
+    edit('by moved only', (c) => { c.by = 'person-morgan'; c.at = '2026-11-10T00:00:00Z'; });
+    edit('unknown field', (c) => { c.extra = 1; c['10'] = 2; });
+  });
+  const pyOut = JSON.parse(cp.execFileSync(py, ['-I', '-B', '-c', DRIVER, DIR], { input: JSON.stringify(cases), encoding: 'utf8', maxBuffer: 64 * 1048576 }));
+  const off = [];
+  cases.forEach((c, i) => {
+    const j = jsRefuses(c), x = pyOut[i], p = Array.isArray(x) ? x[0] : x;
+    if (j !== p) off.push(c.label + ' · app: ' + (j || 'reads it') + ' · checker: ' + (p || 'reads it'));
+  });
+  assert.deepStrictEqual(off, [], off.length + ' first reasons differ');
+  assert.ok(cases.some((c) => /by moved only/.test(c.label) && !jsRefuses(c)), 'who and when never change its id');
+  assert.ok(cases.some((c) => /id moved/.test(c.label) && /Its id isn't/.test(jsRefuses(c))), 'what it says does');
+});
 rule('A keep with more than one damaged field is refused by the checker for the same field first as the app', () => {
   const py = python();
   if (!py) { console.log('  (skipped: no Python on this computer)'); return; }

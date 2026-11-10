@@ -2377,6 +2377,159 @@ def keep_why(o, name):
     return "is a keep that isn't in its format: " + errors[0] if errors else ""
 
 
+R_KEYS = ["format", "features", "app", "kind", "id", "run", "seen", "by", "at", "outcome", "head", "counts", "coverage", "evidence", "keeps"]
+R_COUNTS = ["steps", "answered", "items", "cleared", "abandoned", "todos", "resolved", "done", "wont", "moved", "ticket", "toRun", "link",
+            "asked", "added", "queued", "waiting", "held", "disputed", "declined", "applied", "pending", "owed", "covered"]
+R_LIMITS = {"refs": 500, "spreads": 50, "count": 1000000, "answer": 80, "result": 60, "seen": 50}
+R_OUTCOMES = ["Completed", "Stopped early", "Cancelled"]
+R_STATUS = re.compile(r"^req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24}\.status-[a-z0-9][a-z0-9-]{0,39}-[0-9a-f]{8}\Z")
+R_FP = re.compile(r"^[0-9a-f]{16}\Z")
+R_PLAN = re.compile(r"^plan-ev-[0-9a-f]{24}\Z")
+
+
+def _rrec(x):
+    return _tstr(x) and (T_REQ.match(x) is not None or R_STATUS.match(x) is not None)
+
+
+def _rcount(v):
+    return _twhole(v, 0, R_LIMITS["count"])
+
+
+def _rrun(r):
+    return isinstance(r, dict) and len(r) == 2 and _tstr(r.get("process")) and T_PROC.match(r["process"]) is not None and _tstr(r.get("id")) and T_RUN.match(r["id"]) is not None
+
+
+def _rdups(xs):
+    return any(xs.index(x) != i for i, x in enumerate(xs))
+
+
+def _revidence(v, i, err, errors):
+    w = '"evidence" ' + str(i + 1)
+    if not isinstance(v, dict):
+        err(w + ' is {"todo", "fact", "content"} or {"todo", "plan", "run", "answer", "result"}.')
+        return None
+    n0 = len(errors)
+    if "fact" in v:
+        _konly(v, ["todo", "fact", "content"], w, err)
+        if not _tstr(v.get("todo")) or not T_TD.match(v["todo"]):
+            err(w + ' "todo" is a to-do id.')
+        if not _tstr(v.get("fact")) or not T_REQ.match(v["fact"]):
+            err(w + ' "fact" is a fact\'s id.')
+        if not _tstr(v.get("content")) or not R_FP.match(v["content"]):
+            err(w + ' "content" is the fact\'s content fingerprint.')
+        return None if len(errors) > n0 else {"todo": v["todo"], "fact": v["fact"], "content": v["content"]}
+    _konly(v, ["todo", "plan", "run", "answer", "result"], w, err)
+    if not _tstr(v.get("todo")) or not T_TD.match(v["todo"]):
+        err(w + ' "todo" is a to-do id.')
+    if not _tstr(v.get("plan")) or not R_PLAN.match(v["plan"]):
+        err(w + ' "plan" is the to-do\'s evidence plan (plan-ev-...).')
+    if not _rrun(v.get("run")):
+        err(w + ' "run" is {"process", "id"}.')
+    a = v.get("answer")
+    if not _tstr(a) or not js_trim(a) or js_len(a) > R_LIMITS["answer"] or T_CONTROL.search(a):
+        err(w + ' "answer" is the run\'s answer, as Flightdeck records it.')
+    rs = v.get("result")
+    if not _tstr(rs) or js_len(rs) > R_LIMITS["result"] or T_CONTROL.search(rs):
+        err(w + ' "result" is the run\'s result, at most ' + str(R_LIMITS["result"]) + " characters.")
+    if len(errors) > n0:
+        return None
+    return {"todo": v["todo"], "plan": v["plan"], "run": {"process": v["run"]["process"], "id": v["run"]["id"]}, "answer": a, "result": rs}
+
+
+def receipt_why(o, name):
+    """PF.receipts.cleanFile: '' when the app reads this receipt, else why it refuses it (the same first reason)."""
+    if not _tstr(o.get("id")) or not T_REQ.match(o["id"]):
+        return "is a receipt without a request id"
+    if _tstr(name) and not todo_request_file(name, o["id"]):
+        return "is a receipt whose name isn't its id"
+    errors = []
+    err = errors.append
+    _konly(o, R_KEYS, "It", err)
+    rec = {}
+    run = o.get("run")
+    if not _rrun(run):
+        err('"run" is {"process": <checklist>, "id": <run id>}.')
+    else:
+        rec["run"] = run
+    seen = o.get("seen")
+    if not isinstance(seen, list) or len(seen) > R_LIMITS["seen"] or not all(_rrec(x) for x in seen):
+        err('"seen" is a list of at most ' + str(R_LIMITS["seen"]) + " to-do record ids.")
+    elif _rdups(seen):
+        err('"seen" names a record twice.')
+    else:
+        rec["seen"] = list(seen)
+    if not _tstr(o.get("by")) or not T_PERSON.match(o["by"]):
+        err('"by" is the ID from people.json of the person who ended the run.')
+    if not _tstr(o.get("at")) or not T_ISO.match(o["at"]):
+        err('"at" is a date and time.')
+    if not _tstr(o.get("outcome")) or o["outcome"] not in R_OUTCOMES:
+        err('"outcome" is Completed, Stopped early or Cancelled.')
+    else:
+        rec["outcome"] = o["outcome"]
+    h = o.get("head")
+    if not _tstr(h) or not (T_REQ.match(h) or R_STATUS.match(h)):
+        err('"head" is the run\'s last application.')
+    else:
+        rec["head"] = h
+    c = o.get("counts")
+    if not isinstance(c, dict):
+        err('"counts" is {' + ", ".join('"' + k + '"' for k in R_COUNTS) + "}.")
+    else:
+        n0 = len(errors)
+        _konly(c, R_COUNTS, '"counts"', err)
+        for k in R_COUNTS:
+            if not _rcount(c.get(k)):
+                err('"counts" "' + k + '" is a whole number from 0 to ' + str(R_LIMITS["count"]) + ".")
+        if len(errors) == n0:
+            rec["counts"] = {k: c[k] for k in R_COUNTS}
+    cov = o.get("coverage")
+    if not isinstance(cov, list) or len(cov) > R_LIMITS["spreads"]:
+        err('"coverage" is a list of at most ' + str(R_LIMITS["spreads"]) + " spreads.")
+    else:
+        cv = []
+        for i, x in enumerate(cov):
+            w = '"coverage" ' + str(i + 1)
+            if not isinstance(x, dict):
+                err(w + ' is {"spread", "owed", "resolved"}.')
+                continue
+            n1 = len(errors)
+            _konly(x, ["spread", "owed", "resolved"], w, err)
+            if not _tstr(x.get("spread")) or not T_SP.match(x["spread"]):
+                err(w + ' "spread" is a spread id.')
+            elif any(y["spread"] == x["spread"] for y in cv):
+                err(w + " names " + x["spread"] + " again.")
+            if not _rcount(x.get("owed")) or not _rcount(x.get("resolved")):
+                err(w + ' "owed" and "resolved" are whole numbers.')
+            if len(errors) == n1:
+                cv.append({"spread": x["spread"], "owed": x["owed"], "resolved": x["resolved"]})
+        rec["coverage"] = cv
+    ev = o.get("evidence")
+    if not isinstance(ev, list) or len(ev) > R_LIMITS["refs"]:
+        err('"evidence" is a list of at most ' + str(R_LIMITS["refs"]) + " to-dos' evidence.")
+    else:
+        out = []
+        for i, x in enumerate(ev):
+            e = _revidence(x, i, err, errors)
+            if e:
+                if any(y["todo"] == e["todo"] for y in out):
+                    err('"evidence" ' + str(i + 1) + " names " + e["todo"] + " again.")
+                else:
+                    out.append(e)
+        rec["evidence"] = out
+    ks = o.get("keeps")
+    if not isinstance(ks, list) or len(ks) > R_LIMITS["refs"] or not all(_tstr(x) and T_REQ.match(x) for x in ks):
+        err('"keeps" is a list of at most ' + str(R_LIMITS["refs"]) + " keep ids.")
+    elif _rdups(ks):
+        err('"keeps" names a keep twice.')
+    else:
+        rec["keeps"] = list(ks)
+    if not errors:
+        body = {"head": rec["head"], "outcome": rec["outcome"], "seen": rec["seen"], "counts": rec["counts"], "coverage": rec["coverage"], "evidence": rec["evidence"], "keeps": rec["keeps"]}
+        if o["id"] != "req-receipt-" + _thash(["receipt", rec["run"]["process"], rec["run"]["id"], _tsha(body)], 24):
+            err("Its id isn't the one its run and what it says give.")
+    return "is a receipt that isn't in its format: " + errors[0] if errors else ""
+
+
 def todo_why(o, name, nbytes=None, unchecked=None):
     """'' when the app reads this to-do record, else why it refuses it (PF.todos.cleanFile's reason). A link on an
     international domain name isn't judged (todo_http_link gives SCOPE_IDN): its place is added to unchecked, never a reason."""
@@ -2821,8 +2974,10 @@ def todo_why(o, name, nbytes=None, unchecked=None):
         return fact_why(o, name, unchecked)
     if kind == "keep":
         return keep_why(o, name)
+    if kind == "receipt":
+        return receipt_why(o, name)
     if kind not in TODO_PKINDS:
-        return "is a to-do record that isn't a proposal, a compound, a grant, a revoke, a fact or a keep"
+        return "is a to-do record that isn't a proposal, a compound, a grant, a revoke, a fact, a keep or a receipt"
     if not _tstr(o.get("id")) or not T_REQ.match(o["id"]):
         return "is a to-do record without a request id"
     if _tstr(name) and not todo_request_file(name, o["id"]):

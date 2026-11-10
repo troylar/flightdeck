@@ -907,7 +907,15 @@ function markTodos(PF, runs, got, people, peopleBad, loopIn, ev) {
   const others = loopIn ? loopIn.runs.filter((c) => runs.indexOf(c) < 0) : [];
   const now = Date.now();
   T.markHolds(runs, { records: got.todos || [], unread, people, loops: loopIn ? loopIn.loops : undefined, also: others, now, evidence: ev || null });
-  runs.forEach((r) => { if (r && r.living && !r._unrunnable) r._tdv = T.view(r, { records: T.recordsFor(got.todos || [], r), unread: unread.filter((u) => (u.run ? u.run.process === r.process && u.run.id === r.id : true)), people, deps: { records: got.todos || [], unread, evidence: ev || null }, now }); });
+  /* A run with to-dos landed, or with to-do records not landed yet (pending requests are visible before it gains living), is
+     read as every window reads it; one with neither stays exactly as before. An ended living run's receipt: PF.receipts.stateOf. */
+  runs.forEach((r) => {
+    if (!r || r._unrunnable) return;
+    const mineR = T.recordsFor(got.todos || [], r), un = unread.filter((u) => (u.run ? u.run.process === r.process && u.run.id === r.id : true));
+    if (!r.living && !mineR.length && !unread.some((u) => u.run && u.run.process === r.process && u.run.id === r.id)) return;
+    r._tdv = T.view(r, { records: mineR, unread: un, people, deps: { records: got.todos || [], unread, evidence: ev || null }, now });
+    if (r.living && r.ended) r._rcpt = PF.receipts.stateOf(r, got.todos || [], unread);
+  });
   return unread;
 }
 /* The checked publication reader the screen gives a loop (procOf): a process's versions as loadAll indexed them. */
@@ -985,7 +993,9 @@ async function readData(eng, adapter, req) {
         if (gp) {
           const ev = await evidenceRead(PF, L.fs, gp, PF.todos.recordsFor(gp.todos || [], r)), evp = ev.paths;
           const un = markTodos(PF, [r], gp, one.people, !!(one.peopleWhy || pw), loopIn, ev), was = relevant, mine = {};
-          un.filter((u) => u.run ? u.run.process === m[1] && u.run.id === m[2] : !!r.living).concat(evidenceUnread(PF, r, r._tdv, un)).forEach((u) => { if (u.file !== 'people.json' && !mine['proposals/' + u.file]) { mine['proposals/' + u.file] = true; L.note('proposals/' + u.file, u.kind === 'newer' || u.kind === 'unreadable' ? u.kind : 'malformed', u.kind === 'newer' ? u.why : fileWhy(u.why)); } });
+          /* A receipt the ended run names that is missing or says something else is this command's problem, by its path. */
+          if (r._rcpt && (r._rcpt.state === 'missing' || r._rcpt.state === 'mismatch')) { mine[r._rcpt.path] = true; L.note(r._rcpt.path, r._rcpt.kind, r._rcpt.why); }
+          un.filter((u) => u.run ? u.run.process === m[1] && u.run.id === m[2] : !!(r.living || r._tdv)).concat(evidenceUnread(PF, r, r._tdv, un)).forEach((u) => { if (u.file !== 'people.json' && !mine['proposals/' + u.file]) { mine['proposals/' + u.file] = true; L.note('proposals/' + u.file, u.kind === 'newer' || u.kind === 'unreadable' ? u.kind : 'malformed', u.kind === 'newer' ? u.why : fileWhy(u.why)); } });
           relevant = (p) => was(p) || !!mine[p] || evp.some((q) => p === q || String(p).indexOf(q + '/') === 0);
         } else if (r.living) { const was = relevant; relevant = (p) => was(p) || p === 'proposals'; }
       }
