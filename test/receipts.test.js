@@ -252,4 +252,28 @@ rule('The evidence each done rested on is named in the receipt by identity, a fa
   same(RC.evidenceOf(Tv), [{ todo: Tv.todos[0].id, plan: 'plan-ev-' + 'd'.repeat(24), run: { process: 'smoke', id: 'k1' }, answer: 'a b', result: 'pass' }]);
 });
 
+rule('After the end, coverage now uses the current denominator, obligations that arrived are said apart, and the receipt keeps the ended numbers', () => {
+  const W = world();
+  W.todo('Post the notes', { phase: 'ship' });
+  const P1 = W.end('Stopped early'), S = RC.stateOf(W.r, W.recs, []);
+  const rec = Object.assign({}, S.record, { coverage: [{ spread: 'sp-a', owed: 3, resolved: 2 }] }), frozen = JSON.stringify(rec.coverage);
+  const cov = (owed, resolved, more) => ({ spreads: [{ id: 'sp-a', counts: { owed, resolved } }].concat(more || []) });
+  /* A new obligation, nothing resolved since: the resolved count alone hides it. */
+  const a = RC.since(W.r, rec, W.recs, cov(4, 2));
+  same(a.coverage, [{ spread: 'sp-a', then: { owed: 3, resolved: 2 }, now: { owed: 4, resolved: 2 }, arrived: 1 }]);
+  assert.ok(a.lines.some((l) => /1 obligation of sp-a arrived after the run ended/.test(l)), a.lines.join(' | '));
+  assert.ok(a.lines.some((l) => /Coverage of sp-a now: 2 of 4 resolved \(2 of 3 when the run ended\)/.test(l)), a.lines.join(' | '));
+  /* Later notices use the current denominator, never the ended one. */
+  const b = RC.since(W.r, rec, W.recs, cov(5, 4));
+  assert.ok(b.lines.some((l) => /Coverage of sp-a now: 4 of 5 resolved \(2 of 3 when the run ended\)/.test(l)), b.lines.join(' | '));
+  assert.ok(b.lines.some((l) => /2 obligations of sp-a arrived after the run ended/.test(l)), b.lines.join(' | '));
+  /* A spread asked after the end is an arrival of its own. */
+  const c = RC.since(W.r, rec, W.recs, cov(3, 2, [{ id: 'sp-b', counts: { owed: 2, resolved: 0 } }]));
+  same(c.coverage, [{ spread: 'sp-b', then: null, now: { owed: 2, resolved: 0 }, arrived: 2 }]);
+  assert.ok(c.lines.some((l) => /Spread sp-b arrived after the run ended: 0 of 2 resolved now/.test(l)), c.lines.join(' | '));
+  same(RC.since(W.r, rec, W.recs, cov(3, 2)).coverage, [], 'nothing changed: nothing said');
+  assert.strictEqual(JSON.stringify(rec.coverage), frozen, 'the receipt keeps the ended numbers');
+  same(RC.words(P1.counts, rec.coverage).lines, RC.words(P1.counts, JSON.parse(frozen)).lines);
+});
+
 run();

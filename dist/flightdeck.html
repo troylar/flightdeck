@@ -20614,23 +20614,30 @@ PF.receipts = (function () {
   }
 
   /* What arrived after a receipt, shown apart and never counted in its outcome: the run's to-do records it didn't see (requests
-     filed after the end, decisions on them; they stay notices), and each spread's obligations resolved since. rec: the
-     receipt record (stateOf's). cov: the coverage now, or null. */
+     filed after the end, decisions on them; they stay notices), and each spread's coverage now. A spread's obligations owed
+     and resolved are both compared with the ended numbers: what arrived (more owed, or a spread asked after the end) is said
+     on its own, and coverage now is out of the current denominator; the receipt keeps the ended one. rec: the receipt record
+     (stateOf's). cov: the coverage now, or null. */
   function since(r, rec, records, cov) {
     var mine = PF.todos.recordsFor(records, r).filter(function (x) { return PF.todos.notFact(x) && x.kind !== 'receipt'; });
     var c = PF.loop.causal(mine.concat([{ id: rec.id, seen: rec.seen }]));
     var lost = c.held.some(function (h) { return h.record === rec.id; });
     var after = lost ? [] : mine.filter(function (x) { return x.id !== rec.id && !c.saw(rec.id, x.id); });
     var asks = after.filter(function (x) { return x.kind === 'proposal' || x.kind === 'compound'; });
-    var now = coverageOf(cov), drift = (rec.coverage || []).map(function (x) {
-      var y = now.filter(function (z) { return z.spread === x.spread; })[0];
-      return y ? { spread: x.spread, then: x.resolved, now: y.resolved, owed: x.owed } : null;
-    }).filter(function (x) { return x && x.now !== x.then; });
+    var then = rec.coverage || [], drift = coverageOf(cov).map(function (y) {
+      var x = then.filter(function (z) { return z.spread === y.spread; })[0];
+      if (x && x.owed === y.owed && x.resolved === y.resolved) return null;
+      return { spread: y.spread, then: x ? { owed: x.owed, resolved: x.resolved } : null, now: { owed: y.owed, resolved: y.resolved }, arrived: Math.max(0, y.owed - (x ? x.owed : 0)) };
+    }).filter(Boolean);
     var lines = [];
     if (lost) lines.push('What arrived after the run ended can\'t be told here: a record its receipt saw isn\'t in the folder.');
     if (asks.length) lines.push(plural(asks.length, 'request') + ' arrived after the run ended. ' + (asks.length === 1 ? 'It stays a notice' : 'They stay notices') + '; the ended outcome is unchanged.');
     else if (after.length) lines.push(plural(after.length, 'to-do record') + ' arrived after the run ended; the ended outcome is unchanged.');
-    drift.forEach(function (d) { lines.push('Coverage of ' + d.spread + ': ' + d.now + ' of ' + d.owed + ' resolved now (' + d.then + ' when the run ended).'); });
+    drift.forEach(function (d) {
+      if (!d.then) { lines.push('Spread ' + d.spread + ' arrived after the run ended: ' + d.now.resolved + ' of ' + d.now.owed + ' resolved now.'); return; }
+      if (d.arrived) lines.push(plural(d.arrived, 'obligation') + ' of ' + d.spread + ' arrived after the run ended.');
+      lines.push('Coverage of ' + d.spread + ' now: ' + d.now.resolved + ' of ' + d.now.owed + ' resolved (' + d.then.resolved + ' of ' + d.then.owed + ' when the run ended).');
+    });
     return { unknown: lost, records: after.map(function (x) { return x.id; }), requests: asks.map(function (x) { return { id: x.id, op: x.op || '', text: x.text || '' }; }), coverage: drift, lines: lines };
   }
 

@@ -25,8 +25,8 @@
       "reviewed": "4.0 slice 6 commit 8, readers, checker and release: appjson and bin/flightdeck.js read pending to-do requests before a run gains living and an ended run's receipt (missing or mismatch named, exit 4), check_folder.py's receipt_why port, the living-run, status and learn-from-runs skills, the command guide, file formats, docs/apps.md, the 4.0.0 release entries and the rehearsal waiver; checked for direct writes and unconditional deletes: the readers only read, the skills tell an assistant never to write a receipt or end a run, nothing deleted"
     },
     "docs/design.md": {
-      "sha256": "72c97c10549ffc797b727a985da3a0927dade64207e972e137c5ad190495a917",
-      "reviewed": "4.0 slice 6 commit 7, plan versus now and receipts: PF.receipts (compare, the receipt record, prepare, stateOf, since, deps), cleanLiving's receipt, PF.run.end's receipt, the app's end flow with its receipt guard and plan-versus-now chips, the evidence pack's living section and check_pack.py's replay, design 45.5 and docs/evidence.md; checked for direct writes and unconditional deletes: the receipt is written create-once through repo.saveScope with a fresh read before the write under the run and to-do guards, the run through the checked save chain, export only reads, nothing deleted"
+      "sha256": "61e391e780374f8cd49eb9438fc338abbc4cabebf64ddecec2fd8fea8633ab4e",
+      "reviewed": "slice 6 CE: since() compares owed and resolved, says arrivals apart"
     },
     "docs/evidence.md": {
       "sha256": "f1a61ee0866a33f610a08ab21bcfd77a0e10b378236240bd1e1d3a02965974b3",
@@ -309,8 +309,8 @@
       "reviewed": "loops: items: item kind, feed binding, completeness fix, nouns, unknown-kind refusal in loop.js/map.js/publish.js/types.js and check_folder.py parity; pure checks only, checked for direct writes and unconditional deletes"
     },
     "src/core/receipts.js": {
-      "sha256": "13c3334196e8953e7da23c4561778baf5978c393755567934d9beddbc2dac27c",
-      "reviewed": "4.0 slice 6 commit 7, plan versus now and receipts: PF.receipts (compare, the receipt record, prepare, stateOf, since, deps), cleanLiving's receipt, PF.run.end's receipt, the app's end flow with its receipt guard and plan-versus-now chips, the evidence pack's living section and check_pack.py's replay, design 45.5 and docs/evidence.md; checked for direct writes and unconditional deletes: the receipt is written create-once through repo.saveScope with a fresh read before the write under the run and to-do guards, the run through the checked save chain, export only reads, nothing deleted"
+      "sha256": "d49bb5958b8deda03965932c10c4785b7f6cc5c50f8d09a28a68e743785e7fb5",
+      "reviewed": "slice 6 CE: since() compares owed and resolved, says arrivals apart"
     },
     "src/core/refs.js": {
       "sha256": "24b7d2b52fcd99673fcc427db286a7224af83342da19efcd561ac850d6baa441",
