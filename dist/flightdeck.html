@@ -43658,7 +43658,19 @@ PF.examples = (function () {
       /* The guard captured at the click, with the to-dos it keeps (todoStill, as a landing's) asked before every write; when it
          fails, the kept copy is put back in this window (loopEdit) and the copy stays. */
       var rc = state.recoverCx, rcx = Object.assign({}, rc && rc.key === key ? rc.cx : loopGuard());
-      return repo.keepDisplaced(fs, cur, WRITER).then(function (where) {
+      /* The backup is the save chain's first write: a copy keeping living work sets up its guard first (todoStill, on the run
+         as it is now), reads the to-dos and their evidence and then people.json again right before it (tdFresh), and writes
+         no backup when either can't be read or the guard refuses. A copy without living work reads nothing more, as in 3.0. */
+      var living = !!(c.living || cur.living), pre = Promise.resolve(true);
+      if (living) {
+        var kh0 = PF.todos.keepHead(cur, c, { records: data.todos || [], unread: data.todosUnread || [], people: data.people, now: tdNow(), evidence: tdEv() });
+        rcx.todo = { key: key, from: c.living && typeof c.living.head === 'string' ? c.living.head : '', head: kh0.head, dropped: kh0.dropped, pre: todoPre(cur), living: true };
+        pre = tdFresh(rcx).then(function (x) { if (!x || !rcx.todo) return false; rcx.todo.snap = x; return guardOk(rcx); });
+      }
+      return pre.then(function (ok0) {
+        if (!ok0) throw new Error('the to-dos or people.json couldn\'t be read again, or what kept them changed, so nothing was kept. The copy is still there');
+        return repo.keepDisplaced(fs, cur, WRITER);
+      }).then(function (where) {
         if (g !== gen) return false;
         var ed = loopEdit(rcx, key, function (run, map, me, now) {
           var extra = c._overflow || [];
