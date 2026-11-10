@@ -230,4 +230,29 @@ rule('YA: the app files a living run\'s scope change as a 4.0 scope request nami
   const j = JSON.parse(app.fs.files[F.scopes(app).slice(-1)[0]].t);
   assert.deepStrictEqual([j.format, j.features, j.head], ['flightdeck-plan/4', ['loops', 'living-runs'], head]);
 });
+/* Review round 9 (AB): Pass held at its write while a story's run of a fulfilled spread stops reading writes nothing. */
+rule('AB: Pass on a fulfilled spread\'s loop, held at its write while a story\'s run turns EIO, writes nothing, and is put back', async () => {
+  const app = await setup();
+  await landedSpread(app);
+  await fulfilled(app, ['ABC-102', 'ABC-103']);
+  backToParent(app); await app.tick(80);
+  app.click('loop-approve', 'each'); await app.tick(200);
+  assert.strictEqual(parentRun(app).steps.each.s, 'done', 'set-up: the loop is approved');
+  assert.ok(/data-act="pass"/.test(app.html()), 'set-up: the gate is Ready');
+  const before = JSON.stringify(app.files('runs/release-readiness/').map(f => [f, app.fs.files[f].t]));
+  const read0 = app.fs.read.bind(app.fs), p = parentPath(app), p102 = kidOf(app, 'ABC-102');
+  let open, n = 0; const held = new Promise(res => { open = res; });
+  app.fs.read = (q, o) => q === p && ++n === 1 ? held.then(() => read0(q, o)) : read0(q, o);
+  app.click('pass', '0'); await app.tick(60);
+  assert.ok(n > 0, 'set-up: the save reached its read');
+  const read1 = app.fs.read;
+  app.fs.read = (q, o) => q === p102 ? Promise.reject(new Error('EIO')) : read1(q, o);
+  await refresh(app, 400);
+  open(); await app.tick(500);
+  assert.strictEqual(JSON.stringify(app.files('runs/release-readiness/').map(f => [f, app.fs.files[f].t])), before, 'nothing written');
+  app.fs.read = read0;
+  for (let i = 0; i < 3; i++) await refresh(app, 300);
+  backToParent(app); await app.tick(80);
+  assert.ok(/data-act="pass"/.test(app.html()), 'read again: Ready, the tentative pass put back');
+});
 run();

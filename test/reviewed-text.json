@@ -409,8 +409,8 @@
       "reviewed": "Round 7 YA: stops are causal (cut, 4.0 scope head); checker mirrors; no direct writes or deletes added"
     },
     "src/ui/app.js": {
-      "sha256": "355a708f9e56e981ab01b26b2bb03c7512a359325d9332b8d12accacd2a66cad",
-      "reviewed": "ZB: an unread loop run holds its phase gate"
+      "sha256": "ec9f442ff115a81715bcffb53dda3278d9ca062394f339387d680dc481c44668",
+      "reviewed": "AB: approval writes recheck the phase holds"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

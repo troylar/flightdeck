@@ -35859,7 +35859,20 @@ PF.examples = (function () {
     if (cx.readable && runUnread(r)) return false;
     if (cx.view && viewSig(r, cx.step) !== cx.vsig) return false;
     if (cx.view && loopUnread(r, cx.step)) return false;
+    if (cx.holds && holdsNow(r, cx.holds)) return false;
     return !(cx.q && cx.step && PF.loop.askerWhy(r, loopView(r, cx.step), cx.q, data.people));
+  }
+  /* Round 9 (AB): an approval write (Pass, Waive, a loop's approval) asks again, at the write, what holds its phase, from the
+     folder as this window reads it now: every loop's run and version read fresh, its spreads' coverage and to-do holds
+     (markLoops), and nothing sent back since. h: { phase: index } or { step: loop step id }. */
+  function holdsNow(r, h) {
+    markLoops([r].concat((data.runs || []).filter(function (x) { return x !== r && x.id !== r.id; })));
+    var map; try { map = R.mapOf(r); } catch (e) { return true; }
+    var pi = h.phase != null ? +h.phase : -1;
+    if (h.step) map.phases.forEach(function (p, i) { if (p.steps.some(function (x) { return x.id === h.step; })) pi = i; });
+    var p = map.phases[pi]; if (!p) return true;
+    if (R.phaseHeld(r, map, pi)) return true;
+    return p.steps.some(function (x) { return x.type === 'for.each' && ((r._loopStale && Object.prototype.hasOwnProperty.call(r._loopStale, x.id)) || (r._loopUnread && Object.prototype.hasOwnProperty.call(r._loopUnread, x.id))); });
   }
   /* A loop write (round 6, XA) stops while the run or any run of that loop isn't read fresh, by the same inputs coverage reads
      (PF.spreads.inputs): a result that reads as none only because its run or version couldn't be read is never a change. */
@@ -41129,7 +41142,7 @@ PF.examples = (function () {
     'loop-requests-more': function (id) { loopMem().reqs[id] = true; render(); },
     'loop-open': function (id) { var m = loopMem(); m.keepRow = null; m.open[id] = !m.open[id]; render(); },
     'loop-approve': function (id) {
-      var ka = state.runKey, ea = loopEdit(loopGuard({ run: ka, step: id, view: true }), ka, function (r, map, me, now) {
+      var ka = state.runKey, ea = loopEdit(loopGuard({ run: ka, step: id, view: true, holds: { step: id } }), ka, function (r, map, me, now) {
         var V = loopView(r, id);
         if (!V || !V.rollup.ok) throw new Error('Every ' + (V ? V.noun.one : 'item') + ' in scope needs an accepted result or an approval without a run first.');
         R.done(r, map, id, me, now, { _loop: { ok: true, snapshot: PF.loop.approval(V.ledger, V.rollup, { by: me, at: now }) } });
@@ -41191,8 +41204,14 @@ PF.examples = (function () {
       mutate(function (r, map, me, now) { R.setDeadline(r, map, id, iso, me, now); });
     },
     /* Passing closes only the gate's own forms: the step it moves to keeps its Fill in, as selecting it does (2.3.1). */
-    pass: function (pi) { var o = { only: null }; mutate(function (r, map, me, now) { R.pass(r, map, +pi, me, now); o.only = state.justPassed = map.phases[+pi].gate.id; state.edit = null; afterPass(R.nextUp(r, map, me), map, false); }, o); },
-    waive: function (pi) { var why = val('pick-input'); mutate(function (r, map, me, now) { R.waive(r, map, +pi, why, me, now); }); },
+    /* Round 9 (AB): both approval writes go through the shared guard, which asks the phase's holds again at the write and puts
+       the tentative gate back by identity when they hold. */
+    pass: function (pi) {
+      var kp = state.runKey, r0 = ctx.run(), g0 = r0 ? R.mapOf(r0).phases[+pi] : null;
+      var ep = loopEdit(loopGuard({ run: kp, holds: { phase: +pi } }), kp, function (r, map, me, now) { R.pass(r, map, +pi, me, now); state.justPassed = map.phases[+pi].gate.id; state.edit = null; afterPass(R.nextUp(r, map, me), map, false); }, { only: g0 && g0.gate ? g0.gate.id : null });
+      mutate(ep.fn, ep.opts);
+    },
+    waive: function (pi) { var why = val('pick-input'), kw = state.runKey, ew = loopEdit(loopGuard({ run: kw, holds: { phase: +pi } }), kw, function (r, map, me, now) { R.waive(r, map, +pi, why, me, now); }); mutate(ew.fn, ew.opts); },
     fail: function (pi) { var why = val('pick-input') || 'Failed'; mutate(function (r, map, me, now) { R.fail(r, map, +pi, why, me, now); }); },
     reopen: function (pi) { mutate(function (r, map, me, now) { R.reopen(r, map, +pi, me, now); }); },
     edit: function (id) { childEpoch++; state.edit = id; render(); },

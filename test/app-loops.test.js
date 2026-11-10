@@ -1086,4 +1086,42 @@ rule('Compat (4.0.0 change): a 3.0 loop\'s approval stays put and its gate waits
   }
   assert.deepStrictEqual(off, []);
 });
+/* Review round 9 (AB): an approval write (Pass, Waive, loop approve) rechecks the phase's dependency holds inside the shared
+   write guard, at the write: a story's run or its version that stops reading while the save waits holds it, the tentative
+   change is put back by identity, and nothing is written. */
+const firstHeld = (fs0, re) => { const read = fs0.read.bind(fs0), hold = gate(); let n = 0; fs0.read = (p, o) => re.test(p) && ++n === 1 ? hold.p.then(() => read(p, o)) : read(p, o); return { hold, seen: () => n, off: () => { fs0.read = read; } }; };
+const AB_BREAK = {
+  'its run absent': (app) => { const p = kidPaths(app)[0], kept = app.fs.files[p]; delete app.fs.files[p]; return () => { app.fs.files[p] = kept; }; },
+  'its run EIO': (app) => { const p = kidPaths(app)[0], read = app.fs.read; app.fs.read = (q, o) => q === p ? Promise.reject(new Error('EIO')) : read.call(app.fs, q, o); return () => { app.fs.read = read; }; },
+  'its version EIO': (app) => { const read = app.fs.read; app.fs.read = (q, o) => /^publications\/validate-story\//.test(q) ? Promise.reject(new Error('EIO')) : read.call(app.fs, q, o); return () => { app.fs.read = read; }; }
+};
+const AB_WRITES = {
+  Pass: async (app) => { app.click('pass', '0'); },
+  Waive: async (app, gid) => { app.click('pick', gid, { kind: 'waive' }); await app.tick(); app.set('pick-input', 'Agreed with the team'); app.click('waive', '0'); }
+};
+rule('AB: Pass or Waive held at its write while a story\'s run or its version stops reading writes nothing, and is put back', async () => {
+  const off = [];
+  for (const how of Object.keys(AB_WRITES)) for (const brk of Object.keys(AB_BREAK)) {
+    const tag = how + ', ' + brk;
+    const app = await setup(); await cleared(app);
+    app.click('refresh'); await app.tick(200);
+    app.click('loop-approve', 'each'); await app.tick(250);
+    const p = parentPath(app), gid = app.PF.run.mapOf(app.PF.run.sanitize(parentRun(app))).phases[0].gate.id;
+    if (parentRun(app).steps.each.s !== 'done' || !/data-act="pass"/.test(app.html())) { off.push(tag + ': set-up: not approved and Ready'); continue; }
+    const before = JSON.stringify(app.files('runs/release-readiness/').map(f => [f, app.fs.files[f].t]));
+    const h = firstHeld(app.fs, PARENT_RE);
+    await AB_WRITES[how](app, gid); await app.tick(60);
+    if (!h.seen()) { off.push(tag + ': set-up: the save never reached its read'); continue; }
+    const undo = AB_BREAK[brk](app);
+    app.click('refresh'); await app.tick(400);
+    h.hold.open(); await app.tick(500);
+    const after = JSON.stringify(app.files('runs/release-readiness/').map(f => [f, app.fs.files[f].t]));
+    if (after !== before) off.push(tag + ': written: ' + JSON.stringify((JSON.parse(app.fs.files[p].t).gates || {})[gid] || null));
+    undo(); h.off();
+    for (let i = 0; i < 2; i++) { app.click('refresh'); await app.tick(400); }
+    if (/id="pick-input"/.test(app.html())) { app.click('unpick'); await app.tick(); }
+    if (!/data-act="pass"/.test(app.html())) off.push(tag + ': read again: the gate isn\'t Ready (the tentative change wasn\'t put back)');
+  }
+  assert.deepStrictEqual(off, []);
+});
 run();
