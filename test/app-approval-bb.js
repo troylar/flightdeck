@@ -189,6 +189,8 @@ const rebuiltPub = (app) => {
   const people = JSON.parse(app.fs.files['people.json'].t);
   const b = PF.publish.build(md, { people, ...require('./harness').exampleSetup(PF), by: 'person-avery', changes: 'First', existing: [], now: new Date().toISOString(), rand: r.folder.replace(/^v\d+-/, ''), app: '3.0.0' });
   if (b.blockers || b.folder !== r.folder) return null;
+  /* Which of its files the rebuild changed (the others read the same as before): only a read of one of those sees it. */
+  rebuiltPub.changed = Object.keys(b.files).filter(k => !app.fs.files[base + k] || app.fs.files[base + k].t !== b.files[k]);
   const kept = {}; Object.keys(b.files).forEach(k => { kept[k] = app.fs.files[base + k]; app.fs.files[base + k] = { t: b.files[k], m: Date.now() }; });
   return () => { Object.keys(kept).forEach(k => { if (kept[k]) app.fs.files[base + k] = kept[k]; else delete app.fs.files[base + k]; }); };
 };
@@ -223,7 +225,7 @@ const CHANGES = {
   'a second run for the story\'s attempt': { make: secondRun, sees: (op, p) => isList(op, p, 'runs/validate-story') },
   'the run\'s version absent': { make: (app) => gone(app, parentPub(app)), sees: (op, p) => op === 'read' && /^publications\/release-readiness\/[^/]+\/publication\.json$/.test(p) },
   'the run\'s version EIO': { make: (app) => eio(app, parentPub(app)), sees: (op, p) => op === 'read' && /^publications\/release-readiness\/[^/]+\/publication\.json$/.test(p) },
-  'the run\'s version rebuilt with another step': { make: rebuiltPub, sees: (op, p) => op === 'read' && /^publications\/release-readiness\//.test(p) },
+  'the run\'s version rebuilt with another step': { make: rebuiltPub, sees: (op, p) => op === 'read' && /^publications\/release-readiness\/[^/]+\//.test(p) && (rebuiltPub.changed || []).includes(p.replace(/^publications\/release-readiness\/[^/]+\//, '')) },
   'the run handed to another session': { make: handedOff, sees: (op, p) => op === 'read' && p === 'runs/release-readiness/<run>/run.json' },
   /* Round 15 (SB): who may approve can't be read. */
   'people.json EIO': { make: (app) => eio(app, 'people.json'), sees: (op, p) => op === 'read' && p === 'people.json' }
@@ -274,16 +276,19 @@ const PATHS = {
 };
 /* Inside the guard: from its read of the run (readRunOnly on the parent's process) until the next write or removal, or until
    its proposals read is done with none of its reads still under way. */
-/* The guard's async context: entered where its first read (the run's) is asked, so every read it makes after, in
-   whatever helper, carries it; a Refresh started elsewhere doesn't. */
+/* The guard's async context: its reads of runs and of proposals/ run inside it, and so does every step the guard chains on
+   them (guarded: each callback runs inside it), so every read it makes after, in whatever helper, carries it. Nothing
+   else does: a Refresh, a timer or the test itself started elsewhere never runs inside it. */
 const GUARD = new (require('async_hooks').AsyncLocalStorage)();
+const inGuard = (f) => f && ((x) => GUARD.run(true, () => f(x)));
+const guarded = (p) => ({ then: (a, b) => guarded(p.then(inGuard(a), inGuard(b))), catch: (b) => guarded(p.then(null, inGuard(b))), finally: (f) => guarded(p.finally(f)) });
 function guardWatch(app, name) {
   const R = app.PF.repo, ro = R.readRunOnly, rp = R.readPlans, fs0 = app.fs, read = fs0.read, list = fs0.list, write = fs0.write, remove = fs0.remove;
-  const st = { on: false, win: 0, seen: Object.create(null), log: [], hook: null, ops: 0, sawAfter: false, busy: 0, plans: false, pass: 0 };
+  const st = { on: false, win: 0, seen: Object.create(null), log: [], hook: null, ops: 0, busy: 0, plans: false, pass: 0 };
   /* Once its proposals read is done, the window stays open through the stability pass (round 15, SC): it closes at a write
      or removal, or once a later turn finds none of its reads under way. */
   const settle = () => { if (!(st.on && st.plans && !st.busy)) return; const win = st.win; setImmediate(() => { if (st.on && st.win === win && st.plans && !st.busy) st.on = false; }); };
-  R.readRunOnly = function (fs, proc, id) { if (proc === 'release-readiness' && !st.on) { st.on = true; st.win++; st.plans = false; GUARD.enterWith(true); } const a = arguments; return st.on ? GUARD.run(true, () => ro.apply(this, a)) : ro.apply(this, a); };
+  R.readRunOnly = function (fs, proc, id) { if (proc === 'release-readiness' && !st.on) { st.on = true; st.win++; st.plans = false; } const a = arguments; return st.on ? guarded(GUARD.run(true, () => ro.apply(this, a))) : ro.apply(this, a); };
   /* The window also closes once its proposals read is done and no read of it is still under way (a write-free last step). */
   R.readPlans = function () { const mine = st.on, a = arguments; const done = (x) => { if (mine) { st.plans = true; settle(); } return x; }; return (mine ? GUARD.run(true, () => rp.apply(this, a)) : rp.apply(this, a)).then(done, (e) => { done(); throw e; }); };
   const wrap = (op, real) => function (p) {
@@ -372,20 +377,26 @@ async function suspension(o, how, changes, shard) {
     /* Watched from outside the change (an EIO answers before any read under it): a read of the changed input, inside the
        guard, from here on. */
     const inner = { read: app.fs.read, list: app.fs.list, write: app.fs.write, remove: app.fs.remove }, late = [];
-    app.fs.read = function (q) { if (w.st.on && GUARD.getStore() === true && C.sees('read', nm(q))) w.st.sawAfter = true; return inner.read.apply(app.fs, arguments); };
-    app.fs.list = function (q) { if (w.st.on && GUARD.getStore() === true && C.sees('list', nm(q))) w.st.sawAfter = true; return inner.list.apply(app.fs, arguments); };
+    const saw = new Set();
+    app.fs.read = function (q) { if (w.st.on && GUARD.getStore() === true && C.sees('read', nm(q))) saw.add(w.st.win); return inner.read.apply(app.fs, arguments); };
+    app.fs.list = function (q) { if (w.st.on && GUARD.getStore() === true && C.sees('list', nm(q))) saw.add(w.st.win); return inner.list.apply(app.fs, arguments); };
     /* What is written or removed once the guard has read the change: none of it may be. A request the recorder couldn't
        carry out is answered (its decision, op 'refused'): that is its outcome, not a write. */
-    app.fs.write = function (q, t) { if (!(/^proposals\//.test(q) && (() => { try { return JSON.parse(t).op === 'refused'; } catch (e) { return false; } })())) late.push(q); return inner.write.apply(app.fs, arguments); };
-    app.fs.remove = function (q) { late.push('-' + q); return inner.remove.apply(app.fs, arguments); };
+    app.fs.write = function (q, t) { if (!(/^proposals\//.test(q) && (() => { try { return JSON.parse(t).op === 'refused'; } catch (e) { return false; } })())) late.push({ q, win: w.st.win }); return inner.write.apply(app.fs, arguments); };
+    app.fs.remove = function (q) { late.push({ q: '-' + q, win: w.st.win }); return inner.remove.apply(app.fs, arguments); };
     hold.open(); await quiet(app, w);
     Object.assign(app.fs, inner);
     /* Round 15 (SC): a change made while the snapshot reads (before its stability pass) always refuses, whether or not that
        input was read already. One made during the stability pass refuses when that pass rereads the input after the change
        (the paused read itself, or a later one); else it is the documented limit (docs/design.md), counted, not judged. */
-    if (pt.phase === 'stable' && !C.sees(pt.op, pt.p) && !w.st.sawAfter) { limit++; w.off(); undo(); continue; }
+    const names = (xs) => JSON.stringify(xs.map(x => x.q));
+    if (pt.phase === 'stable' && !C.sees(pt.op, pt.p) && !saw.has(pt.win)) {
+      /* The stated limit: this guard's write may land over the change, and what follows from it is that write's. */
+      limit++;
+      w.off(); undo(); continue;
+    }
     required++;
-    if (late.length) off.push(tag + ': written after the change' + (pt.phase === 'stable' ? ' (its stability pass reread it)' : ' (made before the stability pass)') + ': ' + JSON.stringify(late));
+    if (late.length) off.push(tag + ': written after the change' + (pt.phase === 'stable' ? ' (its stability pass reread it)' : ' (made before the stability pass)') + ': ' + names(late));
     else if (P.kept && !P.kept(app)) off.push(tag + ': the recovery source was removed');
     w.off(); undo();
   }

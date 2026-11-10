@@ -1397,7 +1397,8 @@ PF.repo = (function () {
     var dir = 'runs/' + run.process + '/' + run.id + '/', lineage = run.lineage || [];
     return fs.read(dir + name).then(function (f) {
       var h = f ? f.text : null;
-      return Promise.resolve(typeof check === 'function' ? check() : true).then(function (ok) { if (ok === false) return false; return fs.remove(dir + name).then(function () {
+      /* check({ path, text }): the copy as read here, which the check's last reads compare it with, right before the removal. */
+      return Promise.resolve(typeof check === 'function' ? check({ path: dir + name, text: h }) : true).then(function (ok) { if (ok === false) return false; return fs.remove(dir + name).then(function () {
         forgetRun(fs, run);
         if (!h) return;
         return fs.list(dir.slice(0, -1)).then(function (items) {

@@ -3068,12 +3068,33 @@
      Then, with no read in between, it judges from that snapshot only: the window's guard (guardOk), and the holds of the
      phases (to-dos, coverage, staleness) worked out again from the snapshot's runs and records, never from cached data.
      The caller writes next, with nothing awaited between. Resolves true or false; never throws. */
-  function approvalSnapshot(cx, fs) {
+  /* Round 15 (SC): every read and listing the snapshot makes, by path, with what it found (a file's fingerprint, or none;
+     a folder's names). A path read twice that answered differently is a change already. */
+  function recordingView(fs) {
+    var seen = { reads: Object.create(null), lists: Object.create(null), moved: false }, v = Object.create(fs);
+    var note = function (box, p, val) { if (!(p in box)) box[p] = val; else if (box[p] !== val) seen.moved = true; };
+    v.read = function (p) { return fs.read.apply(fs, arguments).then(function (f) { note(seen.reads, String(p), f && typeof f.text === 'string' ? repo.fileHash(f.text) : f ? '?' : null); return f; }); };
+    v.list = function (p) { return fs.list.apply(fs, arguments).then(function (items) { note(seen.lists, String(p), JSON.stringify((items || []).map(function (i) { return i.kind + ':' + i.name; }).sort())); return items; }); };
+    return { fs: v, seen: seen };
+  }
+  /* Round 15 (SC): the stability pass, once the snapshot is judged: every folder it listed listed again and every file it
+     read read again, side by side, each compared with what the judgment used (its names; its fingerprint, or still none),
+     and pin.path (a copy about to be removed) still exactly pin.text. Resolves true only when nothing moved. What lands
+     after its own reread here isn't seen by this write: the limit a folder without locks leaves (docs/design.md). */
+  function stillSame(fs, seen, pin) {
+    if (seen.moved) return Promise.resolve(false);
+    var no = function () { return false; };
+    var jobs = Object.keys(seen.lists).map(function (p) { return fs.list(p).then(function (items) { return JSON.stringify((items || []).map(function (i) { return i.kind + ':' + i.name; }).sort()) === seen.lists[p]; }, no); });
+    Object.keys(seen.reads).forEach(function (p) { jobs.push(fs.read(p).then(function (f) { return (f && typeof f.text === 'string' ? repo.fileHash(f.text) : f ? '?' : null) === seen.reads[p]; }, no)); });
+    if (pin && pin.path) jobs.push(fs.read(pin.path).then(function (f) { return (f ? f.text : null) === (pin.text == null ? null : pin.text); }, no));
+    return Promise.all(jobs).then(function (all) { return all.every(Boolean); }, no);
+  }
+  function approvalSnapshot(cx, fs, pin) {
     var rk = cx && (cx.run || cx.holdRun), r = rk ? findRun(rk) : null, h = cx && cx.holds;
     if (!h) return Promise.resolve(true);
     if (!r) return Promise.resolve(false);
     var map; try { map = R.mapOf(r); } catch (e) { return Promise.resolve(false); }
-    var src = fs || cx.fs, steps = [], bad = false;
+    var raw = fs || cx.fs, rec = recordingView(raw), src = rec.fs, steps = [], bad = false;
     holdPhases(map, h).forEach(function (pi) {
       var p = map.phases[pi]; if (!p) { bad = true; return; }
       p.steps.forEach(function (x) { if (x.type === 'for.each') steps.push(x); });
@@ -3150,8 +3171,10 @@
       return PF.repo.readPlans(src, null, null).then(function (res) { snap.plans = res; return true; }, no);
     }).then(function (ok) {
       if (!ok) return false;
-      /* From here to the answer nothing is awaited: the judgment is the snapshot's. */
-      return judgeSnapshot(cx, rk, h, loops, snap);
+      /* The judgment is the snapshot's; then one stability pass, and the same judgment again (nothing it reads is awaited),
+         after which the caller writes with nothing else awaited. */
+      if (!judgeSnapshot(cx, rk, h, loops, snap)) return false;
+      return stillSame(raw, rec.seen, pin).then(function (same) { return same && judgeSnapshot(cx, rk, h, loops, snap); }, no);
     }, no);
   }
   function judgeSnapshot(cx, rk, h, loops, snap) {
@@ -8607,7 +8630,7 @@
     'restore-local': function () {
       var r = ctx.run(); if (!r || runBusy(r)) return;
       var lkey = localKey(r.id), local = lsGet(lkey, null); if (!local) return;
-      loopRecoverCx(); recover(function () { var own = {}; Object.keys(local).forEach(function (k) { if (k[0] !== '_') own[k] = local[k]; }); var c = R.sanitize(R.testLast(own)); if (c) c._overflow = R.mergeOverflow(local._overflow, c._overflow); return Promise.resolve(c); }, 'Restored the copy kept in this browser; the version it replaced is kept as ', function (fs, cur, check) { return check().then(function (ok) { if (ok === false) return false; lsSet(lkey, null); }); });
+      loopRecoverCx(); recover(function () { var own = {}; Object.keys(local).forEach(function (k) { if (k[0] !== '_') own[k] = local[k]; }); var c = R.sanitize(R.testLast(own)); if (c) c._overflow = R.mergeOverflow(local._overflow, c._overflow); return Promise.resolve(c); }, 'Restored the copy kept in this browser; the version it replaced is kept as ', function (fs, cur, check) { return check().then(function (ok) { if (ok === false) return false; /* Round 15 (SC): cleared only while it still holds, decoded, exactly the copy restored. */ var now = lsGet(lkey, null); if (JSON.stringify(now) !== JSON.stringify(local)) return; lsSet(lkey, null); }); });
     },
     'discard-local': function () { var r = ctx.run(); if (r) { lsSet(localKey(r.id), null); say('The copy kept in this browser was discarded.'); render(); } },
     'load-history': function () {
@@ -9504,7 +9527,7 @@
       }).then(function (ok) {
         if (!ok || g !== gen) return;
         state.copyView = null;
-        return cleanup(fs, cur, function () { return approvalSnapshot(rcx, fs); }).then(function (fine) { if (fine === false) { held(); return Promise.reject(Object.assign(new Error('held'), { held: true })); } }).then(function () { if (g === gen) return refreshRun(); }, function (e) { if (g === gen && !(e && e.held)) say('Kept the copy, but couldn\'t remove it: ' + e.message, 'warn'); });
+        return cleanup(fs, cur, function (pin) { return approvalSnapshot(rcx, fs, pin); }).then(function (fine) { if (fine === false) { held(); return Promise.reject(Object.assign(new Error('held'), { held: true })); } }).then(function () { if (g === gen) return refreshRun(); }, function (e) { if (g === gen && !(e && e.held)) say('Kept the copy, but couldn\'t remove it: ' + e.message, 'warn'); });
       });
     }).catch(function (e) { if (g === gen) say('Couldn\'t keep that copy: ' + e.message, 'bad'); }).then(done);
   }
