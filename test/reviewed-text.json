@@ -25,8 +25,8 @@
       "reviewed": "slice 6: pending and unreadable records shown before living; receipt head ''"
     },
     "docs/design.md": {
-      "sha256": "8745859008c7b0778d68585fd97388f81362d8c1aae571446dddfcfc24b7820a",
-      "reviewed": "LE: the ending guard judges evidence and fulfilled runs"
+      "sha256": "d652e56fb1e0ac219518cbe050abca242b068cf5aaa8243fdf4ed89a23ca2400",
+      "reviewed": "LF: Python's total closure bound"
     },
     "docs/evidence.md": {
       "sha256": "8828d4ade3981b60bb45d9f25431de63af40dd49e2385a68bcb06d34ddf5e56c",

@@ -599,4 +599,28 @@ rule('A dependency\'s version is packed with the bytes its verdict read: a publi
   assert.ok(!bad.ok && bad.out.indexOf(W.kidKey) >= 0, bad.out);
 });
 
+/* LF: Python holds the closure to the same one bound as the export: every original reached and every dependency run, together,
+   at most 5,000. A chain of records seen in turn that no single queue takes past the bound still crosses it in total. */
+rule('Python counts every record reached and every dependency run together against the one 5,000 bound', async () => {
+  if (!PY) return;
+  const W = await made({ todos: 1, pending: true }), PF = W.PF, id = W.pendingId;
+  const full = await pack(PF, new BytesFS(W.files), W.key);
+  assert.strictEqual(full.res.status, 'complete', JSON.stringify(full.res.col.unresolved));
+  const make = (N) => repacked(PF, full.zip, (e, man, f) => {
+    const x = f('proposals/' + id + '.json'), o = JSON.parse(e[x.pack]);
+    const ids = Array.from({ length: N }, (_, i) => 'req-flightdeck-' + crypto.createHash('sha256').update('lf' + i).digest('hex').slice(0, 24));
+    o.seen = N ? [ids[0]] : [];
+    e[x.pack] = Buffer.from(JSON.stringify(o, null, 2) + '\n');
+    ids.forEach((rid, i) => {
+      const path = 'proposals/' + rid + '.json', pk = x.pack.slice(0, x.pack.length - x.path.length) + path;
+      e[pk] = Buffer.from(JSON.stringify({ id: rid, kind: 'proposal', run: o.run, seen: i + 1 < N ? [ids[i + 1]] : [] }) + '\n');
+      man.files.push(Object.assign({}, x, { path, pack: pk }));
+    });
+  });
+  const small = checkPack(await make(10));
+  assert.ok(small.ok, 'under the bound it holds: ' + small.out);
+  const over = checkPack(await make(4998));
+  assert.ok(!over.ok && /more|bound|holds at most/.test(over.out), 'over the bound in total: ' + over.out);
+});
+
 run();

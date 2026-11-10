@@ -124,6 +124,8 @@ def check_living(z, man):
             return None
         return load(path)
 
+    reached = set()
+
     def witness(rid):
         """The one record packed under an id, the same in every packed copy (a synced " (1)" copy included); None when it
         isn't packed or two packed copies differ (ambiguous: which is meant isn't known)."""
@@ -132,6 +134,7 @@ def check_living(z, man):
                  and (not p[len(base):-5].startswith("-") or any(c.isupper() for c in p[len(base):-5])))]
         if not paths:
             return None, False
+        reached.update(paths)
         recs = [load(p) for p in paths]
         if any(json.dumps(r, sort_keys=True) != json.dumps(recs[0], sort_keys=True) for r in recs):
             return None, True
@@ -209,8 +212,8 @@ def check_living(z, man):
         def walk():
             """The records still wanted, each through what it saw in turn, within the one bound: False when one isn't here."""
             while i[0] < len(want):
-                if i[0] >= 5000:
-                    return False
+                if len(reached) > 5000:
+                    sys.exit("living: " + str(me["process"]) + "/" + str(me["id"]) + " rests on more records and runs than a pack holds at most (5000)")
                 rec = wit(want[i[0]])
                 i[0] += 1
                 if rec is None:
@@ -341,6 +344,7 @@ def check_living(z, man):
                 sys.exit("living: " + r["key"] + " says its work is complete, but its run.json isn't in the pack")
             continue
         head = (run.get("living") or {}).get("head", "")
+        reached.clear()
         if lv["head"] != head:
             sys.exit("living: " + r["key"] + " names another work head than its run.json")
         whole, chain, closed, good_receipt, copies = check_run(run)
@@ -366,8 +370,9 @@ def check_living(z, man):
             if k in done:
                 continue
             done.add(k)
-            if len(done) > 5000:
-                sys.exit("living: " + r["key"] + " depends on more runs than a pack holds")
+            # The one shared bound: every original reached and every dependency run, together (PF.receipts.deps).
+            if len(reached) + len(done) - 1 > 5000:
+                sys.exit("living: " + r["key"] + " rests on more records and runs than a pack holds at most (5000)")
             if k == r["key"]:
                 dep_run = run
             else:
@@ -396,6 +401,8 @@ def check_living(z, man):
                 if not rc2:
                     sys.exit("living: " + r["key"] + " says its work is complete, but the receipt of " + k + " isn't in the pack, doesn't say what it ended with, or a record it saw isn't in the pack")
             todo.extend(sorted(depends_on(dep_run) - done))
+        if len(reached) + len(done) - 1 > 5000:
+            sys.exit("living: " + r["key"] + " rests on more records and runs than a pack holds at most (5000)")
         for k in named:
             if k not in done:
                 sys.exit("living: " + r["key"] + " names " + k + " as a run it depends on, but nothing in the pack depends on it")
