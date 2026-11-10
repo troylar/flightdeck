@@ -53,8 +53,8 @@
       "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "8437e32aa5dd5709b3ba51fc10de31a79a8ce470f34e9236ad19e8aaa7f03d15",
-      "reviewed": "checker: a done's support is checked before owner, reason and requester, as the app; checked for direct writes and unconditional deletes"
+      "sha256": "51a55ddabdb2e78676f151253851fa55b41a2393570d6160f0d1e9a31904e757",
+      "reviewed": "checker: 4.0 readers name unknown fields in JavaScript's key order (js_keys); checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
       "sha256": "197779e5fb047d6137527db0211659a2db320470f3086d61b5126d6e868b0cf8",
@@ -197,8 +197,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "0d46e9c4c00d24e25299d876e5a5800b66e0b77d4b3e53b5c26323e93e7040b2",
-      "reviewed": "checker: a done's support is checked before owner, reason and requester, as the app; checked for direct writes and unconditional deletes"
+      "sha256": "2ca7b819377cd7f98008ccda3a3b9145ede40d2d4e113f250afbc42f506b6aad",
+      "reviewed": "checker: 4.0 readers name unknown fields in JavaScript's key order (js_keys); checked for direct writes and unconditional deletes"
     },
     "src/core/appjson.js": {
       "sha256": "d3bcd6c56e778c6eba888b38b74415cf61bc96905589d51ce8c67b319f63c676",

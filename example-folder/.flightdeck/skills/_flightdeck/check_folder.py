@@ -1972,7 +1972,7 @@ def fact_clean_source(v, err, what):
     def e(w):
         n[0] += 1
         err(w)
-    for k in v:
+    for k in js_keys(v):
         if k not in ("feed", "site", "account"):
             e(what + " has " + k)
     out = {}
@@ -1996,7 +1996,7 @@ def fact_clean_support(v, err):
         err("support")
         return None
     errs = []
-    for k in v:
+    for k in js_keys(v):
         if k not in ("fact", "content", "incarnation", "source", "domain"):
             errs.append("support has " + k)
     if not _tstr(v.get("fact")) or not T_REQ.match(v["fact"]):
@@ -2024,7 +2024,7 @@ def fact_why(o, name, unchecked=None):
         return "is a fact whose name isn't its id"
     errors = []
     err = errors.append
-    for k in o:
+    for k in js_keys(o):
         if k not in F_COMMON + F_FIELDS:
             err("It has " + k)
     run = o.get("run")
@@ -2077,7 +2077,7 @@ def fact_why(o, name, unchecked=None):
                 err(what)
                 break
             k0 = len(errors)
-            for k in e:
+            for k in js_keys(e):
                 if k not in ["id", "text", "link"] + ([field] if field else []):
                     err(what + " has " + k)
             if not _tstr(e.get("id")) or not F_ENTRY.match(e["id"]):
@@ -2135,7 +2135,7 @@ def todo_why(o, name, nbytes=None, unchecked=None):
         errors.append(w)
 
     def only(d, keys, what):
-        for k in d:
+        for k in js_keys(d):
             if k not in keys:
                 err(what + " has " + k + ".")
 

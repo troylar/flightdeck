@@ -172,6 +172,38 @@ rule('A done on evidence with more than one damaged field is refused by the chec
   assert.deepStrictEqual(off, [], off.length + ' first reasons differ');
 });
 
+rule('An unknown field is named first in the app\'s key order, numeric-like keys first, in every 4.0 record and part of one', () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const all = valid(), pick = (fn) => { const e = all.filter(([n, f]) => fn(f))[0]; return [e[0], JSON.parse(T.text(e[1]))]; };
+  /* "2" written before "1": JSON.stringify would put them in index order, so a marker key is swapped for them in the text. */
+  const two = (o) => Object.assign({ zzMARK: true }, o);
+  const cases = [];
+  const add = (label, [name, o], fn) => { const c = JSON.parse(JSON.stringify(o)); fn(c); cases.push({ name, label, text: JSON.stringify(c).replace('"zzMARK":true', '"2":true,"1":true') }); };
+  const fact = pick((f) => f.kind === 'fact' && f.domain === 'prs'), sug = pick((f) => f.support && f.kind === 'proposal'), prop = pick((f) => f.kind === 'proposal' && f.op === 'add' && !f.fulfills);
+  const grant = pick((f) => f.kind === 'grant'), spread = pick((f) => f.op === 'spread-add');
+  const top = (c) => { const o = two(c); Object.keys(c).forEach((k) => delete c[k]); Object.assign(c, o); };
+  add('fact', fact, top);
+  add('fact source', fact, (c) => { c.source = two(c.source); });
+  add('fact entry', fact, (c) => { c.entries[0] = two(c.entries[0]); });
+  add('support', sug, (c) => { c.support = two(c.support); });
+  add('support source', sug, (c) => { c.support.source = two(c.support.source); });
+  add('proposal', prop, top);
+  add('proposal placement', prop, (c) => { c.placement = two(c.placement); });
+  add('grant', grant, top);
+  add('spread scope', spread, (c) => { c.scope = two(c.scope); });
+  const pyOut = JSON.parse(cp.execFileSync(py, ['-I', '-B', '-c', DRIVER, DIR], { input: JSON.stringify(cases), encoding: 'utf8', maxBuffer: 64 * 1048576 }));
+  const key = (w) => { const m = /has "?([^".\s]+)"?/.exec(w || ''); return m ? m[1] : 'no field named: ' + w; };
+  const off = [];
+  cases.forEach((c, i) => {
+    const j = jsRefuses(c), x = pyOut[i], p = Array.isArray(x) ? x[0] : x;
+    assert.ok(j && p, c.label + ': both refuse it (app: ' + j + ' · checker: ' + p + ')');
+    if (key(j) !== '1') off.push(c.label + ' · app: ' + j);
+    if (key(j) !== key(p)) off.push(c.label + ' · app: ' + j + ' · checker: ' + p);
+  });
+  assert.deepStrictEqual(off, [], off.length + ' first unknown fields differ');
+});
+
 rule('In a folder, a refused to-do record is listed under refused as the app names it, and a readable one never is', () => {
   const py = python();
   if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
