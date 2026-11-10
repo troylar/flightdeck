@@ -3045,15 +3045,21 @@
     if (h.step) map.phases.forEach(function (p, i) { if (p.steps.some(function (x) { return x.id === h.step; })) pi = i; });
     return [pi];
   }
-  /* Round 14 (HA): a run's version as read now: there, read whole, and verified. */
-  function pubFits(run, pub) { return !!run && !!pub && !pub._readFailed && !!pub.ok; }
-  /* Round 14 (HA, HB): the one approval snapshot, taken before every approval write (the candidate, the final write, a
+  /* Round 14 (HC): a run's version as read now, judged as the command line judges it (judgeRun): there, read whole, verified,
+     usable, and the version the run is pinned to (repo.runMismatch: folder, checklist hash, number), never only "verifies". */
+  function pubFits(run, pub) {
+    if (!run || !pub || pub._readFailed || !pub.ok || pub.unusable || !pub.info) return false;
+    var test = R.isTest(run) && typeof run.folder === 'string' && PF.publish.STAGE.test(run.folder);
+    var info = test ? { folder: pub.info.folder, mapHash: pub.info.mapHash, version: pub.info.stage && pub.info.stage.proposed } : pub.info;
+    return !PF.repo.runMismatch(run, info);
+  }
+  /* Round 14 (HA, HB, HC): the one approval snapshot, taken before every approval write (the candidate, the final write, a
      retry's, and each write of keeping a copy: its backup, the run, removing the copy). It reads, one after another, never
      side by side:
-       1. the run and its version (readRunOnly), which must verify (pubFits);
+       1. the run and its version (readRunOnly), which must fit the run's pin (pubFits);
        2. the loops' runs, listed fresh (runs/<child process>/), each with its version: every run there must read cleanly,
           and the loops' runs must be exactly those the holds were worked out from (none new, none gone, each the same
-          copy), each on a version that verifies; the folder is listed again once they're read, and must list the same runs;
+          copy), each on a version that fits its pin; the folder is listed again once they're read, and must list the same runs;
        3. last, proposals/ listed fresh and read (readPlans): every scope record of those loops and every to-do record of
           those runs, new files and copies included, must be exactly those read before, none unread, refused or part-read.
      Then, with no read in between, it judges from that snapshot only: the window's guard (guardOk), and the holds of the
