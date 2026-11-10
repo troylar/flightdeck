@@ -1151,6 +1151,20 @@ async function readData(eng, adapter, req) {
       const list = matching.filter(tested), leftOut = two ? matching.length - list.length : 0;
       /* YD: what each listed run's spreads depend on and couldn't be read is this list's problem too, named by its path. */
       if (two) { const had = {}; L.problems().forEach((x) => { had[x.path] = true; }); list.forEach((r) => ((r._todos && r._todos.missing) || []).forEach((x) => { if (x && x.path && !had[x.path]) { had[x.path] = true; L.note(x.path, x.kind || 'unreadable', x.why); } })); }
+      /* ZD: each parent a listed run's requests fulfil is expected and judged as that run's own reader judges it: missing, or
+         named by the folder's read and the run judge (unreadable, malformed, newer, its version); the listed run's to-dos are
+         then held. */
+      if (two) list.forEach((r) => {
+        const pks = {}; PF.todos.recordsFor(d.todos || [], r).forEach((x) => { if (x && x.fulfills && x.fulfills.run && typeof x.fulfills.run.process === 'string' && typeof x.fulfills.run.id === 'string') pks[x.fulfills.run.process + '/' + x.fulfills.run.id] = true; });
+        Object.keys(pks).sort().forEach((pk) => {
+          const dir = 'runs/' + pk, pr = d.runs.filter((c) => c.process + '/' + c.id === pk)[0];
+          let bad = ledger().filter((x) => x.path === dir || String(x.path).indexOf(dir + '/') === 0 || (pr && typeof pr.folder === 'string' && String(x.path).indexOf(PF.run.pubDir(pr).replace(/\/$/, '')) === 0));
+          if (!pr && !bad.length) { L.note(dir + '/run.json', 'nofile', 'A request of ' + r.process + '/' + r.id + ' fulfils a spread on ' + pk + ', which isn\'t in the folder.'); bad = [{ path: dir + '/run.json' }]; }
+          /* The parent's own applied work that can't be read (its living.head, its chain) holds it as the story's reader does. */
+          if (!bad.length && pr && pr._todos && (pr._todos.missing || []).length) bad = pr._todos.missing.slice(0, 1);
+          if ((bad.length || (pr && newerRun(PF, pr))) && r._todos) { r._todos.missing = (r._todos.missing || []).concat([{ path: bad.length ? bad[0].path : dir + '/run.json', kind: 'unreadable', why: 'Its parent ' + pk + ' can\'t be read here.' }]); }
+        });
+      });
       const plans = st === 'all' || st === 'planned' ? d.plans.filter((p) => mine(p.process)) : [];
       /* Which version a plan starts on is unknown (null), not missing, when any of its process's versions couldn't be read or
          verified: only problems with the versions themselves count (a run that doesn't match its version is named at the run). */

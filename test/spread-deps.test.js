@@ -67,7 +67,8 @@ const PARENT_READERS = (root, sp) => ({
   'spread include': ['spread', 'include', root, PR, '--spread', sp.id, '--item', 'ABC-101', '--key', 'wa-inc', '--json', ...TOOL],
   'spread stop': ['spread', 'stop', root, PR, '--spread', sp.id, '--reason', 'Not needed', '--key', 'wa-stop', '--json', ...TOOL]
 });
-const CHILD_READERS = (root) => ({ 'story run': ['run', root, KID, '--contract', '2', '--json'], 'story next': ['next', root, KID, '--contract', '2', '--json'], 'story todo list': ['todo', 'list', root, KID, '--json'] });
+/* ZD: the list of runs reads a listed story's parents too, as the story's own reader does. */
+const CHILD_READERS = (root) => ({ 'story run': ['run', root, KID, '--contract', '2', '--json'], 'story next': ['next', root, KID, '--contract', '2', '--json'], 'story todo list': ['todo', 'list', root, KID, '--json'], 'story runs': ['runs', root, '--contract', '2', '--json'] });
 /* A problem names it: the file, its folder, or a folder above it. */
 const names = (p, f) => { const q = String(p.path || '').replace(/\/$/, ''); return q === f || q === path.posix.dirname(f) || (q && f.indexOf(q + '/') === 0); };
 /* The set-up every cell starts from. */
@@ -103,6 +104,7 @@ for (const [kind, mode] of CELLS) {
       if (four !== incomplete || incomplete !== paths) off.push(rd + ' · exit ' + r.code + ', complete ' + r.complete + ', ' + (r.problems || []).length + ' problems');
       /* YD: the list of runs counts the parent's to-dos as held while what its spread depends on can't be read (a parent it
          can only show by name, its own version newer, carries no counts). */
+      if (rd === 'story runs' && r.data) { const kr = (r.data.runs || []).filter(x => x.process + '/' + x.id === KID)[0]; if (kr && kr.todoCounts && kr.todoCounts.held !== true) off.push('story runs · todoCounts ' + JSON.stringify(kr.todoCounts)); }
       if (rd === 'runs' && r.data) { const pr = (r.data.runs || []).filter(x => x.process + '/' + x.id === PR)[0]; if (pr && pr.todoCounts && pr.todoCounts.held !== true) off.push('runs · todoCounts ' + JSON.stringify(pr.todoCounts)); }
       if (JSON.stringify(before) !== JSON.stringify(after)) off.push(rd + ' · wrote ' + Object.keys(after).filter(k => before[k] !== after[k]).join(', '));
     }
