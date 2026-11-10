@@ -323,7 +323,7 @@ PF.receipts = (function () {
     /* Each application's closure: its request, its authority (the decision on that request, a grant or the compound itself) and
        every record it saw, followed through what those saw, bounded. A witness not in the folder as read, there as another kind,
        or there twice with different contents is named: the pack is partial. */
-    var canon = function (x) { var c = {}; Object.keys(x).sort().forEach(function (k) { if (k.charAt(0) !== '_') c[k] = x[k]; }); return JSON.stringify(c); };
+    var canon = function (x) { var c = Object.create(null); Object.keys(x).sort().forEach(function (k) { if (k.charAt(0) !== '_') c[k] = x[k]; }); return JSON.stringify(c); };
     var witness = function (id, what, ok) {
       var xs = byId[id] || [], path = 'proposals/' + id + '.json';
       if (!xs.length) { missing.push(path + ': ' + what + ', but it isn\'t in the folder as read.'); return null; }
