@@ -732,4 +732,40 @@ rule('UD: an item that joined and ended before it was asked is announced as not 
   same([i1.owed, i1.arrival], [true, false], 'included, not an arrival');
   same(W2.one().notices, []);
 });
+/* Review round 4 (VB): stopping a spread releases work and reopens nothing, on the next read too; a stop decided two ways
+   still stays in what the approvals count. */
+for (const how of ['open', 'passed', 'waived']) {
+  rule('VB: stopping a fully covered spread keeps the loop\'s approval and a gate ' + how + ' as they were, read again', () => {
+    const W = world([101]); const k = W.kid(101);
+    W.spreadAdd(); W.land(W.r);
+    W.fulfil(k, spreadOf(W)); W.clear(k);
+    same(W.one().items[0].state, 'done', 'set-up: covered');
+    const map = R.mapOf(W.r), step = map.phases[0].steps[0], V0 = W.loopView();
+    R.done(W.r, map, 'each', 'person-morgan', AT, { _loop: { ok: true, snapshot: LP.approval(V0.ledger, V0.rollup, { by: 'person-morgan', at: AT }) } }); W.mark();
+    if (how === 'passed') { R.pass(W.r, map, 0, 'person-morgan', AT); W.mark(); }
+    if (how === 'waived') { R.waive(W.r, map, 0, 'Covered elsewhere', 'person-morgan', AT); W.mark(); }
+    const was = [R.answered(W.r, step), R.gateStatus(W.r, map, 0)];
+    same(was, [true, how === 'open' ? 'ready' : how], 'set-up: approved');
+    const st = W.ask(W.r, stopBody(W, W.one().items.filter(i => i.owed).map(i => +i.uid.slice(-3))), { person: 'person-morgan' });
+    same(st.preview.consequence.reopens, [], 'set-up: the preview reopens nothing');
+    W.land(W.r);
+    same(spreadOf(W).state, 'stopped', 'set-up: stopped');
+    W.mark();
+    same([R.answered(W.r, step), R.gateStatus(W.r, map, 0)], was, 'read again, nothing reopened');
+  });
+}
+rule('VB: a stop decided two ways still sends the loop\'s approval back, and settling it restores nothing', () => {
+  const W = world([101]); const k = W.kid(101);
+  W.spreadAdd(); W.land(W.r);
+  W.fulfil(k, spreadOf(W)); W.clear(k);
+  const map = R.mapOf(W.r), step = map.phases[0].steps[0], V0 = W.loopView();
+  R.done(W.r, map, 'each', 'person-morgan', AT, { _loop: { ok: true, snapshot: LP.approval(V0.ledger, V0.rollup, { by: 'person-morgan', at: AT }) } }); W.mark();
+  assert.ok(R.answered(W.r, step), 'set-up: approved');
+  const st = W.ask(W.r, stopBody(W, [101]), { tool: 'release-helper', version: '1.0', key: 'vb-stop' });
+  twoWays(W, W.r, st.id, { process: 'release-readiness', id: 'r-41' });
+  W.mark();
+  same(R.answered(W.r, step), false, 'held while disputed');
+  W.decide(W.r, st.id, 'person-morgan', 'decline'); W.mark();
+  same(R.answered(W.r, step), false, 'settling it restores nothing');
+});
 run();

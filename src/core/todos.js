@@ -879,7 +879,9 @@ PF.todos = (function () {
       T.spreads.forEach(function (sp) {
         var lw = loopWhy(map, sp.loopStep), C = covOf[sp.id], whys = C ? C.unresolved : ['Spread "' + sp.text + '": its coverage can\'t be checked here, so approval waits.'];
         whys.forEach(function (why) { if (lw) H.all.push(why + ' (' + lw + ')'); else push(H.loops, sp.loopStep, why); });
-        sp.history.forEach(function (h) { putLoop(sp.loopStep, h.application); });
+        /* A stop releases work, so its application never sends an approval back; a stop decided or applied two ways still
+           does, through its dispute's participants (below). */
+        sp.history.forEach(function (h) { if (h.op !== 'spread-stop') putLoop(sp.loopStep, h.application); });
         (C && C.scope || []).forEach(function (id) { putLoop(sp.loopStep, id); });
       });
       /* Bindings of one item made at once, and the one that settled them, stay in what an approval counts: settling them never

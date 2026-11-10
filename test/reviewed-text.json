@@ -353,8 +353,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "9019e05323568fecaaee34346b3941b84f6e3f833d6c2bed6f35c8fc47e30f29",
-      "reviewed": "approvals are sticky before the first application; a needed cut marks the run living with head ''; no writes or deletes beyond the approval itself"
+      "sha256": "af46f416b44bda6dcbf008ed27eb817af988494e98acb0598a636d6c2e52d1cd",
+      "reviewed": "stop applications never enter approval scope; stop disputes still do; no writes or deletes"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",
