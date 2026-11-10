@@ -237,4 +237,54 @@ rule('Evidence replaced or gone stale, a contrary fact about the item, or the de
   }
 });
 
+/* JB: the guards read the folder again at the write, bound to its folder and read; nothing changed in this window meanwhile
+   (no Refresh between the change and the write). */
+rule('A blocker filed, the evidence made unreadable, or the delegation revoked (for a decision, people.json made unreadable) while a decision, an application or a landing is held writes nothing, with no Refresh in between; with nothing changed each writes', async () => {
+  for (const point of ['decision', 'application', 'run']) {
+    for (const how of ['none', 'blocker', 'malformed', 'revoked']) {
+      const app = await setup(), x = await todo(app), f = await fact(app, 'prs-1', { observedAt: ago(30000), maxAgeSeconds: 120 }), tag = point + '/' + how;
+      const g = point === 'decision' ? null : await grant(app);
+      const S = await suggest(app, x, f.id);
+      let h;
+      if (point === 'decision') {
+        await app.fs.write('proposals/' + S.name, app.PF.todos.text(S.file));
+        await refresh(app, 300);
+        const W = await now(app), it = app.PF.todos.inbox([W.parent], { records: W.d.todos, unread: W.d.todosUnread, people: W.people, me: 'person-avery', now: Date.now() }).find((y) => y.id === S.id);
+        assert.ok(it, tag + ' set-up: waiting for Avery');
+        h = holdApplication(app, S.id);
+        app.click('td-accept', S.id, { run: W.parent.process + '/' + W.parent.id, fp: it.consequence.fingerprint }); await app.tick(80);
+      } else {
+        h = point === 'application' ? holdApplication(app, S.id) : holdLanding(app, S.id);
+        await app.fs.write('proposals/' + S.name, app.PF.todos.text(S.file));
+        await refresh(app, 300);
+      }
+      assert.strictEqual(h.seen(), 1, tag + ' set-up: held before the write');
+      h.off();
+      const before = runFiles(app);
+      if (how === 'blocker') await fact(app, 'blk-1', { observedAt: ago(10000), source: JIRA, domain: 'blockers', complete: true, reported: 1, entries: [{ id: 'B-1', text: 'Waiting on legal', state: 'open' }] });
+      if (how === 'malformed') app.fs.files['proposals/' + f.name] = { t: '{"kind": "fact", ', m: Date.now() };
+      if (how === 'revoked') {
+        const W = await now(app);
+        if (g) {
+          const rv = app.PF.todos.revokeOf(W.parent, { grant: g.id, by: 'person-avery', key: 'rv-' + hex(6), records: W.d.todos, unread: W.d.todosUnread, people: W.people, at: new Date().toISOString(), app: '4.0.0', now: Date.now() });
+          assert.ok(!rv.why, rv.why);
+          await app.fs.write('proposals/' + rv.name, app.PF.todos.text(rv.file));
+        } else {
+          const ppl = JSON.parse(app.fs.files['people.json'].t);
+          app.fs.files['people.json'] = { t: '{', m: Date.now() };
+          assert.ok(ppl);
+        }
+      }
+      h.hold.open(); await app.tick(500);
+      const st = app.files('proposals/').filter((p) => p.indexOf(S.id + '.status-') >= 0).map((p) => JSON.parse(app.fs.files[p].t).kind);
+      const r = parentRun(app), landed = !!r.living && apps(app, S.id).some((p) => p === 'proposals/' + r.living.head + '.json');
+      if (point === 'decision') assert.deepStrictEqual(st.filter((k) => k === 'decision').length, how === 'none' ? 1 : 0, tag + ': ' + st.join(', '));
+      if (point === 'application') assert.strictEqual(st.filter((k) => k === 'application').length, how === 'none' ? 1 : 0, tag + ': ' + st.join(', '));
+      if (point !== 'decision') assert.strictEqual(landed, how === 'none', tag + ': ' + JSON.stringify(r.living));
+      if (point === 'run' && how !== 'none') assert.deepStrictEqual(runFiles(app), before, tag + ': the run is as it was');
+      if (point === 'run' && how !== 'none') assert.ok(!/data-act="retry-save"/.test(app.html()), tag + ': the landing is put back, never kept for Try again');
+    }
+  }
+});
+
 run();

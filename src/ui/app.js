@@ -3021,7 +3021,9 @@
     if (!t.pre) return true;
     var pre; try { pre = R.sanitize(JSON.parse(t.pre)); } catch (e) { return false; }
     if (!pre || pre._unrunnable) return false;
-    var ok = function (run) { var kh = PF.todos.keepHead(run, { living: t.from ? { head: t.from } : null }, { records: data.todos || [], unread: data.todosUnread || [], people: data.people, now: tdNow() }); return kh.head === t.head && kh.dropped === (t.dropped || ''); };
+    /* t.snap: the records and people.json read again at the write (tdFresh), once they are; until then what this window read. */
+    var sn = t.snap || tdData();
+    var ok = function (run) { var kh = PF.todos.keepHead(run, { living: t.from ? { head: t.from } : null }, { records: sn.records, unread: sn.unread, people: sn.people, now: tdNow() }); return kh.head === t.head && kh.dropped === (t.dropped || ''); };
     if (!ok(pre)) return false;
     /* Asked again with the roles the run has now (the durable head stays the one before): a role reassigned meanwhile takes
        its holder's authority with it. */
@@ -3304,6 +3306,21 @@
   function todoView(r) { return PF.todos.view(r, { records: data.todos || [], unread: data.todosUnread || [], people: data.people, now: tdNow() }); }
   /* The time a to-do's evidence (4.0 slice 4: facts) is judged at: now, asked again at every view and before every write. */
   function tdNow() { return Date.now(); }
+  /* The to-do records, unread files and people as this window read them last. */
+  function tdData() { return { records: data.todos || [], unread: data.todosUnread || [], people: data.people }; }
+  /* The same read again from the folder (repo.readTodos), for a to-do write guard asked at the write, never on what this
+     window read last: bound to the folder, the read (generation) and the person the write was asked in. null, and nothing is
+     written, when the folder can't be read or the window moved on meanwhile. A request whose body changed since this window
+     first read it is held, as a read has it (todoBodies). */
+  function tdFresh(cx) {
+    var bound = function () { return !!cx && cx.g === gen && cx.fs === state.fs && cx.me === state.me; };
+    if (!bound()) return Promise.resolve(null);
+    return repo.readTodos(cx.fs).then(function (s) {
+      if (!bound()) return null;
+      var d = { todos: s.records, todosUnread: s.unread }; todoBodies(d);
+      return { records: d.todos || [], unread: d.todosUnread || [], people: s.people || data.people };
+    }, function () { return null; });
+  }
   /* A run's facts (PF.facts.view), worked out once per read of the folder; how they stand is judged at tdNow(). */
   var fcMemo = null;
   function factViewOf(run) {
@@ -3398,15 +3415,16 @@
   }
   function tdSettled(slot) { var keep = loopMem().tdKeep; if (keep) delete keep[slot]; }
   /* The decision write guard (PF.todos.decideStill), asked with the folder and the clock as they are at the write: '' or why. */
-  function tdDecisionStill(key, o, made) { return PF.todos.decideStill(findRun(key), Object.assign({}, o, { records: data.todos || [], unread: data.todosUnread || [], people: data.people, now: tdNow() }), made); }
+  function tdDecisionStill(key, o, made, snap) { var sn = snap || tdData(); return PF.todos.decideStill(findRun(key), Object.assign({}, o, { records: sn.records, unread: sn.unread, people: sn.people, now: tdNow() }), made); }
   function tdWrite(r, made, words, slot, tok, recheck) {
     var mem = loopMem(), un = runUnread(r);
     if (un) { mem.tdSaid = un + ' Nothing was written.'; render(); return Promise.resolve(false); }
     /* Said in the dialog it came from while that is still open; once it was closed or opened again, said on the page. */
     var said = function (t, how) { if (!tok || tok === tdTok(tok.split(':')[0])) mem.tdSaid = t; else say(t, how); };
     var cx = loopGuard({ run: r.process + '/' + r.id, readable: true }), endBusy = busyStart(), sg = gen;
-    var late = '';
-    return repo.saveScope(cx.fs, made.name, made.file, { still: function () { if (!guardOk(cx)) return false; late = recheck ? recheck() : ''; return !late; } }).then(function (res) {
+    var late = '', snap = null;
+    var fresh = function () { return tdFresh(cx).then(function (s) { snap = s; if (!s) late = 'the folder couldn\'t be read again right before it was.'; return !!s; }); };
+    return repo.saveScope(cx.fs, made.name, made.file, { fresh: recheck ? fresh : null, still: function () { if (!guardOk(cx)) return false; late = recheck ? recheck(snap) : ''; return !late; } }).then(function (res) {
       endBusy(); if (sg !== gen) return false;
       if (res && res.dropped) { said(late ? 'Nothing was written: ' + late : 'Nothing was written: the folder, the person or the run changed before it was.', 'warn'); render(); return false; }
       if (slot) tdSettled(slot);
@@ -3425,7 +3443,7 @@
     var asked = null, made = tdKept(slot, sig, function (seed) { asked = { request: id, op: op, by: state.me, shown: shown, reason: reason, at: new Date().toISOString(), app: APP_VERSION, writer: seed.writer, rev: seed.rev }; return PF.todos.decide(r, Object.assign({ records: data.todos || [], unread: data.todosUnread || [], people: data.people, now: tdNow() }, asked)); });
     if (made.why) { mem.tdSaid = made.why; render(); return; }
     var o0 = asked || { request: id, op: op, by: state.me, shown: shown, reason: reason, app: APP_VERSION };
-    tdWrite(r, made, made.words, slot, tok, function () { return tdDecisionStill(key, o0, made); }).then(function (ok) { if (ok && mem.tdDec === open && tok === tdTok('dec') && (!sent || tdClearIf(sent))) { mem.tdDec = null; render(); } });
+    tdWrite(r, made, made.words, slot, tok, function (snap) { return tdDecisionStill(key, o0, made, snap); }).then(function (ok) { if (ok && mem.tdDec === open && tok === tdTok('dec') && (!sent || tdClearIf(sent))) { mem.tdDec = null; render(); } });
   }
   /* Accept N additions (4.0 slice 3): a spread's plain additions on its stories' runs, accepted together, each its own
      decision on exactly the consequence shown with it (data-ids: run|request|fingerprint). One that changed since, or whose
@@ -3452,8 +3470,9 @@
       var made = tdKept(slot, sig, function (seed) { o1 = Object.assign({}, o1, { at: new Date().toISOString(), writer: seed.writer, rev: seed.rev }); return PF.todos.decide(r, Object.assign({ records: data.todos || [], unread: data.todosUnread || [], people: data.people, now: tdNow() }, o1)); });
       if (made.why) { if (made.renewed) changed.push(x); else failed.push({ why: made.why }); step(i + 1); return; }
       var cx = loopGuard({ run: r.process + '/' + r.id, readable: true }), endBusy = busyStart(), sg = gen;
-      var late = '';
-      repo.saveScope(cx.fs, made.name, made.file, { still: function () { if (!guardOk(cx)) return false; late = tdDecisionStill(x.run, o1, made); return !late; } }).then(function (res) {
+      var late = '', snap = null;
+      var fresh = function () { return tdFresh(cx).then(function (s) { snap = s; if (!s) late = 'The folder couldn\'t be read again right before it was written.'; return !!s; }); };
+      repo.saveScope(cx.fs, made.name, made.file, { fresh: fresh, still: function () { if (!guardOk(cx)) return false; late = tdDecisionStill(x.run, o1, made, snap); return !late; } }).then(function (res) {
         endBusy(); if (sg !== gen) return;
         if (res && res.dropped) { failed.push({ why: late || 'The folder, the person or the run changed before it was written.' }); step(i + 1); return; }
         tdSettled(slot);
@@ -3568,9 +3587,9 @@
     return pub && typeof pub.info.typesHash === 'string' ? pub.info.typesHash : '';
   }
   /* Whether a request read now, on the run as this window has it now, still prepares the application it prepared (plan). */
-  function todoPlanStill(key, id, plan) {
+  function todoPlanStill(key, id, plan, snap) {
     var r1 = findRun(key); if (!r1 || r1._unrunnable) return false;
-    var V1 = null; try { V1 = todoView(r1); } catch (e) { V1 = null; }
+    var sn = snap || tdData(), V1 = null; try { V1 = PF.todos.view(r1, { records: sn.records, unread: sn.unread, people: sn.people, now: tdNow() }); } catch (e) { V1 = null; }
     var q1 = V1 && !V1.broken ? V1.requests[id] : null; if (!q1) return false;
     var p1 = PF.todos.applyPlan(r1, V1, q1), a = plan.write || plan.settle || null, b = p1.write || p1.settle || null;
     return !!a && !!b && JSON.stringify(a) === JSON.stringify(b);
@@ -3589,8 +3608,10 @@
          the record never enters what is shown now: the next read of its own folder finds it. */
       /* Asked right before the application is written: the guard, and the request read now (its authority, any evidence it
          rests on and that evidence's freshness) still prepares exactly this application. */
-      var still = function () { return guardOk(cx) && todoPlanStill(key, q.id, plan); };
-      prepared = repo.saveScope(cx.fs, s.name, s.file, { still: still }).then(function (res) { if ((res && res.dropped) || !guardOk(cx)) return null; rec._file = s.name; (data.todos = (data.todos || []).slice()).push(rec); return rec; });
+      /* ...asked on the folder read again right there (tdFresh), never on what this window read last. */
+      var snap = null, fresh = function () { return tdFresh(cx).then(function (x) { snap = x; return !!x; }); };
+      var still = function () { return !!snap && guardOk(cx) && todoPlanStill(key, q.id, plan, snap); };
+      prepared = repo.saveScope(cx.fs, s.name, s.file, { fresh: fresh, still: still }).then(function (res) { if ((res && res.dropped) || !guardOk(cx)) return null; rec._file = s.name; (data.todos = (data.todos || []).slice()).push(rec); return rec; });
     }
     return prepared.then(function (a) {
       if (!a || !guardOk(cx)) return false;
@@ -3613,6 +3634,9 @@
         var ae = (a.kind === 'compound' ? a.application : a).effect, x = ae.todo ? V2.byTodo[ae.todo] || null : null;
         R.todoLand(rr, m, a, { who: me, now: now, typesHash: types, app: APP_VERSION, todo: x, spread: ae.spread ? V2.bySpread[ae.spread] || null : null });
       }, { background: true, redo: true });
+      /* The run's write asks the guard on the folder read again after its last read (tdFresh): no records, nothing lands. */
+      /* Dropped there, the landing is put back like one the guard drops (opts.redo): never kept for Try again. */
+      ed.opts.prewrite = function () { return tdFresh(lcx).then(function (x) { if (!x || !lcx.todo) { ed.opts.undoFailed(); return false; } lcx.todo.snap = x; return true; }); };
       return mutateRun(key, cx.g, ed.fn, ed.opts).then(function (ok) { return ok !== false; });
     });
   }

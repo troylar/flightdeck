@@ -1775,13 +1775,18 @@ PF.repo = (function () {
       return fs.read(path, rd).then(function (f) {
         var now = f ? U.hash(f.text) : null;
         if (now !== expect || (exact && (f ? f.text : null) !== opts.expectText)) return { conflict: true, theirs: f ? f.text : null, theirsHash: now };
-        /* opts.still: asked after the read, right before the write; false writes nothing ({ dropped: true }). */
-        if (opts && typeof opts.still === 'function' && !opts.still()) return { dropped: true };
-        /* A folder can't check and write in one step, so read it back: if anything else is there now, say so rather than
-           report a save that didn't stick. (Across computers, OneDrive keeps both copies of a file changed on two.) */
-        return fs.write(path, text).then(function () { return fs.read(path, rd); }).then(function (back) {
-          if (back && back.text === text) return { ok: true, hash: U.hash(text), text: text };
-          return { conflict: true, theirs: back ? back.text : null, theirsHash: back ? U.hash(back.text) : null, afterWrite: true };
+        /* opts.fresh(fs) (4.0): awaited after the read and before opts.still, for a guard that reads the folder again at the
+           write; false, or a rejection, writes nothing ({ dropped: true }). */
+        var fresh = opts && typeof opts.fresh === 'function' ? Promise.resolve().then(function () { return opts.fresh(fs); }).then(function (ok) { return ok !== false; }, function () { return false; }) : Promise.resolve(true);
+        return fresh.then(function (ok) {
+          /* opts.still: asked after the read, right before the write; false writes nothing ({ dropped: true }). */
+          if (!ok || (opts && typeof opts.still === 'function' && !opts.still())) return { dropped: true };
+          /* A folder can't check and write in one step, so read it back: if anything else is there now, say so rather than
+             report a save that didn't stick. (Across computers, OneDrive keeps both copies of a file changed on two.) */
+          return fs.write(path, text).then(function () { return fs.read(path, rd); }).then(function (back) {
+            if (back && back.text === text) return { ok: true, hash: U.hash(text), text: text };
+            return { conflict: true, theirs: back ? back.text : null, theirsHash: back ? U.hash(back.text) : null, afterWrite: true };
+          });
         });
       });
     };
@@ -2599,6 +2604,16 @@ PF.repo = (function () {
      a plan or decision from a newer Flightdeck is named newer. Without bad (the app) those are left out too, and the newer
      ones are kept in refused, so Folder health names them. only(name): just those files (plan request reads its own request's). */
   /* two: reading for other apps with contract 2, which reads plan/2 and its decisions as the app does. */
+  /* The to-do records and people.json as they are now (4.0), for a to-do write guard asked at the write rather than on what
+     the window read last: { records, unread, people }. people.json that won't read is an unread entry, as loadAll has it; a
+     proposals/ that can't be listed rejects, and the write it guards is dropped. */
+  function readTodos(fs) {
+    return Promise.all([readPlans(fs, []), loadPeople(fs).then(null, function (e) { return { failed: why(e) }; })]).then(function (r) {
+      var unread = (r[0].todosUnread || []).slice(), people = r[1];
+      if (people.failed) { unread.push({ file: 'people.json', why: 'people.json couldn\'t be read, so no one\'s authority over to-dos can be checked.', run: null }); people = null; }
+      return { records: r[0].todos || [], unread: unread, people: people };
+    });
+  }
   function readPlans(fs, bad, only, two) {
     var refused = [], torn = [];
     return loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status' || typeof o.format === 'string'; }, bad, only, torn).then(function (props) {
@@ -3362,5 +3377,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, saveScope: saveScope, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readTodos: readTodos, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, saveScope: saveScope, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();
