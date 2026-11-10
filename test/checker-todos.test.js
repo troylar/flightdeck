@@ -204,6 +204,23 @@ rule('An unknown field is named first in the app\'s key order, numeric-like keys
   assert.deepStrictEqual(off, [], off.length + ' first unknown fields differ');
 });
 
+rule('A record nested past the bound is refused by the checker as by the app, by name and why, and never crashes it', () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-todo-deep-')), [[name, f]] = valid();
+  fs.mkdirSync(path.join(root, 'proposals'));
+  fs.writeFileSync(path.join(root, 'proposals', name), T.text(f));
+  const deep = 'req-notes-bot-' + 'e'.repeat(24) + '.json', shallow = 'req-notes-bot-' + 'd'.repeat(24) + '.json';
+  fs.writeFileSync(path.join(root, 'proposals', deep), '{"format":"flightdeck-plan/4","x":' + '['.repeat(12000) + ']'.repeat(12000) + '}');
+  fs.writeFileSync(path.join(root, 'proposals', shallow), '{"format":"flightdeck-plan/4","x":' + '['.repeat(65) + ']'.repeat(65) + '}');
+  const res = JSON.parse(cp.execFileSync(py, ['-I', path.join(DIR, 'check_folder.py'), root], { encoding: 'utf8', maxBuffer: 64 << 20 }));
+  for (const n of [deep, shallow]) {
+    const r = res.refused.find((x) => x.file === 'proposals/' + n);
+    assert.ok(r && r.why.indexOf(PF.util.DEEP_WHY) >= 0, n + ': ' + JSON.stringify(res.refused).slice(0, 600));
+  }
+  assert.ok(PF.util.jsonTooDeep('['.repeat(65) + ']'.repeat(65)) && !PF.util.jsonTooDeep('['.repeat(64) + ']'.repeat(64)) && !PF.util.jsonTooDeep('"' + '['.repeat(100) + '"'), 'the app\'s bound: 64, strings skipped');
+});
+
 rule('In a folder, a refused to-do record is listed under refused as the app names it, and a readable one never is', () => {
   const py = python();
   if (!py) { console.log('  (skipped: no Python on this computer)'); return; }

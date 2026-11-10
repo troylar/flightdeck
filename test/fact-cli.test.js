@@ -339,6 +339,26 @@ rule('A fact whose id is also a plan\'s or a scope request\'s, under a OneDrive 
   }
 });
 
+rule('JSON nested past the bound is refused where it is read, by path, before anything hashes or compares it: readers hold (exit 4), input is refused, nothing throws', async () => {
+  const deep = (n) => '['.repeat(n) + ']'.repeat(n);
+  const F0 = await folder(), x = await todo(F0), fid = F.idFor('git-bot', 'prs-102-a');
+  assert.strictEqual(json('fact', 'sync', F0.root, PR, '--from', input({ facts: [prs()] }), '--json', ...TOOL).code, 0);
+  /* A record in the folder, and a OneDrive copy of the fact, each nested 12,000 deep. */
+  const bad = 'req-git-bot-' + 'f'.repeat(24) + '.json', copy = fid + ' (1).json';
+  const rec = JSON.parse(fs.readFileSync(path.join(F0.root, 'proposals', fid + '.json'), 'utf8'));
+  fs.writeFileSync(path.join(F0.root, 'proposals', bad), '{"format":"flightdeck-plan/4","features":["living-runs"],"kind":"fact","id":"req-git-bot-' + 'f'.repeat(24) + '","source":{"feed":' + deep(12000) + '}}');
+  fs.writeFileSync(path.join(F0.root, 'proposals', copy), JSON.stringify(rec).replace('"source":{', '"source":{"deep":' + deep(9000) + ','));
+  for (const [what, r] of [['todo list', json('todo', 'list', F0.root, PR, '--json')], ['fact list', json('fact', 'list', F0.root, PR, '--json')], ['run', json('run', F0.root, PR, '--contract', '2', '--json')],
+    ['suggest-done', json('todo', 'suggest-done', F0.root, PR, '--todo', x, '--fact', fid, '--dry-run', '--json', ...TOOL)]]) {
+    assert.deepStrictEqual([r.code, r.complete], [4, false], what + ': ' + JSON.stringify(r).slice(0, 400));
+    assert.ok(r.problems.some((p) => p.path === 'proposals/' + bad), what + ' names the deep record: ' + JSON.stringify(r.problems).slice(0, 600));
+  }
+  /* Input nested past the bound is refused whole, with words, never a crash. */
+  const s = json('fact', 'sync', F0.root, PR, '--from', input('{"facts":[{"key":"d","entries":' + deep(12000) + '}]}'), '--json', ...TOOL);
+  assert.deepStrictEqual([s.code, s.error && s.error.kind], [1, 'invalid'], JSON.stringify(s).slice(0, 400));
+  assert.ok(/nested/.test(s.error.why), s.error.why);
+});
+
 rule('Importing facts alone changes no run bytes: every run.json and `run --contract 2` read the same before and after', async () => {
   const { root } = await folder();
   const runs0 = runsOf(root), read0 = json('run', root, PR, '--contract', '2', '--json'), kid0 = json('run', root, 'validate-story/k102', '--contract', '2', '--json');
@@ -419,6 +439,7 @@ rule('A name found taken is read back through the folder reader: a link raced in
         if (how === 'link') { const away = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-fact-away-')), raced); fs.copyFileSync(from, away); fs.symlinkSync(away, to); }
         else if (how === 'big') fs.writeFileSync(to, fs.readFileSync(from, 'utf8').replace(/\n$/, '') + ' '.repeat(T.LIMITS.bytes + 10) + '\n');
         else if (how === 'malformed') fs.writeFileSync(to, '{"format":"flightdeck-plan/4",');
+        else if (how === 'deep') fs.writeFileSync(to, '{"x":' + '['.repeat(12000) + ']'.repeat(12000) + '}');
         else { const o = JSON.parse(fs.readFileSync(from, 'utf8')); o.at = 'not a date'; fs.writeFileSync(to, JSON.stringify(o)); }
       }
       return orig.apply(fs, arguments);
@@ -433,7 +454,7 @@ rule('A name found taken is read back through the folder reader: a link raced in
     assert.ok(r.problems.some((p) => p.path === 'proposals/' + r.raced && p.why), what + ' names it, with why: ' + JSON.stringify(r.problems));
     fs.rmSync(path.join(r.root, 'proposals', r.raced));
   };
-  for (const how of ['link', 'big', 'malformed', 'refused']) {
+  for (const how of ['link', 'big', 'malformed', 'refused', 'deep']) {
     const F0 = await folder(), x = await todo(F0);
     check(await race(/^req-git-bot-/, how, ['fact', 'sync', F0.root, PR, '--from', input({ facts: [prs()] }), '--json', ...TOOL]), how + ' · fact sync');
     assert.strictEqual(json('fact', 'sync', F0.root, PR, '--from', input({ facts: [prs()] }), '--json', ...TOOL).code, 0);

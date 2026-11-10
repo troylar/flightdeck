@@ -1153,7 +1153,7 @@ function writeRequest(dir, name, text, hooks) {
    through a link (or a folder swapped for one) and never past cap bytes, before parse(value, bytes) is asked what it is. Gives
    { record } or { problem: { path, kind, why } } (a link, too big, gone, not JSON, or refused by parse: { why, kind }), the path for the problem
    ledger: the caller then says nothing is known about it (exit 4), never already. Every collision retry reads this way. */
-async function takenAt(dir, name, cap, parse) {
+async function takenAt(PF, dir, name, cap, parse) {
   const ra = readAdapter(dir, { maxBytes: cap }), p = 'proposals/' + name;
   let f = null;
   try { f = await ra.read(p, { maxBytes: cap }); } catch (e) {
@@ -1162,14 +1162,15 @@ async function takenAt(dir, name, cap, parse) {
   }
   if (!f) return { problem: { path: p, kind: 'vanished', why: 'It was there when this was written and gone when it was read back. Try again.' } };
   /* Text that isn't JSON, or that its reader refuses, is a problem with the reader's own reason, never "nothing there". */
-  let o;
+  let o, v;
+  if (PF.util.jsonTooDeep(f.text)) return { problem: { path: p, kind: 'malformed', why: 'It ' + PF.util.DEEP_WHY + ', so whether it is this one isn\'t known.' } };
   try { o = JSON.parse(f.text); } catch (e) { return { problem: { path: p, kind: 'malformed', why: 'It isn\'t complete JSON (it may still be arriving), so whether it is this one isn\'t known.' } }; }
-  const v = parse(o, Buffer.byteLength(f.text, 'utf8'));
+  try { v = parse(o, Buffer.byteLength(f.text, 'utf8')); } catch (e) { return { problem: { path: p, kind: 'malformed', why: 'It couldn\'t be checked (' + (e && e.message || String(e)) + '), so whether it is this one isn\'t known.' } }; }
   if (v && v.why) return { problem: { path: p, kind: v.kind === 'newer' ? 'newer' : 'malformed', why: 'It ' + v.why + ', so whether it is this one isn\'t known.' } };
   return { record: v ? v.record : null };
 }
 /* takenAt for a to-do or fact record: through PF.todos.cleanFile, the one reader for them, at its own size limit. */
-function takenRecord(PF, dir, name) { return takenAt(dir, name, PF.todos.LIMITS.bytes, (o, n) => { const v = PF.todos.cleanFile(o, name, n); return v.ok ? { record: v.record } : { why: v.why || 'isn\'t a record this copy reads', kind: v.kind }; }); }
+function takenRecord(PF, dir, name) { return takenAt(PF, dir, name, PF.todos.LIMITS.bytes, (o, n) => { const v = PF.todos.cleanFile(o, name, n); return v.ok ? { record: v.record } : { why: v.why || 'isn\'t a record this copy reads', kind: v.kind }; }); }
 /* The same, for any one folder of the team folder (parts): a report in reports/<process>/ too. */
 function writeOnce(dir, parts, name, text, hooks) {
   const rel = parts.join('/') + '/';
@@ -3033,7 +3034,9 @@ async function factMain(argv) {
     let got0;
     try { got0 = await readRequestInput(val['--from'], READ_MAX); } catch (e) { return failOut('failed', 'The observations couldn\'t be read: ' + (e && e.message || String(e)) + ' Nothing was written.'); }
     if (got0.tooBig) return failOut('invalid', 'The observations are over ' + size(READ_MAX) + '. Nothing was cut and nothing was written; sync fewer at a time.');
-    try { batch = JSON.parse(norm(got0.buf.toString('utf8'))); } catch (e) { return failOut('invalid', 'The input isn\'t JSON: ' + e.message + ' Nothing was written.'); }
+    const text0 = norm(got0.buf.toString('utf8'));
+    if (PF.util.jsonTooDeep(text0)) return failOut('invalid', 'The input ' + PF.util.DEEP_WHY + '. Nothing was written.');
+    try { batch = JSON.parse(text0); } catch (e) { return failOut('invalid', 'The input isn\'t JSON: ' + e.message + ' Nothing was written.'); }
     if (!batch || typeof batch !== 'object' || Array.isArray(batch) || !Array.isArray(batch.facts) || Object.keys(batch).some((k) => k !== 'facts')) return failOut('invalid', 'The observations are {"facts": [ ... ]}, one object per observation. Nothing was written.');
     if (batch.facts.length > FX.LIMITS.batch) return failOut('invalid', 'One sync takes at most ' + FX.LIMITS.batch + ' facts (this has ' + batch.facts.length + '). Nothing was cut and nothing was written; sync them in parts.');
   }
@@ -3479,7 +3482,9 @@ async function loopMain(argv) {
       const input = await readRequestInput(val['--from'], LP.LIMITS.bytes).catch((e) => ({ err: e }));
       if (input.err) return usage('couldn\'t read the observation: ' + input.err.message);
       if (input.tooBig) return failOut('invalid', 'An observation is at most ' + (LP.LIMITS.bytes / 1024) + ' KB; this one is more. Nothing is cut: narrow the search. Nothing was written.');
-      let obs; try { obs = JSON.parse(input.buf.toString('utf8').replace(/^﻿/, '')); } catch (e) { return failOut('invalid', 'The observation isn\'t complete JSON: ' + e.message + ' Nothing was written.'); }
+      const otext = input.buf.toString('utf8').replace(/^﻿/, '');
+      if (PF.util.jsonTooDeep(otext)) return failOut('invalid', 'The observation ' + PF.util.DEEP_WHY + '. Nothing was written.');
+      let obs; try { obs = JSON.parse(otext); } catch (e) { return failOut('invalid', 'The observation isn\'t complete JSON: ' + e.message + ' Nothing was written.'); }
       /* An observation from another feed, or another scope of this one, is refused before anything is filed. */
       const fw = LP.feedWhy(obs && typeof obs === 'object' ? obs : {}, V.fields, V.ledger.observation);
       if (fw) return failOut('invalid', 'This ' + fw + '. Nothing was written.', problems());
@@ -3527,7 +3532,7 @@ async function loopMain(argv) {
       try { resA = writeOnce(dir, ['proposals'], id + '.json', LP.text(fa)); } catch (e) { return failOut('failed', UNCERTAIN + ' (' + (e && e.message || String(e)) + ')', problems()); }
       if (resA !== 'written') {
         /* Taken meanwhile: read what is there; the same request is already, another one under this key is refused. */
-        const tk = await takenAt(dir, id + '.json', LP.LIMITS.bytes, (o) => (o && typeof o === 'object' && !Array.isArray(o) ? { record: o } : { why: 'isn\'t a scope record' })), there = tk.record || null;
+        const tk = await takenAt(PF, dir, id + '.json', LP.LIMITS.bytes, (o) => (o && typeof o === 'object' && !Array.isArray(o) ? { record: o } : { why: 'isn\'t a scope record' })), there = tk.record || null;
         if (tk.problem) { more.push(tk.problem); return done(Object.assign(dataA('requested'), { status: 'held', preview: 'Something is under this request\'s name (' + file + ') that can\'t be read back, so whether it is this request isn\'t known. Check folder availability, then try again with the same key.' }), EXIT.partial); }
         if (!there) return failOut('failed', UNCERTAIN, problems());
         if (JSON.stringify(there.changes) !== JSON.stringify(fa.changes) || JSON.stringify(there.loop) !== JSON.stringify(fa.loop)) return failOut('key-taken', 'This key already names a different request (' + file + '). Read that request (flightdeck loop read) before choosing a new key. Nothing was written.', problems());
@@ -3595,7 +3600,7 @@ async function loopReview(eng, o) {
     try { res = writeOnce(o.dir, ['proposals'], f.name, LP.text(f.file)); } catch (e) { return o.failOut('failed', UNCERTAIN, o.problems()); }
     if (res !== 'written') {
       /* The name was taken meanwhile: read what is there, and call it the same decision only if it is. */
-      const tk = await takenAt(o.dir, f.name, LP.LIMITS.bytes, (x) => (x && typeof x === 'object' && !Array.isArray(x) ? { record: x } : { why: 'isn\'t a scope record' })), there = tk.record || null;
+      const tk = await takenAt(PF, o.dir, f.name, LP.LIMITS.bytes, (x) => (x && typeof x === 'object' && !Array.isArray(x) ? { record: x } : { why: 'isn\'t a scope record' })), there = tk.record || null;
       if (tk.problem) return o.failOut('failed', 'Something is under this decision\'s name (proposals/' + f.name + ') that can\'t be read back, so whether it is this decision isn\'t known (' + tk.problem.why + ')' + (all === 'written' && files.indexOf(f) > 0 ? ' Some of this decision was written before it.' : ' Nothing was written.'), o.problems().concat([tk.problem]), EXIT.partial);
       const same = there && there.op === f.file.op && there.by === f.file.by && (there.reason || '') === (f.file.reason || '') && JSON.stringify((there.items || []).slice().sort()) === JSON.stringify(f.file.items.slice().sort());
       if (!same) return o.failOut('key-taken', 'This key already names a different decision (proposals/' + f.name + '). Read the loop (flightdeck loop read) before choosing a new key.' + (all === 'written' && files.indexOf(f) > 0 ? ' Some of this decision was written before it.' : ' Nothing was written.'), o.problems());

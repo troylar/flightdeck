@@ -134,6 +134,34 @@ def js_string(s):
     return "".join("\\u%04x" % ord(c) if 0xD800 <= ord(c) <= 0xDFFF else c for c in out)
 
 
+# PF.util.JSON_DEPTH: no file Flightdeck writes nests past 12; a file nested past 64 isn't read (strings skipped).
+JSON_DEPTH = 64
+DEEP_WHY = "is nested more than " + str(JSON_DEPTH) + " levels deep, deeper than any Flightdeck file, so it isn't read"
+
+
+def json_too_deep(text):
+    """PF.util.jsonTooDeep: whether JSON text nests past JSON_DEPTH, strings skipped."""
+    d, in_str, esc = 0, False, False
+    for c in text:
+        if in_str:
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = False
+            continue
+        if c == '"':
+            in_str = True
+        elif c in "[{":
+            d += 1
+            if d > JSON_DEPTH:
+                return True
+        elif c in "]}":
+            d -= 1
+    return False
+
+
 def js_keys(obj):
     """Object keys in JavaScript's order: array-index keys ascending first, then the rest as written."""
     idx = sorted((k for k in obj if re.fullmatch(r"0|[1-9][0-9]*", k) and int(k) < 4294967295), key=int)
@@ -3886,6 +3914,11 @@ def main():
         if not name.lower().endswith(".json") or not os.path.isfile(os.path.join(prop_dir, name)):
             continue
         text = read_text(os.path.join(prop_dir, name))
+        # PF.util.jsonTooDeep: nested past the bound, refused by name before anything parses it, as the app refuses it.
+        if text and json_too_deep(text):
+            out["refused"].append({"file": "proposals/" + name, "why": DEEP_WHY})
+            refused_decisions.append((name, "malformed", ""))
+            continue
         try:
             # Numbers are read as JavaScript reads them (all doubles), so 9007199254740993 becomes ...992 here too.
             obj = json.loads(text, parse_int=float, parse_constant=_no_constant) if text else None

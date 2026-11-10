@@ -3,7 +3,8 @@ PF.repo = (function () {
   'use strict';
   var U = PF.util, P = PF.publish, R = PF.run;
 
-  function json(text) { try { return JSON.parse(text); } catch (e) { return undefined; } }
+  /* Every file this reads is parsed here: text nested past PF.util.JSON_DEPTH reads as not JSON, never as a stack overflow. */
+  function json(text) { if (PF.util.jsonTooDeep(text)) return undefined; try { return JSON.parse(text); } catch (e) { return undefined; } }
   /* A run.json's fingerprint, compared before every save of it: SHA-256 of its exact text. */
   function fileHash(text) { return PF.sha256.hex(text); }
   function readJson(fs, path) { return fs.read(path).then(function (f) { return f ? json(f.text) : null; }); }
@@ -635,6 +636,7 @@ PF.repo = (function () {
         if (!bad) return fs.read(path).then(function (f) {
           /* Listed but gone when read: it may be moving, so it's named like one still arriving, never just left out. */
           if (!f) { if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: 'was listed but was gone when read' }); return null; }
+          if (PF.util.jsonTooDeep(f.text)) { if (torn) torn.push({ path: path, _file: i.name, parsed: false, deep: true, why: PF.util.DEEP_WHY }); return null; }
           var o = json(f.text);
           if (o && typeof o === 'object' && ok(o)) return tagged(o, i.name, f);
           /* parsed: it's JSON, just not this folder's kind of file (ignored, only named); else it may still be arriving. */
@@ -645,6 +647,7 @@ PF.repo = (function () {
            so a decision that can't be read holds its plan there as in the app. */
         return fs.read(path).then(function (f) {
           if (!f) { if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: 'was listed but was gone when read' }); return null; }
+          if (PF.util.jsonTooDeep(f.text)) { bad.push({ path: path, kind: 'malformed', why: PF.util.DEEP_WHY }); if (torn) torn.push({ path: path, _file: i.name, parsed: false, deep: true, why: PF.util.DEEP_WHY }); return null; }
           var o = json(f.text);
           if (o === undefined) { bad.push({ path: path, kind: 'malformed', why: 'isn\'t complete JSON (it may still be arriving)' }); if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: 'isn\'t complete JSON' }); return null; }
           if (!o || typeof o !== 'object' || Array.isArray(o) || !ok(o)) { bad.push({ path: path, kind: 'malformed', why: 'isn\'t a file this copy can read here' }); if (torn) torn.push({ path: path, _file: i.name, parsed: true, why: 'isn\'t a file Flightdeck reads here, so it\'s ignored' }); return null; }
@@ -773,7 +776,7 @@ PF.repo = (function () {
          readable plan's ID could be a renamed decision on any plan. It holds none, and Folder health names it on its own. */
       var planIds = (r[6].plans || []).map(function (p) { return p.id; });
       var named = function (n) { return PF.plans.namesPlan(String(n)) || planIds.some(function (id) { if (typeof id !== 'string' || !id || String(n).indexOf(id) !== 0) return false; var c = String(n).charAt(id.length); return c === '.' || c === ' ' || c === '-' || c === '('; }); };
-      var planUnread = 'proposals' in failed ? [] : (r[6].torn || []).filter(function (u) { return !u.link; }).map(function (u) { var x = { _unread: true, path: u.path, _file: u._file, why: u.why, kind: u.parsed ? 'ignored' : 'unreadable' }; if (!u.parsed && !named(u._file)) x.unnamed = true; return x; });
+      var planUnread = 'proposals' in failed ? [] : (r[6].torn || []).filter(function (u) { return !u.link && !u.deep; }).map(function (u) { var x = { _unread: true, path: u.path, _file: u._file, why: u.why, kind: u.parsed ? 'ignored' : 'unreadable' }; if (!u.parsed && !named(u._file)) x.unnamed = true; return x; });
       /* A file refused here (a newer Flightdeck's, not in its format, or a format that can't be read at all) holds its plan as
          one still arriving does, by its name alone (groupPlans: <plan>.status-…), whatever it says it is. A refused plan file
          isn't named so, and holds no plan. */
@@ -2649,6 +2652,8 @@ PF.repo = (function () {
       /* A scope record that can't be read (cut short, still syncing) holds every loop, since which loop it is for can't be known. */
       /* A link holds every living run's to-dos and facts (which run it is for can't be told); loops read as in 3.0. */
       (torn || []).forEach(function (t) {
+        /* Nested past the bound: refused by name (Folder health), as every reader refuses it, before anything parses it. */
+        if (t.deep) refused.push(PF.envelope.refusal(t.path, 'flightdeck-plan', { kind: 'malformed', why: t.why }));
         if (PF.todos.recordName(t._file)) todosUnread.push({ file: t._file, why: t.why, run: null });
         if (!t.link && /^req-/.test(String(t._file || ''))) scopesUnread.push({ file: t._file, why: t.why, loop: null });
       });
