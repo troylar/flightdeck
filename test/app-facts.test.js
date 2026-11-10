@@ -475,4 +475,53 @@ rule('Use copy whose save fails at the candidate, the history or run.json keeps 
   }
 });
 
+/* NA: the save meets a run changed on disk, and the conflict copy it keeps fails to write. */
+rule('A landing or a copy kept whose conflict copy fails to write keeps nothing in this window: after a blocker, a later Pause or Resume persists no unsupported head in run.json or any conflict copy', async () => {
+  for (const caller of ['landing', 'use copy']) {
+    const app = await setup(), x = await todo(app), f = await fact(app, 'prs-1', { observedAt: ago(30000), maxAgeSeconds: 120 }), g = await grant(app), tag = caller;
+    const S = await suggest(app, x, f.id);
+    let cp = null;
+    if (caller === 'use copy') {
+      const pre = app.fs.files[parentPath(app)].t;
+      await app.fs.write('proposals/' + S.name, app.PF.todos.text(S.file));
+      await refresh(app, 300); await refresh(app, 300);
+      assert.ok(landedFor(app, S.id), tag + ' set-up: landed');
+      const landed = app.fs.files[parentPath(app)].t; cp = parentPath(app).replace('run.json', 'run-OTHER.json');
+      await app.fs.write(cp, landed);
+      const r0 = JSON.parse(pre); r0.paused = { by: 'person-avery', at: new Date().toISOString(), reason: 'Lunch' }; r0.rev = (JSON.parse(landed).rev || 0) + 1;
+      await app.fs.write(parentPath(app), JSON.stringify(r0, null, 2));
+      await refresh(app, 300);
+    }
+    app.click('open-run', parentRun(app).process + '/' + parentRun(app).id); await app.tick(80);
+    const head = () => { const a = apps(app, S.id); return a.length ? a[0].replace(/^proposals\//, '').replace(/\.json$/, '') : '?'; };
+    const h = holdAt(app, 'before candidate');
+    if (caller === 'landing') { await app.fs.write('proposals/' + S.name, app.PF.todos.text(S.file)); await refresh(app, 300); }
+    else { app.click('use-copy', 'run-OTHER.json'); await app.tick(80); }
+    assert.strictEqual(h.seen(), 1, tag + ' set-up: held at the read');
+    h.off();
+    /* Another window saved the run meanwhile, and the conflict copy this save keeps can't be written. */
+    const other = JSON.parse(app.fs.files[parentPath(app)].t); other.rev = (other.rev || 0) + 1; other.recorder.session = 'another-window';
+    app.fs.files[parentPath(app)] = { t: JSON.stringify(other, null, 2), m: Date.now() };
+    /* The conflict copy's write waits, then fails; the blocker is filed while it waits, after the guard let it start. */
+    const w = app.fs.write.bind(app.fs), cw = gate(); let n = 0;
+    app.fs.write = (p, t) => n === 0 && /run\.conflict-[^/]*\.json$/.test(p) ? (n++, cw.p.then(() => Promise.reject(new Error('EIO: the folder answered an error')))) : w(p, t);
+    /* The person pauses while the conflict copy is written (a landing): an edit of their own, so the run as this window has
+       it stays on screen rather than replaced by the other window's. A copy being kept holds every edit until it is done. */
+    const pause = async () => { app.click('pick', 'run', { kind: 'pause' }); await app.tick(); app.set('pick-input', 'Waiting'); app.click('pause', 'run'); await app.tick(5); };
+    h.hold.open(); await app.tick(300);
+    assert.strictEqual(n, 1, tag + ' set-up: the conflict copy is being written');
+    await blocker(app);
+    if (caller === 'landing') { await pause(); assert.ok(/data-act="resume"/.test(app.html()), tag + ' set-up: paused while the conflict copy is written'); }
+    cw.open(); await app.tick(500);
+    /* Then the next edits save the run as this window has it (a Resume, a Pause again). */
+    app.click('resume', 'run'); await app.tick(400);
+    if (caller === 'landing') { await pause(); await app.tick(400); }
+    await refresh(app, 300);
+    const id = head(), holders = app.files('runs/release-readiness/').filter((p) => p !== cp && /(run|run\.conflict-[^/]*)\.json$/.test(p) && /^runs\/release-readiness\/[^/]+\/run[.a-z0-9-]*\.json$/.test(p) && app.fs.files[p].t.includes(id));
+    assert.deepStrictEqual(holders, [], tag + ': no run file or conflict copy holds the unsupported head ' + id);
+    if (cp) assert.ok(app.fs.files[cp], tag + ': the copy stays');
+    assert.ok(g);
+  }
+});
+
 run();

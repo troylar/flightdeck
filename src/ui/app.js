@@ -2789,6 +2789,10 @@
         say('Nothing was saved: the folder, the person or the run changed before it was written.', 'warn'); render(); return false;
       }
       if (e.disk) {
+        /* A change derived from the folder (loopEdit's redo: a landing, a copy kept with living work) is put back by identity
+           first, whether or not its conflict copy was written (e.keepFailed), so neither this window's run nor the copy kept
+           in this browser, nor a later save's conflict copy, carries it; edits made meanwhile stay. */
+        if (opts && opts.undoFailed) opts.undoFailed();
         if (state.unsaved[r.id] === r && edits(r.id) === rev) delete state.unsaved[r.id];
         if (!e.keptAs) lsSet(localKey(r.id), r);
         /* "Before" is this save's own revision: if the person changed anything after it, the newer change stays on screen. */

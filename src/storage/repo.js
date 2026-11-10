@@ -1293,7 +1293,9 @@ PF.repo = (function () {
           var keep = 'runs/' + run.process + '/' + run.id + '/run.conflict-' + writer + '-' + Date.now() + '.json';
           /* Archived history is a record of what happened whichever version wins, so it's written first. */
           return guard(null).then(function () { return archiveOverflow(fs, run, writer); }).then(function () { return guard(null); }).then(function () { return fs.write(keep, JSON.stringify(stripMeta(run), null, 2)); })
-            .then(function () { forgetRun(fs, run); e.keptAs = keep; throw e; }, function () { throw e; });
+            /* A guard that refuses there stays a refusal; a write that fails is carried on the conflict (e.keepFailed), so the
+               caller knows no conflict copy holds this window's version. */
+            .then(function () { forgetRun(fs, run); e.keptAs = keep; throw e; }, function (err) { if (err && err.dropped) throw err; e.keepFailed = err || new Error('The conflict copy couldn\'t be written.'); throw e; });
         }
       }
       /* A run this window read from (or saved to) the folder whose file is gone now was deleted or moved by someone: it's

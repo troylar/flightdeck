@@ -25,8 +25,8 @@
       "reviewed": "takenAt: not-JSON and refused records under a taken name are problems with path and reason; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "11e7640ac33d287d24d80feca5569ad5b46291aeffb6088c16fe9630e6fd1a28",
-      "reviewed": "MB: a record's read error is named by path in the proposals read; checked for direct writes and unconditional deletes"
+      "sha256": "a69b261ba636cf6e1b6c419a70290ac0ba47099337b4fa13a994c8f649322308",
+      "reviewed": "NA: a failed conflict copy is carried; a landing is put back before the conflict is handled; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -409,12 +409,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "533de388353364f7634bfc34155e98cba532eda7fdef03b2e567561a71c5bdba",
-      "reviewed": "MB: a record's read error is named by path in the proposals read; checked for direct writes and unconditional deletes"
+      "sha256": "330bca6307c739e6339bcda5ad493e82fa8738360a8a93ece999dd1019d5c5d7",
+      "reviewed": "NA: a failed conflict copy is carried; a landing is put back before the conflict is handled; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "47e444786d6382d422ef02b1d3ec56a0d11e9f0dc00ad9ea065742010cf04b85",
-      "reviewed": "MA: a failed copy keep holding living work is put back (redo); checked for direct writes and unconditional deletes"
+      "sha256": "8ae63edd30bcf9c139f28ea97d8d91155fb049099081c91ab02c7bad06cd8327",
+      "reviewed": "NA: a failed conflict copy is carried; a landing is put back before the conflict is handled; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
