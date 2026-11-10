@@ -279,6 +279,10 @@ rule('A keep is information only: the run\'s work, holds and every other correct
   T.markHolds(runs, { records: W.recs, people: W.people }); same(plain(W.r._todos), h0, 'no hold');
   assert.strictEqual(other.length, 0);
   assert.strictEqual(C.forProcess(runs, 'release-readiness', [], pubs).length, 0, 'without keeps passed, corrections are as before');
+  /* An ordinary correction group gains no new fields: its status and landing carry exactly what they did before keeps. */
+  const g0 = { id: 'gabc', process: 'release-readiness', target: { step: 'ship1' }, change: { op: 'wording', to: 'Ship it now' }, sig: 'x', members: [{ id: 'c1', by: 'person-avery', version: 1, change: { op: 'wording', to: 'Ship it now' } }] };
+  const st = C.status([g0], [])[0], ld = C.landing([st], [W.pp], [])[0];
+  same([Object.keys(st).filter(k => !(k in g0)).sort(), Object.keys(ld).filter(k => !(k in st)).sort()], [['again', 'decision', 'label', 'status', 'tie'], ['landed', 'proofless']], 'no reviewed or reviewedLanded on an ordinary group');
 });
 
 rule('Keep records are refused whole: wrong id, a place without its checklist, text a checklist line would misread, over a limit', () => {

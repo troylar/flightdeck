@@ -11333,7 +11333,10 @@ PF.corrections = (function () {
           }
         }
       }
-      return Object.assign({}, g, { status: st, decision: d, tie: !!(hit && hit.tie), again: again, reviewed: reviewed, label: hit && hit.tie ? 'Needs review' : st === 'applied' && d && d.addressed ? 'Addressed differently' : g.keep && st === 'open' ? 'Suggested' : g.keep && st === 'applied' ? 'Applied to draft' : STATUS[st] });
+      var out = Object.assign({}, g, { status: st, decision: d, tie: !!(hit && hit.tie), again: again, label: hit && hit.tie ? 'Needs review' : st === 'applied' && d && d.addressed ? 'Addressed differently' : g.keep && st === 'open' ? 'Suggested' : g.keep && st === 'applied' ? 'Applied to draft' : STATUS[st] });
+      /* Only a keep group carries what its owner reviewed: every other group is exactly as before. */
+      if (g.keep) out.reviewed = reviewed;
+      return out;
     });
   }
   function label(g) { return g.keep ? PF.learn.label(g) : g.tie ? 'Needs review' : g.landed ? 'Published in v' + g.landed.version : g.status === 'applied' && g.decision && g.decision.addressed ? 'Addressed differently' : STATUS[g.status] || STATUS.open; }
