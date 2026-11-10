@@ -20132,6 +20132,13 @@ PF.learn = (function () {
     if ((o.unread || []).some(function (u) { return u && u.file === name; })) return { why: 'A keep under this name is in the folder but can\'t be read yet.', held: true };
     var fd = PF.todos.filed(name, f);
     if (fd.why) return { why: fd.why };
+    /* A group of keeps holds at most the members one decision can name (PF.corrections.MEMBERS_MAX): the next keep that would
+       join a full group is refused here, so its owner can still decide or withdraw it. The decision cap stays as a backstop. */
+    if (fd.record.anchor && fd.record.template) {
+      var mine = members([fd.record], [], fd.record.template.process)[0], key = mine && groupKey(mine), max = PF.corrections.MEMBERS_MAX;
+      var count = key ? members(o.records || [], [], fd.record.template.process).filter(function (m) { return groupKey(m) === key; }).length : 0;
+      if (count >= max) return { why: 'This place already has ' + count + ' keeps, the most one correction holds (' + max + '), so nothing was kept. Ask the checklist\'s owner to review the ones there first.' };
+    }
     return { id: f.id, name: name, file: f, record: fd.record, status: 'new', preview: previewOf(fd.record) };
   }
   function previewOf(k) {

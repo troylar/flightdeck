@@ -288,6 +288,20 @@ rule('Keeps are counted by the run they came from, process and id: two checklist
   } finally { PF.learn.groupKey = gk; }
 });
 
+rule('The 501st keep that would join a group is refused, naming the limit; a group at 500 is still decided and withdrawn', () => {
+  const W = world(), t1 = W.todo('Post the release notes', { phase: 'ship' }), K = W.kept({ todo: t1 });
+  for (let i = 1; i < 500; i++) W.push(Object.assign(JSON.parse(JSON.stringify(K.record)), { id: 'req-keep-' + i.toString(16).padStart(24, '0'), change: Object.assign({}, K.record.change, { text: 'Wording ' + i }) }));
+  const g = W.groups('release-readiness')[0];
+  assert.strictEqual(g.members.length, 500, 'set-up: 500 in one group');
+  const t2 = W.todo('Email the release notes', { phase: 'ship' }), N = W.keep({ todo: t2 });
+  assert.ok(N.why && /500/.test(N.why) && /owner/.test(N.why), 'refused, naming the limit: ' + N.why);
+  assert.ok(!N.file && !N.held, 'nothing to file');
+  assert.strictEqual(C.decision(g, 'person-morgan', 'applied', '', AT).members.length, 500, 'decided at 500');
+  assert.strictEqual(C.decision(g, 'person-blake', 'withdrawn', '', AT).status, 'withdrawn', 'withdrawn at 500');
+  /* The same words again join it as before (already), never refused. */
+  assert.strictEqual(W.keep({ todo: t1 }).status, 'already');
+});
+
 rule('A keep decision over the 500 members a decision names is refused, never truncated; an ordinary group is as before', () => {
   const mem = (n) => Array.from({ length: n }, (_, i) => ({ id: 'c' + String(i).padStart(5, '0'), by: 'person-blake', change: { text: 'Wording ' + i } }));
   const g = (n, keep) => ({ id: 'g-1', process: 'release-readiness', keep: !!keep, members: mem(n) });

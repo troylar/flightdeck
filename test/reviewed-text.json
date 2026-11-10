@@ -21,12 +21,12 @@
       "reviewed": "4.0 slice 5 commit 6, checklist-linked to-dos: PF.detours (pins, the evidence plan, evidence, provenance), the checklist and evidence fields in to-do records, repo.readEvidence, the app's Run this checklist, Accept and the way back, the living-run skill and command guide sections, the 4.0.0 release entry; checked for direct writes and unconditional deletes: the plan is written create-once through repo.savePlan under the run guard, a done on a run through saveScope with a fresh read before the write, nothing deleted"
     },
     "docs/apps.md": {
-      "sha256": "2ac6427b0e1577754c9e1df43f1159fdfc4edf54dc47b0a6e54de6874ce4e523",
-      "reviewed": "DF: an absent evidence run or plan and an unpublished keep child are nofile, the existing kind; missing dropped from KINDS; checked for direct writes and unconditional deletes"
+      "sha256": "d955e2853ce74a019ed3f9d904bd07a26a6da8437cb993b4c77d80a88bcd585c",
+      "reviewed": "JD: the 501st keep at one place is refused in PF.learn.prepare; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "d364a550d3844ef2330672d9b76ec535b4f00ebb961baa65683f0fcf4eb3d459",
-      "reviewed": "HA: ownership from fresh publications inside the keep guard; people.json read last for recorder writes with the recorder active; publish/promote hold on unread keeps; checked for direct writes and unconditional deletes"
+      "sha256": "234a2eca832e08ac9425d91835ab2ed8d1bf293a6b5ab80124ee197019875e92",
+      "reviewed": "JD: the 501st keep at one place is refused in PF.learn.prepare; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -257,8 +257,8 @@
       "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/learn.js": {
-      "sha256": "e69c548c477f2000fa82f7356801e1687bba4d0ccab1dd42bed8604f2f01c7b9",
-      "reviewed": "a keep whose governing child publication can't be read is held, reread in the save guard; checked for direct writes and unconditional deletes"
+      "sha256": "382cd46a5bfa9345f4497e54604e0fd34783e5a9d42e6865af7de70700641301",
+      "reviewed": "JD: the 501st keep at one place is refused in PF.learn.prepare; checked for direct writes and unconditional deletes"
     },
     "src/core/library.js": {
       "sha256": "5c8555ff9b8bc67aa90ea4f556bddebbe47d17ae37e296d44b815187d776bd44",

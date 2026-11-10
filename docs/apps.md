@@ -804,7 +804,7 @@ Only the checklist's active owner (or its backup while the owner is inactive) re
 |---|---|
 | A record, people.json or the items' checklist can't be read | `held` (exit 4), each named in `problems`: nothing was written |
 | The same place and words, kept with another reason | `key-taken` |
-| No such to-do or spread, a place not in that checklist, a step text a checklist can't hold | `invalid`, with why |
+| No such to-do or spread, a place not in that checklist, a step text a checklist can't hold; a place that already has 500 keeps (the most one correction holds: the owner reviews those first) | `invalid`, with why |
 | `--key`, both `--phase` and `--after` | `usage` |
 | No such run | exit 5 |
 
