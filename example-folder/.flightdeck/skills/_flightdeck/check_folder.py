@@ -326,7 +326,7 @@ def step_name(s):
 def tokens(s, ch):
     out = []
     rest = re.sub(jsre(r"\s*\%s(%s+)" % (ch, r"[A-Za-z0-9_-]")), lambda m: out.append(m.group(1)) or "", s, flags=re.A)
-    return out, rest.strip()
+    return out, rest.strip(JS_WS)
 
 
 def shot_sources(parsed):
@@ -545,22 +545,22 @@ def parse_map(md):
     def err(n, msg):
         errors.append({"line": n + 1, "msg": msg})
 
-    if lines[0] and lines[0].strip() == "---":
+    if lines[0] and lines[0].strip(JS_WS) == "---":
         i = 1
-        while i < len(lines) and lines[i].strip() != "---":
+        while i < len(lines) and lines[i].strip(JS_WS) != "---":
             kv = re.match(jsre(r"^((?:%s|-)+):\s*(.*)$" % W), lines[i], re.A)
-            if not kv and lines[i].strip():
+            if not kv and lines[i].strip(JS_WS):
                 err(i, "Front matter line isn't \"key: value\".")
             elif kv and kv.group(1) == "context":
                 context, ctx_line = js_trim(kv.group(2)), i
             elif kv and kv.group(1) == "roles":
                 roles = kv.group(2)
             elif kv and kv.group(1) == "runs":
-                runs = kv.group(2).strip()
+                runs = kv.group(2).strip(JS_WS)
             elif kv and kv.group(1) == "result":
-                result = kv.group(2).strip()
+                result = kv.group(2).strip(JS_WS)
             elif kv and kv.group(1) == "process":
-                proc = kv.group(2).strip()
+                proc = kv.group(2).strip(JS_WS)
             i += 1
         i += 1
     names, typed, ctx_errors = detail_types(context_entries(context))
@@ -568,7 +568,7 @@ def parse_map(md):
         err(ctx_line if ctx_line >= 0 else 0, m)
     while i < len(lines):
         line = lines[i]
-        if not line.strip():
+        if not line.strip(JS_WS):
             i += 1
             continue
         m = re.match(jsre(r"^###\s+Track:\s*(.+?)\s*$"), line, re.I | re.A)
@@ -598,7 +598,7 @@ def parse_map(md):
                     else:
                         owner = None
                         for part in re.split(jsre(r"\s+·\s+"), g.group(1), flags=re.A)[1:]:
-                            om = re.match(jsre(r"^owner\s+@((?:%s|-)+)$" % W), part.strip(), re.I | re.A)
+                            om = re.match(jsre(r"^owner\s+@((?:%s|-)+)$" % W), part.strip(JS_WS), re.I | re.A)
                             if not om:
                                 err(i, "Gate option not understood: \"%s\"." % part)
                             else:
@@ -607,7 +607,7 @@ def parse_map(md):
                         phase["gate"] = gate
                 else:
                     pm = re.match(jsre(r"^(.*?)\s+·\s+(READ-DO|DO-CONFIRM)$"), head, re.A)
-                    phase = {"id": head_id, "title": (pm.group(1) if pm else head).strip(), "gate": None, "note": "", "shots": [], "noted": False}
+                    phase = {"id": head_id, "title": (pm.group(1) if pm else head).strip(JS_WS), "gate": None, "note": "", "shots": [], "noted": False}
                     phases.append(phase)
             i += 1
             continue
@@ -676,10 +676,10 @@ def parse_map(md):
             if step:
                 # JavaScript ignores a field named __proto__: it sets the object's prototype instead of a key.
                 if name != "__proto__":
-                    step["fields"][name] = m.group(2).strip()
+                    step["fields"][name] = m.group(2).strip(JS_WS)
                 i += 1
                 continue
-        err(i, "Not understood, so it was skipped: \"%s\"" % line.strip()[:60])
+        err(i, "Not understood, so it was skipped: \"%s\"" % line.strip(JS_WS)[:60])
         i += 1
     # Forward only: a condition may test a detail a step sets only when that step is in an earlier phase.
     for pi, p in enumerate(phases):
@@ -782,7 +782,7 @@ def features(parsed, types):
 
 
 def js_list(s):
-    return [x.strip() for x in js_str(s).split(",") if x.strip()]
+    return [x.strip(JS_WS) for x in js_str(s).split(",") if x.strip(JS_WS)]
 
 
 def sets_of(v):
@@ -791,7 +791,7 @@ def sets_of(v):
     out = []
     for e in js_list(v):
         i = e.find("=")
-        out.append({"name": e, "from": ""} if i < 0 else {"name": e[:i].strip(), "from": e[i + 1:].strip()})
+        out.append({"name": e, "from": ""} if i < 0 else {"name": e[:i].strip(JS_WS), "from": e[i + 1:].strip(JS_WS)})
     return out
 
 
@@ -1035,15 +1035,15 @@ def field_errors(type_def, fields, context=None):
         if kind == "choice":
             opts = js_list(fields.get(d["optionsFrom"])) if d.get("optionsFrom") else (d.get("options") or [])
             opts = opts if isinstance(opts, list) else []
-            if not any(js_str(o).lower() == v.strip().lower() for o in opts):
+            if not any(js_str(o).lower() == v.strip(JS_WS).lower() for o in opts):
                 errors.append("\"%s\" should be one of: %s." % (f, ", ".join(js_str(o) for o in opts)))
-        if kind == "time" and not re.match(r"^([01]?[0-9]|2[0-3]):[0-5][0-9]$", v.strip()):
+        if kind == "time" and not re.match(r"^([01]?[0-9]|2[0-3]):[0-5][0-9]$", v.strip(JS_WS)):
             errors.append("\"%s\" should be a time like 15:00." % f)
         if kind == "duration" and f == "after" and not js_duration(v):
             errors.append("\"after\" should be a duration like 2h or 30m.")
-        if kind == "pin" and f == "version" and not re.match(r"^[1-9]\d{0,5}$", v.strip(), re.A):
+        if kind == "pin" and f == "version" and not re.match(r"^[1-9]\d{0,5}$", v.strip(JS_WS), re.A):
             errors.append("\"version\" should be a version number, like 4.")
-        if kind == "pin" and f == "skillVersion" and not re.match(r"^[\w.+-]{1,40}$", v.strip(), re.A):
+        if kind == "pin" and f == "skillVersion" and not re.match(r"^[\w.+-]{1,40}$", v.strip(JS_WS), re.A):
             errors.append("\"skillVersion\" should be the skill's version, like 1.2.0.")
         if kind == "pass":
             errors.extend(pass_errors(v, tid == "for.each" and not (isinstance(type_def, dict) and type_def.get("custom"))))
@@ -3597,7 +3597,7 @@ def skill_pin_ok(p):
     if not isinstance(p, dict) or set(p) - {"name", "version"}:
         return False
     n, v = p.get("name"), p.get("version")
-    return isinstance(n, str) and 1 <= len(n) <= 80 and n.strip() == n and not re.search(r"[\x00-\x1f]", n) and isinstance(v, str) and bool(re.match(jsre(r"^\S{1,40}\Z"), v, re.A))
+    return isinstance(n, str) and 1 <= len(n) <= 80 and n.strip(JS_WS) == n and not re.search(r"[\x00-\x1f]", n) and isinstance(v, str) and bool(re.match(jsre(r"^\S{1,40}\Z"), v, re.A))
 
 
 def pins_ok(pins):
@@ -3617,9 +3617,9 @@ def pins_problem(info, parsed):
     for st in parsed["steps"]:
         f = st["fields"]
         if st["type"] in ("run.process", "for.each") and "version" in f:
-            want["children"][st["id"]] = {"process": f.get("process"), "version": _jsint(f["version"].strip()) if re.match(r"^\d+$", f["version"].strip(), re.A) else f["version"]}
+            want["children"][st["id"]] = {"process": f.get("process"), "version": _jsint(f["version"].strip(JS_WS)) if re.match(r"^\d+$", f["version"].strip(JS_WS), re.A) else f["version"]}
         if st["type"] == "run.skill" and "skillVersion" in f:
-            want["skills"][st["id"]] = {"name": (f.get("skill") or "").strip(), "version": f["skillVersion"].strip()}
+            want["skills"][st["id"]] = {"name": (f.get("skill") or "").strip(JS_WS), "version": f["skillVersion"].strip(JS_WS)}
     for k, p in pins.get("children", {}).items():
         have["children"][k] = {"process": p.get("process"), "version": p.get("version")}
     for k, p in pins.get("skills", {}).items():
@@ -3726,7 +3726,7 @@ MAX_SKILLS = 500
 
 
 def _str(v, n):
-    return v.strip()[:n] if isinstance(v, str) else ""
+    return v.strip(JS_WS)[:n] if isinstance(v, str) else ""
 
 
 def js_num(v):
@@ -3786,7 +3786,7 @@ def check_registration(rel, o, digest):
     st = o.get("steps")
     if st is not None:
         ok = isinstance(st, list) and all(isinstance(x, str) for x in st)
-        steps = [x.strip() for x in st if isinstance(x, str) and x.strip()] if isinstance(st, list) else []
+        steps = [x.strip(JS_WS) for x in st if isinstance(x, str) and x.strip(JS_WS)] if isinstance(st, list) else []
         if not ok or not steps or len(steps) != len(st) or len(steps) > 200 or not all(STEP_ID.match(x) for x in steps):
             errors.append('"steps" must be a list of step IDs, or left out for the whole process')
     if errors:
@@ -3818,7 +3818,7 @@ def check_legacy(o, file):
     st = o.get("steps")
     if st is not None:
         lst = [x for x in st if isinstance(x, str)] if isinstance(st, list) else st.split(",") if isinstance(st, str) else []
-        steps = [x.strip() for x in lst if x.strip()]
+        steps = [x.strip(JS_WS) for x in lst if x.strip(JS_WS)]
         if (not isinstance(st, (list, str))) or (isinstance(st, list) and len(lst) != len(st)) or not steps or not all(STEP_ID.match(x) for x in steps):
             errors.append('"steps" must be a list of step IDs, or left out for the whole process')
         if len(steps) > 200:
@@ -4177,7 +4177,7 @@ _VERDICT_RECORDS = {"decide": ("decision",), "review": ("verdict",), "verify.hea
 
 
 def _records_verdict(s):
-    req = [x.strip() for x in (s["fields"].get("require") or "").split(",") if x.strip()]
+    req = [x.strip(JS_WS) for x in (s["fields"].get("require") or "").split(",") if x.strip(JS_WS)]
     if (s["fields"].get("evidence") or "").lower() == "yes-no":
         return True
     return any("all" in req or n in req for n in _VERDICT_RECORDS.get(s["type"], ()))

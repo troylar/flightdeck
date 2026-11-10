@@ -87,7 +87,8 @@ function mutationsOf(v, at) {
 /* Every case for one enriched run: { name, run } with a distinct file each. */
 function casesOf(base) {
   const out = [], seen = new Set();
-  const add = (name, run) => { const t = JSON.stringify(run); if (seen.has(t)) return; seen.add(t); out.push({ name, run }); };
+  /* text: the file's exact text, for what JSON.stringify can't write (a number too big to be finite). */
+  const add = (name, run, text) => { const t = text || JSON.stringify(run); if (seen.has(t)) return; seen.add(t); out.push(text ? { name, run, text } : { name, run }); };
   add('as written', base);
   places(base, [], []).forEach(([at, v]) => mutationsOf(v, at).forEach(([what, nv]) => add((at.join('.') || '(the run)') + ': ' + what, setAt(base, at, () => nv))));
   /* The records the app is allowed to drop, and the fields it fills in when they're missing. */
@@ -103,6 +104,46 @@ function casesOf(base) {
   hist.steps[first].history[0].differently = { note: 'By hand', by: P, at: AT };
   add('an earlier answer\'s "done differently" with who and when (dropped)', hist);
   ['title', 'state', 'version', 'rev', 'shotsFrozen'].forEach((k) => { const c = JSON.parse(JSON.stringify(base)); delete c[k]; add(k + ': missing (filled in)', c); });
+  reviewerCases(base, ended).forEach((c) => add(c[0], c[1], c[2]));
+  return out;
+}
+/* PA: the reviewers' cases, kept. A value the cleaner keeps after a table lookup given as a list (JS would read ["running"]
+   as "running"), JavaScript's white space against Python's (a snapshot or a follow-up of U+0085, U+001C or U+FEFF), a number
+   too big to be finite, a team value the validator refuses (too long, empty, padded, a control character) or one only
+   Python's trim would call padded, and a null where the cleaner writes text. */
+const INF = '"\\u0000inf\\u0000"';
+function reviewerCases(base, ended) {
+  const out = [], copy = (o) => JSON.parse(JSON.stringify(o)), steps = Object.keys(base.steps), first = steps[0], gate = Object.keys(base.gates)[0];
+  const put = (name, o, at, v) => out.push([name, setAt(o, at, () => v)]);
+  const inf = (name, o, at) => { const c = setAt(o, at, () => JSON.parse(INF)); out.push([name, c, JSON.stringify(c, null, 2).split(INF).join('1e999')]); };
+  put('(reviewer) state: a list', base, ['state'], ['running']);
+  put('(reviewer) a step\'s s: a list', base, ['steps', first, 's'], [base.steps[first].s]);
+  if (base.steps[first].history) put('(reviewer) an earlier answer\'s s: a list', base, ['steps', first, 'history', 0, 's'], [base.steps[first].history[0].s]);
+  if (gate) { put('(reviewer) a gate\'s s: a list', base, ['gates', gate, 's'], [base.gates[gate].s]); put('(reviewer) a gate\'s was: a list', base, ['gates', gate, 'was'], ['failed']); put('(reviewer) a gate\'s was: a number', base, ['gates', gate, 'was'], 7); }
+  put('(reviewer) the outcome: a list', ended, ['ended', 'outcome'], ['Completed']);
+  ['\u0085', '\u001c', '\ufeff', '\u00a0'].forEach((w) => {
+    const name = 'U+' + w.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0');
+    put('(reviewer) snapshot: only ' + name, base, ['snapshot'], w);
+    put('(reviewer) snapshot: a line of only ' + name, base, ['snapshot'], String(base.snapshot).replace('\n\n', '\n' + w + '\n'));
+    if (base.followUps && base.followUps.length) { put('(reviewer) a follow-up: only ' + name, base, ['followUps', 0, 'text'], w); put('(reviewer) a follow-up: padded with ' + name, base, ['followUps', 0, 'text'], w + 'Tell the team' + w); }
+  });
+  inf('(reviewer) version: 1e999', base, ['version']);
+  inf('(reviewer) rev: 1e999', base, ['rev']);
+  if (base.steps.each && base.steps.each.loop) inf('(reviewer) a loop approval\'s count: 1e999', base, ['steps', 'each', 'loop', 'counts', 'cleared']);
+  if (base.followUps && base.followUps.length) put('(reviewer) a follow-up\'s owner: null', base, ['followUps', 0, 'owner'], null);
+  put('(reviewer) a step\'s by: null', base, ['steps', first, 'by'], null);
+  /* A link's record of the team values its child was passed, on a run of a version that uses team values. */
+  const link = steps.filter((k) => base.steps[k].child)[0];
+  if (link) {
+    const team = copy(base);
+    /* In the order the app writes features (PF.envelope.FROZEN). */
+    const ORDER = ['typed-details', 'typed-evidence', 'phase-notes', 'phase-shots', 'gate-shots', 'pinned-children', 'pinned-skills', 'staged', 'test-run', 'extensions', 'conditions', 'passed-details', 'team-values', 'jira-search', 'detail-patterns', 'module-results', 'loops', 'living-runs'];
+    team.features = ORDER.filter((f) => f === 'team-values' || (Array.isArray(team.features) && team.features.indexOf(f) >= 0));
+    [['valid', 'ABC-1'], ['over 120 characters', 'x'.repeat(121)], ['120 characters', 'x'.repeat(120)], ['empty', ''], ['padded', ' ABC-1 '], ['padded with U+FEFF', '\ufeffABC-1'],
+      ['padded with U+0085 (not JavaScript white space)', '\u0085ABC-1'], ['a control character', 'ABC\u00011'], ['DEL', 'ABC\u007f1']].forEach(([what, text]) => {
+      put('(reviewer) team value: ' + what, team, ['steps', link, 'child', 'teamPassed'], { issue: { text } });
+    });
+  }
   return out;
 }
 /* The export's verdict on one dependency run file: '' when it holds, else the first problem's path and kind. */

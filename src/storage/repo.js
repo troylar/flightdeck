@@ -338,6 +338,7 @@ PF.repo = (function () {
     if (bad && !run._unrunnable) run._unrunnable = bad;
     if (entry.repairs && entry.repairs.length) run._repairs = entry.repairs;
     if (entry.drift && entry.drift.length) run._drift = entry.drift;
+    if (entry.canonical) run._canonical = entry.canonical;
     run._path = base; run._mtime = entry.mtime; run._conflicts = entry.conflicts.slice(); run._fileHash = entry.fileHash; run._notesSig = entry.notesSig;
     if (entry.recheckAt) run._recheckAt = entry.recheckAt;
     var notes = [], torn = [];
@@ -543,7 +544,7 @@ PF.repo = (function () {
           unrunnable: run._unrunnable || res.pubProblem || '', ended: !!run.ended, endedAt: run.ended ? Date.parse(run.ended.at) || 0 : 0, conflicts: extra, recheckAt: 0,
           names: names.slice().sort(), stamps: stamps, full: full };
         /* Reading for other apps: every record sanitize dropped, cut or replaced, named by where it is. */
-        if (o.explain) { var raw = json(res[0].text); entry.repairs = R.repairs(raw); entry.drift = R.unexplained(raw) || []; }
+        if (o.explain) { var raw = json(res[0].text); entry.repairs = R.repairs(raw); entry.drift = R.unexplained(raw) || []; entry.canonical = R.canonical(raw); }
         function done() { Object.freeze(entry.conflicts); Object.freeze(entry.notes); Object.freeze(entry.noteFiles); Object.freeze(entry.names); Object.freeze(entry.stamps); return Object.freeze(entry); }
         /* A candidate whose save isn't listed in run.json, and that's old enough not to be a save still in progress, was
            overwritten by another window or computer: it's offered like any other conflict copy. */
@@ -2651,6 +2652,8 @@ PF.repo = (function () {
     var jp = PF.appjson.judgeRun(c, one.pub)[0];
     if (jp) return { bad: { key: key, path: String(jp.path), kind: jp.kind, why: String(jp.why) } };
     if (c._unrunnable) return { bad: { key: key, path: path, kind: 'unusable', why: String(c._unrunnable) } };
+    /* Confirmed only as written: a run the cleaner would change in any way (R.canonical) is malformed, named by the first place. */
+    if (c._canonical) return { bad: { key: key, path: path, kind: 'malformed', why: 'it isn\'t exactly as the app writes it, at ' + c._canonical } };
     return { run: c, pub: one.pub || null };
   }
   function readLoopChildren(fs, self) {

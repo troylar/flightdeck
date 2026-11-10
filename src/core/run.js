@@ -2564,6 +2564,40 @@ PF.run = (function () {
     sx.reopened.forEach(function (x) { pre.push('steps.' + x.id); var f = M.findStep(map, x.id); if (f) pre.push('gates.' + f.phase.gate.id); });
     return d.filter(function (p) { return !pre.some(function (q) { return p === q || p.indexOf(q + '.') === 0 || p.indexOf(q + '[') === 0; }); });
   }
+  /* A dependency run as the export confirms it (4.0 slice 6): exactly what the cleaner keeps, read as its JSON. The first
+     place it isn't, or ''. Two allowances, and DRIFT_ALLOW's documented ones: a key the file leaves out where the cleaner
+     fills in an empty value ('', null, {} or []), and a null the cleaner leaves out. Nothing else is coerced, trimmed, cut,
+     repaired or dropped, numbers are finite, and a value the cleaner keeps as written after looking it up in a table (the
+     run's state, a step's and an earlier answer's s, a gate's s and was, the outcome) is a string. The app's own reading of
+     a run is unchanged. */
+  function canonical(o) {
+    var r = sanitize(o);
+    if (!r || !o || typeof o !== 'object') return '';
+    var c = JSON.parse(JSON.stringify(r)), first = '';
+    var segs = function (p) { return String(p).replace(/\[(\d+|\*)\]/g, '.$1').split('.'); };
+    var added = DRIFT_ALLOW.added.map(segs), dropped = DRIFT_ALLOW.dropped.map(segs);
+    var allowed = function (list, path) { var x = segs(path); return list.some(function (q) { return q.length === x.length && q.every(function (y, i) { return y === '*' || y === x[i]; }); }); };
+    var kind = function (v) { return Array.isArray(v) ? 'list' : v === null ? 'null' : typeof v; };
+    var bare = function (v) { return v === '' || v === null || (Array.isArray(v) && !v.length) || (kind(v) === 'object' && !Object.keys(v).length); };
+    var plain = function (v) { return kind(v) === 'object' ? Object.keys(v).filter(function (k) { return k.charAt(0) !== '_'; }) : []; };
+    var walk = function (a, b, path) {
+      if (first) return;
+      if (a === undefined) { if (b !== undefined && !bare(b) && !allowed(added, path)) first = path; return; }
+      if (b === undefined) { if (a !== null && !allowed(dropped, path)) first = path; return; }
+      if (kind(a) !== kind(b)) { first = path; return; }
+      if (Array.isArray(a)) { for (var i = 0; i < Math.max(a.length, b.length) && !first; i++) walk(a[i], b[i], path + '[' + i + ']'); return; }
+      if (kind(a) === 'object') { Object.keys(a).concat(plain(b).filter(function (k) { return !Object.prototype.hasOwnProperty.call(a, k); })).forEach(function (k) { walk(a[k], b[k], path ? path + '.' + k : k); }); return; }
+      if (a !== b) first = path;
+    };
+    var str = function (v, path) { if (!first && v != null && typeof v !== 'string') first = path; };
+    var isObj = function (v) { return kind(v) === 'object'; };
+    str(o.state, 'state');
+    if (isObj(o.steps)) Object.keys(o.steps).forEach(function (k) { var a = o.steps[k]; if (!isObj(a)) return; str(a.s, 'steps.' + k + '.s'); if (Array.isArray(a.history)) a.history.forEach(function (h, i) { if (isObj(h)) str(h.s, 'steps.' + k + '.history[' + i + '].s'); }); });
+    if (isObj(o.gates)) Object.keys(o.gates).forEach(function (k) { var g = o.gates[k]; if (!isObj(g)) return; str(g.s, 'gates.' + k + '.s'); str(g.was, 'gates.' + k + '.was'); });
+    if (isObj(o.ended)) str(o.ended.outcome, 'ended.outcome');
+    walk(o, c, '');
+    return first;
+  }
   function sanitize(o) {
     if (!valid(o)) return newerFormat(o);
     /* A run/2 with a must-understand feature this copy doesn't know is listed by name only, never read for meaning. */
@@ -2667,7 +2701,7 @@ PF.run = (function () {
   return { answerable: answerable, reopenIds: reopenIds, gateInputs: gateInputs, detailValueDef: detailValueDef, detailUnit: detailUnit,
     childCheck: childCheck, childMarks: childMarks, edgeHolds: edgeHolds, linkShape: linkShape, CHILD_HEIGHT: CHILD_HEIGHT, CHILD_LINKS: CHILD_LINKS, isSearchStep: isSearchStep, searchSteps: searchSteps, searchState: searchState, searchProblem: searchProblem, reopenNotice: reopenNotice, searchId: searchId, searchCheck: searchCheck, genDamaged: genDamaged, refreshSearch: refreshSearch, rereadable: rereadable, mergeOverflow: mergeOverflow, SEARCH_PREFIX: SEARCH_PREFIX,
     RUN_ID: RUN_ID, isTest: isTest, pubDir: pubDir, testProblem: testProblem, testLast: testLast,
-    FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk, phaseHeld: phaseHeld,
+    FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, canonical: canonical, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk, phaseHeld: phaseHeld,
     phaseOpen: phaseOpen, applies: applies, held: held, stepNeeded: stepNeeded, canStartChild: canStartChild, phaseSkipped: phaseSkipped, condFields: condFields, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, fillOffered: fillOffered, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence, checkFill: checkFill,
     pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, resultMoved: resultMoved, resultChanged: resultChanged, resultMarks: resultMarks, RESULT_CHANGED: RESULT_CHANGED, unsettleResult: unsettleResult, todoLand: todoLand, unsettleLoop: unsettleLoop, resultFit: resultFit, answerOf: answerOf, resultOf: resultOf, outcomeText: outcomeText, resultHeld: resultHeld, acceptsOf: acceptsOf, boundSource: boundSource, teamUnrecorded: teamUnrecorded, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, jiraFor: jiraFor, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, effStep: effStep, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,

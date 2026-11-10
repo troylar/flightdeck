@@ -136,10 +136,15 @@ def s(v, n):
 
 def parse_int(v):
     """parseInt(v, 10), or None for NaN."""
-    if v is MISSING:
-        return None
+    if v is MISSING or (isinstance(v, float) and (math.isinf(v) or math.isnan(v))):
+        return None  # String(Infinity) is "Infinity": no digits
     m = re.match("^[" + re.escape(CF.JS_WS) + "]*([+-]?[0-9]+)", CF.js_String(v), re.A)
     return int(m.group(1)) if m else None
+
+
+def whole_num(v):
+    """Math.floor(v) === v for a JSON number: an infinite one is its own floor."""
+    return math.isinf(v) or math.floor(v) == v
 
 
 def count(v):
@@ -1160,6 +1165,22 @@ def uses(o, feature):
     return o.get("format") == FORMAT3 and isinstance(o.get("features"), list) and feature in o["features"]
 
 
+def value_problem(v):
+    """PF.teamValues.valueProblem: text, not empty, no control character, nothing JavaScript's trim would take off its ends,
+    at most 120 UTF-16 code units; '' when the value holds."""
+    if not isinstance(v, str):
+        return "not text"
+    if not v:
+        return "empty"
+    if re.search("[\x00-\x1f\x7f]", v):
+        return "a control character"
+    if v != CF.js_trim(v):
+        return "spaces at the start or end"
+    if CF.js_len(v) > 120:
+        return "over 120 characters"
+    return ""
+
+
 def team_record(tp):
     """teamRecord: a link's record of the team values its child was passed, as this copy writes it."""
     if not is_obj(tp) or len(tp) > 60:
@@ -1174,7 +1195,7 @@ def team_record(tp):
                 return None
             out[k] = {"typed": True}
             continue
-        if not isinstance(e.get("text"), str):
+        if not isinstance(e.get("text"), str) or value_problem(e["text"]):
             return None
         if ks == "text":
             out[k] = {"text": e["text"]}
@@ -1409,7 +1430,7 @@ def test_problem(o):
     if o.get("payload") is None:
         return "payload"
     v = o.get("version")
-    if not is_num(v) or v < 1 or math.floor(v) != v:
+    if not is_num(v) or v < 1 or not whole_num(v):
         return "version"
     ks = list(o)
     if len(ks) < 2 or ks[-2] != "test" or ks[-1] != "stage":
@@ -1515,7 +1536,7 @@ def sanitize(o):
         r["recorder"]["handoff"] = {"from": s(get(ho, "from"), 80), "rev": count(get(ho, "rev")), "at": iso(get(ho, "at"))}
     for f in (o["followUps"][:100] if isinstance(o.get("followUps"), list) else []):
         t = get(f, "text") if truthy(f) else MISSING
-        if truthy(f) and isinstance(t, str) and t.strip():
+        if truthy(f) and isinstance(t, str) and CF.js_trim(t):
             r["followUps"].append({"id": s(get(f, "id"), 20), "text": s(t, 300), "owner": s(get(f, "owner"), 80), "ticket": s(get(f, "ticket"), 120), "step": s(get(f, "step"), 60),
                                    "from": s(get(f, "from"), 20), "by": s(get(f, "by"), 80), "at": iso(get(f, "at"))})
     flds = o.get("fields", MISSING)
@@ -1911,7 +1932,7 @@ def repairs(o):
         return v
 
     def count_(v, at):
-        if v is not MISSING and v is not None and not (is_num(v) and v >= 0 and math.floor(v) == v):
+        if v is not MISSING and v is not None and not (is_num(v) and v >= 0 and whole_num(v)):
             add(at)
 
     for f, n in (("process", 60), ("folder", 60), ("mapHash", 16), ("title", 100), ("category", 60), ("createdBy", 80), ("tz", 60), ("savedBy", 40)):
@@ -2164,6 +2185,90 @@ def drift(raw, clean):
     return out
 
 
+def js_copy(v):
+    """JSON.parse(JSON.stringify(v)): a number that isn't finite becomes null; a dropped (undefined) list entry, null."""
+    if isinstance(v, dict):
+        return {k: js_copy(x) for k, x in v.items() if x is not MISSING}
+    if isinstance(v, list):
+        return [None if x is MISSING else js_copy(x) for x in v]
+    if isinstance(v, float) and (math.isinf(v) or math.isnan(v)):
+        return None
+    return v
+
+
+def canonical(o, r):
+    """R.canonical: the first place the file isn't exactly what the cleaner keeps (read as its JSON), or "". Two allowances
+    besides DRIFT_ALLOW's: a key left out where the cleaner fills in an empty value ('', null, {} or []), and a null the
+    cleaner leaves out. A value kept as written after a table lookup (state, s, was, outcome) is a string."""
+    if r is None or not is_obj(o):
+        return ""
+    c, first = js_copy(strip(r)), [""]
+    added, dropped = [segs(p) for p in ALLOW_ADDED], [segs(p) for p in ALLOW_DROPPED]
+
+    def allowed(lst, path):
+        sg = segs(path)
+        return any(len(q) == len(sg) and all(x == "*" or x == sg[i] for i, x in enumerate(q)) for q in lst)
+
+    def kind(v):
+        return "list" if isinstance(v, list) else "null" if v is None else "boolean" if isinstance(v, bool) else "number" if is_num(v) else "string" if isinstance(v, str) else "object"
+
+    def bare(v):
+        return (isinstance(v, str) and v == "") or v is None or (isinstance(v, list) and not v) or (is_obj(v) and not v)
+
+    def walk(a, b, path):
+        if first[0]:
+            return
+        if a is MISSING:
+            if b is not MISSING and not bare(b) and not allowed(added, path):
+                first[0] = path
+            return
+        if b is MISSING:
+            if a is not None and not allowed(dropped, path):
+                first[0] = path
+            return
+        if kind(a) != kind(b):
+            first[0] = path
+            return
+        if isinstance(a, list):
+            for i in range(max(len(a), len(b))):
+                if first[0]:
+                    return
+                walk(a[i] if i < len(a) else MISSING, b[i] if i < len(b) else MISSING, path + "[" + str(i) + "]")
+            return
+        if is_obj(a):
+            for k in keys(a) + [k for k in keys(b) if not k.startswith("_") and k not in a]:
+                walk(a.get(k, MISSING), b.get(k, MISSING), path + "." + k if path else k)
+            return
+        if a != b or (isinstance(a, float) and math.isnan(a)):
+            first[0] = path
+
+    def text(v, path):
+        if not first[0] and v is not MISSING and v is not None and not isinstance(v, str):
+            first[0] = path
+
+    text(o.get("state", MISSING), "state")
+    if is_obj(o.get("steps")):
+        for k in keys(o["steps"]):
+            a = o["steps"][k]
+            if not is_obj(a):
+                continue
+            text(a.get("s", MISSING), "steps." + k + ".s")
+            if isinstance(a.get("history"), list):
+                for i, h in enumerate(a["history"]):
+                    if is_obj(h):
+                        text(h.get("s", MISSING), "steps." + k + ".history[" + str(i) + "].s")
+    if is_obj(o.get("gates")):
+        for k in keys(o["gates"]):
+            g = o["gates"][k]
+            if is_obj(g):
+                text(g.get("s", MISSING), "gates." + k + ".s")
+                text(g.get("was", MISSING), "gates." + k + ".was")
+    if is_obj(o.get("ended")):
+        text(o["ended"].get("outcome", MISSING), "ended.outcome")
+    walk(o, c, "")
+    return first[0]
+
+
 def strip(r):
     """The kept run as JSON.parse(JSON.stringify(r)) gives it: no undefined, no bookkeeping."""
     def plain(v):
@@ -2189,7 +2294,8 @@ def parse(text):
     def no_constant(_):
         raise ValueError("not JSON")
     try:
-        return json.loads(text, parse_constant=no_constant)
+        # A number is a double, as JSON.parse reads it: an integer past 2^53 loses its precision, and one too big is infinite.
+        return json.loads(text, parse_constant=no_constant, parse_int=lambda t: int(t) if len(t.lstrip("-")) < 16 else float(t))
     except (ValueError, RecursionError):
         return MISSING
 
@@ -2202,7 +2308,7 @@ def stage_problem(info, folder):
     if not STAGE.match(folder) or info.get("folder") != folder or "version" in info:
         return "Folder name doesn't match the stage record."
     p = st.get("proposed") if is_obj(st) else None
-    if not isinstance(p, (int, float)) or isinstance(p, bool) or not p >= 1 or math.floor(p) != p or p > 99999:
+    if not isinstance(p, (int, float)) or isinstance(p, bool) or not p >= 1 or not whole_num(p) or p > 99999:
         return "Its stage record doesn't say which number it proposes."
     if not isinstance(info.get("stagedBy"), str) or not info["stagedBy"] or not isinstance(info.get("stagedAt"), str) or not info["stagedAt"]:
         return "Its stage record doesn't say who staged it, or when."
@@ -2342,6 +2448,9 @@ def dep_verdict(key, text, read, beside=None):
     d = drift(o, strip(r))
     if d:
         return path, "it holds what the app wouldn't keep as written (" + ", ".join(d[:5]) + ")"
+    cp = canonical(o, r)
+    if cp:
+        return path, "it isn't exactly as the app writes it, at " + cp
     beside = beside or {}
     lineage = r.get("lineage") or []
     copies = [n for n in beside if n != "run.json" and COPY.match(n)]

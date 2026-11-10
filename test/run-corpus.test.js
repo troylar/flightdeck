@@ -20,7 +20,7 @@ async function corpus() {
     Object.keys(R.X.files).forEach((p) => { if (/^(publications|staged)\//.test(p) || (p.indexOf('runs/' + R.X.depKey + '/') === 0 && p !== R.X.path)) files[p] = String(R.X.files[p]); });
     worlds.push({ world: R.X.role, files });
     for (const c of R.cases) {
-      const text = JSON.stringify(c.run, null, 2);
+      const text = c.text || JSON.stringify(c.run, null, 2);
       const v = await C.jsVerdict(R.X.PF, Object.assign({}, R.X.files, { [R.X.path]: text }), R.X.depKey);
       cases.push({ id: cases.length, role: R.X.role, key: R.X.depKey, name: c.name, text, js: v, R });
     }
@@ -59,6 +59,27 @@ rule('a time in any form but the one the app writes (toISOString, within the dat
   const { cases } = await corpus(), off = cases.filter((c) => /\(not the written form\)$/.test(c.name) && !/\.loop\.at:/.test(c.name) && !c.js);
   assert.ok(cases.filter((c) => /\(not the written form\)$/.test(c.name)).length > 100, 'the corpus tries them');
   assert.strictEqual(off.length, 0, off.length + ' accepted:\n  ' + off.slice(0, 30).map((c) => c.role + ' · ' + c.name).join('\n  '));
+});
+
+/* PA: a dependency run is confirmed only as the app writes it. The reviewers' cases are in the corpus, in every role: a value
+   kept after a table lookup given as a list, a number too big to be finite and every team value the validator refuses are
+   malformed; a valid team value and the documented allowances (a missing key the cleaner fills in) hold. */
+rule('a dependency run is confirmed only as the app writes it: the reviewers\' cases are malformed in every role, their controls hold', async () => {
+  const { cases } = await corpus(), roles = [...new Set(cases.map((c) => c.role))], bad = [];
+  const want = (name, refused, some) => {
+    const mine = cases.filter((c) => c.name === name);
+    if (!mine.length) { if (!some) bad.push('missing: ' + name); return; }
+    mine.forEach((c) => { if (!!c.js !== refused) bad.push(c.role + ' · ' + name + ': ' + (c.js ? 'refused at ' + c.js.path + ' (' + c.js.why + ')' : 'held')); });
+  };
+  ['(reviewer) state: a list', '(reviewer) a step\'s s: a list', '(reviewer) the outcome: a list', '(reviewer) version: 1e999', '(reviewer) rev: 1e999', '(reviewer) a step\'s by: null',
+    '(reviewer) snapshot: only U+0085', '(reviewer) snapshot: only U+001C'].forEach((n) => want(n, true));
+  ['(reviewer) a gate\'s was: a list', '(reviewer) a loop approval\'s count: 1e999', '(reviewer) team value: over 120 characters', '(reviewer) team value: empty', '(reviewer) team value: padded',
+    '(reviewer) team value: padded with U+FEFF', '(reviewer) team value: a control character', '(reviewer) team value: DEL'].forEach((n) => want(n, true, true));
+  ['title: missing (filled in)', 'state: missing (filled in)', '(reviewer) team value: valid', '(reviewer) team value: 120 characters', '(reviewer) team value: padded with U+0085 (not JavaScript white space)'].forEach((n) => want(n, false, true));
+  assert.ok(cases.some((c) => c.name === '(reviewer) team value: valid'), 'a run with a team-value link is in the corpus');
+  assert.ok(cases.some((c) => c.name === '(reviewer) a loop approval\'s count: 1e999'), 'a loop approval is in the corpus');
+  assert.strictEqual(bad.length, 0, bad.join('\n  '));
+  console.log('    ' + cases.filter((c) => /^\(reviewer\)/.test(c.name)).length + ' reviewer cases over ' + roles.length + ' roles');
 });
 
 rule('the pack reader gives every case in the corpus the verdict the app gives it: accepted, or refused at the same first path', async () => {
