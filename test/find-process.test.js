@@ -868,6 +868,7 @@ const D10_JOIN_OK = [
   { file: 'run.js', has: 'V.changes.slice(0, 50).map(esc).join', why: 'a loop\'s changes since its approval, at most 50 drawn, with how many more' },
   { file: 'run.js', has: 'V.review.slice(0, 50).map(esc).join', why: 'why a loop\'s approval needs review, at most 50 drawn, with how many more' },
   { file: 'app.js', has: 'c.errors.slice(0, 5).join', why: 'what is wrong with a loop change, at most 5' },
+  { file: 'run.js', has: 'esc(c.accepts.join(\' or \'))', why: 'the results a checklist-linked to-do accepts, at most 20 (PF.detours LIMITS.accepts), a record with more is refused when read' },
   { file: 'app.js', has: 'got.missing.join', why: 'the inputs a loop\'s pass: line can\'t fill, at most PF.loop.LIMITS.inputs (40)' },
   { file: 'builder.js', has: 'dt[n].options.join(\', \')', why: 'a choice detail\'s options, at most 20 (core/map.js OPTIONS_MAX), in a select of the checklist\'s choice details, at most 40' },
   { file: 'app.js', has: 'builderField(\'ob-fld-\' + field, cur.join(\', \'), focus)', why: 'a step field\'s value written to the checklist, never drawn' },
