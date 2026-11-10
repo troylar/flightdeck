@@ -326,7 +326,7 @@
     },
     "src/core/run.js": {
       "sha256": "50b78dd37b9ba3678655115e4229f1848cd467d2d5e066cc870d3491520a3636",
-      "reviewed": "4.0 slice 6 commit 7, plan versus now and receipts: PF.receipts (compare, the receipt record, prepare, stateOf, since, deps), cleanLiving's receipt, PF.run.end's receipt, the app's end flow with its receipt guard and plan-versus-now chips, the evidence pack's living section and check_pack.py's replay, design 45.5 and docs/evidence.md; checked for direct writes and unconditional deletes: the receipt is written create-once through repo.saveScope with a fresh read before the write under the run and to-do guards, the run through the checked save chain, export only reads, nothing deleted"
+      "reviewed": "GA: every end of a living run guards its receipt; Use copy and restore carry the receipt guard; a child the folder still refers to that is missing refuses the end"
     },
     "src/core/save.js": {
       "sha256": "096b8282d8dd62623b608ad2a9ae6a8f78e5a8260615eaf74aa9c9fb9c3a3f26",
@@ -425,8 +425,8 @@
       "reviewed": "slice 6 round 2 GC: one receipt verdict in every reader, view, copied text and the checker"
     },
     "src/ui/app.js": {
-      "sha256": "4e585f904182cc340e68a189ca430245f5e1af76957f12479bbbc314d404d2bd",
-      "reviewed": "slice 6 CA: receipts prepared and asked again on one fresh dependency read"
+      "sha256": "63edc99b5e74d69b10993ba2f800f08a5fdcdf1cd67c7f57ffd167077a677174",
+      "reviewed": "GA: every end of a living run guards its receipt; Use copy and restore carry the receipt guard; a child the folder still refers to that is missing refuses the end"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

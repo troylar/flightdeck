@@ -260,4 +260,75 @@ rule('Copy for Jira of a run without to-dos is exactly as in 3.0: no plan versus
   assert.ok(text.length > 0 && !/Plan versus now|After it ended/.test(text), text.slice(0, 800));
 });
 
+/* ---- GA: every path that can set ended on a living run guards the receipt ---- */
+rule('A loop child whose whole folder is deleted right after the receipt is written ends nothing, named by its path', async () => {
+  const app = await loopSetup(), kid = kidPaths(app)[0], dir = kid.replace(/run\.json$/, '');
+  await endDamaged(app, () => { app.files(dir).forEach((p) => { delete app.fs.files[p]; }); });
+  assert.ok(txt(app.html()).indexOf(dir + 'run.json') >= 0, 'the missing child is named: ' + txt(app.html()).slice(0, 1500));
+});
+/* An ended living copy of the run (its receipt in the folder) next to run.json as it was before the end. */
+async function endedCopy(app, change) {
+  const before = app.fs.files[runPath(app)].t;
+  await end(app);
+  const ended = JSON.parse(app.fs.files[runPath(app)].t), copy = runPath(app).replace('run.json', 'run-OTHER.json');
+  if (change) change(ended);
+  await app.fs.write(copy, JSON.stringify(ended, null, 2));
+  const r0 = JSON.parse(before); r0.rev = (ended.rev || 0) + 1;
+  await app.fs.write(runPath(app), JSON.stringify(r0, null, 2));
+  await refresh(app, 300);
+  const r = theRun(app); app.click('open-run', r.process + '/' + r.id); await app.tick(80);
+  assert.ok(!theRun(app).ended && /data-act="use-copy"/.test(app.html()), 'set-up: the run is open and the ended copy is offered');
+  return { copy, receipt: ended.living.receipt };
+}
+const late = async (app, key) => {
+  const r0 = theRun(app), T = app.PF.todos;
+  const f = T.buildProposal({ run: { process: r0.process, id: r0.id }, producer: { name: 'notes-bot', version: '1.0' }, key, seen: [], at: new Date().toISOString(), body: { op: 'add', text: 'Filed after the copy', target: { phase: 'review' }, placement: T.placementFor(app.PF.run.mapOf(app.PF.run.sanitize(r0)), { phase: 'review' }) } });
+  await app.fs.write('proposals/' + f.id + '.json', T.text(f));
+};
+rule('Use copy of an ended living copy ends the run with the copy\'s receipt when it still holds (the control)', async () => {
+  const app = await setup(); await added(app, 'Post the release notes');
+  const c = await endedCopy(app);
+  app.click('use-copy', 'run-OTHER.json'); await app.tick(400);
+  const r = theRun(app);
+  assert.ok(r.ended && r.living && r.living.receipt === c.receipt, JSON.stringify(r.living));
+});
+rule('Use copy of an ended living copy ends nothing when a request was filed after it, its receipt is gone, or it names no receipt', async () => {
+  for (const what of ['late', 'gone', 'none']) {
+    const app = await setup(); await added(app, 'Post the release notes');
+    const c = await endedCopy(app, what === 'none' ? (o) => { delete o.living.receipt; } : null);
+    if (what === 'late') await late(app, 'k-late2');
+    if (what === 'gone') delete app.fs.files['proposals/' + c.receipt + '.json'];
+    app.click('use-copy', 'run-OTHER.json'); await app.tick(400);
+    assert.ok(!theRun(app).ended, what + ': not ended');
+    assert.ok(app.fs.files[c.copy], what + ': the copy stays to keep again');
+  }
+});
+rule('Restoring an ended living copy kept in this browser asks the receipt too: a request filed after it ends nothing', async () => {
+  for (const what of ['ok', 'late']) {
+    const app = await setup(); await added(app, 'Post the release notes');
+    const c = await endedCopy(app), cp = JSON.parse(app.fs.files[c.copy].t);
+    delete app.fs.files[c.copy]; await refresh(app, 300);
+    const r0 = theRun(app); app.click('open-run', r0.process + '/' + r0.id); await app.tick(80);
+    app.store['preflight:unsaved:' + app.fs.kind + ':' + (app.fs.id || app.fs.name) + ':' + cp.id] = JSON.stringify(cp);
+    if (what === 'late') await late(app, 'k-late3');
+    app.click('restore-local'); await app.tick(400);
+    const r = theRun(app);
+    if (what === 'ok') assert.ok(r.ended && r.living.receipt === c.receipt, 'ok: ended with the copy\'s receipt ' + JSON.stringify(r.living));
+    else assert.ok(!r.ended, 'late: not ended');
+  }
+});
+rule('An end whose run save fails is put back, never left for Try again: Try again saves no end', async () => {
+  const app = await setup(); await added(app, 'Post the release notes');
+  const fs = app.fs, write = fs.write.bind(fs);
+  fs.write = (p, t, o) => /^runs\/release-notes\//.test(p) ? Promise.reject(new Error('EIO')) : write(p, t, o);
+  await end(app);
+  fs.write = write;
+  assert.strictEqual(receipts(app).length, 1, 'set-up: the receipt was written');
+  assert.ok(!theRun(app).ended, 'not ended in the folder');
+  app.click('retry-save'); await app.tick(300);
+  assert.ok(!theRun(app).ended, 'Try again: no end');
+  await late(app, 'k-late4'); app.click('retry-save'); await app.tick(300);
+  assert.ok(!theRun(app).ended, 'nor after a request filed since');
+});
+
 run();
