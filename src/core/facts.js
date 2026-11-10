@@ -322,9 +322,10 @@ PF.facts = (function () {
   }
   /* The run a to-do's facts are on, as the caller read it (deps.runs and deps.unreadRun, PF.spreads.inputs): a problem
      ({ path, kind, why }) when it isn't there or wasn't read whole, else null. Not asked when the caller didn't read runs,
-     nor for the to-do's own run (its reader judges that). */
+     nor for the to-do's own run (its reader judges that) unless the caller read it again for a write (deps.fresh: the app's
+     guards), where its verdict is asked like any other run's. */
   function evidenceRunProblem(r, it, deps) {
-    if (!it || !deps || !Array.isArray(deps.runs) || (it.run.process === r.process && it.run.id === r.id)) return null;
+    if (!it || !deps || !Array.isArray(deps.runs) || (!deps.fresh && it.run.process === r.process && it.run.id === r.id)) return null;
     var k = it.run.process + '/' + it.run.id, c = deps.runs.filter(function (x) { return x && x.process === it.run.process && x.id === it.run.id; })[0];
     if (!c) return { path: 'runs/' + k + '/run.json', kind: 'nofile', why: 'A suggestion here rests on facts of ' + k + ', which isn\'t in the folder.' };
     if (c._unrunnable) return { path: 'runs/' + k + '/run.json', kind: 'newer', why: 'A suggestion here rests on facts of ' + k + ', which was made with a newer Flightdeck.' };

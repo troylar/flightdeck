@@ -569,75 +569,86 @@ function holdRead(app, re, cond) {
   return { hold, seen: () => n, off: () => { on = false; } };
 }
 /* The evidence's run made unreadable, with no Refresh: its run.json gone or answering an error, or its pinned version gone. */
-function breakEvidence(app, how) {
-  const rp = SF.parentPath(app);
+/* The evidence's run made unreadable, with no Refresh: its run.json gone or answering an error, its pinned version gone or
+   answering an error, or its start time made unreadable (a repair the CLI's reader names as malformed). */
+function breakEvidence(app, Wd, how) {
+  const rp = Wd.evPath(), pubs = 'publications/release-readiness/';
   if (how === 'gone') { delete app.fs.files[rp]; return; }
-  if (how === 'eio') { const read = app.fs.read.bind(app.fs); app.fs.read = (p, o) => p === rp ? Promise.reject(new Error('EIO: the folder answered an error')) : read(p, o); return; }
-  if (how === 'pin') app.files('publications/release-readiness/').forEach((p) => { delete app.fs.files[p]; });
+  if (how === 'eio' || how === 'pin-eio') { const read = app.fs.read.bind(app.fs); app.fs.read = (p, o) => (how === 'eio' ? p === rp : p.indexOf(pubs) === 0) ? Promise.reject(new Error('EIO: the folder answered an error')) : read(p, o); return; }
+  if (how === 'pin') { app.files(pubs).forEach((p) => { delete app.fs.files[p]; }); return; }
+  if (how === 'bad-time') { const r = JSON.parse(app.fs.files[rp].t); r.created = 'not a time'; app.fs.files[rp] = { t: JSON.stringify(r, null, 2), m: Date.now() }; }
 }
+/* A to-do on ABC-101 of the loop's own run, its evidence filed on that same run. */
+async function sameWorld() {
+  const app = await setup(), x = await todo(app), f = await fact(app, 'prs-1', { observedAt: ago(30000), maxAgeSeconds: 120 }), r = parentRun(app);
+  return { app, kk: r.process + '/' + r.id, kidPath: () => parentPath(app), evPath: () => parentPath(app), grantIt: () => grant(app), suggestIt: () => suggest(app, x, f.id) };
+}
+async function storyEv() { const W = await storyWorld(); W.evPath = () => SF.parentPath(W.app); return W; }
 const storyFiles = (app, kk) => { const o = {}; app.files('runs/' + kk + '/').forEach(p => { o[p] = app.fs.files[p].t; }); return o; };
 const kindsOf = (app, id) => app.files('proposals/').filter((p) => p.indexOf(id + '.status-') >= 0).map((p) => JSON.parse(app.fs.files[p].t).kind);
-rule('PA: the run a story\'s evidence is on, or its pinned version, gone or unreadable while a decision, an application or a landing is held writes no decision, application, candidate or run.json; with nothing changed each writes', async () => {
-  for (const point of ['decision', 'application', 'run']) {
-    for (const how of ['none', 'gone', 'eio', 'pin']) {
-      const Wd = await storyWorld(), app = Wd.app, tag = point + '/' + how;
-      if (point !== 'decision') await Wd.grantIt();
-      const S = await Wd.suggestIt();
-      let h;
-      if (point === 'decision') {
-        await app.fs.write('proposals/' + S.name, app.PF.todos.text(S.file));
-        await refresh(app, 300);
-        const W = await SF.now(app), it = app.PF.todos.inbox(W.d.runs.filter(y => y.process + '/' + y.id === Wd.kk), { records: W.d.todos, unread: W.d.todosUnread, people: W.people, me: 'person-avery', now: Date.now() }).find((y) => y.id === S.id);
-        assert.ok(it, tag + ' set-up: waiting for Avery');
-        h = holdRead(app, new RegExp('^proposals/' + S.id + '\\.status-'));
-        app.click('td-accept', S.id, { run: Wd.kk, fp: it.consequence.fingerprint }); await app.tick(80);
-      } else {
-        h = point === 'application' ? holdRead(app, new RegExp('^proposals/' + S.id + '\\.status-')) : holdRead(app, /^runs\/validate-story\/.*run\.json$/, () => kindsOf(app, S.id).indexOf('application') >= 0);
-        await app.fs.write('proposals/' + S.name, app.PF.todos.text(S.file));
-        await refresh(app, 300);
-      }
-      assert.strictEqual(h.seen(), 1, tag + ' set-up: held before the write');
-      h.off();
-      const before = storyFiles(app, Wd.kk);
-      breakEvidence(app, how);
-      h.hold.open(); await app.tick(500);
-      const st = kindsOf(app, S.id), r = JSON.parse(app.fs.files[Wd.kidPath()].t);
-      const landed = !!r.living && st.indexOf('application') >= 0 && app.files('proposals/').some((p) => p === 'proposals/' + r.living.head + '.json' && p.indexOf(S.id + '.status-') >= 0);
-      if (point === 'decision') assert.strictEqual(st.filter((k) => k === 'decision').length, how === 'none' ? 1 : 0, tag + ': ' + st.join(', '));
-      if (point === 'application') assert.strictEqual(st.filter((k) => k === 'application').length, how === 'none' ? 1 : 0, tag + ': ' + st.join(', '));
-      if (point !== 'decision') assert.strictEqual(landed, how === 'none', tag + ': ' + JSON.stringify(r.living));
-      if (point === 'run' && how !== 'none') assert.deepStrictEqual(storyFiles(app, Wd.kk), before, tag + ': no candidate or run.json is written');
-    }
-  }
-});
-rule('PA: the run a story\'s evidence is on, or its pinned version, gone or unreadable while Use copy is held keeps nothing of the copy and writes no candidate or run.json; with nothing changed it is kept', async () => {
-  for (const how of ['none', 'gone', 'eio', 'pin']) {
-    const Wd = await storyWorld(), app = Wd.app, tag = 'use copy/' + how;
-    await Wd.grantIt();
-    const pre = app.fs.files[Wd.kidPath()].t, S = await Wd.suggestIt();
+/* A decision, an application or a landing held right before its write, the evidence broken, then let go: nothing is written
+   unless nothing changed. */
+async function heldWrite(world, point, how) {
+  const Wd = await world(), app = Wd.app, tag = point + '/' + how, proc = Wd.kk.split('/')[0];
+  if (point !== 'decision') await Wd.grantIt();
+  const S = await Wd.suggestIt();
+  let h;
+  if (point === 'decision') {
     await app.fs.write('proposals/' + S.name, app.PF.todos.text(S.file));
-    await refresh(app, 300); await refresh(app, 300);
-    const head = () => JSON.parse(app.fs.files[Wd.kidPath()].t).living, isMine = (lv) => !!lv && app.files('proposals/').some((p) => p === 'proposals/' + lv.head + '.json' && p.indexOf(S.id + '.status-') >= 0);
-    assert.ok(isMine(head()), tag + ' set-up: landed');
-    const landed = app.fs.files[Wd.kidPath()].t, cp = Wd.kidPath().replace('run.json', 'run-OTHER.json');
-    await app.fs.write(cp, landed);
-    const r0 = JSON.parse(pre); r0.paused = { by: 'person-avery', at: new Date().toISOString(), reason: 'Lunch' }; r0.rev = (JSON.parse(landed).rev || 0) + 1;
-    await app.fs.write(Wd.kidPath(), JSON.stringify(r0, null, 2));
     await refresh(app, 300);
-    app.click('open-run', Wd.kk); await app.tick(80);
-    assert.ok(/data-act="use-copy"/.test(app.html()), tag + ' set-up: the copy is offered');
-    assert.ok(!isMine(head()), tag + ' set-up: not landed here');
-    const h = holdRead(app, /^runs\/validate-story\/.*run\.json$/);
-    app.click('use-copy', 'run-OTHER.json'); await app.tick(80);
-    assert.strictEqual(h.seen(), 1, tag + ' set-up: held before the candidate');
-    h.off();
-    const before = storyFiles(app, Wd.kk);
-    breakEvidence(app, how);
-    h.hold.open(); await app.tick(600);
-    assert.strictEqual(isMine(head()), how === 'none', tag + ': ' + JSON.stringify(head()));
-    assert.strictEqual(!!app.fs.files[cp], how !== 'none', tag + ': the copy ' + (how === 'none' ? 'is removed once kept' : 'stays'));
-    if (how !== 'none') assert.deepStrictEqual(storyFiles(app, Wd.kk), before, tag + ': no candidate or run.json is written');
+    const W = await SF.now(app), it = app.PF.todos.inbox(W.d.runs.filter(y => y.process + '/' + y.id === Wd.kk), { records: W.d.todos, unread: W.d.todosUnread, people: W.people, me: 'person-avery', now: Date.now() }).find((y) => y.id === S.id);
+    assert.ok(it, tag + ' set-up: waiting for Avery');
+    h = holdRead(app, new RegExp('^proposals/' + S.id + '\\.status-'));
+    app.click('td-accept', S.id, { run: Wd.kk, fp: it.consequence.fingerprint }); await app.tick(80);
+  } else {
+    h = point === 'application' ? holdRead(app, new RegExp('^proposals/' + S.id + '\\.status-')) : holdRead(app, new RegExp('^runs/' + proc + '/.*run\\.json$'), () => kindsOf(app, S.id).indexOf('application') >= 0);
+    await app.fs.write('proposals/' + S.name, app.PF.todos.text(S.file));
+    await refresh(app, 300);
   }
-});
-
+  assert.strictEqual(h.seen(), 1, tag + ' set-up: held before the write');
+  h.off();
+  breakEvidence(app, Wd, how);
+  const before = storyFiles(app, Wd.kk);
+  h.hold.open(); await app.tick(500);
+  const st = kindsOf(app, S.id), rt = app.fs.files[Wd.kidPath()], r = rt ? JSON.parse(rt.t) : {};
+  const landed = !!r.living && st.indexOf('application') >= 0 && app.files('proposals/').some((p) => p === 'proposals/' + r.living.head + '.json' && p.indexOf(S.id + '.status-') >= 0);
+  if (point === 'decision') assert.strictEqual(st.filter((k) => k === 'decision').length, how === 'none' ? 1 : 0, tag + ': ' + st.join(', '));
+  if (point === 'application') assert.strictEqual(st.filter((k) => k === 'application').length, how === 'none' ? 1 : 0, tag + ': ' + st.join(', '));
+  if (point !== 'decision') assert.strictEqual(landed, how === 'none', tag + ': ' + JSON.stringify(r.living));
+  if (point === 'run' && how !== 'none') assert.deepStrictEqual(storyFiles(app, Wd.kk), before, tag + ': no candidate or run.json is written');
+}
+/* Use copy of a copy holding the landed suggestion, held right before its candidate, the evidence broken, then let go. */
+async function heldCopy(world, how) {
+  const Wd = await world(), app = Wd.app, tag = 'use copy/' + how, proc = Wd.kk.split('/')[0];
+  await Wd.grantIt();
+  const pre = app.fs.files[Wd.kidPath()].t, S = await Wd.suggestIt();
+  await app.fs.write('proposals/' + S.name, app.PF.todos.text(S.file));
+  await refresh(app, 300); await refresh(app, 300);
+  const head = () => { const t = app.fs.files[Wd.kidPath()]; return t ? JSON.parse(t.t).living : null; }, isMine = (lv) => !!lv && app.files('proposals/').some((p) => p === 'proposals/' + lv.head + '.json' && p.indexOf(S.id + '.status-') >= 0);
+  assert.ok(isMine(head()), tag + ' set-up: landed');
+  const landed = app.fs.files[Wd.kidPath()].t, cp = Wd.kidPath().replace('run.json', 'run-OTHER.json');
+  await app.fs.write(cp, landed);
+  const r0 = JSON.parse(pre); r0.paused = { by: 'person-avery', at: new Date().toISOString(), reason: 'Lunch' }; r0.rev = (JSON.parse(landed).rev || 0) + 1;
+  await app.fs.write(Wd.kidPath(), JSON.stringify(r0, null, 2));
+  await refresh(app, 300);
+  app.click('open-run', Wd.kk); await app.tick(80);
+  assert.ok(/data-act="use-copy"/.test(app.html()), tag + ' set-up: the copy is offered');
+  assert.ok(!isMine(head()), tag + ' set-up: not landed here');
+  const h = holdRead(app, new RegExp('^runs/' + proc + '/.*run\\.json$'));
+  app.click('use-copy', 'run-OTHER.json'); await app.tick(80);
+  assert.strictEqual(h.seen(), 1, tag + ' set-up: held before the candidate');
+  h.off();
+  breakEvidence(app, Wd, how);
+  const before = storyFiles(app, Wd.kk);
+  h.hold.open(); await app.tick(600);
+  assert.strictEqual(isMine(head()), how === 'none', tag + ': ' + JSON.stringify(head()));
+  assert.strictEqual(!!app.fs.files[cp], how !== 'none', tag + ': the copy ' + (how === 'none' ? 'is removed once kept' : 'stays'));
+  if (how !== 'none') assert.deepStrictEqual(storyFiles(app, Wd.kk), before, tag + ': no candidate or run.json is written');
+}
+const MATRIX = (world, hows) => async () => {
+  for (const point of ['decision', 'application', 'run']) for (const how of hows) await heldWrite(world, point, how);
+  for (const how of hows) await heldCopy(world, how);
+};
+rule('PA: the run a story\'s evidence is on, or its pinned version, gone or unreadable while a decision, an application, a landing or Use copy is held writes no decision, application, candidate or run.json; with nothing changed each writes', MATRIX(storyEv, ['none', 'gone', 'eio', 'pin', 'pin-eio']));
+rule('QA: a to-do\'s evidence on its own run, that run\'s pinned version gone or unreadable while a decision, an application, a landing or Use copy is held writes nothing; with nothing changed each writes', MATRIX(sameWorld, ['none', 'pin', 'pin-eio']));
 run();

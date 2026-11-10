@@ -3388,10 +3388,14 @@
      the CLI's readDeps reads them: { problems: { key: problem } } by run, each key read (null for one read whole). */
   function tdEvidenceFresh(fs, records) {
     var want = Object.create(null);
+    /* The run each one's facts are on, as PF.facts.itemOfTodo finds it (the to-do's own run for an item to-do, else its
+       loop's run); the run itself too when its to-do isn't known here, so none is left unread. */
     records.forEach(function (x) {
       if (!x || x.op !== 'done' || !x.support || !x.run) return;
-      var r = findRun(x.run.process + '/' + x.run.id), p = r && r.parent;
-      if (p && p.item && typeof p.process === 'string' && typeof p.id === 'string') want[p.process + '/' + p.id] = p;
+      var r = findRun(x.run.process + '/' + x.run.id); if (!r) return;
+      var V = todoViewFor(r), td = V && V.byTodo ? V.byTodo[x.todo] : null, it = td ? PF.facts.itemOfTodo(r, td) : null;
+      var add = function (q) { if (q && typeof q.process === 'string' && typeof q.id === 'string') want[q.process + '/' + q.id] = { process: q.process, id: q.id }; };
+      if (it) add(it.run); else { add(r); if (r.parent && r.parent.item) add(r.parent); }
     });
     var keys = Object.keys(want), out = { problems: Object.create(null) };
     return Promise.all(keys.map(function (k) {
@@ -3415,7 +3419,7 @@
     var base = spInputs(), ev = sn && sn.ev;
     if (!ev) return base;
     var un = base.loops.unreadRun;
-    return Object.assign({}, base, { loops: Object.assign({}, base.loops, { unreadRun: function (c) {
+    return Object.assign({}, base, { loops: Object.assign({}, base.loops, { fresh: true, unreadRun: function (c) {
       var k = c && c.process + '/' + c.id;
       return k && Object.prototype.hasOwnProperty.call(ev.problems, k) ? ev.problems[k] : un(c);
     } }) });

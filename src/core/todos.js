@@ -848,7 +848,7 @@ PF.todos = (function () {
     var deps = o.deps || { records: o.records || [], unread: o.unread || [] };
     /* What evidence is checked against (facts): every record read, and, when the caller read them, the runs and how each read
        (o.runs, o.loops.unreadRun: PF.spreads.inputs), so the run a fact is on is expected, present and checked. */
-    var ev = { records: deps.records || [], unread: deps.unread || [], runs: Array.isArray(o.runs) ? o.runs : null, unreadRun: o.loops && o.loops.unreadRun || null };
+    var ev = { records: deps.records || [], unread: deps.unread || [], runs: Array.isArray(o.runs) ? o.runs : null, unreadRun: o.loops && o.loops.unreadRun || null, fresh: !!(o.loops && o.loops.fresh) };
     var T = reduce(o.records || [], r, { all: deps.records || o.records || [], map: map, ended: !!r.ended, may: mayFor(r, o.people), authority: authorityFor(r, map, o.people), depWhy: function (q) { return fulfillsWhy(q, deps); },
       /* o.now: the time evidence is judged by (facts); without one, a done on evidence holds. */
       supportWhy: function (q, x) { return PF.facts.supportWhy(r, q, x, ev, o.now); } });

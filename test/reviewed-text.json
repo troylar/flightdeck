@@ -25,8 +25,8 @@
       "reviewed": "Merge of feat/4.0 (slice 3 round 7) into feat/4.0-facts: both sides' texts kept, spread inputs and fact clocks combined; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "7e5c402b4172a8a4c455836878b0e20c379f967272c09885ed32315c32046018",
-      "reviewed": "PA: evidence-run reread at the write; read-only (readRunOnly), checked for direct writes and unconditional deletes"
+      "sha256": "c4178f7e72547a17738be9cc46755ab8f194246c22eb99fd95a8f03751178981",
+      "reviewed": "QA: evidence runs found through itemOfTodo, own run judged when read fresh; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -233,8 +233,8 @@
       "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/facts.js": {
-      "sha256": "a59e3364e9b232f0e43a71ed41cd3d79dcf1f2208899fe278f2679a744f1a6a3",
-      "reviewed": "ID: what a done on evidence rests on is expected, present and checked (the shared manifest); checked for direct writes and unconditional deletes"
+      "sha256": "3f880d701e9267bc33a092608efee2aec5c44378e0dda59d58acfa9c5e4deaea",
+      "reviewed": "QA: evidence runs found through itemOfTodo, own run judged when read fresh; checked for direct writes and unconditional deletes"
     },
     "src/core/followups.js": {
       "sha256": "ee399703ee43c4408af48a9bbd816483f6c28039a4587815063ff0a175c8fea0",
@@ -357,8 +357,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "4cdcbc18e70a83779890dd5feafa9b065711cf9ae853d62c3abe9aae952adb0a",
-      "reviewed": "JC: a fact by its kind goes to the to-do reader whatever its envelope; checked for direct writes and unconditional deletes"
+      "sha256": "ecf20c08e0d9f9c604716079a676cbc021385a8f4b39aae6cd7d96cbcd12c2c0",
+      "reviewed": "QA: evidence runs found through itemOfTodo, own run judged when read fresh; checked for direct writes and unconditional deletes"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",
@@ -413,8 +413,8 @@
       "reviewed": "PB: a fact by its kind comes before loop and scope dispatch; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "a1292afaea36ab30854d6c42aab75c8036bffcb4f5d694b40843dd08314e5fdf",
-      "reviewed": "PA: evidence-run reread at the write; read-only (readRunOnly), checked for direct writes and unconditional deletes"
+      "sha256": "ad3509c95d6275e7bbd7ad60b4f71bed771e0aa4679fa342ef0934fc5f7ca314",
+      "reviewed": "QA: evidence runs found through itemOfTodo, own run judged when read fresh; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
