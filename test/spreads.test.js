@@ -603,14 +603,15 @@ rule('TC: a stopped spread owes nothing on an item removed from scope after it s
   assert.ok(!(W.mark().loops.each || []).some(x => /ABC-102/.test(x)), JSON.stringify(W.r._todos.loops.each));
   same(spreadOf(W).stop.owed.length, 2, 'the stop record itself is unchanged');
 });
-rule('TC: a stopped spread owes nothing on an earlier attempt, and its new attempt inherits nothing', () => {
+/* Regression since round 10 (BA): a new attempt with no plan has no witness to show it came after the stop, so it owes. */
+rule('TC: a stopped spread\'s listed attempt says nothing of a new one, which owes with no plan made after the stop', () => {
   const W = world([101, 102]); W.kid(101, { cleared: false }); W.kid(102);
   W.spreadAdd(); W.land(W.r);
   W.ask(W.r, stopBody(W, [101, 102]), { person: 'person-morgan' }); W.land(W.r);
   same(spreadOf(W).state, 'stopped', 'set-up: stopped');
   W.kid(101, { attempt: 2 });
   same(W.loopView().rollup.items.filter(i => i.key === 'ABC-101').map(i => i.attempt), [2], 'set-up: attempt 2');
-  same(W.one().items.filter(i => i.owed).map(i => i.key + '#' + i.attempt), ['ABC-102#1']);
+  same(W.one().items.filter(i => i.owed).map(i => i.key + '#' + i.attempt), ['ABC-102#1', 'ABC-101#2']);
 });
 /* Review round 2 (TD): a settled exception for the current attempt resolves coverage whatever the loop shows as its status. */
 rule('TD: an exception settled for the current attempt resolves coverage even when the item\'s run already cleared', () => {
@@ -989,12 +990,14 @@ rule('YA: an item that arrives after a stop, by a record that saw the stop\'s ap
   W.scopes.push(scope4('s4', [101, 102, 106], [W.scopes[0].id], W.view().chain[W.view().chain.length - 2]));
   same(W.one().items.filter(i => i.owed).map(i => i.key), ['ABC-101', 'ABC-102', 'ABC-106'], 'a head before the stop\'s application: owed');
 });
-rule('YA: an item the stop saw and didn\'t list owes nothing, whatever its attempt', () => {
+/* Regression since round 10 (BA): attempt 1, seen and unlisted, owes nothing; attempt 2, with no plan, owes. */
+rule('YA: an item the stop saw and didn\'t list owes nothing on that attempt; a later one with no plan owes', () => {
   const W = world([101, 102]); W.kid(101, { cleared: true }); W.kid(102);
   W.spreadAdd(); W.land(W.r);
   W.ask(W.r, stopBody(W, [102]), { person: 'person-morgan' }); W.land(W.r);
+  same(W.one().items.filter(i => i.owed).map(i => i.key + '#' + i.attempt), ['ABC-102#1'], 'attempt 1: seen, not listed');
   W.kid(101, { attempt: 2 });
-  same(W.one().items.filter(i => i.owed).map(i => i.key + '#' + i.attempt), ['ABC-102#1']);
+  same(W.one().items.filter(i => i.owed).map(i => i.key + '#' + i.attempt), ['ABC-102#1', 'ABC-101#2']);
 });
 /* Review round 7 (YB): a binding names the run that counts, so that run is expected whether or not a request was filed on it. */
 rule('YB: an explicitly bound run that isn\'t here makes coverage incomplete and is named, with no request filed on it', () => {
@@ -1045,14 +1048,15 @@ for (const first of [true, false]) {
     same(owedOf(W), [true, ['ABC-104#1']]);
   });
 }
-rule('ZA: a removal and a restore after the stop start a new incarnation, which arrives after the stop and owes nothing', () => {
+/* Regression since round 10 (BA): the accepted consequence. An item in the loop before the stop still owes it when it comes back. */
+rule('ZA: an item added before the stop, then removed and restored after it, still owes', () => {
   const { W, pre, kq, stopApp } = hiddenBeforeStop('za4', true);
   W.scopes.push(pre);
   const ex = scope4(kq + 'x', null, [pre.id], stopApp, [{ op: 'exclude', item: { key: 'ABC-104', id: '10104' }, reason: 'Out' }]);
   W.scopes.push(ex);
   same(owedOf(W), [true, []], 'a recorded removal still removes');
   W.scopes.push(scope4(kq + 'r', null, [ex.id], stopApp, [{ op: 'restore', item: { key: 'ABC-104', id: '10104' }, reason: 'Back in' }]));
-  same(owedOf(W), [true, []], 'restored after the stop: a later arrival');
+  same(owedOf(W), [true, ['ABC-104#1']], 'restored after the stop: its addition before the stop is still a witness');
 });
 /* Review round 8 (ZC): an attempt made after the stop inherits nothing, even of an item whose earlier attempt still owes it. */
 function plan4(key, n, attempt, seen, head) {
@@ -1103,7 +1107,9 @@ const AA_ROUTES = {
 };
 const AA_LATER = ['concurrent', 'repeat', 'redundant restore'];
 for (const route of Object.keys(AA_ROUTES)) for (const before of [true, false]) {
-  rule('AA: ' + route + ', first made ' + (before ? 'before the stop and hidden when it lands: always owed' : 'after the stop: always exempt') + ', with every combination of later records, both id orders', () => {
+  /* Since round 10 (BA) a restore made after the stop still owes: the addition and exclusion before the stop are witnesses. */
+  const exempt = !before && route !== 'restore';
+  rule('AA: ' + route + ', first made ' + (before ? 'before the stop and hidden when it lands' : 'after the stop') + (exempt ? ': always exempt' : ': always owed') + ', with every combination of later records, both id orders', () => {
     const R0 = AA_ROUTES[route], off = [];
     let cases = 0;
     for (let mask = 0; mask < 8; mask++) for (const first of [true, false]) {
@@ -1124,10 +1130,101 @@ for (const route of Object.keys(AA_ROUTES)) for (const before of [true, false]) 
       if (on.includes('concurrent')) W.scopes.push(R0.first(W, kc, [base], stopApp));
       if (on.includes('repeat')) W.scopes.push(R0.repeat(W, tag + '-rep', [H.id], stopApp));
       if (on.includes('redundant restore')) W.scopes.push(scope4(tag + '-rr', null, [H.id], stopApp, [{ op: 'restore', item: { key: 'ABC-104', id: '10104' }, reason: 'Still in' }]));
-      const [complete, owed] = owedOf(W), want = before ? [R0.owes] : [];
+      const [complete, owed] = owedOf(W), want = exempt ? [] : [R0.owes];
       if (!complete || JSON.stringify(owed) !== JSON.stringify(want)) off.push(tag + ' [' + on.join(', ') + '] ' + (first ? 'first-made sorts first' : 'later sorts first') + ': complete ' + complete + ', owed ' + JSON.stringify(owed));
     }
     same([cases, off], [16, []], '16 cases for each of 3 routes, made before or after the stop: 96');
   });
 }
+/* Review round 10 (BA): the stop rule, by property. A pair {uid, attempt} is exempt from a stopped spread only when every
+   scope record that ever names it (for a later attempt, every plan for that attempt) saw the stop's application; otherwise
+   it is owed. Generated histories over ABC-104 from {add, observe, remove, exclude, restore, attempt plan} x {before the stop,
+   concurrent with it, made before it and hidden when it lands, after it}, every id order of their records. Two properties:
+   the result is the same in every id order, and it is exactly what the rule says. */
+const BA_KINDS = ['add', 'observe', 'remove', 'exclude', 'restore', 'plan'], BA_WHEN = ['before', 'concurrent', 'hidden', 'after'];
+const baRecord = (kind, key, seen, head) => {
+  const it = { key: 'ABC-104', id: '10104' };
+  if (kind === 'add') return scope4(key, null, seen, head, [{ op: 'add', item: it }]);
+  if (kind === 'observe') return scope4(key, [101, 104], seen, head);
+  if (kind === 'remove') { const c = LP.cleanIntent({ loop: LOOPT, observation: Object.assign(obs([101]), { complete: true }), changes: [] }, key, { name: 'release-helper', version: '1.0' }); const f = LP.buildRequest(c.intent, { seen, children: [], now: AT, app: '4.0.0', head }); return LP.cleanRequest(JSON.parse(LP.text(f)), f.id + '.json').record; }
+  if (kind === 'exclude' || kind === 'restore') return scope4(key, null, seen, head, [{ op: kind, item: it, reason: 'r' }]);
+  return plan4(key, 104, 2, seen, head);
+};
+/* Which pairs a record names: every record naming ABC-104 names its first attempt (conservatively); a plan names its attempt too. */
+const baNames = (kind) => kind === 'remove' ? [] : kind === 'plan' ? ['1', '2'] : ['1'];
+const perms = (n) => n <= 1 ? [[0]] : perms(n - 1).reduce((out, p) => { for (let i = 0; i <= p.length; i++) out.push(p.slice(0, i).concat([n - 1], p.slice(i))); return out; }, []);
+function baCase(events, order, tag) {
+  const W = world([101]); W.kid(101, { cleared: true });
+  W.spreadAdd(); W.land(W.r);
+  const base = W.scopes[0].id, preHead = W.r.living.head;
+  /* Keys whose ids sort in the order asked: record i gets the key of rank order[i]. */
+  const pool = events.map((e, i) => tag + '-' + i).sort((a, b) => (LP.idFor('release-helper', a) < LP.idFor('release-helper', b) ? -1 : 1));
+  const keyOf = (i) => pool[order[i]];
+  /* Records follow one another as writers make them: one made before the stop (shown or hidden) saw those made before it;
+     one concurrent with the stop saw only what was shown then; one after it saw everything shown, never the hidden ones. */
+  const made = [], shown = [base], pre = [base];
+  events.forEach(([kind, when], i) => {
+    if (when !== 'before' && when !== 'hidden') return;
+    made[i] = baRecord(kind, keyOf(i), pre.slice(-50), preHead); pre.push(made[i].id);
+    if (when === 'before') { W.scopes.push(made[i]); shown.push(made[i].id); }
+  });
+  const C0 = W.one();
+  if (!C0.complete) return { skip: 'incomplete at the stop' };
+  const owed0 = C0.items.filter(i => i.owed).map(i => ({ uid: i.uid, attempt: i.attempt }));
+  try { W.ask(W.r, { op: 'spread-stop', spread: spreadOf(W).id, reason: 'Stopped', owed: owed0 }, { person: 'person-morgan' }); } catch (e) { return { skip: 'the stop wasn\'t asked: ' + e.message }; }
+  W.land(W.r);
+  if (spreadOf(W).state !== 'stopped') return { skip: 'not stopped' };
+  const stopApp = W.r.living.head;
+  const atStop = shown.slice(), later = shown.slice();
+  events.forEach(([kind, when], i) => {
+    if (when === 'hidden') W.scopes.push(made[i]);
+    if (when === 'concurrent') W.scopes.push(baRecord(kind, keyOf(i), atStop.slice(-50), preHead));
+    if (when === 'after') { const x = baRecord(kind, keyOf(i), later.slice(-50), stopApp); W.scopes.push(x); later.push(x.id); }
+  });
+  const C = W.one(), got = C.items.filter(i => i.owed).map(i => i.key + '#' + i.attempt).sort(), req = [];
+  /* The rule, from the history alone. */
+  const listed = owed0.map(p => p.uid + '#' + p.attempt), want = [];
+  W.loopView().rollup.items.forEach(i => {
+    if (!i.required) return;
+    const a = i.attempt || 1, pk = i.uid + '#' + a;
+    req.push(i.key + '#' + a);
+    if (i.uid === uid(101) && a === 1) return;
+    if (listed.includes(pk)) { want.push(i.key + '#' + a); return; }
+    const wit = events.filter(([kind]) => baNames(kind).includes(String(a)) && (a === 1 || kind === 'plan'));
+    if (!(wit.length && wit.every(([, when]) => when === 'after'))) want.push(i.key + '#' + a);
+  });
+  return { complete: C.complete, got, want: want.sort(), req };
+}
+/* Every single event and every pair of events in every id order, and a fixed sample of three-event histories in all six. */
+const BA_HISTORIES = [];
+BA_KINDS.forEach(k => BA_WHEN.forEach(w => BA_HISTORIES.push([[k, w]])));
+BA_KINDS.forEach(k1 => BA_WHEN.forEach(w1 => BA_KINDS.forEach(k2 => BA_WHEN.forEach(w2 => BA_HISTORIES.push([[k1, w1], [k2, w2]])))));
+let seed = 7; const rnd = (n) => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
+for (let i = 0; i < 160; i++) BA_HISTORIES.push([0, 1, 2].map(() => [BA_KINDS[rnd(6)], BA_WHEN[rnd(4)]]));
+const BA_CHUNK = 60;
+for (let c = 0; c * BA_CHUNK < BA_HISTORIES.length; c++) {
+  rule('BA: the stop rule holds, the same in every id order (histories ' + (c * BA_CHUNK + 1) + '-' + Math.min(BA_HISTORIES.length, (c + 1) * BA_CHUNK) + ')', () => {
+    const off = [];
+    BA_HISTORIES.slice(c * BA_CHUNK, (c + 1) * BA_CHUNK).forEach((ev, hi) => {
+      let first = null;
+      perms(ev.length).forEach((order) => {
+        const tag = 'ba' + (c * BA_CHUNK + hi) + 'o' + order.join('');
+        const res = baCase(ev, order, tag);
+        if (res.skip) { if (first === null) first = 'skip'; else if (first !== 'skip') off.push(tag + ': skipped in one order only: ' + res.skip); return; }
+        /* Whether a pair is required at all comes from the scope reduction (unchanged here), which two concurrent records
+           can decide by order: the stop rule's answer is compared on every pair required in both orders. */
+        if (first === null) first = res;
+        else if (first === 'skip') off.push(tag + ': skipped in another order only');
+        else {
+          const both = res.req.filter(k => first.req.includes(k)), d = (x) => both.filter(k => x.got.includes(k));
+          if (first.complete !== res.complete || JSON.stringify(d(first)) !== JSON.stringify(d(res))) off.push(tag + ' ' + JSON.stringify(ev) + ': differs by id order: ' + JSON.stringify(d(first)) + ' vs ' + JSON.stringify(d(res)));
+        }
+        if (!res.complete || JSON.stringify(res.got) !== JSON.stringify(res.want)) off.push(tag + ' ' + JSON.stringify(ev) + ': complete ' + res.complete + ', owed ' + JSON.stringify(res.got) + ', the rule says ' + JSON.stringify(res.want));
+      });
+    });
+    same(off.slice(0, 12).concat(off.length > 12 ? ['and ' + (off.length - 12) + ' more'] : []), []);
+  });
+}
+/* 24 single events, 576 pairs in 2 orders, 160 triples in 6: 24 + 1152 + 960 = 2136 cases. */
+rule('BA: the generated histories are at least 2,000 cases', () => { const n = BA_HISTORIES.reduce((t, ev) => t + perms(ev.length).length, 0); assert.ok(n >= 2000, String(n)); });
 run();

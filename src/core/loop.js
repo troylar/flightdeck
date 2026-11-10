@@ -152,14 +152,30 @@ PF.loop = (function () {
         if (it.key && it.key !== x.key) { if (byKey[x.key] === x) delete byKey[x.key]; x.key = it.key; byKey[x.key] = x; }
         return x;
       }
-      x = { uid: uidOf(source, it), id: it.id || '', key: it.key || '', title: String(it.title || ''), link: String(it.link || ''), state: 'in', since: rec.id, intro: [rec.id], provenance: [], verdict: null,
+      x = { uid: uidOf(source, it), id: it.id || '', key: it.key || '', title: String(it.title || ''), link: String(it.link || ''), state: 'in', since: rec.id, provenance: [], verdict: null,
         review: [], mismatch: false, kept: false, owner: '', exception: null, attempt: 0, planned: null, proposal: null, inSource: true, choice: null, choiceReview: [], exc: null, excReview: [], own: null, ownReview: [], plan: null, planReview: [], planOpts: Object.create(null), planFrom: Object.create(null) };
       items.push(x); byUid[x.uid] = x; if (x.key) byKey[x.key] = x;
       return x;
     }
-    /* Round 8 (ZA): every record that brought the item into scope in its current incarnation (since it was last removed): the
-       first, each repeat observation or add while it is in scope, never only the last by id. */
-    function introduce(x, rec) { if (x.intro.indexOf(rec.id) < 0) x.intro.push(rec.id); }
+    /* Round 10 (BA): every scope record that ever names an item, as a plain union over the records read, in no order and
+       never pruned: by its uid and by its key (a key first, then its id: the same item), and for a planned attempt, by the
+       attempt too. A stopped spread reads it (PF.spreads); nothing else here depends on it. */
+    var wit = Object.create(null), witAt = Object.create(null);
+    function witness(it, rec, attempt) {
+      if (!it || typeof it !== 'object') return;
+      var ks = []; if (it.id) ks.push('u:' + uidOf(source, it)); if (it.key) ks.push('k:' + it.key);
+      ks.forEach(function (k) {
+        (wit[k] = wit[k] || Object.create(null))[rec.id] = true;
+        if (attempt) { var a = (witAt[k] = witAt[k] || Object.create(null)); (a[attempt] = a[attempt] || Object.create(null))[rec.id] = true; }
+      });
+    }
+    function named(rec) {
+      if (rec.type === 'request') {
+        ((rec.observation && rec.observation.items) || []).forEach(function (it) { witness(it, rec); });
+        (rec.changes || []).forEach(function (ch) { witness(ch.item, rec); });
+        (rec.children || []).forEach(function (k) { witness(k.item, rec, +k.attempt || 0); });
+      } else (rec.items || []).forEach(function (u) { if (typeof u === 'string') { (wit['u:' + u] = wit['u:' + u] || Object.create(null))[rec.id] = true; (wit['k:' + u] = wit['k:' + u] || Object.create(null))[rec.id] = true; } });
+    }
     function note(x, rec, op, extra) { var p = { record: rec.id, op: op, by: rec.by || null }; if (extra) Object.keys(extra).forEach(function (k) { p[k] = extra[k]; }); x.provenance.push(p); }
     /* A verdict (in or removed) on an item: contrary to a concurrent one, the item needs review and stays required, until a
        record that saw both decides it. */
@@ -168,16 +184,11 @@ PF.loop = (function () {
        both. Returns 'contrary', 'held' or 'settled'. same(prev, val): whether they agree. why: { both(prev, val), again }. */
     function settle(x, slot, rv, rec, val, same, why) { return settleIn(c, x, slot, rv, rec, val, same, why); }
     function verdict(x, rec, op, reason) {
-      var to = VERDICT[op], was = x.state;
+      var to = VERDICT[op];
       var s = settle(x, 'verdict', 'review', rec, { to: to, op: op }, function (p, v) { return p.to === v.to; },
         { both: function (p, v) { return 'Two people decided this item at once: ' + p.op + ' and ' + v.op + '.'; }, again: 'Decided again without seeing the earlier contrary decisions.' });
-      if (s === 'contrary') { if (was === 'removed') introduce(x, rec); x.state = 'in'; return; }
-      /* Round 9 (AA): a restore while the item is in scope is one more introduction (a concurrent one that sorted second, or a
-         redundant one), never a reset and never dropped. */
-      if (s === 'held') { if (op === 'restore' && x.state !== 'removed') introduce(x, rec); return; }
-      /* Only a settled return from removed starts a new incarnation; a restore of an item already in scope changes nothing. */
-      if (was === 'removed' && to !== 'removed') x.intro = [rec.id];
-      else if (op === 'restore') introduce(x, rec);
+      if (s === 'contrary') { x.state = 'in'; return; }
+      if (s === 'held') return;
       x.state = to; x.proposal = null;
       if (to === 'removed') x.removed = { record: rec.id, reason: String(reason || ''), by: rec.by || null };
       else { delete x.removed; if (op === 'keep') x.kept = true; }
@@ -191,6 +202,7 @@ PF.loop = (function () {
       x.attempt = Math.max(x.attempt, attempt);
       x.planned = sp === 'settled' ? { record: from, attempt: attempt, inputs: inputs, owner: owner } : null;
     }
+    c.order.forEach(named);
     c.order.forEach(function (rec) {
       if (rec.type === 'request') {
         /* A record for another kind of item is never read as this loop's (no fallback). */
@@ -207,7 +219,7 @@ PF.loop = (function () {
             seenUids[x.uid] = true; x.inSource = true; x.kept = false;
             if (!was) { x.fed = true; note(x, rec, 'add', { observed: true }); }
             else if (x.state === 'removed') x.mismatch = true;
-            else { introduce(x, rec); if (x.state === 'proposed') { x.state = 'in'; x.proposal = null; note(x, rec, 'seen-again'); } }
+            else if (x.state === 'proposed') { x.state = 'in'; x.proposal = null; note(x, rec, 'seen-again'); }
           });
           /* Absence proposes a removal only from a complete observation, and only for items the feed enrolled: one added by
              hand is never proposed, even after the feed listed it too. */
@@ -222,7 +234,7 @@ PF.loop = (function () {
         (rec.changes || []).forEach(function (ch) {
           if (ACTIONS.indexOf(ch.op) >= 0) return;
           var it = ch.item || {}, x = find(it);
-          if (ch.op === 'add') { var nw = !x; x = ensure(it, rec, 'add'); if (nw) { x.manual = !obs; note(x, rec, 'add'); } else if (x.state === 'removed') note(x, rec, 'add-ignored'); else introduce(x, rec); return; }
+          if (ch.op === 'add') { var nw = !x; x = ensure(it, rec, 'add'); if (nw) { x.manual = !obs; note(x, rec, 'add'); } else if (x.state === 'removed') note(x, rec, 'add-ignored'); return; }
           if (!x) { duplicates.push({ record: rec.id, op: ch.op, item: it.key || it.id, why: 'names an item that isn\'t in this loop' }); return; }
           if (ch.op === 'exclude' || ch.op === 'restore') { verdict(x, rec, ch.op, ch.reason); note(x, rec, ch.op, { reason: String(ch.reason || '') }); if (ch.op === 'exclude' && x.inSource && x.state === 'removed') x.mismatch = true; if (ch.op === 'restore') x.mismatch = false; }
           else if (ch.op === 'owner') {
@@ -258,10 +270,6 @@ PF.loop = (function () {
           if (!x) return;
           var key = x.uid + '#' + k.attempt;
           x.planOpts[k.attempt + '#' + rec.id] = { inputs: k.inputs || {}, owner: k.owner || '' };
-          /* Round 9 (AA): every plan for an attempt is a witness of its creation, a duplicate or a concurrent one included. */
-          x.attemptBy = x.attemptBy || Object.create(null);
-          var ab = x.attemptBy[k.attempt] = x.attemptBy[k.attempt] || [];
-          if (ab.indexOf(rec.id) < 0) ab.push(rec.id);
           /* A plan that saw the first one for its attempt is a duplicate, unless the attempt's plans are in conflict: then it
              is a resolution, settled like any decision. */
           var resolving = (x.planReview || []).length && x.plan && x.plan.attempt === k.attempt;
@@ -295,6 +303,11 @@ PF.loop = (function () {
        settled plan's suggestion (none while plans conflict). Never from whichever record sorted first. */
     items.forEach(function (x) {
       x.owner = x.ownReview.length ? '' : x.own ? (x.own.contrary ? '' : x.own.owner) : x.planReview.length || !x.planned ? '' : String(x.planned.owner || '');
+    });
+    items.forEach(function (x) {
+      var keys = ['u:' + x.uid].concat(x.key ? ['k:' + x.key] : []), all = Object.create(null), at = Object.create(null);
+      keys.forEach(function (k) { Object.keys(wit[k] || {}).forEach(function (id) { all[id] = true; }); Object.keys(witAt[k] || {}).forEach(function (a) { at[a] = at[a] || Object.create(null); Object.keys(witAt[k][a]).forEach(function (id) { at[a][id] = true; }); }); });
+      x.witness = Object.keys(all).sort(); x.witnessAt = Object.create(null); Object.keys(at).forEach(function (a) { x.witnessAt[a] = Object.keys(at[a]).sort(); });
     });
     var inScope = items.filter(function (x) { return x.state !== 'removed'; }).length;
     var heads = c.heads;

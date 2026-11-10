@@ -120,7 +120,10 @@ test/results.test.js -
 test/loops.test.js -
 test/todos.test.js -
 test/todos-rules.test.js -
-test/spreads.test.js -
+test/spreads.test.js 0/4
+test/spreads.test.js 1/4
+test/spreads.test.js 2/4
+test/spreads.test.js 3/4
 test/loop-cli.test.js -
 test/todo-cli.test.js -
 test/spread-cli.test.js -

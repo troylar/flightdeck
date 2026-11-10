@@ -43,7 +43,7 @@
         "kind": "new",
         "area": "Command line",
         "title": "Add, sync and stop spreads from the command line",
-        "now": "flightdeck spread list shows a run's spreads and each story's state. flightdeck spread add, include and stop preview with --dry-run, then file one request for a person to decide. flightdeck spread sync asks each story's run for its part, one request per story, and names any addition that would send an approval back.",
+        "now": "flightdeck spread list shows a run's spreads, story by story. flightdeck spread add, include and stop preview with --dry-run, then file one request for a person to decide. flightdeck spread sync asks each story's run for its part, one request per story, and names any addition that would send an approval back. Known limit: an item that was in the loop before a stop still owes it if it comes back.",
         "where": "flightdeck spread, the living-run skill"
       },
       {

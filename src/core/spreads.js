@@ -83,10 +83,11 @@ PF.spreads = (function () {
       var mine = Object.create(null), owe = function (p) { C.items.push(itemOf(r, s, V, rows[p.uid], p, o, deps, childView, mine, C)); };
       var exempt = function (i, a) { return hasPair(s.scope.cleared, i.uid, a) && !hasPair(s.included, i.uid, a); };
       if (s.state === 'stopped') {
-        var listed = Object.create(null); (s.stop.owed || []).forEach(function (p) { listed[p.uid] = true; });
+        /* Keyed by the pair, never the uid alone: a listed attempt says nothing of another. */
+        var listed = Object.create(null); (s.stop.owed || []).forEach(function (p) { listed[pairKey(p.uid, p.attempt)] = true; });
         (s.stop.owed || []).forEach(function (p) { var w = rows[p.uid]; if (w && w.required && (w.attempt || 1) === p.attempt) owe({ uid: p.uid, attempt: p.attempt }); });
-        var after = stoppedOwes(s, V, T, o);
-        V.rollup.items.forEach(function (i) { var a = i.attempt || 1; if (i.required && !listed[i.uid] && !exempt(i, a) && after(i.uid, a)) owe({ uid: i.uid, attempt: a }); });
+        var owes = stoppedOwes(s, V, T, o);
+        V.rollup.items.forEach(function (i) { var a = i.attempt || 1; if (i.required && !listed[pairKey(i.uid, a)] && !exempt(i, a) && owes(i.uid, a)) owe({ uid: i.uid, attempt: a }); });
       } else V.rollup.items.forEach(function (i) {
         if (!i.required) return;
         var a = i.attempt || 1;
@@ -102,19 +103,17 @@ PF.spreads = (function () {
   }
   /* What a spread's coverage expects to find (the expected-dependency manifest), checked against what was read: '' when all
      of it is here, else why not, with each missing file named in C.missing ({ path, kind: 'nofile', why }). */
-  /* Whether a stopped spread owes an item it didn't list (rounds 7 and 8, docs/design.md 45.1), judged on every record that
-     brought the item into scope in its current incarnation (x.intro). The stop saw the item when its scope cut saw any of
-     them, and listed what it owed then: nothing more. Otherwise it owes unless every one is a 4.0 scope record whose parent
-     head is the stop's application or later on this run's chain; a record with no head (a 3.0 writer), an empty head, or a
-     head not on the chain, owes, since the stop couldn't have seen it. A later attempt (ZC, AA) is judged by every record
-     that planned it: one planned only after the stop inherits nothing, like a later arrival. */
+  /* Whether a stopped spread owes a pair {uid, attempt} it didn't list (round 10, docs/design.md 45.1): monotone and order-free.
+     Its witnesses are every scope record that ever names the item (x.witness, a plain union over the records read), or for a
+     later attempt every plan for that attempt (x.witnessAt), and the spread's own snapshot when it names the pair. It is
+     exempt only when there is at least one and every one is a 4.0 scope record whose parent head is the stop's application
+     or later on this run's chain; anything else (before the stop, concurrent with it, missing when it was made, no head, any
+     doubt) owes. */
   function stoppedOwes(s, V, T, o) {
-    var cut = s.stop.cut || [], saw = V.ledger.saw || function () { return false; }, chain = T.chain || [];
-    var at = chain.indexOf(s.stop.application), by = Object.create(null);
+    var chain = T.chain || [], at = chain.indexOf(s.stop.application), by = Object.create(null);
     ((o.loops && o.loops.records) || []).forEach(function (x) { if (x && x.id) by[x.id] = x; });
     var items = Object.create(null); (V.ledger.items || []).forEach(function (x) { items[x.uid] = x; });
-    var seen = function (rec) { return !!rec && cut.some(function (h) { return h === rec || saw(h, rec); }); };
-    var later = function (rec) {
+    var after = function (rec) {
       var R0 = by[rec], h = R0 && typeof R0.head === 'string' ? R0.head : null;
       if (h === null || h === '' || at < 0) return false;
       var hi = chain.indexOf(h);
@@ -122,14 +121,9 @@ PF.spreads = (function () {
     };
     return function (uid, attempt) {
       var x = items[uid]; if (!x) return true;
-      /* A later attempt with plans is judged by every plan made for it (round 9, AA): the stop saw it when its cut saw any;
-         exempt only when all came after the stop. One without a plan is judged by the item's introductions. */
-      var plans = attempt > 1 && x.attemptBy && x.attemptBy[attempt] ? x.attemptBy[attempt] : [];
-      if (plans.length) return !plans.some(seen) && !plans.every(later);
-      var intro = (x.intro && x.intro.length ? x.intro : [x.since || '']).filter(Boolean);
-      if (!intro.length) return true;
-      if (intro.some(seen)) return false;
-      return !intro.every(later);
+      if (hasPair(s.scope.open, uid, attempt) || hasPair(s.scope.cleared, uid, attempt)) return true;
+      var W = attempt > 1 ? (x.witnessAt && x.witnessAt[attempt]) || [] : x.witness || [];
+      return !(W.length && W.every(after));
     };
   }
   function unreadAt(o, id) { return ((o.loops && o.loops.unread) || []).some(function (u) { return String(u.file || '').indexOf(id) === 0; }); }

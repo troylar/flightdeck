@@ -1,8 +1,8 @@
 {
   "texts": {
     "CHANGELOG.md": {
-      "sha256": "8b778e4d4bb6e454099ea4b2a9a550a4f9dd47b0da45417e6a5a5268b09dfe93",
-      "reviewed": "ZB: an unread loop run holds its phase gate"
+      "sha256": "283690d510519e8e21d63f64f39d4e9b6e8d5fadcad1c9829064893227884dd1",
+      "reviewed": "BA: stop rule by witness union, pair-keyed"
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
@@ -25,8 +25,8 @@
       "reviewed": "Round 6 XD: sync dry-run partial status from preparation refusals"
     },
     "docs/design.md": {
-      "sha256": "cdb1072d883578fdb4c13cdbcc18c2c20f8971900394f863e2ff0d734b87f73b",
-      "reviewed": "AA: every witness of a restore and an attempt"
+      "sha256": "06bb1ab3be5bbbe44a80314ae90642abf5dcbe5d3a9ad41a88962b7fe523365f",
+      "reviewed": "BA: stop rule by witness union, pair-keyed"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -257,8 +257,8 @@
       "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
     },
     "src/core/loop.js": {
-      "sha256": "ddbc7d2aa6e0c8d28bc436ca276b954f787da0f82d4fda278d14761e8028b3bf",
-      "reviewed": "AA: every witness of a restore and an attempt"
+      "sha256": "65a130ba5664f05aa904f4f47121ef8783b723cab9d88450511706199a12ae36",
+      "reviewed": "BA: stop rule by witness union, pair-keyed"
     },
     "src/core/map.js": {
       "sha256": "f9eae33f6635cd1b3983fc1c71eb7a3b3c8dc1c70ca3ef8ce8807d5228165d2f",
@@ -337,8 +337,8 @@
       "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
     },
     "src/core/spreads.js": {
-      "sha256": "11d5abaf91b25efa567cec9174f638c4d996ed0aa1b761c8ae33087dffc69e82",
-      "reviewed": "AA: every witness of a restore and an attempt"
+      "sha256": "ff82dc9ea1a3f8f4dbd761f123b10936443b0c07d58b3dff7d2e749f7a4b478b",
+      "reviewed": "BA: stop rule by witness union, pair-keyed"
     },
     "src/core/staging.js": {
       "sha256": "d01a3204178bd0b055c05524916f55774c4404cca10f86fbb10a2ca675bd6b07",
@@ -397,8 +397,8 @@
       "reviewed": "slice 3 commit 2: flightdeck spread (list/add/sync/include/stop), CLI run/next read loop inputs for spreads, the spread row and Accept N additions in the app, docs, command guide, AGENTS.md row and the living-run skill; sync writes each request once through writeOnce; no direct writes or unconditional deletes"
     },
     "src/releases.json": {
-      "sha256": "06dd2ecabe1c50562d711b2916e8521943fa3833538700469196470403ae8fc0",
-      "reviewed": "ZB: an unread loop run holds its phase gate"
+      "sha256": "c8899a7e514f35db838c2a4fdce393c0e74d2ea41f779c655175b81f7ffd73eb",
+      "reviewed": "BA: stop rule by witness union, pair-keyed"
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",
