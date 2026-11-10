@@ -334,6 +334,31 @@ rule('suggest-done: --dry-run writes nothing; it files one done request named by
   assert.deepStrictEqual([done.code, done.data.status], [0, 'already'], 'applied: still already');
 });
 
+rule('A suggestion filed meanwhile under its name is already only for the same run, to-do and evidence; another run\'s is taken', async () => {
+  const FD = require('../bin/flightdeck.js');
+  const F0 = await folder(), x = await todo(F0), fid = F.idFor('git-bot', 'prs-102-a');
+  assert.strictEqual(json('fact', 'sync', F0.root, PR, '--from', input({ facts: [prs()] }), '--json', ...TOOL).code, 0);
+  /* Between preparing and creating, another window files a checked suggestion under the same name, for r-42. */
+  const race = async (edit) => {
+    const orig = fs.linkSync;
+    let raced = false;
+    fs.linkSync = function (from, to) {
+      if (!raced && /proposals[\\/]req-suggest-[0-9a-f]+\.json$/.test(String(to))) { raced = true; const o = JSON.parse(fs.readFileSync(from, 'utf8')); edit(o); fs.writeFileSync(to, JSON.stringify(o, null, 2) + '\n'); }
+      return orig.apply(fs, arguments);
+    };
+    try { const r = await FD.main(['todo', 'suggest-done', F0.root, PR, '--todo', x, '--fact', fid, '--json', ...TOOL]); return Object.assign(JSON.parse(r.out), { code: r.code, raced }); } finally { fs.linkSync = orig; }
+  };
+  const sname = () => ls(F0.root).filter(n => /^req-suggest-/.test(n));
+  const other = await race((o) => { o.run = { process: 'release-readiness', id: 'r-42' }; });
+  assert.ok(other.raced, 'the race ran');
+  assert.deepStrictEqual([other.code, other.error && other.error.kind], [1, 'key-taken'], JSON.stringify(other).slice(0, 600));
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(F0.root, 'proposals', sname()[0]), 'utf8')).run.id, 'r-42', 'theirs is left as it is');
+  fs.unlinkSync(path.join(F0.root, 'proposals', sname()[0]));
+  /* The same suggestion for this run filed meanwhile is already. */
+  const mine = await race(() => {});
+  assert.deepStrictEqual([mine.code, mine.data && mine.data.status], [0, 'already'], JSON.stringify(mine).slice(0, 600));
+});
+
 rule('suggest-done refuses stale, replaced, incomplete or contrary evidence, and a fact about another item; nothing written', async () => {
   const F0 = await folder(), x = await todo(F0);
   const facts = [prs({ key: 'old', observedAt: ago(30 * HOUR) }), prs({ key: 'p103', item: 'ABC-103' }), prs({ key: 'part', source: { feed: 'github' }, complete: false, reported: 2 })];

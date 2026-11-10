@@ -3204,13 +3204,16 @@ async function todoMain(argv) {
        is the same request: already, once filed, whatever became of it. */
     const suggestDone = () => {
       const FX = PF.facts, x = V.byTodo[val['--todo']], sid0 = { run: { process: proc, id: runId } };
+      /* What is already under a suggestion's name is this one only when it is this run's done on this to-do, on evidence;
+         asked of what was read first and of what is found there after a create that lost a race alike. */
+      const ours = (y) => !!(y && y.run && y.run.process === proc && y.run.id === runId && y.op === 'done' && y.todo === x.id && y.support);
       const held = (why) => done(Object.assign(sid0, { status: 'held', preview: why + ' Nothing was written. Check folder availability, then try again.' }), EXIT.partial);
       if (!x) return (V.broken || V.unread.length || V.held.length) ? held('The to-do can\'t be read in order yet.') : failOut('invalid', 'That to-do isn\'t in this run.' + nothing, problems());
       const it = FX.itemOfTodo(r, x), FV = it ? FX.view(it.run, deps) : null, fr = FV ? FV.byId[val['--fact']] : null;
       if (fr && fr.loopStep === it.loopStep && fr.uid === it.uid && fr.attempt === it.attempt) {
         const sid = FX.suggestionId(x.id, FX.incarnationOf(x), fr.source, fr.domain, fr.content), sfile = 'proposals/' + sid + '.json';
         const taken = (got.todos || []).filter((y) => y.id === sid)[0];
-        if (taken && !(taken.run && taken.run.process === proc && taken.run.id === runId && taken.op === 'done' && taken.todo === x.id)) return failOut('key-taken', 'A different record is already filed under this suggestion\'s name (' + sfile + ').' + nothing, problems());
+        if (taken && !ours(taken)) return failOut('key-taken', 'A different record is already filed under this suggestion\'s name (' + sfile + ').' + nothing, problems());
         if (taken) {
           const q0 = T.requestsOf(V).filter((q) => q.id === sid)[0];
           return done(Object.assign(sid0, { status: 'already', request: { id: sid, file: sfile }, preview: 'Already suggested on this evidence (' + (q0 ? T.WORDS[q0.status] || q0.status : 'not read in order yet') + '). Nothing written.' }));
@@ -3240,7 +3243,7 @@ async function todoMain(argv) {
         /* Its name is its evidence: the same suggestion filed meanwhile is already; anything else there is refused. */
         let there = null; try { const tx = fs.readFileSync(path.join(dir, 'proposals', P.name), 'utf8'), tv = PF.todos.cleanFile(JSON.parse(tx), P.name, Buffer.byteLength(tx, 'utf8')); there = tv.ok ? tv.record : null; } catch (e) { there = null; }
         if (!there) return failOut('failed', UNCERTAIN, problems());
-        if (there.op !== 'done' || there.todo !== x.id || !there.support) return failOut('key-taken', 'A different record is already filed under this suggestion\'s name (' + file + '). Nothing was written.', problems());
+        if (!ours(there)) return failOut('key-taken', 'A different record is already filed under this suggestion\'s name (' + file + '). Nothing was written.', problems());
         return done(Object.assign(data('requested'), { status: 'already', preview: 'Already suggested on this evidence. Nothing written.' }));
       }
       return done(data('requested'));
