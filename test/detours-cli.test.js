@@ -181,4 +181,23 @@ rule('A run it rests on that can\'t be read holds the ask and the request (exit 
   assert.ok(h.problems.some(q => q.path === 'runs/smoke-test/k1/run.json'), JSON.stringify(h.problems));
 });
 
+rule('Evidence a pending request rests on, missing or unreadable, is every reader\'s problem: named by path and kind, incomplete, exit 4', async () => {
+  for (const how of ['missing', 'malformed']) {
+    const F = await folder(), L = await linked(F, 'pass');
+    await started(F, L, 'k1', 'pass');
+    const s = json('todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--json', ...TOOL);
+    assert.strictEqual(s.code, 0, JSON.stringify(s));
+    const ok = json('run', F.root, PR, '--contract', '2', '--json');
+    assert.deepStrictEqual([ok.code, ok.complete], [0, true], 'set-up: readable evidence is no problem: ' + JSON.stringify(ok.problems));
+    if (how === 'missing') fs.rmSync(path.join(F.root, 'runs', 'smoke-test', 'k1'), { recursive: true });
+    else fs.writeFileSync(runFile(F.root, 'smoke-test/k1'), '{ torn');
+    const readers = { run: json('run', F.root, PR, '--contract', '2', '--json'), next: json('next', F.root, PR, '--contract', '2', '--json'), 'todo list': json('todo', 'list', F.root, PR, '--json') };
+    if (how === 'missing') readers.runs = json('runs', F.root, '--contract', '2', '--json');
+    Object.keys(readers).forEach((k) => {
+      const x = readers[k], hit = (x.problems || []).filter(q => q.path === 'runs/smoke-test/k1/run.json');
+      assert.deepStrictEqual([k, how, x.code, x.complete, hit.length === 1 && hit[0].kind === how], [k, how, 4, false, true], k + ' (' + how + '): ' + JSON.stringify(x.problems));
+    });
+  }
+});
+
 run();

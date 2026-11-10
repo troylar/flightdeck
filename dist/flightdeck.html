@@ -20989,7 +20989,7 @@ PF.appjson = (function () {
   var CONTRACT = 'flightdeck-read/1', CONTRACT2 = 'flightdeck-read/2', VERSIONS = [1, 2];
   var NOTE = 'Read from the team folder just now; another computer may be a minute ahead. A passed gate means passed for those details, by that person, at that time. People-directory email fields are omitted.';
   /* Every problem is one file or folder and one of these. */
-  var KINDS = ['unreadable', 'nofile', 'malformed', 'newer', 'unusable', 'conflict', 'still-syncing', 'link', 'skipped', 'vanished', 'child-mark'];
+  var KINDS = ['unreadable', 'nofile', 'malformed', 'newer', 'unusable', 'conflict', 'still-syncing', 'link', 'skipped', 'vanished', 'child-mark', 'missing'];
 
   /* ---- the schema: what each command's data holds, checked by conforms() and documented in docs/apps.md ----
      'string', 'number', 'boolean'; [x] a list of x; { k: x } an object with exactly these keys; opt(x) x or null;
@@ -25170,21 +25170,31 @@ PF.repo = (function () {
      as readPlans gave it): every plan grouped as the folder reader groups them (a decision that can't be read holds its plan),
      and each run the records name as evidence (also: more { process, id }), read on its own; one that can't be read is in
      unreadRuns, never left out quietly. paths: the runs read, for a caller's problems. */
+  /* problems: every run a record's evidence names that is missing ({ path: runs/<process>/<id>/run.json, kind: 'missing' })
+     or can't be read (the checked read's own problems, by path and kind), for every reader's ledger. A run only asked about
+     (also) is the asker's to judge. */
   function readEvidence(fs, got, records, also) {
-    var want = Object.create(null), PROC = /^[a-z0-9][a-z0-9-]{0,59}$/, RUN = /^[a-z0-9-]{1,40}$/i;
-    var add = function (e) { if (e && e.run && typeof e.run.process === 'string' && typeof e.run.id === 'string' && PROC.test(e.run.process) && RUN.test(e.run.id)) want[e.run.process + '/' + e.run.id] = e.run; };
-    (records || []).forEach(function (x) { if (!x) return; add(x.evidence); add(x.effect && x.effect.evidence); add(x.application && x.application.effect && x.application.effect.evidence); });
+    var want = Object.create(null), named = Object.create(null), PROC = /^[a-z0-9][a-z0-9-]{0,59}$/, RUN = /^[a-z0-9-]{1,40}$/i;
+    var add = function (e, rec) { if (e && e.run && typeof e.run.process === 'string' && typeof e.run.id === 'string' && PROC.test(e.run.process) && RUN.test(e.run.id)) { want[e.run.process + '/' + e.run.id] = e.run; if (rec) named[e.run.process + '/' + e.run.id] = true; } };
+    (records || []).forEach(function (x) { if (!x) return; add(x.evidence, true); add(x.effect && x.effect.evidence, true); add(x.application && x.application.effect && x.application.effect.evidence, true); });
     (also || []).forEach(function (r) { add({ run: r }); });
+    var problems = [], file = function (k) { return 'runs/' + k + '/run.json'; };
+    var problem = function (k, kind, why) { if (named[k] && !problems.some(function (q) { return q.path === file(k) && q.kind === kind; })) problems.push({ path: file(k), kind: kind, why: why }); };
     var holds = (got.torn || []).filter(function (u) { return !u.link && !u.deep; }).map(function (u) { return { path: u.path, _file: u._file, kind: 'unreadable' }; })
       .concat((got.refused || []).map(function (x) { return { path: x.path, _file: String(x.path).slice('proposals/'.length), kind: x.kind, needs: x.needs || '' }; }));
     var plans = groupPlans((got.plans || []).map(function (p) { return Object.assign({}, p); }), got.statuses || [], holds), keys = Object.keys(want).sort(), runs = [], unreadRuns = [];
     return keys.reduce(function (pr, k) {
       return pr.then(function () {
         return readRunOnly(fs, want[k].process, want[k].id).then(function (one) {
-          if (one.found && one.run) runs.push(one.run); else if (one.found) unreadRuns.push(k);
-        }, function () { unreadRuns.push(k); });
+          if (one.found && one.run) { runs.push(one.run); return; }
+          if (!one.found || one.nofile) { problem(k, 'missing', 'The run a to-do\'s evidence names isn\'t in the team folder, so what rests on it can\'t be checked.'); if (one.found) unreadRuns.push(k); return; }
+          unreadRuns.push(k);
+          var mine = (one.bad || []).filter(function (b) { return b && typeof b.path === 'string' && b.path.indexOf('runs/' + k + '/') === 0; });
+          if (mine.length) mine.forEach(function (b) { problem(k, b.kind || 'unreadable', String(b.why || 'It couldn\'t be read.')); });
+          else problem(k, 'unreadable', 'This run couldn\'t be read, so what rests on it can\'t be checked.');
+        }, function (e) { unreadRuns.push(k); problem(k, errKind(e), why(e)); });
       });
-    }, Promise.resolve()).then(function () { return { runs: runs, unreadRuns: unreadRuns, plans: plans, paths: keys.map(function (k) { return 'runs/' + k; }) }; });
+    }, Promise.resolve()).then(function () { return { runs: runs, unreadRuns: unreadRuns, plans: plans, problems: problems, paths: keys.map(function (k) { return 'runs/' + k; }) }; });
   }
   function readPlans(fs, bad, only, two) {
     var refused = [], torn = [];

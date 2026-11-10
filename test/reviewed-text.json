@@ -13,20 +13,20 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "42b6aabe287df335730431fb9e84e6d32ba2335a719c666ff092a151fa0f218e",
-      "reviewed": "keeps named by their wording too: another wording is another alternative; checked for direct writes and unconditional deletes"
+      "sha256": "0f696970e1d8e06df0e9bae110de6ef979077fcccbeb67aabedc45365284b9e9",
+      "reviewed": "evidence that is missing or unreadable is every reader's problem, kind missing added; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "e641a0f9f4655b4634b9d2661fe4e4b97222f23ece79f5917e6c99f174218087",
       "reviewed": "4.0 slice 5 commit 6, checklist-linked to-dos: PF.detours (pins, the evidence plan, evidence, provenance), the checklist and evidence fields in to-do records, repo.readEvidence, the app's Run this checklist, Accept and the way back, the living-run skill and command guide sections, the 4.0.0 release entry; checked for direct writes and unconditional deletes: the plan is written create-once through repo.savePlan under the run guard, a done on a run through saveScope with a fresh read before the write, nothing deleted"
     },
     "docs/apps.md": {
-      "sha256": "8fa50335d5da978d9daac48c23b699f53b0a561b42886033550d6feb702be18e",
-      "reviewed": "keeps named by their wording too: another wording is another alternative; checked for direct writes and unconditional deletes"
+      "sha256": "f664483efbf89e321849325e3cbc66e7634578037ea3f27d2e38197d82bd7872",
+      "reviewed": "evidence that is missing or unreadable is every reader's problem, kind missing added; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "971d9ebcffd8f5fc134499a83a0f15e42b21d2d33f870317bc8f1affcacd180e",
-      "reviewed": "a keep whose governing child publication can't be read is held, reread in the save guard; checked for direct writes and unconditional deletes"
+      "sha256": "6b5a05b527501bad8d524c8e112932f535fdb9474c7318d4d4ff489be982119a",
+      "reviewed": "evidence that is missing or unreadable is every reader's problem, kind missing added; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -201,8 +201,8 @@
       "reviewed": "keeps named by their wording too: another wording is another alternative; checked for direct writes and unconditional deletes"
     },
     "src/core/appjson.js": {
-      "sha256": "d3bcd6c56e778c6eba888b38b74415cf61bc96905589d51ce8c67b319f63c676",
-      "reviewed": "AX: readers give a to-do's current resolution reason as reason and the addition's as addedReason; checked for direct writes and unconditional deletes (none)"
+      "sha256": "dac0c1621469ee94f00b2774b9dfd1f73cd69356414b61fba79bcd5863234fe2",
+      "reviewed": "evidence that is missing or unreadable is every reader's problem, kind missing added; checked for direct writes and unconditional deletes"
     },
     "src/core/attach.js": {
       "sha256": "0e75bc0c0d748fe10aaf5657662e4ce8679c27f9d10d85c1e34891b1c9d58df0",
@@ -417,8 +417,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "f50981d539f4ef2dc04c806be531ece6332f2d948fa25f3c3221b2ab69020345",
-      "reviewed": "4.0 slice 5 commit 6, checklist-linked to-dos: PF.detours (pins, the evidence plan, evidence, provenance), the checklist and evidence fields in to-do records, repo.readEvidence, the app's Run this checklist, Accept and the way back, the living-run skill and command guide sections, the 4.0.0 release entry; checked for direct writes and unconditional deletes: the plan is written create-once through repo.savePlan under the run guard, a done on a run through saveScope with a fresh read before the write, nothing deleted"
+      "sha256": "5c28fd37810fb701f03d944436dbab99095b01bfc11feecdc6e1f0e710ded897",
+      "reviewed": "evidence that is missing or unreadable is every reader's problem, kind missing added; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "232aafeabc4cf6dc3fbdc0d3f31c7e2326a89f9dfbefc49a811816bfe19e66a7",

@@ -984,6 +984,7 @@ async function readData(eng, adapter, req) {
         if (pr.why) L.note('proposals', 'unreadable', pr.why);
         if (gp) {
           const ev = await evidenceRead(PF, L.fs, gp, PF.todos.recordsFor(gp.todos || [], r)), evp = ev.paths;
+          (ev.problems || []).forEach((q) => L.note(q.path, q.kind, q.why));
           const un = markTodos(PF, [r], gp, one.people, !!(one.peopleWhy || pw), loopIn, ev), was = relevant, mine = {};
           un.filter((u) => u.run ? u.run.process === m[1] && u.run.id === m[2] : !!r.living).concat(evidenceUnread(PF, r, r._tdv, un)).forEach((u) => { if (u.file !== 'people.json' && !mine['proposals/' + u.file]) { mine['proposals/' + u.file] = true; L.note('proposals/' + u.file, u.kind === 'newer' || u.kind === 'unreadable' ? u.kind : 'malformed', u.kind === 'newer' ? u.why : fileWhy(u.why)); } });
           relevant = (p) => was(p) || !!mine[p] || evp.some((q) => p === q || String(p).indexOf(q + '/') === 0);
@@ -1056,7 +1057,19 @@ async function readData(eng, adapter, req) {
     d.runs.forEach((r) => { if (req.cmd !== 'runs' || tested(r)) take(judgeRun(PF, r, req.cmd === 'runs' ? pubOf(r) : null)); });
     const nameOf = A.names(d.people), runs = d.runs.filter((r) => !newerRun(PF, r)), all = (list) => list;
     /* Living runs (4.0): what to-dos hold, as in every window. */
-    if (two && req.cmd === 'runs') markTodos(PF, runs, { todos: d.todos || [], todosUnread: d.todosUnread || [] }, d.people, !!(d.failed && 'people' in d.failed), { runs: [], loops: { records: d.scopes || [], unread: d.scopesUnread || [], procOf: procOfFrom(d) } }, { runs: d.runs || runs, plans: d.plans || [] });
+    if (two && req.cmd === 'runs') {
+      markTodos(PF, runs, { todos: d.todos || [], todosUnread: d.todosUnread || [] }, d.people, !!(d.failed && 'people' in d.failed), { runs: [], loops: { records: d.scopes || [], unread: d.scopesUnread || [], procOf: procOfFrom(d) } }, { runs: d.runs || runs, plans: d.plans || [] });
+      /* A run a to-do's evidence names that isn't in the folder is a problem, named, as run and next name it (one that is
+         there but can't be read is already the folder's). */
+      const have = {}, seen = {};
+      (d.runs || []).forEach((x) => { have[x.process + '/' + x.id] = true; });
+      (d.todos || []).forEach((x) => [x && x.evidence, x && x.effect && x.effect.evidence, x && x.application && x.application.effect && x.application.effect.evidence].forEach((e) => {
+        if (!e || !e.run || !PROC_ID.test(String(e.run.process)) || !/^[a-z0-9-]{1,40}$/i.test(String(e.run.id))) return;
+        const k = e.run.process + '/' + e.run.id, p = 'runs/' + k + '/run.json';
+        if (have[k] || seen[k] || L.problems().some((q) => q.path === p || q.path.indexOf('runs/' + k + '/') === 0)) return;
+        seen[k] = true; L.note(p, 'missing', 'The run a to-do\'s evidence names isn\'t in the team folder, so what rests on it can\'t be checked.');
+      }));
+    }
     const known = (p) => d.processes.some((x) => x.process === p) || d.runs.some((r) => r.process === p) || d.plans.some((x) => x.process === p);
     if (req.proc && !known(req.proc) && !req.stage) return notFound('There\'s no process ' + req.proc + ' in the team folder.');
     if (req.cmd === 'processes') return done(all, A.processes(d.processes), d.readAt);
@@ -3328,6 +3341,7 @@ async function todoMain(argv) {
     const ER = val['--evidence-run'] ? RUN_KEY.exec(val['--evidence-run']) : null;
     const ev = await evidenceRead(PF, L.fs, got, records, ER ? [{ process: ER[1], id: ER[2] }] : []);
     ev.paths.forEach((q) => also.push(q));
+    (ev.problems || []).forEach((q) => { if (!problems().some((x) => x.path === q.path && x.kind === q.kind)) extra.push(q); });
     ev.unreadRuns.forEach((k) => { if (!problems().some((x) => under(x.path, 'runs/' + k))) extra.push({ path: 'runs/' + k + '/run.json', kind: 'unreadable', why: 'This run couldn\'t be read, so what rests on it can\'t be checked.' }); });
     const deps = { records: got.todos || [], unread: (got.todosUnread || []).concat(unread.filter((u) => u.file === 'people.json')), evidence: ev };
     const V = T.view(r, { records, unread, people, deps, now: NOW }), nameOf = A.names(people), title = String(r.title || r.process);
