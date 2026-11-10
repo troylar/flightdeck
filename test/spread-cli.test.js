@@ -366,4 +366,40 @@ rule('R1–R3: 4.0.0\'s notes name spreads, the living-run skill names no facts,
   const status = (s45.match(/Status: [^\n]*/) || [''])[0];
   assert.ok(!/Partly built|Slice 2 adds/.test(status) && /slices? 1[^\n]*3/i.test(status), 'R3: ' + status);
 });
+/* Review round 6 (XD): a sync preview says partial, and exits 4, exactly when the sync would: an obligation it can't ask (here
+   ABC-103's run already holds the 500 to-dos a run takes) makes both partial, never a preview that says would-sync. */
+async function fill(d, key, n) {
+  const W = await read(d), x = W.runs.find(y => y.process + '/' + y.id === key), raw = JSON.parse(fs.readFileSync(runFile(d.root, key), 'utf8'));
+  const files = [], V = () => T.view(x, { records: W.records, unread: [], people: PEOPLE });
+  const put = (name, file, rec) => { files.push([name, T.text(file)]); W.records.push(Object.assign(rec, { _file: name })); };
+  for (let i = 0; i < n; i++) {
+    const P = T.prepare(x, { body: { op: 'add', text: 'Filler ' + i, target: { phase: 'assess' } }, by: { tool: 'filler', version: '1.0', key: 'f' + i }, records: W.records, unread: [], people: PEOPLE, at: AT, app: '4.0.0' });
+    assert.ok(!P.why, P.why); put(P.name, P.file, P.record);
+    const it = T.inbox([x], { records: W.records, unread: [], people: PEOPLE, me: 'person-avery' }).find(q => q.id === P.id);
+    const dd = T.decide(x, { request: P.id, op: 'accept', by: 'person-avery', shown: it.consequence.fingerprint, records: W.records, unread: [], people: PEOPLE, at: AT, writer: 'w' + hex(), rev: hex(), app: '4.0.0' });
+    assert.ok(!dd.why, dd.why); put(dd.name, dd.file, dd.record);
+    const v = V(), q = T.nextQueued(v), plan = T.applyPlan(x, v, q);
+    assert.ok(plan.write, JSON.stringify(plan).slice(0, 300));
+    const st = T.buildStatus(Object.assign({}, plan.write, { by: 'person-avery', at: AT, writer: 'rec', rev: hex(), app: '4.0.0' })), fr = T.filed(st.name, st.file).record;
+    put(st.name, st.file, fr);
+    x.living = { head: fr.id };
+    if (x.features.indexOf('living-runs') < 0) x.features = PF.envelope.FROZEN.filter(f => x.features.concat(['living-runs']).indexOf(f) >= 0);
+  }
+  for (const [name, text] of files) await d.write('proposals/' + name, text);
+  raw.living = x.living; raw.features = x.features;
+  fs.writeFileSync(runFile(d.root, key), JSON.stringify(raw, null, 2));
+  return V().todos.length;
+}
+rule('XD: a sync preview is partial and exits 4 exactly when the sync is: one obligation it can\'t ask', async () => {
+  const { root, d, sp } = await spread();
+  assert.strictEqual(await fill(d, 'validate-story/k103', 500), 500, 'set-up: ABC-103\'s run holds 500 to-dos');
+  const before = snap(root);
+  const p = json('spread', 'sync', root, PR, '--spread', sp.id, '--dry-run', '--json', ...TOOL);
+  assert.deepStrictEqual(snap(root), before, 'the preview writes nothing');
+  const s = json('spread', 'sync', root, PR, '--spread', sp.id, '--json', ...TOOL);
+  const sum = (x) => [x.code, x.data && x.data.partial, x.data && x.data.items.filter(i => i.status === 'refused').map(i => i.key)];
+  assert.deepStrictEqual(sum(s), [4, true, ['ABC-103']], 'set-up: the sync itself is partial ' + JSON.stringify(s.data).slice(0, 300));
+  assert.deepStrictEqual([p.code, p.data.status, p.data.partial], [4, 'partial', true], 'the preview: ' + JSON.stringify(p.data).slice(0, 300));
+  assert.deepStrictEqual(sum(p), sum(s));
+});
 run();

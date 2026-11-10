@@ -13,16 +13,16 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "cdecc565b608002a0100b3493e6604aa5423c0b3ef346a87f5750bb36bb32b35",
-      "reviewed": "Round 6 XC: every missing identity reaches the problem collector"
+      "sha256": "73e4a21295cbb7a05243016a16b5b545ba12de37b5a3ed81fba30c062bf6c75d",
+      "reviewed": "Round 6 XD: sync dry-run partial status from preparation refusals"
     },
     "build.py": {
       "sha256": "1dce012e7269422f84c2c2aeb7b327b242a28e4990a5c5c95a22dc98228122dc",
       "reviewed": "slice 3 commit 1: spreads core (spreads.js), todos reduction and holds, run.js todoLand, app wiring, Python checker parity; no direct writes or unconditional deletes"
     },
     "docs/apps.md": {
-      "sha256": "77cbd1b4e80082eaed26ee520b2856ea6dd9e068598ef95ea2f70db77d054dfa",
-      "reviewed": "readers expect and name every dependency of a spread; a failed dependency holds before a spread is called absent; checked for direct writes and unconditional deletes"
+      "sha256": "2816dbf6a4781d1556576c2bb2bc7acfae4c62ddd95d7b2c10abce790810eeec",
+      "reviewed": "Round 6 XD: sync dry-run partial status from preparation refusals"
     },
     "docs/design.md": {
       "sha256": "db85f798ab3be79824e78241e0689c98580ff04a90629a8cfb26ead2e0bd0a87",

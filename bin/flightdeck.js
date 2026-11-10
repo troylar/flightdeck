@@ -2949,7 +2949,9 @@ async function spreadMain(argv) {
       const say = (written, already, failed) => title + ' · "' + C.text + '"' + (dryRun ? ' — preview only; no files written.' : failed ? ' — partly synced.' : ' — synced.') + '\n\n' +
         (dryRun ? 'Would ask ' + runsOf(items.filter((i) => i.status !== 'refused').length) + ' for it' + (items.some((i) => i.status === 'refused') ? '; ' + items.filter((i) => i.status === 'refused').length + ' couldn\'t be asked (below)' : '') : 'Asked ' + runsOf(written) + ' for it' + (already ? '; ' + already + ' already asked' : '') + (failed ? '; ' + failed + ' not asked (below)' : '')) +
         '. Each run\'s own people decide; its recorder applies it.' + (reopening.length ? ' ' + (dryRun ? 'Would send' : 'Sends') + ' an approval back for review on ' + reopening.length + (reopening.length === 1 ? ' run' : ' runs') + ': ' + reopening.slice(0, 20).map((i) => (i.key || i.uid) + ' (' + i.consequence.reopens.join(', ') + ')').join(', ') + (reopening.length > 20 ? ' and ' + (reopening.length - 20) + ' more' : '') + '.' : '') + (skipped.length ? ' Not asked now: ' + skipped.slice(0, 20).map((k) => (k.key || k.uid) + ' (' + k.words.toLowerCase() + ')').join(', ') + (skipped.length > 20 ? ' and ' + (skipped.length - 20) + ' more' : '') + '.' : '') + ' ' + C.preview + '.';
-      if (dryRun) return done({ run: { process: proc, id: runId }, spread: C.id, status: 'would-sync', items, skipped, partial: false, preview: say(0, 0, 0) });
+      /* A preview is partial exactly when the sync would be: an obligation it couldn't ask. */
+      const refusedN = items.filter((i) => i.status === 'refused').length;
+      if (dryRun) return done({ run: { process: proc, id: runId }, spread: C.id, status: refusedN ? 'partial' : 'would-sync', items, skipped, partial: refusedN > 0, preview: say(0, 0, 0) }, refusedN ? EXIT.partial : undefined);
       let written = 0, already = 0, failed = 0;
       for (const it of items) {
         const P = plan.filter((x) => (x.P.id || x.f.request) === it.request)[0].P;
