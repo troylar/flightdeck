@@ -79,6 +79,29 @@ rule('The to-do opens its correction, which shows its source; only the checklist
   assert.ok(/Kept for next time in release-notes · Applied to draft\./.test(txt(app.html())), 'the to-do says it, linked both ways');
 });
 
+rule('Applying a keep whose person changes while the draft is being read writes neither the draft nor a decision', async () => {
+  for (const change of ['person', 'folder-owner']) {
+    const app = await setup(), id = await added(app, 'Post the release notes');
+    app.click('keep', id, { kind: 'todo' }); await app.tick(120); await refresh(app, 300);
+    const gid = groupId(app);
+    app.click('keep-open', gid, { process: 'release-notes' }); await app.tick(120);
+    app.choose('person-morgan'); await app.tick(80);
+    const drafts = () => app.files('maps/drafts/').map(p => app.fs.files[p].t).join('\n'), before = drafts(), n = app.files('corrections/').length;
+    const fs = app.fs, read = fs.read.bind(fs); let release = null;
+    fs.read = (p, o) => /^maps\/drafts\//.test(p) && !release ? new Promise((res) => { release = () => res(read(p, o)); }) : read(p, o);
+    app.click('corr-review', gid); await app.tick(60);
+    app.click('corr-apply', gid); await app.tick(40);
+    assert.ok(release, 'the draft is being read');
+    if (change === 'person') app.choose('person-blake');
+    else { const ppl = JSON.parse(fs.files['people.json'].t); (Array.isArray(ppl) ? ppl : ppl.people).forEach(p => { if (p.id === 'person-morgan') p.inactive = true; }); fs.files['people.json'] = { t: JSON.stringify(ppl), m: Date.now() }; app.click('refresh'); }
+    await app.tick(60);
+    release(); await app.tick(300);
+    fs.read = read;
+    assert.strictEqual(drafts(), before, change + ': the draft wasn\'t written');
+    assert.strictEqual(app.files('corrections/').length, n, change + ': no decision');
+  }
+});
+
 rule('An owner marked inactive in people.json decides nothing kept for next time', async () => {
   const app = await setup(), id = await added(app, 'Post the release notes');
   app.click('keep', id, { kind: 'todo' }); await app.tick(120); await refresh(app, 300);

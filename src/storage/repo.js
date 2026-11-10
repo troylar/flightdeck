@@ -921,11 +921,14 @@ PF.repo = (function () {
   }
   /* A decision on a group of corrections, in a new file named for this window and the decision's rev. It's written once:
      if a file of that name is already there, nothing is written. */
-  function decideCorrection(fs, rec, writer) {
+  /* still (4.0, kept for next time): asked after the read, right before the write; false writes nothing and rejects with
+     .dropped. Without it, as before. */
+  function decideCorrection(fs, rec, writer, still) {
     if (!/^[a-z0-9][a-z0-9-]{0,59}$/.test(rec.process) || !/^[\w-]{1,40}$/.test(rec.group) || !/^[\w-]{1,40}$/.test(writer) || !(rec.rev >= 1)) return Promise.reject(new Error('That correction can\'t be decided here.'));
     var path = 'corrections/' + rec.process + '/' + rec.group + '.' + writer + '.' + Math.floor(rec.rev) + '.json';
     return fs.read(path).then(function (f) {
       if (f) throw new Error('A decision with that name is already in the folder. Look again, then decide.');
+      if (typeof still === 'function' && !still()) { var e = new Error('the folder, the person or who may decide changed before it was written.'); e.dropped = true; throw e; }
       return fs.write(path, JSON.stringify(rec, null, 2) + '\n').then(function () { return path; });
     });
   }

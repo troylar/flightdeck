@@ -25,8 +25,8 @@
       "reviewed": "the identical evidence request stays already after it was applied; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "6b5a05b527501bad8d524c8e112932f535fdb9474c7318d4d4ff489be982119a",
-      "reviewed": "evidence that is missing or unreadable is every reader's problem, kind missing added; checked for direct writes and unconditional deletes"
+      "sha256": "b385729995e1b72f448c004b6f22427a5b00b1c4374cd164ea538721498e9dd3",
+      "reviewed": "keep decisions and draft application guarded through each storage write; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -417,12 +417,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "5c28fd37810fb701f03d944436dbab99095b01bfc11feecdc6e1f0e710ded897",
-      "reviewed": "evidence that is missing or unreadable is every reader's problem, kind missing added; checked for direct writes and unconditional deletes"
+      "sha256": "92228110285e1aeca292f675b3ed341bb6b998de195332dc47700f338202f452",
+      "reviewed": "keep decisions and draft application guarded through each storage write; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "232aafeabc4cf6dc3fbdc0d3f31c7e2326a89f9dfbefc49a811816bfe19e66a7",
-      "reviewed": "a keep whose governing child publication can't be read is held, reread in the save guard; checked for direct writes and unconditional deletes"
+      "sha256": "77cd5f12b86e4550858ecbbe02b75d1ea08905ed95a6741bfe639d41459b3718",
+      "reviewed": "keep decisions and draft application guarded through each storage write; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

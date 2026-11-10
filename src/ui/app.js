@@ -3516,6 +3516,25 @@
   function keepFor(r, source) { try { return PF.learn.forSource(data.todos || [], function (pid) { return ctx.corrections(pid); }, r, source); } catch (e) { return null; } }
   function keepCan(r) { return !!(r && state.me && !r._unrunnable && !runUnread(r)); }
   function keepOwnerWhy(g, pid) { return g && g.keep ? PF.learn.ownerWhy(g, procFind(pid), data.people, state.me, !!(data.failed || {}).people) : ''; }
+  /* The write guard of a decision on what was kept for next time, or of its draft application (null for any other correction,
+     which is guarded as before): people.json read again right before each write (fresh), then the same folder, generation
+     and person as at the click, and that person still the checklist's active owner on that read (still). */
+  function keepGuard(g, pid) {
+    if (!g || !g.keep) return null;
+    var me = state.me, dfs = state.fs, gg = gen, ppl = null;
+    return {
+      fresh: function (f) {
+        ppl = null;
+        return (f || dfs).read(PF.people.FILE).then(function (x) {
+          var o; try { o = x ? JSON.parse(x.text) : null; } catch (e) { return true; }
+          if (PF.people.verdict(o).ok) ppl = PF.people.clean(o);
+          return true;
+        }, function () { return true; });
+      },
+      still: function () { return gg === gen && dfs === state.fs && state.me === me && !!ppl && !PF.learn.ownerWhy(g, procFind(pid), ppl, me, false); },
+      why: function () { return !ppl ? 'people.json couldn\'t be read again right before it was written.' : PF.learn.ownerWhy(g, procFind(pid), ppl, me, false) || 'the folder or the person changed before it was written.'; }
+    };
+  }
   function keepWrite(r, source) {
     if (!r || !state.me) return;
     var rk = r.process + '/' + r.id, sig = JSON.stringify([fsKey(), rk, state.me, source]), kept = state.keepTry && state.keepTry.sig === sig ? state.keepTry.K : null;
@@ -5394,9 +5413,13 @@
     var rec;
     try { rec = PF.corrections.decision(g, state.me, status, reason, new Date().toISOString(), Object.assign({ current: g.decision, act: U.randomId(10), result: result }, more || {})); }
     catch (e) { caErr(ov, e.message, status === 'declined' ? 'ca-reason' : null); return; }
-    var dfs = state.fs, gg = gen;
+    var dfs = state.fs, gg = gen, kg = keepGuard(g, ov.pid);
     ov.busy = true;
-    queued(function () { if (gg !== gen || dfs !== state.fs || keepOwnerWhy(g, ov.pid)) return Promise.reject(new Error(keepOwnerWhy(g, ov.pid) || 'the folder changed.')); return repo.decideCorrection(dfs, rec, WRITER); }).then(function () {
+    queued(function () {
+      if (gg !== gen || dfs !== state.fs || keepOwnerWhy(g, ov.pid)) return Promise.reject(new Error(keepOwnerWhy(g, ov.pid) || 'the folder changed.'));
+      if (!kg) return repo.decideCorrection(dfs, rec, WRITER);
+      return kg.fresh(dfs).then(function () { return repo.decideCorrection(dfs, rec, WRITER, kg.still).then(null, function (e) { if (e && e.dropped) throw new Error('Nothing was decided: ' + kg.why()); throw e; }); });
+    }).then(function () {
       if (gg !== gen) return; if (caOv() === ov) closeOverlay(); state.focus = 'fx-h'; say(msg, 'good'); return load(true);
     }, function (e) { if (gg !== gen) return; ov.busy = false; if (caOv() === ov) caErr(ov, 'Couldn\'t save the decision: ' + e.message); else { say('Couldn\'t save the decision: ' + e.message, 'bad'); render(); } });
   }
@@ -5423,19 +5446,33 @@
     TL.record(tlOf(ed), base, rv.text, { kind: 'op', lines: true, label: lb.label, subject: subj, items: ['step:' + (rv.added || g.target.step)], selBefore: before });
     ed.text = rv.text; state.planFormReset = true; state.obFlash = null; state.obAsk = null; state.obRename = null; state.obRenamed = null;
     var dfs = state.fs, gg = gen, text = rv.text, added = rv.added, me = state.me, left = others.filter(function (y) { return ids.indexOf(y.id) < 0; }).length;
+    /* Kept for next time: the owner is asked again right before the draft is written and before each decision; refused, the
+       draft isn't written and this window's editor is put back, only while it is still the same editor showing this change. */
+    var kg = keepGuard(g, p.id), prevText = ed.text === rv.text ? null : ed.text, edWas = ed, ekey = fsKey();
+    var rollBack = function () { var e2 = editorOf(p.id, ekey); if (e2 === edWas && e2.text === text) { e2.text = prevText; state.planFormReset = true; } };
     closeOverlay(); state.focus = 'fx-h';
     saveDraftText(p, text, ed.baseHash, TL.past(lb.past, subj) + '. Saved to the draft.' + (left ? ' The other proposal' + (left === 1 ? ' is' : 's are') + ' still open.' : ''), {
       act: { act: 'tl-undo', id: 'draft', label: 'Undo' }, source: 'correction', expectText: ed.baseHash == null ? null : base,
       /* Not saved: the change waits in the editor as unsaved, so the editor opens rather than hiding it. */
-      failed: function () { if (gg !== gen || state.processId !== p.id || state.view !== 'process') return ''; state.ptab = 'edit'; state.focus = 'ed-h'; return ' The correction is in the editor, not saved yet. Save draft to try again.'; },
-      write: function (f, file, t, h, o) { var ow = keepOwnerWhy(g, p.id); if (ow) return Promise.reject(new Error(ow)); return repo.applyCorrection(f, { process: p.id, file: file, base: base, expect: h, group: g, edited: edited, confirmed: how === 'edit', text: t }, o); },
+      failed: function (err) { if (err && err.rolledBack) return ' Nothing was applied.'; if (gg !== gen || state.processId !== p.id || state.view !== 'process') return ''; state.ptab = 'edit'; state.focus = 'ed-h'; return ' The correction is in the editor, not saved yet. Save draft to try again.'; },
+      write: function (f, file, t, h, o) {
+        var ow = keepOwnerWhy(g, p.id); if (ow) return Promise.reject(new Error(ow));
+        var o2 = kg ? Object.assign({}, o, { fresh: kg.fresh, still: function () { return (typeof o.still !== 'function' || o.still()) && kg.still(); } }) : o;
+        return repo.applyCorrection(f, { process: p.id, file: file, base: base, expect: h, group: g, edited: edited, confirmed: how === 'edit', text: t }, o2).then(function (res) {
+          if (!(kg && res && res.dropped)) return res;
+          rollBack(); var e = new Error(kg.why()); e.rolledBack = true; throw e;
+        });
+      },
       after: function () {
         if (gg !== gen) return null;
         return gs.reduce(function (pr, y) {
           return pr.then(function () {
             var res = C.outcome(y, text, y === g ? added : ''), k = caKey(p.id, y.id), rec = C.decision(y, me, 'applied', '', new Date().toISOString(), { current: y.decision, act: U.randomId(10), result: res });
             state.corrApplied[k] = res;
-            return queued(function () { return repo.decideCorrection(dfs, rec, WRITER); }).then(function () { delete state.corrApplied[k]; });
+            return queued(function () {
+              if (!kg) return repo.decideCorrection(dfs, rec, WRITER);
+              return kg.fresh(dfs).then(function () { return repo.decideCorrection(dfs, rec, WRITER, kg.still).then(null, function (e) { if (e && e.dropped) throw new Error(kg.why()); throw e; }); });
+            }).then(function () { delete state.corrApplied[k]; });
           });
         }, Promise.resolve()).catch(function (e) { if (gg === gen) say('The draft has the correction, but marking it as applied didn\'t save: ' + e.message + ' Review it again and choose Link this correction.', 'warn'); });
       }
