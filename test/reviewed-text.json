@@ -25,12 +25,12 @@
       "reviewed": "slice 6: pending and unreadable records shown before living; receipt head ''"
     },
     "docs/design.md": {
-      "sha256": "6d57e4f9c4b3dd7a888276a00fbd6382ada5c3d2a41fb65dc2c8059a7629cf33",
-      "reviewed": "KC: Python walks the receipt's witnesses transitively"
+      "sha256": "80e2a02b914ac2a48c24403738259f50f607de73155110b695998f0fc5ad786d",
+      "reviewed": "KA: one complete run verdict wherever a dependency is judged"
     },
     "docs/evidence.md": {
-      "sha256": "1869a2a35e6e650606d9683bae0861c25116c82ba40f6833e28b03822b2df149",
-      "reviewed": "KB: proposal and scope originals held to the bytes judged"
+      "sha256": "12bc4defc7c8ba2e4a4978394c9e616364d9836a24e7d9fce50863f950e2761e",
+      "reviewed": "KA: one complete run verdict wherever a dependency is judged"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
@@ -421,12 +421,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "beec6c09e8df648ed40f4df428bf477651ae7ef93305bf21b2c5a86f622faa91",
-      "reviewed": "KB: proposal and scope originals held to the bytes judged"
+      "sha256": "3400bca7317385c56b85ac6d9ff18e8bdd9738de02268659299f8272b379f4c7",
+      "reviewed": "KA: one complete run verdict wherever a dependency is judged"
     },
     "src/ui/app.js": {
-      "sha256": "955af8f925081742c4cc70ae0cdd02f7f8d4fad57f45a7601250bd8b50f44dcb",
-      "reviewed": "IA: recovery checks the copy's receipt on the trial before the live run changes, guards every ended living run it adopts, and a throwing change is put back"
+      "sha256": "813c5c73f708fe91a6f093f148b9d7bda601318f5c12d120a018b6b6a4a123d3",
+      "reviewed": "KA: one complete run verdict wherever a dependency is judged"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

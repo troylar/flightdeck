@@ -3561,16 +3561,16 @@
   /* The one fresh dependency read a receipt is prepared and asked again on, right before each write that writes it or ends the
      run: the to-do records, people and evidence (tdFresh), the loops' scope records from that same read, and the run's loop
      children read again with the versions they ran checked (repo.readLoopChildren). null, and nothing is written, when any of
-     it can't be read, a child or its version can't be read, or the window moved on. rcptJudge is where the verdict every
-     reader gives a run (PF.appjson.judgeRun, 4.0 slice 5) plugs in; until then a child's version is checked as it verifies. */
-  function rcptJudge(r, pub) { return pub && (pub._readFailed || !pub.ok) ? 'its version ' + String(r.folder) + ' can\'t be read or doesn\'t verify' : pub && pub.info ? repo.runMismatch(r, pub.info) : ''; }
+     it can't be read, the window moved on, or a child isn't one every reader would read whole: each child is judged with the
+     verdict every reader gives a run (its version read and verified, then PF.appjson.judgeRun: times, records this copy
+     can't read as written, conflict copies, why it's read-only), and the first problem is named by its path, kind and reason. */
   function rcptFresh(cx, key) {
     var bound = function () { return !!cx && cx.g === gen && cx.fs === state.fs && cx.me === state.me; };
     var self = findRun(key);
     if (!self) return Promise.resolve(null);
-    return Promise.all([repo.readTodos(cx.fs, { evidence: true }).then(null, function () { return null; }), repo.readLoopChildren(cx.fs, self, rcptJudge).then(null, function () { return null; })]).then(function (x) {
+    return Promise.all([repo.readTodos(cx.fs, { evidence: true }).then(null, function () { return null; }), repo.readLoopChildren(cx.fs, self).then(null, function () { return null; })]).then(function (x) {
       if (!bound() || !x[0] || !x[1]) return null;
-      if (x[1].unread.length) { cx.rcptWhy = 'runs/' + x[1].unread[0].key + '/run.json: a child run of this run\'s loops can\'t be read (' + String(x[1].unread[0].why).slice(0, 200) + ').'; return null; }
+      if (x[1].unread.length) { var u = x[1].unread[0]; cx.rcptWhy = String(u.path || 'runs/' + u.key + '/run.json') + ': a child run of this run\'s loops can\'t be read as every reader reads it (' + String(u.kind || 'unreadable') + ': ' + String(u.why).slice(0, 200) + ').'; return null; }
       var s = x[0], d = { todos: s.records, todosUnread: s.unread }; todoBodies(d);
       var mine = function (c) { return c && c.parent && c.parent.item && c.parent.process === self.process && c.parent.id === self.id; };
       var gone = rcptAbsent(self, x[1].runs, d.todos || [], s.scopes || [], (data.runs || []).filter(mine));

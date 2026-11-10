@@ -455,4 +455,89 @@ rule('A record the receipt saw is walked through what it saw: Python refuses a c
   assert.ok(!bad.ok && /saw/.test(bad.out), bad.out);
 });
 
+/* ---- KA: one complete run verdict wherever a dependency is judged: judgeRun, the export and Python agree ---- */
+/* Each run the work depends on, in each role (a loop child, a run whose spread a request fulfills, a run a to-do was done on),
+   damaged one field at a time: the readers' verdict (readRunOnly, then PF.appjson.judgeRun) names it, the export is partial
+   by its path, and Python refuses a pack that calls itself complete with it. */
+const DAMAGES = [
+  ['created', (k) => { k.created = 'bad'; }],
+  ['savedAt', (k) => { k.savedAt = 'bad'; }],
+  ['a log time', (k) => { k.log = [{ at: 'bad', by: 'person-avery', what: 'x' }].concat(k.log || []); }],
+  ['an ended time', (k) => { k.ended = { outcome: 'Completed', by: 'person-avery', at: 'bad' }; }],
+  ['a pause', (k) => { k.pauses = [{ from: 'bad', to: new Date().toISOString(), by: 'person-avery' }]; }],
+  ['title', (k) => { k.title = 42; }],
+  ['state', (k) => { k.state = 'banana'; }],
+  ['followUps text', (k) => { k.followUps = 'broken'; }],
+  ['followUps entry', (k) => { k.followUps = [null]; }],
+  ['the active pause', (k) => { k.state = 'running'; delete k.ended; k.paused = { by: 'person-avery', at: 'bad', reason: 'x' }; }],
+  ['rev', (k) => { k.rev = -1; }],
+  ['marks list', (k) => { k.marks = { assess: 'blocked' }; }],
+  ['marks value', (k) => { k.marks = { assess: ['banana'] }; }]
+];
+async function roleWorlds() {
+  const out = [];
+  const L = await loopMade();
+  out.push({ role: 'child', PF: L.PF, files: L.files, key: L.key, path: L.kidPath, depKey: L.kidKey, force: false });
+  const F = await made({ todos: 1 }), T = F.PF.todos, base = JSON.parse(F.files[F.runPath]);
+  const clone = (files, id) => { const o = Object.assign({}, base, { id }); delete o.living; delete o.ended; o.state = 'running'; if (Array.isArray(o.features)) o.features = o.features.filter(f => f !== 'living-runs'); files['runs/' + base.process + '/' + id + '/run.json'] = JSON.stringify(o, null, 2); };
+  {
+    const files = Object.assign({}, F.files), r = F.PF.run.sanitize(JSON.parse(files[F.runPath]));
+    clone(files, 'dep-1');
+    const body = { op: 'add', text: 'Covered', target: { phase: 'draft' }, placement: T.placementFor(F.PF.run.mapOf(r), { phase: 'draft' }), fulfills: { run: { process: base.process, id: 'dep-1' }, spread: 'sp-' + 'c'.repeat(24), uid: 'jira.issue:key:ABC-1', attempt: 1 } };
+    const q = T.buildProposal({ run: { process: base.process, id: base.id }, producer: { name: 'notes-bot', version: '1.0' }, key: 'k-ka1', seen: [], at: new Date().toISOString(), body });
+    files['proposals/' + q.id + '.json'] = T.text(q);
+    out.push({ role: 'fulfills', PF: F.PF, files, key: F.key, path: 'runs/' + base.process + '/dep-1/run.json', depKey: base.process + '/dep-1', force: false });
+  }
+  {
+    const PF = F.PF, r = PF.run.sanitize(JSON.parse(JSON.stringify(F.run)));
+    const d = await PF.repo.loadAll(new BytesFS(F.files), {}), V = T.view(r, { records: d.todos || [], people: JSON.parse(F.files['people.json']) });
+    const td = Object.keys(V.byTodo || {})[0] || (V.todos && V.todos[0] && V.todos[0].id);
+    const ev = { plan: 'plan-ev-' + 'a'.repeat(24), run: { process: base.process, id: 'evrun1' }, answer: 'Yes', result: '' };
+    const q = T.buildProposal({ run: { process: r.process, id: r.id }, id: PF.detours.requestId(td, ev), by: 'person-avery', seen: V.heads.slice(0, 50), at: new Date().toISOString(), body: { op: 'done', todo: td, evidence: ev }, app: '4.0.0' });
+    const files = Object.assign({}, F.files, { ['proposals/' + q.id + '.json']: T.text(q) });
+    clone(files, 'evrun1');
+    out.push({ role: 'evidence', PF, files, key: F.key, path: 'runs/' + base.process + '/evrun1/run.json', depKey: base.process + '/evrun1', force: true });
+  }
+  return out;
+}
+/* The manifest made to claim the run's work complete (an evidence run's plan isn't in these folders): only Python's own checks can then refuse it. */
+const forced = (man) => { man.status = 'complete'; man.runs.forEach((r) => { if (r.living) { r.living.complete = true; r.living.missing = []; (r.living.deps || []).forEach((d) => { d.confirmed = true; }); } }); };
+async function verdicts(X, files) {
+  const [proc, id] = X.depKey.split('/');
+  const one = await X.PF.repo.readRunOnly(new BytesFS(files), proc, id);
+  const judged = one.run ? X.PF.appjson.judgeRun(one.run, one.pub) : (one.bad || []);
+  const { zip, res } = await pack(X.PF, new BytesFS(files), X.key);
+  return { judged, res, zip, named: res.col.unresolved.filter(u => u.indexOf(X.path) >= 0) };
+}
+
+rule('One complete run verdict for every dependency: each damaged field, in each role, is named by judgeRun, the export and Python alike', async () => {
+  const misses = [];
+  for (const X of await roleWorlds()) {
+    const ok = await verdicts(X, X.files);
+    assert.strictEqual(ok.judged.length, 0, X.role + ' control: ' + JSON.stringify(ok.judged));
+    assert.strictEqual(ok.named.length, 0, X.role + ' control: ' + JSON.stringify(ok.res.col.unresolved));
+    assert.ok(ok.zip.length && manifestOf(ok.zip).files.some(f => f.path === X.path), X.role + ': the dependency is packed');
+    if (PY) { const c = checkPack(X.force ? await repacked(X.PF, ok.zip, (e, man) => forced(man)) : ok.zip); assert.ok(c.ok, X.role + ' control: ' + c.out); }
+    for (const [what, damage] of DAMAGES) {
+      const files = Object.assign({}, X.files), k = JSON.parse(files[X.path]); damage(k); files[X.path] = JSON.stringify(k, null, 2);
+      const v = await verdicts(X, files), tag = X.role + ' / ' + what + ': ';
+      if (!v.judged.length) misses.push(tag + 'judgeRun doesn\'t name it');
+      if (v.res.status !== 'partial' || !v.named.length) misses.push(tag + 'the export doesn\'t name it: ' + JSON.stringify(v.res.col.unresolved).slice(0, 300));
+      if (!PY) continue;
+      const bad = checkPack(await repacked(X.PF, ok.zip, (e, man, f) => { const x = f(X.path), o = JSON.parse(e[x.pack]); damage(o); e[x.pack] = Buffer.from(JSON.stringify(o, null, 2)); if (X.force) forced(man); }));
+      if (bad.ok || bad.out.indexOf(X.depKey) < 0) misses.push(tag + 'Python doesn\'t refuse it: ' + bad.out.trim().slice(0, 300));
+    }
+  }
+  assert.strictEqual(misses.length, 0, misses.join('\n'));
+});
+
+rule('A dependency run whose version can\'t be read (EIO) is named by the version\'s path, and the pack is partial before anything is confirmed', async () => {
+  const W = await loopMade(), k = JSON.parse(W.files[W.kidPath]), dir = 'publications/' + k.process + '/' + k.folder + '/';
+  const { zip, res } = await pack(W.PF, failing(new BytesFS(W.files), (op, p) => op === 'read' && p.indexOf(dir) === 0, 'EIO'), W.key);
+  assert.strictEqual(res.status, 'partial', JSON.stringify(res.col.unresolved));
+  assert.ok(res.col.unresolved.some(u => u.indexOf(dir) >= 0 && /\(unreadable\)/.test(u)), JSON.stringify(res.col.unresolved));
+  const L = manifestOf(zip).runs[0].living;
+  assert.ok(!(L.deps || []).some(d => d.key === W.kidKey && d.confirmed), 'never confirmed: ' + JSON.stringify(L.deps));
+});
+
 run();

@@ -266,6 +266,29 @@ rule('A loop child whose whole folder is deleted right after the receipt is writ
   await endDamaged(app, () => { app.files(dir).forEach((p) => { delete app.fs.files[p]; }); });
   assert.ok(txt(app.html()).indexOf(dir + 'run.json') >= 0, 'the missing child is named: ' + txt(app.html()).slice(0, 1500));
 });
+/* KA: the ending guard judges each child with the verdict every reader gives a run (readRunOnly, then PF.appjson.judgeRun):
+   a child changed right after the receipt is written, in any way a reader names, ends nothing, named by its path. */
+rule('A child run changed after the receipt is written (a time, its state, its follow-ups, a conflict copy) ends nothing, named by its path', async () => {
+  const cases = [
+    ['created', (k) => { k.created = 'bad'; }, 'run.json'],
+    ['state', (k) => { k.state = 'banana'; }, 'run.json'],
+    ['a log time', (k) => { k.log = [{ at: 'bad', by: 'person-avery', what: 'x' }].concat(k.log || []); }, 'run.json'],
+    ['followUps', (k) => { k.followUps = 'broken'; }, 'run.json'],
+    ['a conflict copy', null, '']
+  ];
+  const misses = [];
+  for (const [what, damage, file] of cases) {
+    const app = await loopSetup(), kid = kidPaths(app)[0], dir = kid.replace(/run\.json$/, '');
+    try {
+      await endDamaged(app, () => {
+        const k = JSON.parse(app.fs.files[kid].t);
+        if (damage) { damage(k); app.fs.files[kid] = { t: JSON.stringify(k, null, 2), m: Date.now() }; } else { k.title = 'Another copy'; app.fs.files[dir + 'run-OTHER.json'] = { t: JSON.stringify(k, null, 2), m: Date.now() }; }
+      });
+      if (txt(app.html()).indexOf(dir + file) < 0) misses.push(what + ': not named by its path');
+    } catch (e) { misses.push(what + ': ' + e.message.split('\n')[0]); }
+  }
+  assert.strictEqual(misses.length, 0, misses.join('\n'));
+});
 /* An ended living copy of the run (its receipt in the folder) next to run.json as it was before the end. */
 async function endedCopy(app, change) {
   const before = app.fs.files[runPath(app)].t;

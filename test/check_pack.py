@@ -73,6 +73,46 @@ def times_why(run):
     return ", ".join(bad)
 
 
+STATES = ("running", "completed", "stopped", "cancelled")
+MARKS = ("blocked", "recheck", "na", "differently")
+MARK_KEY = re.compile(r"^[\w-]{1,120}$")
+
+
+def schema_why(run):
+    """The fields a run file holds that the app wouldn't read as written (R.sanitize would drop, cut or replace them, so every
+    reader names the run malformed), checked here on their own, or ''."""
+    iso = lambda v: isinstance(v, str) and ISO.match(v)
+    bad = []
+    t = run.get("title")
+    if not isinstance(t, str) or not t or len(t) > 100:
+        bad.append("title")
+    if run.get("state") not in STATES:
+        bad.append("state")
+    rev = run.get("rev")
+    if "rev" in run and (isinstance(rev, bool) or not isinstance(rev, int) or rev < 0):
+        bad.append("rev")
+    if "followUps" in run:
+        fu = run.get("followUps")
+        if not isinstance(fu, list) or any(not isinstance(f, dict) or not isinstance(f.get("text"), str) or not f["text"].strip()
+                                           or (f.get("at") is not None and not iso(f.get("at"))) for f in fu):
+            bad.append("followUps")
+    if run.get("paused") is not None:
+        pa = run["paused"]
+        if not isinstance(pa, dict) or not iso(pa.get("at")) or run.get("state") != "running":
+            bad.append("paused")
+    if run.get("marks") is not None:
+        mk = run["marks"]
+        if not isinstance(mk, dict) or any(not MARK_KEY.match(k) or not isinstance(v, list) or not v or any(x not in MARKS for x in v)
+                                           for k, v in mk.items()):
+            bad.append("marks")
+    for kind in ("steps", "gates"):
+        for k, v in (run.get(kind) or {}).items() if isinstance(run.get(kind), dict) else []:
+            if isinstance(v, dict) and v.get("at") is not None and not iso(v.get("at")):
+                bad.append(kind[:-1] + " " + k)
+                break
+    return ", ".join(bad)
+
+
 def check_living(z, man):
     by_path = {f["path"]: f["pack"] for f in man["files"]}
 
@@ -291,6 +331,9 @@ def check_living(z, man):
                 tw = times_why(dep_run)
                 if tw:
                     sys.exit("living: " + r["key"] + " says its work is complete, but " + k + ", a run it depends on, has times the app can't read (" + tw + ")")
+                sw = schema_why(dep_run)
+                if sw:
+                    sys.exit("living: " + r["key"] + " says its work is complete, but " + k + ", a run it depends on, holds what the app wouldn't read as written (" + sw + ")")
                 w2, c2, cl2, rc2, cp2 = check_run(dep_run)
                 d = named[k]
                 if cp2:

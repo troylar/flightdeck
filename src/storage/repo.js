@@ -2627,33 +2627,45 @@ PF.repo = (function () {
     });
   }
   /* A loop parent's child runs read again (4.0 slice 6: what a receipt is asked again on), each through readRunOnly with the
-     version it ran checked: { runs, unread: [{ key, why }] }. A child folder listed under one of the run's {for.each}
-     processes that can't be read, or whose version can't be read or doesn't verify, is unread, never left out. judge(run, pub):
-     the verdict every reader gives a run (once it is shared), else the version's own check. */
-  function readLoopChildren(fs, self, judge) {
+     version it ran checked: { runs, unread: [{ key, path, kind, why }] }. A child folder listed under one of the run's
+     {for.each} processes that can't be read, or that the verdict every reader gives a run refuses (depVerdict, below), is
+     unread with its first problem, never left out. */
+  /* One run the work depends on, as readRunOnly read it, judged as every reader judges a run: { run }, or { bad: { key, path,
+     kind, why } } with the first problem. Missing, unreadable, another run, a version that couldn't be read (named at the
+     version's folder, never taken as "nothing to say"), then the run's own verdict (PF.appjson.judgeRun: its version, newer,
+     times or records this copy can't read as written, conflict copies) and why it's read-only. The export's closure and the
+     app's ending guard both ask this one. */
+  function depVerdict(proc, id, one) {
+    var key = proc + '/' + id, path = 'runs/' + key + '/run.json';
+    if (!one || !one.found || one.nofile) return { bad: { key: key, path: path, kind: 'missing', why: 'it isn\'t in the folder' } };
+    var b = (one.bad || []).filter(function (x) { return String(x.path || '').indexOf('runs/' + key + '/') === 0; })[0];
+    if (b) return { bad: { key: key, path: String(b.path), kind: b.kind || 'malformed', why: String(b.why || 'it can\'t be read') } };
+    var c = one.run;
+    if (!c || c.id !== id || c.process !== proc) return { bad: { key: key, path: path, kind: 'malformed', why: 'it isn\'t that run' } };
+    if (one.pub && one.pub._readFailed) return { bad: { key: key, path: R.pubDir(c), kind: 'unreadable', why: 'its version ' + String(c.folder) + ' couldn\'t be read (' + String(one.pub.why || 'unknown') + ')' } };
+    var jp = PF.appjson.judgeRun(c, one.pub)[0];
+    if (jp) return { bad: { key: key, path: String(jp.path), kind: jp.kind, why: String(jp.why) } };
+    if (c._unrunnable) return { bad: { key: key, path: path, kind: 'unusable', why: String(c._unrunnable) } };
+    return { run: c };
+  }
+  function readLoopChildren(fs, self) {
     var map = null; try { map = R.mapOf(self); } catch (e) { map = null; }
     var procs = [], out = { runs: [], unread: [] };
     (map ? map.phases : []).forEach(function (ph) { ph.steps.forEach(function (st) { var cp = st.type === 'for.each' ? String(R.fieldsOf(self, st).process || '') : ''; if (cp && /^[a-z0-9][a-z0-9-]{0,59}$/.test(cp) && procs.indexOf(cp) < 0) procs.push(cp); }); });
-    var pubWhy = function (r, pub) {
-      if (judge) return judge(r, pub);
-      if (!pub) return '';
-      if (pub._readFailed || !pub.ok) return 'its version ' + String(r.folder) + ' can\'t be read or doesn\'t verify: ' + String(pub.why || 'unknown');
-      return pub.info ? runMismatch(r, pub.info) : '';
-    };
     return procs.reduce(function (q, cp) { return q.then(function () {
       return fs.list('runs/' + cp).then(null, function () { return null; }).then(function (items) {
-        if (items === null) { out.unread.push({ key: cp, why: 'runs/' + cp + ' couldn\'t be listed' }); return; }
+        if (items === null) { out.unread.push({ key: cp, path: 'runs/' + cp + '/', kind: 'unreadable', why: 'runs/' + cp + ' couldn\'t be listed' }); return; }
         return limited(items.filter(function (i) { return i.kind === 'dir' && /^[a-z0-9-]{1,40}$/i.test(i.name); }).map(function (i) { return i.name; }).sort(), 4, function (cid) {
           var key = cp + '/' + cid;
           return readRunOnly(fs, cp, cid).then(function (one) {
             if (!one || !one.found) return;
             var c = one.run, bad = (one.bad || []).filter(function (b) { return String(b.path || '').indexOf('runs/' + key + '/') === 0; });
-            if (!c || bad.length || one.nofile) { out.unread.push({ key: key, why: bad.length ? String(bad[0].why) : 'its run.json can\'t be read' }); return; }
-            if (!(c.parent && c.parent.item && c.parent.process === self.process && c.parent.id === self.id)) return;
-            var w = pubWhy(c, one.pub);
-            if (w) { out.unread.push({ key: key, why: w }); return; }
-            out.runs.push(c);
-          }, function (e) { out.unread.push({ key: key, why: why(e) }); });
+            /* Another run's child (read whole, with nothing wrong in its file) isn't this run's to judge. */
+            if (c && !bad.length && !one.nofile && !(c.parent && c.parent.item && c.parent.process === self.process && c.parent.id === self.id)) return;
+            var v = depVerdict(cp, cid, one);
+            if (v.bad) { out.unread.push(v.bad); return; }
+            out.runs.push(v.run);
+          }, function (e) { out.unread.push({ key: key, path: 'runs/' + key + '/run.json', kind: errKind(e), why: why(e) }); });
         });
       });
     }); }, Promise.resolve()).then(function () { return out; });
@@ -3209,19 +3221,7 @@ PF.repo = (function () {
        { key, path, kind, why } } for one that isn't there, can't be read, or whose version can't be read or doesn't verify. */
     function depRun(proc, id) {
       var key = proc + '/' + id, path = 'runs/' + key + '/run.json';
-      return readRunOnly(ro, proc, id).then(function (one) {
-        if (!one || !one.found || one.nofile) return { bad: { key: key, path: path, kind: 'missing', why: 'it isn\'t in the folder' } };
-        var b = (one.bad || []).filter(function (x) { return String(x.path || '').indexOf('runs/' + key + '/') === 0; })[0];
-        if (b) return { bad: { key: key, path: String(b.path), kind: b.kind || 'malformed', why: String(b.why || 'it can\'t be read') } };
-        var c = one.run;
-        if (!c || c.id !== id || c.process !== proc) return { bad: { key: key, path: path, kind: 'malformed', why: 'it isn\'t that run' } };
-        /* The run's own verdict, as run, next and runs give it (PF.appjson.judgeRun): its version, newer, times or records this
-           copy can't read as written, conflict copies. The first problem names it. */
-        var jp = PF.appjson.judgeRun(c, one.pub)[0];
-        if (jp) return { bad: { key: key, path: String(jp.path), kind: jp.kind, why: String(jp.why) } };
-        if (c._unrunnable) return { bad: { key: key, path: path, kind: 'unusable', why: String(c._unrunnable) } };
-        return { run: c };
-      }, function (e) { return { bad: { key: key, path: path, kind: errKind(e), why: why(e) } }; });
+      return readRunOnly(ro, proc, id).then(function (one) { return depVerdict(proc, id, one); }, function (e) { return { bad: { key: key, path: path, kind: errKind(e), why: why(e) } }; });
     }
     /* A run's loop children: every run folder under each {for.each} step's process, read. A listing that fails, or a folder
        whose run.json is missing or can't be read, is named (it may be a child: nothing tells it apart); a run there naming
