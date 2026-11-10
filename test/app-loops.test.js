@@ -1160,4 +1160,29 @@ for (const brk of BB.GA_GB) {
   rule('GA/GB: Try again on a plain loop after ' + brk + ' writes nothing', async () => { assert.deepStrictEqual(await BB.retryAfter(bbLoop, brk), []); });
   rule('GA/GB: Use copy on a plain loop after ' + brk + ', no Refresh first, keeps nothing, and the copy stays', async () => { assert.deepStrictEqual(await BB.useCopyAfterEio(bbLoop, brk, true), []); });
 }
+/* Review round 14 (found by HA's harness): a request the recorder can't carry out while one of its loop's scope records
+   can't be read is answered once (refused), not again on every read after: answering again re-read the folder, found the
+   request still waiting (its answer counts only once the loop reads whole) and answered again, without end. */
+rule('HA: a request refused while a scope record can\'t be read is answered once, not on every read after', async () => {
+  const app = await bbLoop.prep();
+  const sf = app.files('proposals/').filter(p => /\/req-[^/]*\.json$/.test(p)).find(p => { try { return JSON.parse(app.fs.files[p].t).loop.step === 'each'; } catch (e) { return false; } });
+  assert.ok(sf, 'set-up: a scope record');
+  await BB.requestApprove(app);
+  /* The approval's candidate is written, then the scope record stops reading before its final write: the request is refused. */
+  const read = app.fs.read, write = app.fs.write, hold = gate(); let answers = 0, cand = 0, eio = false;
+  app.fs.read = (q, o) => eio && q === sf ? Promise.reject(new Error('EIO')) : read.call(app.fs, q, o);
+  /* Each answer is counted; past five the folder refuses them, so a loop ends here instead of running on. */
+  app.fs.write = (q, t, o) => {
+    if (/^proposals\/req-[^/]*\.status-/.test(q) && ++answers > 5) return Promise.reject(new Error('stop'));
+    if (/^runs\/release-readiness\/[^/]*\/candidate-/.test(q) && ++cand === 1) return write.call(app.fs, q, t, o).then(x => hold.p.then(() => x));
+    return write.call(app.fs, q, t, o);
+  };
+  app.click('refresh'); await app.tick(300);
+  assert.ok(cand === 1, 'set-up: the approval wrote its candidate');
+  eio = true; hold.open();
+  for (let i = 0; i < 4; i++) { await app.tick(300); app.click('refresh'); }
+  await app.tick(300);
+  app.fs.read = read; app.fs.write = write;
+  assert.ok(answers <= 1, 'answered ' + answers + ' times');
+});
 run();

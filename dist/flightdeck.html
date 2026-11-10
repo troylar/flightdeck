@@ -35917,7 +35917,7 @@ PF.examples = (function () {
      next: nothing read, started or chosen in one folder shows in, or blocks, another. */
   function loopMem() {
     var m = state.loopMem;
-    if (!m || m.g !== gen || m.fs !== state.fs) m = state.loopMem = { g: gen, fs: state.fs, last: Object.create(null), starting: Object.create(null), applying: Object.create(null), preview: Object.create(null), all: Object.create(null), open: Object.create(null), reqs: Object.create(null), ret: null, keepRow: null };
+    if (!m || m.g !== gen || m.fs !== state.fs) m = state.loopMem = { g: gen, fs: state.fs, last: Object.create(null), starting: Object.create(null), applying: Object.create(null), answered: Object.create(null), preview: Object.create(null), all: Object.create(null), open: Object.create(null), reqs: Object.create(null), ret: null, keepRow: null };
     return m;
   }
   /* S2's one guard builder (round 10). It captures, at the click or when a request is taken up: the folder, its generation and
@@ -36260,7 +36260,7 @@ PF.examples = (function () {
      request on its loops with the same checks as the buttons, then records applied or refused beside the request. */
   function loopApply() {
     if (!state.me || !(data.scopes || []).length) return;
-    var applying = loopMem().applying;
+    var applying = loopMem().applying, answered = loopMem().answered;
     data.runs.forEach(function (r) {
       if (!ctx.recording(r) || r.paused || r.ended || state.unsaved[r.id]) return;
       var map; try { map = R.mapOf(r); } catch (e) { return; }
@@ -36271,13 +36271,16 @@ PF.examples = (function () {
           /* One at a time per folder generation; released however it ends, so a request cut short by a folder switch is
              carried out when its folder is read again. */
           var gk = gen + ':' + q.id;
-          if (q.status !== 'pending' || applying[gk]) return;
+          /* Round 14: answered once per folder generation. A request still waiting after this window answered it is one whose
+             answer isn't counted yet (a record of its loop can't be read): answering again would read the folder, find it
+             waiting and answer again, without end. The next generation (Refresh after the folder is fixed) reads it anew. */
+          if (q.status !== 'pending' || applying[gk] || answered[gk]) return;
           applying[gk] = true;
           /* Bound to the folder, its generation and the person it started in: after a switch nothing more is done or
              written, and the request stays pending for the recorder's window in its own folder. */
           var cx = loopGuard({ q: q });
           loopCarry(r, sx.step.id, V, q, cx).then(function (out) { return loopOutcome(V, q, out.ok ? 'applied' : 'refused', out.why, cx); }, function (err) { return loopOutcome(V, q, 'refused', err && err.message || String(err), cx); })
-            .then(function (wrote) { delete applying[gk]; if (wrote !== false && cx.g === gen) return load(true); }, function () { delete applying[gk]; });
+            .then(function (wrote) { delete applying[gk]; if (wrote !== false) answered[gk] = true; if (wrote !== false && cx.g === gen) return load(true); }, function () { delete applying[gk]; });
         });
       });
     });
