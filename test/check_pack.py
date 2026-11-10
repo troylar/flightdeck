@@ -164,14 +164,22 @@ def check_living(z, man):
                 closed = False
                 continue
             saw(w)
-        i = 0
-        while closed and i < len(want):
-            rec = wit(want[i])
-            i += 1
-            if rec is None:
-                closed = False
-                break
-            saw(rec)
+        i = [0]
+
+        def walk():
+            """The records still wanted, each through what it saw in turn, within the one bound: False when one isn't here."""
+            while i[0] < len(want):
+                if i[0] >= 5000:
+                    return False
+                rec = wit(want[i[0]])
+                i[0] += 1
+                if rec is None:
+                    return False
+                saw(rec)
+            return True
+
+        if closed:
+            closed = walk()
         receipt = own.get("receipt")
         good_receipt = True
         if receipt:
@@ -184,11 +192,14 @@ def check_living(z, man):
                 path = [p for p in by_path if p == "proposals/" + receipt + ".json"]
                 raw = json.loads(z.read(by_path[path[0]]).decode("utf-8"), parse_int=float) if path else None
                 good_receipt = raw is not None and CF.todo_why(raw, receipt + ".json") == ""
-            # Every record it names as seen (pending requests included) is in the pack.
+            # Every record it names as seen (pending requests included) is in the pack, and what each of those saw, in turn.
             if good_receipt:
                 for x in rec.get("seen") or []:
                     if wit(str(x)) is None:
                         good_receipt = False
+            if good_receipt and closed:
+                saw(rec)
+                good_receipt = walk()
         return whole, chain, closed, good_receipt, copies[0]
 
     def depends_on(run):
@@ -258,7 +269,7 @@ def check_living(z, man):
         if not closed:
             sys.exit("living: " + r["key"] + " says its work is complete, but an application's request, its authority or a record it saw isn't in the pack")
         if not good_receipt:
-            sys.exit("living: " + r["key"] + " says its work is complete, but its receipt isn't in the pack or doesn't say what it ended with")
+            sys.exit("living: " + r["key"] + " says its work is complete, but its receipt isn't in the pack, doesn't say what it ended with, or a record it saw isn't in the pack")
         # Every run its work depends on, the manifest's and the ones found here, walked the same way, bounded.
         named = {d["key"]: d for d in lv.get("deps") or []}
         todo, done = [r["key"]], set()
@@ -289,7 +300,7 @@ def check_living(z, man):
                 if not cl2:
                     sys.exit("living: " + r["key"] + " says its work is complete, but a request, an authority or a record " + k + " saw isn't in the pack")
                 if not rc2:
-                    sys.exit("living: " + r["key"] + " says its work is complete, but the receipt of " + k + " isn't in the pack or doesn't say what it ended with")
+                    sys.exit("living: " + r["key"] + " says its work is complete, but the receipt of " + k + " isn't in the pack, doesn't say what it ended with, or a record it saw isn't in the pack")
             todo.extend(sorted(depends_on(dep_run) - done))
         for k in named:
             if k not in done:

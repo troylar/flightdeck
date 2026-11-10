@@ -25,8 +25,8 @@
       "reviewed": "slice 6: pending and unreadable records shown before living; receipt head ''"
     },
     "docs/design.md": {
-      "sha256": "925b8db9a1afbda160408b90e665e2ee91d6ffeb51920e8b663fd9872fbc1128",
-      "reviewed": "IC: the closure walk is complete within the shared bound, byte-exact, and follows the receipt's seen, scope choices and bindings"
+      "sha256": "6d57e4f9c4b3dd7a888276a00fbd6382ada5c3d2a41fb65dc2c8059a7629cf33",
+      "reviewed": "KC: Python walks the receipt's witnesses transitively"
     },
     "docs/evidence.md": {
       "sha256": "1869a2a35e6e650606d9683bae0861c25116c82ba40f6833e28b03822b2df149",

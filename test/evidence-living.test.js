@@ -442,4 +442,17 @@ for (const [name, edit] of [['the app version, at the same length', (b) => b.rep
   });
 }
 
+/* KC: what a receipt names as seen is walked as the chain's records are, through what each of those saw in turn: a pending
+   request whose own seen names a record not in the pack can't be called complete. */
+rule('A record the receipt saw is walked through what it saw: Python refuses a complete claim when a record that one saw isn\'t in the pack', async () => {
+  if (!PY) return;
+  const W = await made({ todos: 1, pending: true }), PF = W.PF, id = W.pendingId;
+  const full = await pack(PF, new BytesFS(W.files), W.key);
+  assert.strictEqual(full.res.status, 'complete', JSON.stringify(full.res.col.unresolved));
+  const ok = checkPack(full.zip); assert.ok(ok.ok, ok.out);
+  const gone = 'req-flightdeck-' + '9'.repeat(24);
+  const bad = checkPack(await repacked(PF, full.zip, (e, man, f) => { const x = f('proposals/' + id + '.json'), o = JSON.parse(e[x.pack]); o.seen = [gone]; e[x.pack] = Buffer.from(JSON.stringify(o, null, 2) + '\n'); }));
+  assert.ok(!bad.ok && /saw/.test(bad.out), bad.out);
+});
+
 run();
