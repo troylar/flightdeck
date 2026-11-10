@@ -93,6 +93,8 @@ rule('This version: run, next, runs and todo list name the same receipt problem 
   const put = (text) => (dir) => fs.writeFileSync(path.join(dir, 'proposals', receipt), text);
   [['empty', ''], ['null', 'null'], ['a list', '[]'], ['a number', '5'], ['broken JSON', '{ broken'], ['too deep', '{"a":'.repeat(65) + '1' + '}'.repeat(65)]]
     .forEach(([what, text]) => cases.push([what, put(text), 'malformed']));
+  /* KD: a synced copy of the receipt under its id that is another family of record (a plan): which is meant isn't known. */
+  cases.push(['a copy of another family', (dir) => fs.writeFileSync(path.join(dir, 'proposals', receipt.replace(/\.json$/, ' (1).json')), JSON.stringify({ format: 'flightdeck-plan/1', kind: 'plan', id: receipt.replace(/\.json$/, ''), process: 'release-notes', title: 'A plan' })), 'malformed']);
   if (process.getuid && process.getuid() !== 0) cases.push(['unreadable', (dir) => fs.chmodSync(path.join(dir, 'proposals', receipt), 0), 'unreadable']);
   for (const [state, damage, kind] of cases) {
     const { root, dir } = tree(files);

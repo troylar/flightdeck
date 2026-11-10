@@ -4376,7 +4376,7 @@ def main():
     plans, decisions, torn, refused_decisions = {}, {}, [], []
     out["scopes"] = []
     todo_unchecked = []
-    rcpt_read, rcpt_unread = {}, []
+    rcpt_read, rcpt_unread, id_families = {}, [], {}
     for name in sorted(os.listdir(prop_dir)) if os.path.isdir(prop_dir) else []:
         if not name.lower().endswith(".json") or not os.path.isfile(os.path.join(prop_dir, name)):
             continue
@@ -4407,6 +4407,8 @@ def main():
             rcpt_unread.append((name, "malformed", "isn't a file Flightdeck reads here, so it's ignored"))
         if not isinstance(obj, dict):
             continue
+        if _tstr(obj.get("id")) and (obj.get("kind") in ("plan", "status") or isinstance(obj.get("format"), str)):
+            id_families.setdefault(obj["id"], []).append((name, todo_claims(obj)))
         # A to-do record (4.0, PF.todos.claims): read by its own reader first, as the app does, and never a plan or a decision.
         # One it refuses is named with the app's reason; one it reads is a living run's record, not this checker's to report.
         if todo_claims(obj):
@@ -4526,6 +4528,14 @@ def main():
     if out["scopes"] or any(n.startswith("req-") for n in torn):
         out["scopeNote"] = SCOPE_NOTE
 
+    # Copies under one id that are different families of record (a to-do record and a plan, say): the loader holds every one
+    # of them as a record that can't be read (PF.loop.splitIds), so a receipt among them is unread, with the loader's reason.
+    split_unread = []
+    for sid, fams in sorted(id_families.items()):
+        if any(t for _, t in fams) and any(not t for _, t in fams):
+            why = "has copies under one id (" + sid + ") that are different kinds of record, so which is meant isn't known. Keep one of them"
+            split_unread.extend((n, "malformed", why) for n, _ in fams)
+
     runs_dir = os.path.join(root, "runs")
     for proc in sorted(os.listdir(runs_dir)) if os.path.isdir(runs_dir) else []:
         pdir = os.path.join(runs_dir, proc)
@@ -4544,7 +4554,7 @@ def main():
                     if m and (m.group(1) + "." + m.group(2)) not in lineage and time.time() - os.path.getmtime(os.path.join(rdir, n)) >= 60:
                         copies.append(n)
                 receipts = [n for n in names if n.startswith("candidate-")]
-                v = receipt_verdict(read_text(os.path.join(rdir, "run.json")), rcpt_read, rcpt_unread)
+                v = receipt_verdict(read_text(os.path.join(rdir, "run.json")), rcpt_read, rcpt_unread + split_unread)
                 if v:
                     out.setdefault("runReceipts", []).append(dict({"run": proc + "/" + rid}, **v))
                 if copies:
