@@ -203,6 +203,22 @@ rule('Usage: a missing tool or --from, an unknown flag, --dry-run on list, a mis
   assert.deepStrictEqual(snap(root), before, 'nothing written');
 });
 
+rule('A key twice in one sync is refused whole before anything is written, so no receipt ever says already for a record not filed', async () => {
+  const { root } = await folder();
+  const n = ls(root).length;
+  for (const facts of [[prs(), prs()], [prs(), blockers(), prs({ entries: [{ id: '18', text: 'Other', state: 'open' }] })]]) {
+    const s = json('fact', 'sync', root, PR, '--from', input({ facts }), '--json', ...TOOL);
+    assert.deepStrictEqual([s.code, s.error && s.error.kind, ls(root).length], [1, 'invalid', n], JSON.stringify(s).slice(0, 600));
+    assert.ok(/prs-102-a\): This key is in this sync twice/.test(s.error.why), s.error.why);
+  }
+  /* Its first write failing can't leave a false already behind it. */
+  const block = path.join(root, 'proposals', F.idFor('git-bot', 'prs-102-a') + '.json');
+  fs.mkdirSync(block, { recursive: true });
+  const s = json('fact', 'sync', root, PR, '--from', input({ facts: [prs(), prs()] }), '--json', ...TOOL);
+  assert.ok(!(s.data && s.data.facts && s.data.facts.some(f => f.status === 'already')), JSON.stringify(s).slice(0, 600));
+  fs.rmdirSync(block);
+});
+
 rule('An interruption between two records leaves the first standing; the next sync files only what is missing, once', async () => {
   const { root } = await folder(), file = input({ facts: [prs(), blockers()] });
   const block = path.join(root, 'proposals', F.idFor('git-bot', 'blk-102-a') + '.json');

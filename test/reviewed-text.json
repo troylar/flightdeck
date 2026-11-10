@@ -13,16 +13,16 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "6b1733965994f82553776947ab300c9f705382309fb7b8040966738dce8abe6a",
-      "reviewed": "suggest-done: one run/op/to-do check for what is read first and what is found after a lost race; checked for direct writes and unconditional deletes"
+      "sha256": "339c840993f664cfe8157201e0a2152f00494941e2abc26ecb3ff42141254942",
+      "reviewed": "fact sync refuses a key twice in one batch before writing; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "cf0a7c0289f08fc6d138b4feaddbdc118b45af451a7732e5ee68c9480c752b38",
       "reviewed": "slice 4 commit 3: facts core (facts.js: records, reduction, freshness, support, de-duplication), todos hooks (fact dispatch, done support, now), Python checker parity; pure code, no direct writes or unconditional deletes"
     },
     "docs/apps.md": {
-      "sha256": "05398d015543151054867b5c06883335301e094806d84547570f83d643e1b9e4",
-      "reviewed": "a link where a to-do or fact record would be is unread, run unknown; checked for direct writes and unconditional deletes"
+      "sha256": "3a8ac7286942c99e36bf38b00b10861069bd200565d378c5096a66b528bcc082",
+      "reviewed": "fact sync refuses a key twice in one batch before writing; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
       "sha256": "4104d242ff70159ce12ceb19b3bbe95f6c2c9c13355a9de40d497379052f01c6",

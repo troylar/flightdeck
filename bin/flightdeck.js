@@ -3059,9 +3059,11 @@ async function factMain(argv) {
     const held = (why) => done({ run: { process: proc, id: runId }, status: 'held', facts: [], partial: false, preview: why + ' Nothing was written. Check folder availability, then sync again.' }, EXIT.partial);
     if (problems().length) return held('Part of the team folder this depends on couldn\'t be read.');
     /* Checked in order, each against the ones before it in the batch, so two observations of one slot are filed in order. */
-    const recs = records.slice(), plan = [], refused = [], at = new Date().toISOString();
+    const recs = records.slice(), plan = [], refused = [], at = new Date().toISOString(), keyAt = Object.create(null);
     for (let i = 0; i < batch.facts.length; i++) {
       const b = batch.facts[i], label = 'fact ' + (i + 1) + (b && typeof b.key === 'string' ? ' (' + String(b.key).slice(0, 120) + ')' : '');
+      /* One key once per sync: a second copy's receipt would rest on a write that may not happen. */
+      if (b && typeof b.key === 'string') { if (keyAt[b.key]) { refused.push({ label, why: 'This key is in this sync twice (also fact ' + keyAt[b.key] + '). Each observation has its own key; send it once.', taken: false }); continue; } keyAt[b.key] = i + 1; }
       const LV = b && typeof b.loopStep === 'string' ? viewOf(b.loopStep) : null;
       if (LV && LV.ledger.held.length) return held('A scope record of loop ' + b.loopStep + ' can\'t be read yet, so its items aren\'t known.');
       const P = FX.prepare(r, { obs: b, by: { tool: tool.name, version: tool.version }, records: recs, unread, items: LV ? LV.rollup.items : [], at, app: eng.version, now: NOW });
