@@ -25,8 +25,8 @@
       "reviewed": "MD: keep commands judge the source run and its version; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "36023a452bc58849ce25eca93550078d237716bc92bdbd57ac5d011bf4520441",
-      "reviewed": "MC: evidence compares the whole pin, keeps plan link refusals, holds on a proposals read failure; checked for direct writes and unconditional deletes"
+      "sha256": "d35d559ae01a6218791d303ee118cc3a13033b0c02519fc33faacd5d043e9275",
+      "reviewed": "OA: positive proof for non-owner publish of kept content; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -257,8 +257,8 @@
       "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/learn.js": {
-      "sha256": "f9e286d999bf814e584f5ac5cc345c503a903b3d6f93e15f24584e545e19eafc",
-      "reviewed": "MA: Publish and Promote share one kept-content rule read fresh inside the guard; checked for direct writes and unconditional deletes"
+      "sha256": "f7bf4fa04217639fa0cbfabadce11e2e0ddd7f1c42dc1cb2be3dbdb0522056fc",
+      "reviewed": "OA: positive proof for non-owner publish of kept content; checked for direct writes and unconditional deletes"
     },
     "src/core/library.js": {
       "sha256": "5c8555ff9b8bc67aa90ea4f556bddebbe47d17ae37e296d44b815187d776bd44",
@@ -421,8 +421,8 @@
       "reviewed": "MC: evidence compares the whole pin, keeps plan link refusals, holds on a proposals read failure; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "e47f866ff09f9268de4f7902fbfcb51242fa4da9557ed7268ea308c6e0c13b08",
-      "reviewed": "MC: evidence compares the whole pin, keeps plan link refusals, holds on a proposals read failure; checked for direct writes and unconditional deletes"
+      "sha256": "4c472a83af8d77324b010d29eeffc509290db25584ac0cf46449e9cd0698f1db",
+      "reviewed": "OA: positive proof for non-owner publish of kept content; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

@@ -20256,7 +20256,45 @@ PF.learn = (function () {
     if (!out.owner && kept && (R.decUnread || []).some(function (u) { return u && u.process === pid; })) { out.owner = true; out.unclassified = true; }
     /* A correction the version lists (R.listed) with no decision at all can't be told apart from a keep: the owner's. */
     if (!out.owner && (R.listed || []).some(function (x) { var id = typeof x === 'string' ? x : x && x.id; return id && !by[id]; })) { out.owner = true; out.unclassified = true; }
+    /* Positive proof (OA): where the checklist has kept anything (a keep or a decision naming one, readable or not, or a
+       decision on it that can't be read), someone other than the owner writes only a text whose every change against the
+       version before is an ordinary correction's recorded result, read in a readable decision. Lost proof is never
+       read as "nothing kept". */
+    var keepGroup = Object.create(null);
+    order.forEach(function (gid) { if (by[gid].some(function (d) { return (d.members || []).some(function (m) { return KEEP_ID.test(m); }); })) keepGroup[gid] = true; });
+    try { C.groups(members(keeps.filter(function (k) { return k.run && k.by && k.anchor; }), [], pid)).forEach(function (g) { keepGroup[g.id] = true; }); } catch (e) { /* a keep that can't be grouped proves nothing */ }
+    var traced = kept || Object.keys(keepGroup).length > 0 || (R.decUnread || []).some(function (u) { return u && u.process === pid; });
+    if (!out.owner && traced) {
+      var proof = decs.filter(function (d) { return !keepGroup[d.group] && (d.status === 'applied' || d.status === 'included') && !d.addressed && d.result; });
+      var u = unproven(map, pmap, proof);
+      if (u) { out.owner = true; out.unclassified = true; out.unproven = u; }
+    }
     return out;
+  }
+  /* The first change in map against pmap no ordinary decision recorded as its result ('' when every change is): a step's
+     content new or changed (its recorded step and signature), a step removed (a recorded removal), a phase's or gate's note
+     (its recorded note), or anything else about the checklist (its details, phases or gates), which no correction records. */
+  function unproven(map, pmap, proof) {
+    if (!map) return 'its text can\'t be read';
+    var C = PF.corrections, M = PF.map, has = function (step, sig) { return proof.some(function (d) { return d.result.sig === sig && (d.result.step === step || (sig === GONE_SIG && !d.result.step)); }); };
+    var now = M.steps(map), before = pmap ? M.steps(pmap) : [], ids = Object.create(null);
+    for (var i = 0; i < now.length; i++) {
+      var id = now[i].step.id, s = C.stepSig(map, id); ids[id] = true;
+      if (pmap && C.stepSig(pmap, id) === s) continue;
+      if (!has(id, s)) return 'step ' + (id || now[i].step.text);
+    }
+    for (var j = 0; j < before.length; j++) if (!ids[before[j].step.id] && !has(before[j].step.id, GONE_SIG)) return 'the removal of step ' + before[j].step.id;
+    var noteOf = function (m, kind, id) { var p = m ? m.phases.filter(function (x) { return (kind === 'gate' ? x.gate && x.gate.id : x.id) === id; })[0] : null; return p ? norm((kind === 'gate' ? p.gate : p).note) : null; };
+    var notes = [];
+    map.phases.forEach(function (p) { notes.push(['phase', p.id]); if (p.gate) notes.push(['gate', p.gate.id]); });
+    for (var k = 0; k < notes.length; k++) {
+      var n = noteOf(map, notes[k][0], notes[k][1]);
+      if (n === noteOf(pmap, notes[k][0], notes[k][1])) continue;
+      if (!proof.some(function (d) { return !d.result.step && d.result.sig === PF.util.hash('note|' + n); })) return 'the note of ' + notes[k][0] + ' ' + notes[k][1];
+    }
+    var skel = function (m) { return m ? JSON.stringify({ meta: m.meta, phases: m.phases }, function (key, v) { return key === 'steps' || key === 'note' || key === 'noted' || key === 'line' ? undefined : v; }) : ''; };
+    if (skel(map) !== skel(pmap)) return 'its details, phases or gates';
+    return '';
   }
 
   return { LIMITS: LIMITS, idFor: idFor, keyFor: keyFor, phaseSig: phaseSig, cleanFile: cleanFile, build: build, keepsOf: keepsOf, route: route, prepare: prepare, previewOf: previewOf, stepTextWhy: stepTextWhy,
@@ -37806,6 +37844,7 @@ PF.examples = (function () {
         if (cw) return cw;
         if (pw || !proc) return pw || 'its checklist\'s owner can\'t be told.';
         var w = PF.learn.ownerWhy({ keep: true, members: [] }, proc, ppl, me, false);
+        if (w && K.unproven) return 'its checklist has kept things for next time, and nothing readable shows that this version\'s change to ' + K.unproven + ' is an ordinary correction, so it may include what was kept for next time. ' + w;
         return w ? 'this version includes what was kept for next time' + (K.unclassified ? ' (a decision on its corrections can\'t be read, so it can\'t be told apart)' : '') + '. ' + w : '';
       } });
   }

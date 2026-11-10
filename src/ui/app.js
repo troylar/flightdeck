@@ -3719,6 +3719,7 @@
         if (cw) return cw;
         if (pw || !proc) return pw || 'its checklist\'s owner can\'t be told.';
         var w = PF.learn.ownerWhy({ keep: true, members: [] }, proc, ppl, me, false);
+        if (w && K.unproven) return 'its checklist has kept things for next time, and nothing readable shows that this version\'s change to ' + K.unproven + ' is an ordinary correction, so it may include what was kept for next time. ' + w;
         return w ? 'this version includes what was kept for next time' + (K.unclassified ? ' (a decision on its corrections can\'t be read, so it can\'t be told apart)' : '') + '. ' + w : '';
       } });
   }

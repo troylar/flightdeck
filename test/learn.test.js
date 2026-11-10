@@ -316,6 +316,40 @@ rule('Kept content is worked out from the decisions that applied it, before any 
   assert.strictEqual(L2.keptCapWhy(K, full.slice(0, 10)), '', 'under the cap');
 });
 
+/* OA: someone other than the owner publishes a checklist that has kept anything only when every change against the latest
+   version is shown, by a readable decision, to be an ordinary correction's recorded result. Lost proof never frees it. */
+rule('Without positive proof a change needs the owner: a deleted or unreadable decision, a truncated keep, a changed detail; proven ordinary changes stay anyone\'s', () => {
+  const H = require('./harness').load(), L2 = H.learn, C2 = H.corrections, M2 = H.map, GONE = H.util.hash('gone');
+  const md = ['---', 'process: p1', 'title: P', 'owner: person-morgan', '---', '', '## A · READ-DO {#a}', '- [!] {confirm} One {#one}', '- [ ] {confirm} Two {#two}', ''].join('\n');
+  const withKept = md.replace('- [!] {confirm} One {#one}', '- [!] {confirm} One {#one}\n- [ ] {confirm} Kept words {#kept1}');
+  const sig = C2.stepSig(M2.parse(withKept), 'kept1');
+  const keep = { kind: 'keep', id: 'req-keep-aaaaaaaaaaaaaaaaaaaaaaaa', template: { process: 'p1' } };
+  const ord = (extra) => Object.assign({ kind: 'correction-decision', process: 'p1', group: 'gcccccccccccccccc', status: 'applied', members: [], result: { step: 'kept1', sig }, by: 'person-avery', at: '2026-11-10T00:00:00.000Z', rev: 1 }, extra || {});
+  const K = (text, R) => L2.keptIn(text, md, R, 'p1');
+  /* The only decision deleted while the keep stays; the keep deleted and its decision truncated; the keep truncated and its
+     decision deleted: nothing shows the new step is ordinary, so it's the owner's. */
+  assert.strictEqual(K(withKept, { decisions: [], keeps: [keep] }).owner, true, 'decision deleted, keep stays');
+  assert.strictEqual(K(withKept, { decisions: [], keeps: [], decUnread: [{ process: 'p1', _file: 'd.json' }] }).owner, true, 'keep deleted, decision truncated');
+  assert.strictEqual(K(withKept, { decisions: [], keeps: [], keepUnread: [{ file: keep.id + '.json' }] }).owner, true, 'keep truncated, decision deleted');
+  /* An ordinary decision that recorded exactly this step proves it: anyone, even where something was kept. */
+  assert.strictEqual(K(withKept, { decisions: [ord()], keeps: [keep] }).owner, false, 'proven ordinary');
+  assert.strictEqual(K(withKept, { decisions: [ord({ result: { step: 'kept1', sig: 'deadbeef' } })], keeps: [keep] }).owner, true, 'a recorded result that isn\'t this content proves nothing');
+  assert.strictEqual(K(withKept, { decisions: [ord({ status: 'open' })], keeps: [keep] }).owner, true, 'an open decision proves nothing');
+  /* A change beyond the proven step (a detail of the checklist, another step, a removal no decision recorded) needs the owner. */
+  assert.strictEqual(K(withKept.replace('title: P', 'title: Q'), { decisions: [ord()], keeps: [keep] }).owner, true, 'a changed title');
+  assert.strictEqual(K(withKept.replace('Two {#two}', 'Two more {#two}'), { decisions: [ord()], keeps: [keep] }).owner, true, 'another step changed');
+  assert.strictEqual(K(withKept.replace('- [ ] {confirm} Two {#two}\n', ''), { decisions: [ord()], keeps: [keep] }).owner, true, 'a removal no one recorded');
+  assert.strictEqual(K(withKept.replace('- [ ] {confirm} Two {#two}\n', ''), { decisions: [ord(), ord({ group: 'gdddddddddddddddd', result: { step: '', sig: GONE } })], keeps: [keep] }).owner, false, 'a recorded removal');
+  /* A decision of a keep's own group never proves anything ordinary, even naming no member. */
+  const W = L2.keptIn(withKept, md, { decisions: [ord({ members: ['req-keep-aaaaaaaaaaaaaaaaaaaaaaaa'] })], keeps: [keep] }, 'p1');
+  assert.strictEqual(W.owner, true, 'a keep group\'s decision');
+  /* A checklist that never kept anything: as before, anyone. Nothing changed: nothing to prove. */
+  assert.strictEqual(K(withKept.replace('title: P', 'title: Q'), { decisions: [], keeps: [] }).owner, false, 'never kept: as before');
+  assert.strictEqual(K(md, { decisions: [], keeps: [keep] }).owner, false, 'nothing changed');
+  /* The versions can't be read (no previous text) where something was kept: every step is new, so the owner's. */
+  assert.strictEqual(L2.keptIn(withKept, null, { decisions: [ord()], keeps: [keep] }, 'p1').owner, true, 'no previous version to compare');
+});
+
 rule('The 501st keep that would join a group is refused, naming the limit; a group at 500 is still decided and withdrawn', () => {
   const W = world(), t1 = W.todo('Post the release notes', { phase: 'ship' }), K = W.kept({ todo: t1 });
   for (let i = 1; i < 500; i++) W.push(Object.assign(JSON.parse(JSON.stringify(K.record)), { id: 'req-keep-' + i.toString(16).padStart(24, '0'), change: Object.assign({}, K.record.change, { text: 'Wording ' + i }) }));

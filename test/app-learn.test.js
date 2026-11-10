@@ -231,6 +231,51 @@ rule('Kept content needs its owner from durable proof read at the write: Reopen,
   }
 });
 
+/* OA: lost proof never frees kept content. Every way of losing it (the keep, the decision, both, one member, a truncated keep
+   or decision, Reopen with the decisions deleted, and staging before that) × Publish and Promote × refreshed and cached:
+   someone else publishes nothing; the owner publishes, unless a keep a readable decision names is gone (held for everyone). */
+const OA_WAYS = ['keep', 'decision', 'both', 'member', 'trunc-keep', 'trunc-decision', 'reopen', 'staged'];
+rule('Lost proof never lets anyone but the owner publish kept content: every way of losing it, for Publish and Promote, refreshed or cached', async () => {
+  const stage = async (app) => {
+    await openPage(app); app.set('change-note', 'Post the notes'); app.click('stage-draft', 'release-notes'); await app.tick(300);
+    const st = app.files('staged/release-notes/').filter(f => /publication\.json$/.test(f));
+    assert.strictEqual(st.length, 1, 'set-up: staged'); return JSON.parse(app.fs.files[st[0]].t).folder;
+  };
+  const decFiles = (app) => Object.keys(app.fs.files).filter(f => /^corrections\//.test(f) && (() => { try { return JSON.parse(app.fs.files[f].t).kind === 'correction-decision'; } catch (e) { return false; } })());
+  const cut = (app, f) => { app.fs.files[f] = { t: app.fs.files[f].t.slice(0, 20), m: Date.now() }; };
+  let checks = 0;
+  for (const how of OA_WAYS) for (const path of ['publish', 'promote']) for (const mode of ['refresh', 'cached']) {
+    const label = how + ' · ' + path + ' · ' + mode, { app, gid } = await appliedKeep(), k1 = app.files('proposals/req-keep-')[0];
+    let folder = null;
+    if (how === 'staged') folder = await stage(app);
+    if (how === 'member') {
+      app.choose('person-avery'); await app.tick(80); backToRun(app); await app.tick(80);
+      const b = await added(app, 'Publish the notes to the wiki'); app.click('keep', b, { kind: 'todo' }); await app.tick(120); await refresh(app, 300);
+      assert.strictEqual(app.files('proposals/req-keep-').length, 2, label + ': set-up: two keeps');
+      app.choose('person-morgan'); await app.tick(80);
+    }
+    if (how === 'reopen' || how === 'staged') { await refresh(app, 300); await openPage(app); app.click('corr-reopen', gid); await app.tick(300); await refresh(app, 300); assert.strictEqual((await groupNow(app, gid)).status, 'open', label + ': set-up: reopened'); }
+    if (path === 'promote' && !folder) folder = await stage(app);
+    const n = versions(app), ds = decFiles(app);
+    assert.ok(ds.length, label + ': set-up: decisions');
+    app.choose('person-avery'); await app.tick(80); await refresh(app, 300); await openPage(app);
+    if (how === 'keep' || how === 'both' || how === 'member') delete app.fs.files[k1];
+    if (how === 'trunc-keep') cut(app, k1);
+    if (how === 'decision' || how === 'reopen' || how === 'staged') ds.forEach(f => { delete app.fs.files[f]; });
+    if (how === 'both' || how === 'trunc-decision') ds.forEach(f => cut(app, f));
+    if (mode === 'refresh') { await refresh(app, 300); await openPage(app); }
+    const go = async () => { if (path === 'publish') { app.set('change-note', 'Post the notes'); app.click('publish', 'release-notes'); } else app.click('promote-stage', folder); await app.tick(400); };
+    await go();
+    assert.strictEqual(versions(app), n, label + ': nothing published by someone else'); checks++;
+    assert.ok(/kept for next time/.test(txt(app.html())), label + ': said why: ' + (txt(app.html()).match(/Nothing was (published|promoted)[^.]*\.[^.]*\./) || [])[0]);
+    app.choose('person-morgan'); await app.tick(80); await refresh(app, 300); await openPage(app);
+    await go();
+    const held = how === 'keep' || how === 'member' || how === 'trunc-keep';
+    assert.strictEqual(versions(app), held ? n : n + 1, label + (held ? ': a keep a decision names is gone: held for the owner too' : ': the owner publishes it')); checks++;
+  }
+  assert.strictEqual(checks, OA_WAYS.length * 2 * 2 * 2, 'the whole matrix ran');
+});
+
 rule('A keep checks the 500 limit on the keep records read again at the write: one filed meanwhile by another writer stops the 501st', async () => {
   const app = await setup(), id = await added(app, 'Post the release notes'), id2 = await added(app, 'Email the release notes');
   const PF = app.PF, people = JSON.parse(app.fs.files['people.json'].t);
