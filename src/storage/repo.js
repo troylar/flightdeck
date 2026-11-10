@@ -3193,7 +3193,9 @@ PF.repo = (function () {
       if (!self) return Promise.resolve();
       return proposalsRead().then(function (Pr) {
         if (Pr.failed) { if (self.living) p.living = { head: self.living.head, chain: [], receipt: null, missing: ['proposals/ ' + Pr.failed + ', so the run\'s work can\'t be packed.'], recs: {}, listing: null }; return; }
-        if (!self.living && !PF.todos.recordsFor(Pr.todos, self).length) return;
+        /* A record that can't be read but names this run (a malformed request, say) is part of its work too, living or not. */
+        var mineUnread = (Pr.todosUnread || []).some(function (u) { return u && u.run && u.run.process === self.process && u.run.id === self.id; });
+        if (!self.living && !PF.todos.recordsFor(Pr.todos, self).length && !mineUnread) return;
         return childrenOf(self).then(function (ch) {
           var D = PF.receipts.deps(self, { records: Pr.todos, unread: Pr.todosUnread, scopes: Pr.scopes, scopesUnread: Pr.scopesUnread, children: ch.runs, childUnread: ch.unread });
           if (D.over) throw new Error(D.over);

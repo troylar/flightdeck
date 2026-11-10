@@ -29,8 +29,8 @@
       "reviewed": "slice 6 CE: since() compares owed and resolved, says arrivals apart"
     },
     "docs/evidence.md": {
-      "sha256": "f1a61ee0866a33f610a08ab21bcfd77a0e10b378236240bd1e1d3a02965974b3",
-      "reviewed": "4.0 slice 6 commit 7, plan versus now and receipts: PF.receipts (compare, the receipt record, prepare, stateOf, since, deps), cleanLiving's receipt, PF.run.end's receipt, the app's end flow with its receipt guard and plan-versus-now chips, the evidence pack's living section and check_pack.py's replay, design 45.5 and docs/evidence.md; checked for direct writes and unconditional deletes: the receipt is written create-once through repo.saveScope with a fresh read before the write under the run and to-do guards, the run through the checked save chain, export only reads, nothing deleted"
+      "sha256": "e93463159412716edba1d701e82ed7706a1f85d1cf3d3ea056d3fe12a50530b8",
+      "reviewed": "slice 6 CD: export counts a malformed record naming the run before living"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
@@ -309,8 +309,8 @@
       "reviewed": "loops: items: item kind, feed binding, completeness fix, nouns, unknown-kind refusal in loop.js/map.js/publish.js/types.js and check_folder.py parity; pure checks only, checked for direct writes and unconditional deletes"
     },
     "src/core/receipts.js": {
-      "sha256": "d49bb5958b8deda03965932c10c4785b7f6cc5c50f8d09a28a68e743785e7fb5",
-      "reviewed": "slice 6 CE: since() compares owed and resolved, says arrivals apart"
+      "sha256": "b4c886adb77e6774801724120b03f890036a18d8f689244c1e4a3593037b074d",
+      "reviewed": "slice 6 CD: export counts a malformed record naming the run before living"
     },
     "src/core/refs.js": {
       "sha256": "24b7d2b52fcd99673fcc427db286a7224af83342da19efcd561ac850d6baa441",
@@ -421,8 +421,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "e19201aadab6e543cfa4c16d8396868536b4f8fb271a3c3bca2694d76e5f4861",
-      "reviewed": "4.0 slice 6 commit 7, plan versus now and receipts: PF.receipts (compare, the receipt record, prepare, stateOf, since, deps), cleanLiving's receipt, PF.run.end's receipt, the app's end flow with its receipt guard and plan-versus-now chips, the evidence pack's living section and check_pack.py's replay, design 45.5 and docs/evidence.md; checked for direct writes and unconditional deletes: the receipt is written create-once through repo.saveScope with a fresh read before the write under the run and to-do guards, the run through the checked save chain, export only reads, nothing deleted"
+      "sha256": "aaba02d1501adf75e25c684e87661263b18e3c8f5d1305ff46d01f0d834aa08a",
+      "reviewed": "slice 6 CD: export counts a malformed record naming the run before living"
     },
     "src/ui/app.js": {
       "sha256": "d77f0b32ceba308badb1364f41a30f9813be0e62faffe9925870abb69040d7cb",

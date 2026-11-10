@@ -164,4 +164,22 @@ rule('A pending request on a run that isn\'t living yet is packed and named, bef
   assert.ok(man.files.some(f => f.path === 'proposals/' + p.id + '.json' && f.role === 'living'));
 });
 
+rule('A malformed to-do record naming a run that isn\'t living yet makes its pack partial, by the record\'s path and kind; Python agrees', async () => {
+  const W = await made({ todos: 0 });
+  const bad = 'proposals/req-flightdeck-' + 'c'.repeat(24) + '.json';
+  W.files[bad] = JSON.stringify({ format: 'flightdeck-plan/4', features: ['living-runs'], kind: 'proposal', run: { process: W.run.process, id: W.run.id } });
+  const fsx = new BytesFS(W.files), { zip, res } = await pack(W.PF, fsx, W.key);
+  assert.deepStrictEqual(fsx.mutations, []);
+  assert.strictEqual(res.status, 'partial', JSON.stringify(res.col.unresolved));
+  const L = manifestOf(zip).runs[0].living;
+  assert.ok(L && !L.complete, 'a living section that isn\'t complete');
+  assert.ok(L.missing.some(m => m.indexOf(bad) === 0 && /\(malformed\)/.test(m)), JSON.stringify(L.missing));
+  if (PY) { const c = checkPack(zip); assert.ok(c.ok && /living 1/.test(c.out), c.out); }
+  /* A malformed record naming another run leaves this one's pack as in 3.0. */
+  const W2 = await made({ todos: 0 });
+  W2.files[bad] = JSON.stringify({ format: 'flightdeck-plan/4', features: ['living-runs'], kind: 'proposal', run: { process: W2.run.process, id: 'someone-else' } });
+  const two = await pack(W2.PF, new BytesFS(W2.files), W2.key);
+  assert.strictEqual(manifestOf(two.zip).runs[0].living, undefined);
+});
+
 run();

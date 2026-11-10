@@ -340,7 +340,7 @@ PF.receipts = (function () {
     (o.scopesUnread || []).forEach(function (u) { if (!u.loop || (u.loop.process === r.process && u.loop.run === r.id)) missing.push('proposals/' + u.file + ': a scope record that can\'t be read (' + String(u.why || 'unreadable') + ').'); });
     /* Records that can't be read: on this run, a child, or a run that can't be told, they may be part of its work. */
     var kids = Object.create(null); (o.children || []).forEach(function (c) { kids[c.process + '/' + c.id] = true; });
-    (o.unread || []).forEach(function (u) { var k = u.run ? u.run.process + '/' + u.run.id : ''; if (!u.run || k === r.process + '/' + r.id || kids[k]) missing.push('proposals/' + u.file + ' can\'t be read (' + String(u.why || 'unreadable') + '), so what the run\'s work rests on may be missing.'); });
+    (o.unread || []).forEach(function (u) { var k = u.run ? u.run.process + '/' + u.run.id : ''; if (!u.run || k === r.process + '/' + r.id || kids[k]) missing.push('proposals/' + u.file + ' (' + (u.kind === 'newer' || u.kind === 'unreadable' ? u.kind : 'malformed') + ') can\'t be read (' + String(u.why || 'unreadable') + '), so what the run\'s work rests on may be missing.'); });
     /* Past the cap nothing is cut: the export is refused (over), naming why. */
     var over = files.length + runs.length > (o.cap || DEP_CAP) ? 'The work of ' + r.process + '/' + r.id + ' rests on ' + (files.length + runs.length) + ' records and runs; a pack made here holds at most ' + (o.cap || DEP_CAP) + '. Nothing was packed.' : '';
     return { files: files, runs: runs, plans: plans, chain: chain, receipt: rs, missing: missing, over: over };
