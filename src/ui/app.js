@@ -5506,7 +5506,7 @@
      draft already has the change: the next look shows "already" with Link this correction. */
   function applyCorr(ov, how) {
     var x = caFind(ov.pid, ov.gid), p = x.p, g = x.g, C = PF.corrections; if (!g || !p || !state.me) return;
-    var why = caBlocked(p) || keepOwnerWhy(g, p.id); if (why) { caErr(ov, why); return; }
+    var why = caBlocked(p) || keepOwnerWhy(g, p.id) || C.decideWhy(g); if (why) { caErr(ov, why); return; }
     var ed = openEditor(p), base = ed.base, op = g.change.op, edited = null;
     if (how === 'edit' && (op === 'wording' || op === 'add')) {
       var el = document.getElementById('ca-edit'); edited = String(el ? el.value : ov.edit ? ov.edit.text : '').replace(/\s+/g, ' ').trim();
@@ -5519,6 +5519,7 @@
     if (rv.text === base) { caErr(ov, 'That\'s what the draft says now. Choose Cancel, then Already addressed.', edited != null ? 'ca-edit' : null); return; }
     var subj = (rv.now && rv.now.text) || g.from || '', lb = TL.labelOf({ op: 'applyCorrection' }), others = C.alternatives(x.all, g).filter(function (y) { return y.id !== g.id; });
     var ids = how === 'edit' && ov.combine ? ov.combine : [g.id], gs = ids.map(function (id) { return x.all.filter(function (y) { return y.id === id; })[0]; }).filter(Boolean);
+    var big = gs.map(function (y) { return C.decideWhy(y); }).filter(Boolean)[0]; if (big) { caErr(ov, big); return; }
     var before = obSnap(ed);
     learnIds(ed, ed.base); dropPending();
     TL.record(tlOf(ed), base, rv.text, { kind: 'op', lines: true, label: lb.label, subject: subj, items: ['step:' + (rv.added || g.target.step)], selBefore: before });

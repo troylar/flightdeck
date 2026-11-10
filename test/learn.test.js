@@ -276,6 +276,17 @@ rule('A publication claiming a kept step it doesn\'t make, or before the run\'s 
   assert.ok(!gi.landed && gi.proofless, '"It\'s in v2" for a version that doesn\'t make it is unconfirmed');
 });
 
+rule('A keep decision over the 500 members a decision names is refused, never truncated; an ordinary group is as before', () => {
+  const mem = (n) => Array.from({ length: n }, (_, i) => ({ id: 'c' + String(i).padStart(5, '0'), by: 'person-blake', change: { text: 'Wording ' + i } }));
+  const g = (n, keep) => ({ id: 'g-1', process: 'release-readiness', keep: !!keep, members: mem(n) });
+  assert.strictEqual(C.decision(g(500, true), 'person-morgan', 'applied', '', AT).members.length, 500, '500 is decided');
+  assert.strictEqual(C.decideWhy(g(500, true)), '');
+  assert.ok(/500/.test(C.decideWhy(g(501, true))), 'the limit is named: ' + C.decideWhy(g(501, true)));
+  assert.throws(() => C.decision(g(501, true), 'person-morgan', 'applied', '', AT), /500/);
+  assert.strictEqual(C.decideWhy(g(501, false)), '', 'an ordinary group is decided as before');
+  assert.strictEqual(C.decision(g(501, false), 'person-morgan', 'applied', '', AT).members.length, 501);
+});
+
 rule('A keep is information only: the run\'s work, holds and every other correction read exactly as without it', () => {
   const W = world(), td = W.todo('Post the release notes', { phase: 'ship' });
   const before = plain(W.view()), runs = [W.r];

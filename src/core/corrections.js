@@ -256,7 +256,7 @@ PF.corrections = (function () {
     if (o.kind !== 'correction-decision' || typeof o.group !== 'string' || !ID.test(o.group) || DECIDE.indexOf(o.status) < 0) return null;
     var r = o.result && typeof o.result === 'object' && /^[0-9a-f]{8}$/.test(o.result.sig || '') ? { step: typeof o.result.step === 'string' && CID.test(o.result.step) ? o.result.step : '', sig: o.result.sig } : null;
     var out = Object.assign(d, { kind: 'correction-decision', group: o.group, status: o.status, act: typeof o.act === 'string' && ID.test(o.act) ? o.act : '', result: o.addressed === true ? null : r, addressed: o.addressed === true && o.status === 'applied', dv: whole(o.dv),
-      members: Array.isArray(o.members) ? o.members.filter(function (m) { return typeof m === 'string' && ID.test(m); }).slice(0, 500) : [] });
+      members: Array.isArray(o.members) ? o.members.filter(function (m) { return typeof m === 'string' && ID.test(m); }).slice(0, MEMBERS_MAX) : [] });
     if (o.status === 'included') {
       var m = typeof o.folder === 'string' ? FOLDER.exec(o.folder) : null;
       if (!m || +m[1] !== o.version) return null;
@@ -268,8 +268,16 @@ PF.corrections = (function () {
      decision this window shows (opts.current), and seen names that decision's file. Declining needs a reason; only the
      author of every correction in the group can withdraw it. An applied one records its result (opts.result, from outcome),
      so a later change to that step shows; older copies ignore it. */
+  /* A decision names at most MEMBERS_MAX members (its reader keeps that many). A keep group with more is refused, never
+     written short (the rest would reopen it): '' or why. Every other group is decided as before. */
+  var MEMBERS_MAX = 500;
+  function decideWhy(g) {
+    if (!g || !g.keep || (g.members || []).length <= MEMBERS_MAX) return '';
+    return 'This correction has ' + g.members.length + ' keeps, more than the ' + MEMBERS_MAX + ' one decision can name, so nothing was decided. Ask whoever kept some of these wordings to withdraw theirs until ' + MEMBERS_MAX + ' or fewer remain, then decide it.';
+  }
   function decision(g, by, status, reason, at, opts) {
     opts = opts || {};
+    if (decideWhy(g)) throw fail(decideWhy(g));
     if (DECIDE.indexOf(status) < 0) throw fail('Unknown decision.');
     reason = norm(reason);
     if (status === 'declined' && !reason) throw fail('Why not? The runs will show this.', 'corr-reason');
@@ -810,5 +818,5 @@ PF.corrections = (function () {
   return { LIMITS: LIMITS, OPS: OPS, OTHER: OTHER, OP_LABEL: OP_LABEL, STATUS: STATUS, build: build, cleanNote: cleanNote, stepSig: stepSig, collect: collect, groups: groups, cleanDecision: cleanDecision, verdict: verdict,
     decision: decision, canWithdraw: canWithdraw, status: status, label: label, openCounts: openCounts, statusById: statusById, forRun: forRun, proposal: proposal, diffWords: diffWords, brief: brief, summary: summary,
     toOps: toOps, onNote: onNote, targetKey: targetKey, targetName: targetName, review: review, inverse: inverse, outcome: outcome, changedSince: changedSince, alternatives: alternatives, applies: function (g) { return !!APPLIES[g.change.op] && !g.legacy && !g.newer; },
-    LISTED_MAX: LISTED_MAX, listed: listed, satisfied: satisfied, landing: landing, forProcess: forProcess, forPublish: forPublish, changedIn: changedIn, acks: acks, checkable: checkable };
+    LISTED_MAX: LISTED_MAX, listed: listed, satisfied: satisfied, landing: landing, forProcess: forProcess, forPublish: forPublish, decideWhy: decideWhy, MEMBERS_MAX: MEMBERS_MAX, changedIn: changedIn, acks: acks, checkable: checkable };
 })();
