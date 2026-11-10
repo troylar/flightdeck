@@ -3731,18 +3731,28 @@
     var cx = loopGuard({ run: rk, readable: true }), text = PF.todos.text(K.file), endBusy = busyStart(), sg = gen;
     /* The checklist another one's keep rests on (a loop's items' checklist) is read again right before the write, never
        taken from the copy read before: one that can't be read now holds the keep. */
-    var gov = K.record.template && K.record.template.process !== r.process ? K.record.template.process : '', govProc = null, late = '';
-    /* The keep is asked again on people.json read right before the write (writeGuard): its person listed and active. */
+    var gov = K.record.template && K.record.template.process !== r.process ? K.record.template.process : '', govProc = null, late = '', fr = null;
+    /* The keep is asked again on people.json read right before the write (writeGuard): its person listed and active. The
+       to-do and keep records are read again first (MB), so the 500 limit is counted on what the folder holds now, never on
+       this window's last read; a keep record that can't be read refuses it. */
     var kg = writeGuard({
-      fresh: gov ? function (fx) {
-        return repo.readProcess(fx, gov).then(function (p) { govProc = p; if (!p) late = 'the checklist ' + gov + ' isn\'t published in this folder now.'; return !!p; },
-          function (e) { late = 'publications/' + gov + '/ couldn\'t be read again right before it was (' + (e && e.message || e) + ').'; return false; });
-      } : null,
+      fresh: function (fx) {
+        fr = null;
+        var recs = repo.readTodos(fx).then(function (x) { fr = x; return true; }, function (e) { late = 'proposals/ couldn\'t be read again right before it was (' + (e && e.message || e) + ').'; return false; });
+        return recs.then(function (ok) {
+          if (!ok || !gov) return ok;
+          return repo.readProcess(fx, gov).then(function (p) { govProc = p; if (!p) late = 'the checklist ' + gov + ' isn\'t published in this folder now.'; return !!p; },
+            function (e) { late = 'publications/' + gov + '/ couldn\'t be read again right before it was (' + (e && e.message || e) + ').'; return false; });
+        });
+      },
       still: function (ppl) {
         if (!guardOk(cx)) return false;
         if (gov && !govProc) return false;
-        var A = PF.learn.prepare(findRun(rk), { source: source, by: { person: state.me }, records: data.todos || [], unread: data.todosUnread || [], people: ppl, procOf: gov ? function (id) { return id === gov ? govProc : ctx.procOf(id); } : ctx.procOf, at: K.record.at, app: APP_VERSION, now: tdNow() });
-        if (A.why && A.held) late = A.why;
+        if (!fr) return false;
+        var bad = (fr.unread || []).filter(function (u) { return u && /^req-keep-/.test(String(u.file)); })[0];
+        if (bad) { late = 'a record kept for next time can\'t be read now (proposals/' + bad.file + '), so how many are kept at this place can\'t be counted.'; return false; }
+        var A = PF.learn.prepare(findRun(rk), { source: source, by: { person: state.me }, records: fr.records || [], unread: (fr.unread || []).filter(function (u) { return !(u && u.file === 'people.json'); }), people: ppl, procOf: gov ? function (id) { return id === gov ? govProc : ctx.procOf(id); } : ctx.procOf, at: K.record.at, app: APP_VERSION, now: tdNow() });
+        if (A.why) late = A.why.replace(/\.$/, '') + '.';
         return !A.why && A.status === 'new' && A.id === K.id && PF.todos.text(A.file) === text;
       }
     });

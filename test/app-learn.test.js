@@ -231,6 +231,30 @@ rule('Kept content needs its owner from durable proof read at the write: Reopen,
   }
 });
 
+rule('A keep checks the 500 limit on the keep records read again at the write: one filed meanwhile by another writer stops the 501st', async () => {
+  const app = await setup(), id = await added(app, 'Post the release notes'), id2 = await added(app, 'Email the release notes');
+  const PF = app.PF, people = JSON.parse(app.fs.files['people.json'].t);
+  const file = async (text, todo) => {
+    const d = await PF.repo.loadAll(app.fs, {}), r = PF.run.sanitize(theRun(app));
+    const K = PF.learn.prepare(r, { source: { todo }, text, by: { person: 'person-blake' }, records: d.todos, unread: d.todosUnread, people, at: new Date().toISOString(), app: '4.0.0' });
+    assert.ok(!K.why, K.why); app.fs.files['proposals/' + K.name] = { t: PF.todos.text(K.file), m: Date.now() }; return K;
+  };
+  /* 499 wordings kept at one place, read by this window. */
+  const d0 = await PF.repo.loadAll(app.fs, {}), r0 = PF.run.sanitize(theRun(app));
+  const first = PF.learn.prepare(r0, { source: { todo: id }, by: { person: 'person-blake' }, records: d0.todos, unread: d0.todosUnread, people, at: new Date().toISOString(), app: '4.0.0' });
+  assert.ok(!first.why, first.why);
+  const recs = [];
+  for (let i = 0; i < 499; i++) { const K = PF.learn.prepare(r0, { source: { todo: id }, text: 'Wording ' + i, by: { person: 'person-blake' }, records: d0.todos.concat(recs), unread: [], people, at: new Date().toISOString(), app: '4.0.0' }); assert.ok(!K.why, K.why); recs.push(Object.assign(K.record, { _file: K.name })); app.fs.files['proposals/' + K.name] = { t: PF.todos.text(K.file), m: Date.now() }; }
+  await refresh(app, 1500);
+  const before = app.files('proposals/req-keep-').length;
+  assert.strictEqual(before, 499, 'set-up: 499 keeps');
+  /* Another writer files the 500th; this window hasn't read it. */
+  await file('Wording 499', id);
+  app.click('keep', id2, { kind: 'todo' }); await app.tick(600);
+  assert.strictEqual(app.files('proposals/req-keep-').length, 500, 'no 501st keep was filed');
+  assert.ok(/500/.test(txt(app.html())), 'said why: ' + (txt(app.html()).match(/Nothing was kept[^.]*\.[^.]*\./) || [])[0]);
+});
+
 rule('Promoting a staged version that includes a keep is the active owner\'s too', async () => {
   const { app } = await appliedKeep();
   await openPage(app);

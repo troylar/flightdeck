@@ -25,8 +25,8 @@
       "reviewed": "JC: evidence verdict validates start proof, holds torn plans beside copies, runs reuses one proposals read, view memo keyed on read failures; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "3a24e6fc64d6b051f04c70bf4bec739f4e063117f7595a452278625481ad183d",
-      "reviewed": "MA: Publish and Promote share one kept-content rule read fresh inside the guard; checked for direct writes and unconditional deletes"
+      "sha256": "847282b13cbc42333641dbc2b902ca6bfef1dc5cc7484f12728094eaa3f33015",
+      "reviewed": "MB: the keep guard rereads keep records before the 500 limit; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -421,8 +421,8 @@
       "reviewed": "MA: Publish and Promote share one kept-content rule read fresh inside the guard; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "cd93480f0ca3155d4eb6cb46917208e97772d43db0d77c40ccac2a067ab22c60",
-      "reviewed": "MA: Publish and Promote share one kept-content rule read fresh inside the guard; checked for direct writes and unconditional deletes"
+      "sha256": "208fb7d872e5c203f62f60269cdd56af0144b7eb16f090d6aab55c37a627e18a",
+      "reviewed": "MB: the keep guard rereads keep records before the 500 limit; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
