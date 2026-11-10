@@ -2963,10 +2963,12 @@ async function spreadMain(argv) {
     }
     if (val['--reason'] != null) body.reason = val['--reason'];
     if (val['--as'] != null) body.requester = val['--as'];
-    /* A retry under the same key is judged on what was first asked: the same ask says already, anything else is refused. */
+    /* A retry under the same key is judged on what was first asked: the same ask says already, anything else is refused.
+       What the app filled in then (the scope, what was owed, the attempt an omitted --attempt meant) is what was asked. */
     const prior = records.filter((x) => x.id === id)[0];
     if (prior) {
-      const dA = T.askDiffers(prior, r, Object.assign({}, body, sub === 'add' ? { scope: prior.scope, spread: prior.spread } : {}, sub === 'stop' ? { owed: prior.owed } : {}));
+      const asked = body.item && val['--attempt'] == null && prior.item && prior.item.uid === body.item.uid ? { item: Object.assign({}, body.item, { attempt: prior.item.attempt }) } : {};
+      const dA = T.askDiffers(prior, r, Object.assign({}, body, asked, sub === 'add' ? { scope: prior.scope, spread: prior.spread } : {}, sub === 'stop' ? { owed: prior.owed } : {}));
       if (dA.length) return failOut('key-taken', 'This key already names a different request (' + file + '). Changed fields: ' + dA.join(', ') + '. Read it (flightdeck spread list) before choosing a new key. Nothing was written.', problems());
       const q0 = V.requests[id];
       return done({ run: { process: proc, id: runId }, status: 'already', request: { id, file }, preview: 'Already requested (' + (q0 ? T.WORDS[q0.status] || q0.status : 'not read in order yet') + '). Nothing written.' });

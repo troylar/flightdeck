@@ -422,6 +422,22 @@ rule('VD: sync names each addition that would send an approval back, in JSON and
   const skill = fs.readFileSync(path.join(__dirname, '..', 'example-folder', '.flightdeck', 'skills', 'flightdeck-living-run', 'SKILL.md'), 'utf8');
   assert.ok(/sync[^\n]*consequence\.reopens[^\n]*ask the person first|ask the person first[^\n]*sync[^\n]*consequence\.reopens/i.test(skill), 'the skill asks before a sync that sends an approval back');
 });
+/* Review round 4 (VE): a retry under the same key means what it first meant: an omitted --attempt is the attempt it resolved
+   to then, even after a new attempt started; an attempt said differently is still another request. */
+rule('VE: an identical binding retry without --attempt says already after a new attempt starts; a changed --attempt is key-taken', async () => {
+  const { root, kid, sp } = await spread();
+  const args = ['spread', 'include', root, PR, '--spread', sp.id, '--item', 'ABC-101', '--run', 'validate-story/k101', '--key', 'bind-1', '--json', ...TOOL];
+  const inc = ['spread', 'include', root, PR, '--spread', sp.id, '--item', 'ABC-101', '--key', 'inc-1', '--json', ...TOOL];
+  const a = json(...args), i1 = json(...inc);
+  assert.deepStrictEqual([a.code, a.data && a.data.status, i1.code, i1.data && i1.data.status], [0, 'requested', 0, 'requested'], JSON.stringify([a, i1]).slice(0, 400));
+  await kid(101, false, 2);
+  const i2 = json(...inc);
+  assert.deepStrictEqual([i2.code, i2.data && i2.data.status], [0, 'already'], JSON.stringify(i2).slice(0, 400));
+  const b = json(...args);
+  assert.deepStrictEqual([b.code, b.data && b.data.status], [0, 'already'], JSON.stringify(b).slice(0, 400));
+  const c = json(...args.slice(0, -3), '--attempt', '2', '--json', ...TOOL);
+  assert.deepStrictEqual([c.code, c.error && c.error.kind], [1, 'key-taken'], JSON.stringify(c).slice(0, 400));
+});
 rule('SI: text-mode sync says partial and names each item not asked, with why', async () => {
   const { root, sp } = await spread();
   const p = json('spread', 'sync', root, PR, '--spread', sp.id, '--dry-run', '--json', ...TOOL), names = p.data.items.map(i => i.file.slice('proposals/'.length));

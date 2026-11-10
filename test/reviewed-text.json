@@ -13,16 +13,16 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "fd00717def3909f9b8fda204b14ddfe60d143c3ed0f901e06808efa5106384cc",
-      "reviewed": "sync previews name each addition that would send an approval back; the living-run skill asks first"
+      "sha256": "16cc0c3b22dc9feeb872c70dae12be40cf17f7c90be8d72685d5f16f30fa8b93",
+      "reviewed": "retry without --attempt compares with the attempt first resolved; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "1dce012e7269422f84c2c2aeb7b327b242a28e4990a5c5c95a22dc98228122dc",
       "reviewed": "slice 3 commit 1: spreads core (spreads.js), todos reduction and holds, run.js todoLand, app wiring, Python checker parity; no direct writes or unconditional deletes"
     },
     "docs/apps.md": {
-      "sha256": "5a74587e5a64901eeac9b7fe8c3b4b78366424718b3651f537180584724c71dc",
-      "reviewed": "sync previews name each addition that would send an approval back; the living-run skill asks first"
+      "sha256": "ad5ddc040d80d10b8089f349f4a469f581d54a1653f0cf1154fe50d300012929",
+      "reviewed": "retry without --attempt compares with the attempt first resolved; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
       "sha256": "037c23aa808634be79cc230009e0c4f5625706772c7c6efacae837e6767d5c20",
