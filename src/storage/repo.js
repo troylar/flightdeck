@@ -3217,8 +3217,28 @@ PF.repo = (function () {
        can't be found or read is named (p.living.missing): the pack is partial and no claim resting on it is confirmed. Past
        the cap the export is refused, never cut. A run with no to-do records is packed exactly as in 3.0. */
     var propsOnce = null, recHashes = Object.create(null);
+    /* The reads the work's closure makes (proposals/, the runs it depends on, their versions and loop children) go through
+       one reader that sizes each file first: one over the one-file limit is never read, and what is read is counted in the
+       memory the pack may use; past it nothing more is read. A file refused this way fails like any read (named by path). */
+    var lro = readOnlyView({
+      list: function (p, o) { return ro.list(p, o); }, stat: function (p, o) { return ro.stat(p, o); }, blob: function (p, o) { return ro.blob(p, o); },
+      read: function (p, o) {
+        return ro.stat(p).then(function (st) {
+          if (!st) return null;
+          if (st.size > recordMax) throw new Error(p + ' is ' + E.size(st.size) + ', over ' + E.size(recordMax) + ', the most one file can be in a pack made here, so it wasn\'t read');
+          if (retained.now + st.size > retained.limit) { retained.full = true; throw new Error(p + ' wasn\'t read: the pack reached the most it may hold in memory here (' + E.size(retained.limit) + ')'); }
+          return ro.read(p, o).then(function (f) {
+            if (!f || f.text == null) return f;
+            var n = String(f.text).length;
+            if (n > recordMax) throw new Error(p + ' grew past ' + E.size(recordMax) + ' while it was read, so it wasn\'t read');
+            hold(Math.max(st.size, n * 2));
+            return f;
+          });
+        });
+      }
+    });
     function proposalsRead() {
-      if (!propsOnce) propsOnce = Promise.all([readPlans(ro, null, null, false, recHashes), ro.list('proposals').then(function (it) { return it.filter(function (i) { return PF.todos.recordName(i.name); }).map(function (i) { return i.name; }).sort(); })])
+      if (!propsOnce) propsOnce = Promise.all([readPlans(lro, null, null, false, recHashes), lro.list('proposals').then(function (it) { return it.filter(function (i) { return PF.todos.recordName(i.name); }).map(function (i) { return i.name; }).sort(); })])
         .then(function (x) { x[0].listing = x[1]; return x[0]; }, function (e) { return { failed: why(e) }; });
       return propsOnce;
     }
@@ -3226,7 +3246,7 @@ PF.repo = (function () {
        { key, path, kind, why } } for one that isn't there, can't be read, or whose version can't be read or doesn't verify. */
     function depRun(proc, id) {
       var key = proc + '/' + id, path = 'runs/' + key + '/run.json';
-      return readRunOnly(ro, proc, id).then(function (one) { return depVerdict(proc, id, one); }, function (e) { return { bad: { key: key, path: path, kind: errKind(e), why: why(e) } }; });
+      return readRunOnly(lro, proc, id).then(function (one) { return depVerdict(proc, id, one); }, function (e) { return { bad: { key: key, path: path, kind: errKind(e), why: why(e) } }; });
     }
     /* A run's loop children: every run folder under each {for.each} step's process, read. A listing that fails, or a folder
        whose run.json is missing or can't be read, is named (it may be a child: nothing tells it apart); a run there naming
@@ -3237,7 +3257,7 @@ PF.repo = (function () {
       /* Where the run's own checklist sends them, Fill in included (R.fieldsOf), as the ending guard finds them. */
       (map ? map.phases : []).forEach(function (ph) { ph.steps.forEach(function (st) { var cp = st.type === 'for.each' ? String(R.fieldsOf(self, st).process || '') : ''; if (cp && EV_PROC.test(cp) && procs.indexOf(cp) < 0) procs.push(cp); }); });
       return procs.reduce(function (q, cp) { return q.then(function () {
-        return ro.list('runs/' + cp).then(function (items) {
+        return lro.list('runs/' + cp).then(function (items) {
           return limited(items.filter(function (i) { return i.kind === 'dir' && /^[a-z0-9-]{1,40}$/i.test(i.name); }).map(function (i) { return i.name; }).sort(), 4, function (cid) {
             var k = cp + '/' + cid;
             return (got[k] ? Promise.resolve(got[k]) : depRun(cp, cid).then(function (x) { got[k] = x; return x; })).then(function (x) {

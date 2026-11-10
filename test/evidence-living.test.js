@@ -536,6 +536,26 @@ rule('A scope record\'s seen is in the closure: a missing predecessor leaves the
   const ok = checkPack(full.zip);
   assert.ok(ok.ok, 'the control holds: ' + ok.out);
 });
+/* PD: the export's reads of proposals/ and of the runs the work depends on go through the size-checked, budget-counted
+   reader: a file over the one-file limit is never read (its size is known first), and what is read counts in the memory the
+   pack may use. */
+rule('The export reads proposals/ and the runs its work depends on within the size and memory budgets: nothing over the limit is read', async () => {
+  const W = await loopMade(), MAX = 1048576, big = 'proposals/plan-big.json';
+  const files = Object.assign({}, W.files, { [big]: JSON.stringify({ kind: 'plan', id: 'plan-big', pad: 'x'.repeat(2 * MAX) }) });
+  const stats = new Set(), over = [];
+  let readBytes = 0;
+  const fsx = new BytesFS(files, { hooks: {
+    stat: (p) => { stats.add(p); },
+    read: (p, x) => { const b = x.files.get(p); if (!b) return; if (/^(proposals|runs)\//.test(p)) readBytes += b.length; if (b.length > MAX) over.push(p + ' (' + b.length + ' bytes)'); if (/^proposals\//.test(p) && !stats.has(p)) over.push(p + ' read before its size was known'); }
+  } });
+  const parts = [], res = await W.PF.repo.exportEvidence(fsx, { run: W.key }, { sink: (u) => { parts.push(Buffer.from(u)); }, now: () => Date.now(), tz: 'UTC', maxFile: MAX });
+  assert.deepStrictEqual(over, [], 'nothing over the limit is read, and every proposal is sized first');
+  assert.strictEqual(res.status, 'partial', JSON.stringify(res.col.unresolved));
+  assert.ok(res.col.unresolved.some((u) => u.indexOf(big) >= 0), 'named by its path: ' + JSON.stringify(res.col.unresolved));
+  assert.ok(res.col.retained && res.col.retained.peak >= readBytes, 'what was read is counted: peak ' + (res.col.retained && res.col.retained.peak) + ' of ' + readBytes + ' bytes read');
+  const ctl = await W.PF.repo.exportEvidence(new BytesFS(W.files), { run: W.key }, { sink: () => {}, now: () => Date.now(), tz: 'UTC', maxFile: MAX });
+  assert.strictEqual(ctl.status, 'complete', 'the control holds: ' + JSON.stringify(ctl.col.unresolved));
+});
 /* PF: whether a run's work is verified is worked out from the packed originals, never from the manifest alone: a run.json that
    names a work head or a receipt, or a packed to-do record on the run, needs the manifest's living section. */
 rule('Python works out from the packed run.json whether its work is checked: the living section deleted with every record it rests on is refused', async () => {
