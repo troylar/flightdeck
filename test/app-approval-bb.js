@@ -224,7 +224,9 @@ const CHANGES = {
   'the run\'s version absent': { make: (app) => gone(app, parentPub(app)), sees: (op, p) => op === 'read' && /^publications\/release-readiness\/[^/]+\/publication\.json$/.test(p) },
   'the run\'s version EIO': { make: (app) => eio(app, parentPub(app)), sees: (op, p) => op === 'read' && /^publications\/release-readiness\/[^/]+\/publication\.json$/.test(p) },
   'the run\'s version rebuilt with another step': { make: rebuiltPub, sees: (op, p) => op === 'read' && /^publications\/release-readiness\//.test(p) },
-  'the run handed to another session': { make: handedOff, sees: (op, p) => op === 'read' && p === 'runs/release-readiness/<run>/run.json' }
+  'the run handed to another session': { make: handedOff, sees: (op, p) => op === 'read' && p === 'runs/release-readiness/<run>/run.json' },
+  /* Round 15 (SB): who may approve can't be read. */
+  'people.json EIO': { make: (app) => eio(app, 'people.json'), sees: (op, p) => op === 'read' && p === 'people.json' }
 };
 const localKeyOf = (app, id) => 'preflight:unsaved:' + app.fs.kind + ':' + (app.fs.id || app.fs.name) + ':' + id;
 const failCand = (app) => { const write = app.fs.write; let n = 0; app.fs.write = (q, t, x) => CAND_RE.test(q) && ++n === 1 ? Promise.reject(new Error('EIO')) : write.call(app.fs, q, t, x); return { n: () => n, off: () => { app.fs.write = write; } }; };
