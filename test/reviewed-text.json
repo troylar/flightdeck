@@ -2,7 +2,7 @@
   "texts": {
     "CHANGELOG.md": {
       "sha256": "04de130ac82a78155e8e4ab427350889364591df0be624497b8c971764d6719b",
-      "reviewed": "4.0.0 notes name spreads; the living-run skill names no facts; section 45 says slices 1 to 3 are built"
+      "reviewed": "YC: child readers judge the full parent read"
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "ca6ce397ab199de52d46124f81db34d77f3911f61694bb28a3260ccf9e12addc",
-      "reviewed": "YA: scope writers record the parent head"
+      "sha256": "cad5bed10ab6394ac0f208feff9b81ffbdf5fde3c67ed63b6274bee1eb2cdd73",
+      "reviewed": "YC: child readers judge the full parent read"
     },
     "build.py": {
       "sha256": "1dce012e7269422f84c2c2aeb7b327b242a28e4990a5c5c95a22dc98228122dc",
@@ -202,7 +202,7 @@
     },
     "src/core/appjson.js": {
       "sha256": "d3bcd6c56e778c6eba888b38b74415cf61bc96905589d51ce8c67b319f63c676",
-      "reviewed": "AX: readers give a to-do's current resolution reason as reason and the addition's as addedReason; checked for direct writes and unconditional deletes (none)"
+      "reviewed": "YC: child readers judge the full parent read"
     },
     "src/core/attach.js": {
       "sha256": "0e75bc0c0d748fe10aaf5657662e4ce8679c27f9d10d85c1e34891b1c9d58df0",
@@ -398,7 +398,7 @@
     },
     "src/releases.json": {
       "sha256": "b9832516e1f633ba4e847329f3245685d4ffddd77ea57f2808b6aaa15711e2b1",
-      "reviewed": "4.0.0 notes name spreads; the living-run skill names no facts; section 45 says slices 1 to 3 are built"
+      "reviewed": "YC: child readers judge the full parent read"
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",

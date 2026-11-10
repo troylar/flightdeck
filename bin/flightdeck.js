@@ -919,8 +919,16 @@ async function readDeps(PF, L, r, o) {
      expected and named when missing. */
   for (const pk of Object.keys(parents)) {
     const ix = pk.indexOf('/'), pp = pk.slice(0, ix), pid = pk.slice(ix + 1);
-    let pr = null; try { pr = (await repo.readRunOnly(dependsOn(L.fs, ['runs/' + pk]), pp, pid)).run; } catch (e) { pr = null; }
+    /* YC: the parent is judged as its own reader judges it (its file, its format, its pinned version); its applied work is
+       read only when the parent itself can be. */
+    let one = null; try { one = await repo.readRunOnly(dependsOn(L.fs, ['runs/' + pk, 'publications/' + pp, 'staged/' + pp]), pp, pid); } catch (e) { put({ path: 'runs/' + pk + '/run.json', kind: 'unreadable', why: fileWhy(e && e.message || String(e)) }); continue; }
+    (one && one.bad || []).forEach((b) => put({ path: b.path, kind: b.kind || 'unreadable', why: fileWhy(b.why) }));
+    const pr = one && one.run;
     if (!pr) { put({ path: 'runs/' + pk + '/run.json', kind: 'nofile', why: 'A request of this run fulfils a spread on ' + pk + ', which can\'t be read here.' }); continue; }
+    const pj = judgeRun(PF, pr, one.pub);
+    if (one.pub && one.pub._readFailed) pj.push({ path: PF.run.pubDir(pr), kind: 'unreadable', why: 'The version ' + pk + ' runs on couldn\'t be read here: ' + String(one.pub.why || 'unknown') + '.' });
+    pj.forEach(put);
+    if (newerRun(PF, pr) || (one.pub && !one.pub.ok) || pj.some((x) => x.kind === 'unusable')) continue;
     let PV = null; try { PV = T.view(pr, { records: T.recordsFor((got && got.todos) || [], pr), unread: [], people: o.people }); } catch (e) { PV = null; }
     if (PV) T.missingOf(PV, null).forEach(put);
   }

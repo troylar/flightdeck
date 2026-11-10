@@ -33,7 +33,9 @@ const KINDS = {
   'an item\'s own addition': [(root) => kidRec(root, (j) => j.kind === 'proposal' && j.fulfills), 'parent'],
   'an item\'s own decision': [(root) => kidRec(root, (j) => j.kind === 'decision'), 'parent'],
   'an item\'s own application': [(root) => 'proposals/' + jsonOf(root, 'runs/' + KID + '/run.json').living.head + '.json', 'parent'],
-  'the run\'s own version': [(root) => files(root).find(f => /^publications\/release-readiness\/[^/]+\/publication\.json$/.test(f)), 'parent']
+  'the run\'s own version': [(root) => files(root).find(f => /^publications\/release-readiness\/[^/]+\/publication\.json$/.test(f)), 'both'],
+  /* YC: a story's readers judge its parent as the parent's own reader does (its file, its format, its pinned version). */
+  'the parent run': [() => 'runs/' + PR + '/run.json', 'child']
 };
 /* How each is broken. A function returns what to undo (permissions), or nothing. */
 const newer = (root, f) => {
