@@ -172,4 +172,25 @@ rule('An interrupted start finds its plan again: Run this checklist opens the pl
   assert.ok(/id="start-form"/.test(app.html()));
 });
 
+rule('Run this checklist checks its pin again when the run starts: a pinned version damaged, gone or changed since the form opened starts nothing', async () => {
+  for (const how of ['damaged', 'gone', 'unreadable']) {
+    const { app, kp, todo } = await setup();
+    app.click('td-detour', todo); await app.tick(250);
+    assert.ok(/id="start-form"/.test(app.html()), 'set-up: the start form, on its plan');
+    const before = kidPaths(app).length, decs = () => app.files('proposals/').filter(p => /\.status-/.test(p)).length, d0 = decs();
+    const base = 'publications/smoke-test/' + kp.folder + '/', fs = app.fs, read = fs.read.bind(fs), blob = fs.blob ? fs.blob.bind(fs) : null;
+    if (how === 'damaged') fs.files[base + 'map.md'] = { t: fs.files[base + 'map.md'].t.replace('Run the smoke suite', 'Skip the smoke suite'), m: Date.now() };
+    else if (how === 'gone') Object.keys(fs.files).filter(k => k.indexOf(base) === 0).forEach(k => { delete fs.files[k]; });
+    else {
+      const no = () => Promise.reject(Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }));
+      fs.read = (p, o) => p.indexOf(base) === 0 ? no() : read(p, o);
+      if (blob) fs.blob = (p) => p.indexOf(base) === 0 ? no() : blob(p);
+    }
+    app.chooseApprovers().submitForm('start-form'); await app.tick(300);
+    fs.read = read; if (blob) fs.blob = blob;
+    assert.deepStrictEqual([how, kidPaths(app).length, decs()], [how, before, d0], how + ': no run and no started decision');
+    assert.ok(/Nothing was started|wasn.t started/.test(txt(app.html())), how + ': said');
+  }
+});
+
 run();

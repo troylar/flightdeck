@@ -37317,6 +37317,19 @@ PF.examples = (function () {
       });
     }, function (err) { endBusy(); if (sg !== gen) return; say('Couldn\'t save its plan: ' + (err && err.message || err) + ' Running this checklist again is the same plan.', 'bad'); render(); });
   }
+  /* Why the exact version a checklist-linked to-do's plan pins can't be started now ('' when it can): its publication read
+     again from the folder (never the copy read before), the very folder pinned, usable, with the pinned fingerprints, and
+     the version the form was drawn from the same one. */
+  function detourPinWhy(fsx, plan, pub) {
+    var pin = plan.pin, name = plan.process + ' ' + pin.folder;
+    return repo.readProcess(fsx, plan.process).then(function (proc) {
+      var all = proc ? (proc.all || []).concat(proc.broken || []) : [], mine = all.filter(function (x) { return x && (x.info ? x.info.folder : x.folder) === pin.folder; })[0];
+      if (!mine) return 'the checklist it pins, ' + name + ', isn\'t in the folder now.';
+      if (!mine.ok || !mine.info) return 'the checklist it pins, ' + name + ', can\'t be used now: ' + String(mine.why || 'it doesn\'t pass its check').replace(/\.$/, '') + '.';
+      if (mine.info.mapHash !== pin.mapHash || mine.info.typesHash !== pin.typesHash || !pub || !pub.info || pub.info.folder !== pin.folder || pub.info.mapHash !== pin.mapHash || pub.info.typesHash !== pin.typesHash) return 'the checklist it pins, ' + name + ', changed since it was pinned.';
+      return '';
+    }, function (err) { return 'the checklist it pins, ' + name + ', couldn\'t be read again right before it started (' + (err && err.message || err) + ').'; });
+  }
   /* The write guard of a done on a run's result: on the records and the run read again (snap), the same evidence. */
   function detourStill(rk, body, snap) {
     if (!snap || !snap.evidence) return false;
@@ -43652,7 +43665,7 @@ PF.examples = (function () {
        plan's lock, whatever this page last read. Its decision, naming the run, is written first and the run then (2.1.1):
        the decision reserves the plan for this one run, so a run that doesn't save can only be saved again, never started
        twice. The exact bytes it tried are kept in this window, by plan (state.pendingStarts), for Try again (repo.resumeStart). */
-    var formSha = e.target.dataset.planHash, startFolder = pub.info.folder, dec = null;
+    var formSha = e.target.dataset.planHash, startFolder = pub.info.folder, dec = null, pinLate = '', detour = !!(plan && plan.pin && /^plan-ev-[0-9a-f]{24}$/.test(String(plan.id)));
     queued(function () {
       r.recorder.session = SESSION;
       /* A run of a checklist with a loop is guarded like every loop write (round 10). A planned start's run is saved once its
@@ -43663,11 +43676,20 @@ PF.examples = (function () {
          or person changed meanwhile, even changed back, writes nothing. Once the decision is written, its run is saved as
          started (a plan marked started without its run is worse), but nothing is opened or announced. */
       if (!still()) return { dropped: true };
-      return repo.decidePlan(sfs, plan, { action: 'start', sha: formSha, folder: startFolder, lock: LOCKS ? lock : null, still: still, write: function () {
-        return repo.recordPlanStatus(sfs, plan, WRITER, 'accepted', r.id, who, null, APP_VERSION).then(function (path) { dec = path; return save(true); });
-      } });
+      var decide = function () {
+        return repo.decidePlan(sfs, plan, { action: 'start', sha: formSha, folder: startFolder, lock: LOCKS ? lock : null, still: still, write: function () {
+          var mark = function () { return repo.recordPlanStatus(sfs, plan, WRITER, 'accepted', r.id, who, null, APP_VERSION).then(function (path) { dec = path; return save(true); }); };
+          if (!detour) return mark();
+          return detourPinWhy(sfs, plan, pub).then(function (w) { if (w) { pinLate = w; var e = new Error(w); e.dropped = true; throw e; } return mark(); });
+        } });
+      };
+      /* Run this checklist (4.0): the exact version its to-do pins is read again before the start is reserved and right
+         before its decision is written; changed, gone or unreadable, nothing starts. Any other plan starts as before. */
+      if (!detour) return decide();
+      return detourPinWhy(sfs, plan, pub).then(function (w) { if (w) { pinLate = w; return { dropped: true }; } return decide(); });
     }).then(function (res) {
       endBusy();
+      if (res && res.dropped && pinLate) { releaseNav(held); say('Nothing was started: ' + pinLate, 'warn'); render(); return null; }
       if (res && res.dropped) { releaseNav(held); say('The plan wasn\'t started. ' + nothingWritten(sg, sfs, skey, who), 'warn'); render(); return null; }
       if (sg !== gen) { releaseNav(held); return null; }
       if (!still()) { releaseNav(held); return load(true).then(function () { return null; }); }
