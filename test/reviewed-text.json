@@ -25,12 +25,12 @@
       "reviewed": "slice 6 CC: one receipt check for run, next, runs and todo list"
     },
     "docs/design.md": {
-      "sha256": "61e391e780374f8cd49eb9438fc338abbc4cabebf64ddecec2fd8fea8633ab4e",
-      "reviewed": "slice 6 CE: since() compares owed and resolved, says arrivals apart"
+      "sha256": "43f3e9e820279279f939d5f3685707d7b702cd8742cb73dd6d95ad28de4ae43b",
+      "reviewed": "slice 6 CB: packs require each application's request, authority and causal closure"
     },
     "docs/evidence.md": {
-      "sha256": "e93463159412716edba1d701e82ed7706a1f85d1cf3d3ea056d3fe12a50530b8",
-      "reviewed": "slice 6 CD: export counts a malformed record naming the run before living"
+      "sha256": "0e404d7949687394725354f90cd1c5ec5a9dce05969c5761a57f8119b79b8e0b",
+      "reviewed": "slice 6 CB: packs require each application's request, authority and causal closure"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
@@ -309,8 +309,8 @@
       "reviewed": "loops: items: item kind, feed binding, completeness fix, nouns, unknown-kind refusal in loop.js/map.js/publish.js/types.js and check_folder.py parity; pure checks only, checked for direct writes and unconditional deletes"
     },
     "src/core/receipts.js": {
-      "sha256": "b4c886adb77e6774801724120b03f890036a18d8f689244c1e4a3593037b074d",
-      "reviewed": "slice 6 CD: export counts a malformed record naming the run before living"
+      "sha256": "86dfa0a2ffad03a7ed7c7cf81412dd2db62ef27459508cb610a75f39a28ecba0",
+      "reviewed": "slice 6 CB: packs require each application's request, authority and causal closure"
     },
     "src/core/refs.js": {
       "sha256": "24b7d2b52fcd99673fcc427db286a7224af83342da19efcd561ac850d6baa441",

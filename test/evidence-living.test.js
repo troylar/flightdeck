@@ -28,10 +28,24 @@ async function made(o) {
   app.click('start', 'release-notes'); await app.settle();
   app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   for (let i = 0; i < (o.todos || 0); i++) { app.set('td-add', 'To-do ' + (i + 1)); app.click('td-add'); await app.tick(120); app.click('refresh'); await app.tick(400); }
+  /* o.requested: one request filed apart, accepted by a person's decision, then landed by the recorder's window as an application. */
+  if (o.requested) {
+    const T = PF.todos, rp = app.files('runs/release-notes/').find(p => /run\.json$/.test(p)), r0 = PF.run.sanitize(JSON.parse(app.fs.files[rp].t)), RUN = { process: r0.process, id: r0.id }, at = new Date().toISOString();
+    const d = await PF.repo.loadAll(app.fs, {}), V = T.view(r0, { records: d.todos || [], people });
+    const body = { op: 'add', text: 'Requested one', target: { phase: 'draft' }, placement: T.placementFor(PF.run.mapOf(r0), { phase: 'draft' }) };
+    const q = T.buildProposal({ run: RUN, id: T.idFor('flightdeck', 'k-req001'), by: 'person-avery', seen: V.heads.slice(0, 50), at, body, app: '4.0.0' });
+    await app.fs.write('proposals/' + q.id + '.json', T.text(q));
+    const rec = T.cleanFile(JSON.parse(T.text(q)), q.id + '.json').record, V2 = T.view(r0, { records: (d.todos || []).concat([rec]), people });
+    const C = T.consequenceOf(r0, V2.map, V2.requests[q.id], V2).fingerprint;
+    const st = T.buildStatus({ kind: 'decision', proposal: q.id, run: RUN, seen: [q.id], by: 'person-avery', at, op: 'accept', consequence: C, writer: 'w1', rev: '0000a001', app: '4.0.0' });
+    await app.fs.write('proposals/' + st.name, T.text(st.file));
+    app.click('refresh'); await app.tick(500); app.click('refresh'); await app.tick(400);
+    o.request = { proposal: 'proposals/' + q.id + '.json', decision: 'proposals/' + st.name };
+  }
   if (o.end !== false) { app.click('end', 'Cancelled'); await app.tick(300); }
   const runPath = app.files('runs/release-notes/').find(p => /run\.json$/.test(p)), r = JSON.parse(app.fs.files[runPath].t);
   const files = {}; Object.keys(app.fs.files).forEach(p => { files[p] = app.fs.files[p].t; });
-  return { PF, files, key: r.process + '/' + r.id, run: r, runPath };
+  return { PF, files, key: r.process + '/' + r.id, run: r, runPath, request: o.request || null };
 }
 async function pack(PF, fsx, key) {
   const parts = [];
@@ -180,6 +194,31 @@ rule('A malformed to-do record naming a run that isn\'t living yet makes its pac
   W2.files[bad] = JSON.stringify({ format: 'flightdeck-plan/4', features: ['living-runs'], kind: 'proposal', run: { process: W2.run.process, id: 'someone-else' } });
   const two = await pack(W2.PF, new BytesFS(W2.files), W2.key);
   assert.strictEqual(manifestOf(two.zip).runs[0].living, undefined);
+});
+
+rule('A pack needs each application\'s request and the decision that authorized it: either gone makes it partial by path, and Python refuses a complete claim without them', async () => {
+  const W = await made({ requested: true });
+  const ap = Object.keys(W.files).find(p => p === 'proposals/' + W.run.living.head + '.json'), a = JSON.parse(W.files[ap]);
+  assert.deepStrictEqual([a.kind, a.proposal + '', !!(a.authority && a.authority.decision)], ['application', W.request.proposal.slice('proposals/'.length, -5), true], 'set-up: a separate application');
+  const full = await pack(W.PF, new BytesFS(W.files), W.key);
+  assert.strictEqual(full.res.status, 'complete', JSON.stringify(full.res.col.unresolved));
+  for (const gone of [W.request.proposal, W.request.decision]) {
+    const files = Object.assign({}, W.files); delete files[gone];
+    const { zip, res } = await pack(W.PF, new BytesFS(files), W.key);
+    assert.strictEqual(res.status, 'partial', gone + ': ' + JSON.stringify(res.col.unresolved));
+    const L = manifestOf(zip).runs[0].living;
+    assert.ok(!L.complete && L.missing.some(m => m.indexOf(gone) === 0), gone + ': ' + JSON.stringify(L.missing));
+    if (PY) { const c = checkPack(zip); assert.ok(c.ok, c.out); }
+  }
+  if (!PY) return;
+  for (const gone of [W.request.proposal, W.request.decision]) {
+    const e = unzip(full.zip), man = JSON.parse(e['manifest.json']), f = man.files.filter(x => x.path === gone)[0];
+    assert.ok(f, 'set-up: packed ' + gone);
+    delete e[f.pack]; man.files = man.files.filter(x => x !== f);
+    e['manifest.json'] = Buffer.from(JSON.stringify(man, null, 2) + '\n');
+    const bad = checkPack(await rezip(W.PF, e));
+    assert.ok(!bad.ok && /request|authority|saw/.test(bad.out), gone + ': ' + bad.out);
+  }
 });
 
 run();

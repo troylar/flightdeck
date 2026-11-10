@@ -20668,6 +20668,38 @@ PF.receipts = (function () {
       if (!ap) { missing.push('proposals/' + at + '.json: the run\'s work names it, but it isn\'t an application.'); break; }
       chain.unshift(at); at = ap.previous;
     }
+    /* Each application's closure: its request, its authority (the decision on that request, a grant or the compound itself) and
+       every record it saw, followed through what those saw, bounded. A witness not in the folder as read, there as another kind,
+       or there twice with different contents is named: the pack is partial. */
+    var canon = function (x) { var c = {}; Object.keys(x).sort().forEach(function (k) { if (k.charAt(0) !== '_') c[k] = x[k]; }); return JSON.stringify(c); };
+    var witness = function (id, what, ok) {
+      var xs = byId[id] || [], path = 'proposals/' + id + '.json';
+      if (!xs.length) { missing.push(path + ': ' + what + ', but it isn\'t in the folder as read.'); return null; }
+      if (xs.some(function (x) { return canon(x) !== canon(xs[0]); })) { missing.push(path + ': ' + what + ', but the folder has two different copies of it.'); return null; }
+      if (ok && !ok(xs[0])) { missing.push(path + ': ' + what + ', but it isn\'t that record.'); return null; }
+      file(xs[0]); return xs[0];
+    };
+    var sawQ = [], sawSeen = Object.create(null), mineRun = function (x) { return !!x.run && x.run.process === r.process && x.run.id === r.id; };
+    var saw = function (x) { (Array.isArray(x && x.seen) ? x.seen : []).forEach(function (id) { if (typeof id === 'string' && !sawSeen[id]) { sawSeen[id] = true; sawQ.push(id); } }); };
+    chain.forEach(function (id) {
+      var a = (byId[id] || [])[0];
+      if (!a) return;
+      saw(a);
+      if (a.kind !== 'application') return;
+      var q = witness(a.proposal, 'application ' + id + ' applies this request', function (x) { return (x.kind === 'proposal' || x.kind === 'compound') && mineRun(x); });
+      if (q) saw(q);
+      var au = a.authority || {}, w = null;
+      if (au.decision) w = witness(au.decision, 'application ' + id + ' rests on this decision', function (x) { return x.kind === 'decision' && x.proposal === a.proposal && mineRun(x); });
+      else if (au.grant) w = witness(au.grant, 'application ' + id + ' rests on this grant', function (x) { return x.kind === 'grant'; });
+      else if (au.compound) w = witness(au.compound, 'application ' + id + ' rests on this compound', function (x) { return x.kind === 'compound'; });
+      else missing.push('proposals/' + id + '.json: an application that names no authority.');
+      if (w) saw(w);
+    });
+    for (var si = 0; si < sawQ.length; si++) {
+      if (si >= (o.cap || DEP_CAP)) { missing.push('The records the run\'s applications saw go past ' + (o.cap || DEP_CAP) + ', so they weren\'t all checked.'); break; }
+      var sx = witness(sawQ[si], 'a record the run\'s work saw');
+      if (sx) saw(sx);
+    }
     var rs = r.ended ? stateOf(r, records, o.unread) : null;
     if (rs && rs.state !== 'confirmed' && rs.state !== 'none') missing.push(rs.why + ' (' + rs.path + ')');
     /* Facts used as evidence, evidence runs and their plans, and the spreads this run's work holds. */

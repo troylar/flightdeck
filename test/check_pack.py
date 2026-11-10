@@ -86,6 +86,53 @@ def check_living(z, man):
                 break
             chain.insert(0, at)
             at = prev
+        # Each application's closure, checked on its own: its request, its authority and every record it saw (followed through
+        # what those saw), each packed as the record it must be.
+        closed, want, asked = whole, [], set()
+
+        def saw(rec):
+            for x in rec.get("seen") or []:
+                if isinstance(x, str) and x not in asked:
+                    asked.add(x)
+                    want.append(x)
+
+        def mine(rec):
+            return rec.get("run") == {"process": run.get("process"), "id": run.get("id")}
+
+        for at in chain if whole else []:
+            rec = packed("proposals/" + at + ".json")
+            saw(rec)
+            if rec.get("kind") != "application":
+                continue
+            req = packed("proposals/" + str(rec.get("proposal")) + ".json")
+            if req is None or req.get("kind") not in ("proposal", "compound") or not mine(req):
+                closed = False
+                continue
+            saw(req)
+            au = rec.get("authority") or {}
+            if au.get("decision"):
+                w = packed("proposals/" + str(au["decision"]) + ".json")
+                good = w is not None and w.get("kind") == "decision" and w.get("proposal") == rec.get("proposal") and mine(w)
+            elif au.get("grant"):
+                w = packed("proposals/" + str(au["grant"]) + ".json")
+                good = w is not None and w.get("kind") == "grant"
+            elif au.get("compound"):
+                w = packed("proposals/" + str(au["compound"]) + ".json")
+                good = w is not None and w.get("kind") == "compound"
+            else:
+                w, good = None, False
+            if not good:
+                closed = False
+                continue
+            saw(w)
+        i = 0
+        while closed and i < len(want):
+            rec = packed("proposals/" + want[i] + ".json")
+            i += 1
+            if rec is None:
+                closed = False
+                break
+            saw(rec)
         receipt = own.get("receipt")
         good_receipt = True
         if receipt:
@@ -96,6 +143,8 @@ def check_living(z, man):
         if lv.get("complete"):
             if not whole or chain != lv["chain"]:
                 sys.exit("living: " + r["key"] + " says its work is complete, but its application chain isn't all in the pack")
+            if not closed:
+                sys.exit("living: " + r["key"] + " says its work is complete, but an application's request, its authority or a record it saw isn't in the pack")
             if not good_receipt:
                 sys.exit("living: " + r["key"] + " says its work is complete, but its receipt isn't in the pack or doesn't say what it ended with")
         elif man["status"] != "partial":
