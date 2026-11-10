@@ -519,4 +519,36 @@ rule('Python counts every record on the run, seen or not, toward the 5,000 bound
   assert.ok(!over.ok && /holds at most/.test(over.out), 'over the bound in total: ' + over.out);
 });
 
+/* NF: a loop's scope records are walked through what they saw, as every other record the work rests on, in the export and in
+   Python; and Python requires each evidence plan the work's records name, by reference, never from the manifest's labels. */
+rule('A scope record\'s seen is in the closure: a missing predecessor leaves the pack partial, and Python refuses a complete claim without it', async () => {
+  const W = await loopMade(), sp = Object.keys(W.files).find((p) => /^proposals\/req-/.test(p) && JSON.parse(W.files[p]).loop);
+  assert.ok(sp, 'set-up: a scope record');
+  const files = Object.assign({}, W.files), o = JSON.parse(files[sp]), gone = 'req-flightdeck-' + '0'.repeat(24);
+  o.seen = [gone]; files[sp] = JSON.stringify(o, null, 2);
+  const { res, zip } = await pack(W.PF, new BytesFS(files), W.key);
+  assert.strictEqual(res.status, 'partial', JSON.stringify(res.col.unresolved));
+  assert.ok(res.col.unresolved.some((u) => u.indexOf('proposals/' + gone + '.json') >= 0), JSON.stringify(res.col.unresolved));
+  if (!PY) return;
+  const bad = checkPack(await repacked(W.PF, zip, (e, man) => forced(man)));
+  assert.ok(!bad.ok && /scope|saw/.test(bad.out), 'Python refuses: ' + bad.out);
+  const full = await pack(W.PF, new BytesFS(W.files), W.key);
+  const ok = checkPack(full.zip);
+  assert.ok(ok.ok, 'the control holds: ' + ok.out);
+});
+rule('Python requires every evidence plan the work\'s records name: a plan removed from the pack, with a manifest made to match, is refused', async () => {
+  if (!PY) return;
+  const X = (await roleWorlds()).filter(w => w.role === 'evidence')[0], PF = X.PF;
+  const [proc, id] = X.key.split('/'), one = await PF.repo.readRunOnly(new BytesFS(X.files), proc, id);
+  const planId = 'plan-ev-' + 'a'.repeat(24), path = 'proposals/' + planId + '.json';
+  const plan = PF.plans.make(one.pub, { id: planId, process: proc, title: 'Evidence plan', from: X.key, by: 'person-avery', created: new Date().toISOString() }, true, '4.0.0');
+  const files = Object.assign({}, X.files, { [path]: JSON.stringify(plan, null, 2) + '\n' });
+  const full = await pack(PF, new BytesFS(files), X.key);
+  assert.ok(manifestOf(full.zip).files.some(f => f.path === path), 'set-up: the evidence plan is packed');
+  const ok = checkPack(await repacked(PF, full.zip, (e, man) => forced(man)));
+  assert.ok(ok.ok, 'the control holds: ' + ok.out);
+  const bad = checkPack(await repacked(PF, full.zip, (e, man, f) => { const x = f(path); delete e[x.pack]; man.files = man.files.filter((y) => y.path !== path); forced(man); }));
+  assert.ok(!bad.ok && bad.out.indexOf(planId) >= 0, 'Python refuses it: ' + bad.out);
+});
+
 run();

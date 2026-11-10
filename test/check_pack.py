@@ -72,7 +72,9 @@ def check_living(z, man):
 
     def on_run(me):
         """Every packed record the export counts for a run whatever saw it (PF.receipts.deps): each to-do record naming it, the
-        facts they rest on and its loops' scope records."""
+        facts they rest on and its loops' scope records. Returns the scope records (what each saw is walked too), and notes in
+        plans_wanted every evidence plan those records name by reference."""
+        scopes = []
         for path in by_path:
             if not path.startswith("proposals/") or not path.endswith(".json"):
                 continue
@@ -82,12 +84,18 @@ def check_living(z, man):
             lp = o.get("loop")
             if o.get("run") == me or (isinstance(lp, dict) and lp.get("process") == me["process"] and lp.get("run") == me["id"]):
                 reached.add(path)
+                if isinstance(lp, dict) and o.get("run") != me:
+                    scopes.append(o)
                 for b in (o, o.get("effect") or {}, (o.get("application") or {}).get("effect") or {}):
+                    ev = (b or {}).get("evidence") if isinstance(b, dict) else None
+                    if o.get("run") == me and isinstance(ev, dict) and isinstance(ev.get("run"), dict):
+                        plans_wanted.add(str(ev.get("plan")))
                     fact = ((b or {}).get("support") or {}).get("fact") if isinstance((b or {}).get("support"), dict) else None
                     if isinstance(fact, str) and "proposals/" + fact + ".json" in by_path:
                         reached.add("proposals/" + fact + ".json")
+        return scopes
 
-    reached = set()
+    reached, plans_wanted = set(), set()
 
     def witness(rid):
         """The one record packed under an id, the same in every packed copy (a synced " (1)" copy included); None when it
@@ -110,7 +118,7 @@ def check_living(z, man):
         head = own.get("head", "")
         me = {"process": run.get("process"), "id": run.get("id")}
         copies = [False]
-        on_run(me)
+        scopes = on_run(me)
 
         def wit(rid):
             rec, amb = witness(rid)
@@ -171,6 +179,9 @@ def check_living(z, man):
                 closed = False
                 continue
             saw(w)
+        # A loop's scope records rest on what each saw, in turn, as every other record does (PF.receipts.deps).
+        for x in scopes:
+            saw(x)
         i = [0]
 
         def walk():
@@ -275,6 +286,7 @@ def check_living(z, man):
             continue
         head = (run.get("living") or {}).get("head", "")
         reached.clear()
+        plans_wanted.clear()
         if lv["head"] != head:
             sys.exit("living: " + r["key"] + " names another work head than its run.json")
         whole, chain, closed, good_receipt, copies = check_run(run)
@@ -329,6 +341,10 @@ def check_living(z, man):
             todo.extend(sorted(depends_on(dep_run) - done))
         if len(reached) + len(done) - 1 > 5000:
             sys.exit("living: " + r["key"] + " rests on more records and runs than a pack holds at most (5000)")
+        for pid in sorted(plans_wanted):
+            o = packed("proposals/" + pid + ".json")
+            if not isinstance(o, dict) or o.get("id") != pid or CF.plan_why(o):
+                sys.exit("living: " + r["key"] + " says its work is complete, but proposals/" + pid + ".json, an evidence plan the work names, isn't in the pack as a plan the app reads")
         for k in named:
             if k not in done:
                 sys.exit("living: " + r["key"] + " names " + k + " as a run it depends on, but nothing in the pack depends on it")

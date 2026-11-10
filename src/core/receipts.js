@@ -399,6 +399,7 @@ PF.receipts = (function () {
         var l = PF.loop.loopOf(x);
         if (!l || l.process !== X.process || l.run !== X.id) return;
         file(x, 'A loop scope record');
+        saw(x);
         (Array.isArray(x.changes) ? x.changes : []).forEach(function (chg) { if (chg && chg.op === 'choose' && typeof chg.run === 'string' && chg.run) { var cp = procOfStep(l.step); if (cp) run(cp, chg.run, 'child'); else missing.push(on + 'proposals/' + String(x._file || x.id + '.json') + ': it chooses ' + chg.run + ' for a loop item, but the loop\'s checklist can\'t be told.'); } });
       });
       /* A spread's binding names the run that covers an item: that run is part of the work too. */

@@ -106,6 +106,9 @@ async function roleWorlds() {
     const q = T.buildProposal({ run: { process: r.process, id: r.id }, id: PF.detours.requestId(td, ev), by: 'person-avery', seen: V.heads.slice(0, 50), at: new Date().toISOString(), body: { op: 'done', todo: td, evidence: ev }, app: '4.0.0' });
     const files = Object.assign({}, F.files, { ['proposals/' + q.id + '.json']: T.text(q) });
     clone(files, 'evrun1');
+    /* The evidence plan the request names, written as the app writes it: the pack reader requires it by that reference. */
+    const one = await PF.repo.readRunOnly(new BytesFS(F.files), base.process, base.id);
+    files['proposals/' + ev.plan + '.json'] = JSON.stringify(PF.plans.make(one.pub, { id: ev.plan, process: base.process, title: 'Evidence plan', from: F.key, by: 'person-avery', created: new Date().toISOString() }, true, '4.0.0'), null, 2) + '\n';
     out.push({ role: 'evidence', PF, files, key: F.key, path: 'runs/' + base.process + '/evrun1/run.json', depKey: base.process + '/evrun1', force: true });
   }
   return out;
