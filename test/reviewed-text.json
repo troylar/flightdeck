@@ -25,8 +25,8 @@
       "reviewed": "slice 6 CC: one receipt check for run, next, runs and todo list"
     },
     "docs/design.md": {
-      "sha256": "43f3e9e820279279f939d5f3685707d7b702cd8742cb73dd6d95ad28de4ae43b",
-      "reviewed": "slice 6 CB: packs require each application's request, authority and causal closure"
+      "sha256": "0e1bbb813389c33d14052ffddd16def8ad89a6b5e8019eca96d6d85dda67af42",
+      "reviewed": "slice 6 CA: receipts prepared and asked again on one fresh dependency read"
     },
     "docs/evidence.md": {
       "sha256": "0e404d7949687394725354f90cd1c5ec5a9dce05969c5761a57f8119b79b8e0b",
@@ -309,8 +309,8 @@
       "reviewed": "loops: items: item kind, feed binding, completeness fix, nouns, unknown-kind refusal in loop.js/map.js/publish.js/types.js and check_folder.py parity; pure checks only, checked for direct writes and unconditional deletes"
     },
     "src/core/receipts.js": {
-      "sha256": "86dfa0a2ffad03a7ed7c7cf81412dd2db62ef27459508cb610a75f39a28ecba0",
-      "reviewed": "slice 6 CB: packs require each application's request, authority and causal closure"
+      "sha256": "052e5540ef259fef7354f9312d51fdf0d2d592868638a18c6ae679af615d0f9e",
+      "reviewed": "slice 6 CA: receipts prepared and asked again on one fresh dependency read"
     },
     "src/core/refs.js": {
       "sha256": "24b7d2b52fcd99673fcc427db286a7224af83342da19efcd561ac850d6baa441",
@@ -421,12 +421,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "aaba02d1501adf75e25c684e87661263b18e3c8f5d1305ff46d01f0d834aa08a",
-      "reviewed": "slice 6 CD: export counts a malformed record naming the run before living"
+      "sha256": "e68148008d9611807074a3dc1b775e2aaf175f34b1bbb751376e3bc8121c85d6",
+      "reviewed": "slice 6 CA: receipts prepared and asked again on one fresh dependency read"
     },
     "src/ui/app.js": {
-      "sha256": "d77f0b32ceba308badb1364f41a30f9813be0e62faffe9925870abb69040d7cb",
-      "reviewed": "slice 6: full-run fixes (file-formats.md back to 2.14.0's copy, inventory entries, reader and lookup sites, renderNow memo, markTodos)"
+      "sha256": "4e585f904182cc340e68a189ca430245f5e1af76957f12479bbbc314d404d2bd",
+      "reviewed": "slice 6 CA: receipts prepared and asked again on one fresh dependency read"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

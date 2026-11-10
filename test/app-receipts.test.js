@@ -148,4 +148,82 @@ rule('A receipt the run names that is missing from the folder is said by its pat
   assert.ok(!/As the receipt froze it/.test(t));
 });
 
+/* ---- CA: the receipt is prepared and asked again from the folder read again: scopes, child runs and their versions ---- */
+const KID = ['---', 'process: validate-story', 'title: Validate a story', 'owner: person-avery', 'context: issue, disposition:choice(cleared|needs-work)', 'result: disposition', '---', '',
+  '## Assess · DO-CONFIRM {#assess}', '- [!] {decide} Record the validation result {#verdict}', '  options: cleared, needs-work', '  sets: disposition=decision', ''].join('\n');
+const PARENT = ['---', 'process: release-readiness', 'title: Release 4.1', 'owner: person-avery', '---', '',
+  '## Stories · DO-CONFIRM {#stories}', '- [!] {for.each} Validate every release story {#each}', '  process: validate-story', '  items: jira.issue', '  pass: issue=item:key', '  accepts: cleared', '',
+  '## Ship · READ-DO {#ship}', '- [!] {confirm} Ship it {#ship1}', ''].join('\n');
+const pPath = (app) => app.files('runs/release-readiness/').find(p => /run\.json$/.test(p));
+const pRun = (app) => JSON.parse(app.fs.files[pPath(app)].t);
+const kidPaths = (app) => app.files('runs/validate-story/').filter(p => /run\.json$/.test(p));
+const scopeFiles = (app) => app.files('proposals/').filter(p => { try { return !!app.PF.loop.isScope(JSON.parse(app.fs.files[p].t)); } catch (e) { return false; } });
+const addStories = async (app, keys) => { app.set('loop-add-each', keys); app.click('loop-add', 'each'); await app.tick(150); app.set('loop-add-each', ''); await app.tick(); };
+async function loopSetup() {
+  const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(80); app.choose('person-avery'); await app.tick();
+  const PF = app.PF, people = JSON.parse(app.fs.files['people.json'].t), now = new Date().toISOString();
+  const put = (md, id, rand) => {
+    const b = PF.publish.build(md, { people, ...require('./harness').exampleSetup(PF), by: 'person-avery', changes: 'First', existing: [], now, rand, app: '4.0.0' });
+    assert.ok(!b.blockers, JSON.stringify(b.blockers));
+    Object.keys(b.files).forEach(k => { app.fs.files['publications/' + id + '/' + b.folder + '/' + k] = { t: b.files[k], m: Date.now() }; });
+  };
+  put(KID, 'validate-story', 'vs000001'); put(PARENT, 'release-readiness', 'rr000001');
+  app.click('refresh'); await app.tick(80);
+  app.click('start', 'release-readiness'); await app.settle();
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
+  await addStories(app, 'ABC-101, ABC-102');
+  app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(150);
+  const r = pRun(app); app.click('open-run', r.process + '/' + r.id); await app.tick(80);
+  assert.strictEqual(kidPaths(app).length, 1, 'set-up: one story run');
+  app.set('td-add', 'Post the release notes'); app.click('td-add'); await app.tick(120); await refresh(app, 400);
+  assert.ok(pRun(app).living, 'set-up: the parent is living');
+  return app;
+}
+/* Ends the parent with damage done to the folder right after its receipt is written: nothing ends, and the run is as it was. */
+async function endDamaged(app, damage) {
+  const fs = app.fs, write = fs.write.bind(fs), runText = app.fs.files[pPath(app)].t;
+  let hit = false;
+  fs.write = (p, t, o) => write(p, t, o).then((x) => { if (/^proposals\/req-receipt-/.test(p) && !hit) { hit = true; damage(); } return x; });
+  app.click('end', 'Cancelled'); await app.tick(400);
+  fs.write = write;
+  assert.ok(hit, 'the receipt was written');
+  assert.ok(!pRun(app).ended, 'not ended');
+  assert.strictEqual(app.fs.files[pPath(app)].t, runText, 'the run is as it was');
+}
+
+rule('A loop parent with to-dos ends with its receipt when nothing changes meanwhile (the control for the three below)', async () => {
+  const app = await loopSetup();
+  app.click('end', 'Cancelled'); await app.tick(400);
+  const r = pRun(app);
+  assert.ok(r.ended && r.living && r.living.receipt, JSON.stringify(r.living));
+  assert.ok(app.fs.files['proposals/' + r.living.receipt + '.json'], 'its receipt is in the folder');
+});
+
+rule('A scope item removed right after the receipt is written ends nothing: the receipt is asked again on the scope records read again', async () => {
+  const app = await loopSetup(), sc = scopeFiles(app);
+  assert.ok(sc.length, 'set-up: scope records');
+  const last = sc.slice().sort((a, b) => app.fs.files[a].m - app.fs.files[b].m || (a < b ? -1 : 1)).pop();
+  await endDamaged(app, () => { delete app.fs.files[last]; });
+});
+
+rule('A scope item added right after the receipt is written ends nothing', async () => {
+  const app = await loopSetup(), before = scopeFiles(app);
+  await addStories(app, 'ABC-103');
+  const added = scopeFiles(app).filter(p => before.indexOf(p) < 0), kept = added.map(p => [p, app.fs.files[p]]);
+  assert.ok(added.length, 'set-up: the addition\'s records');
+  added.forEach(p => { delete app.fs.files[p]; });
+  await refresh(app, 400);
+  const r = pRun(app); app.click('open-run', r.process + '/' + r.id); await app.tick(80);
+  await endDamaged(app, () => { kept.forEach(([p, f]) => { app.fs.files[p] = f; }); });
+});
+
+rule('A child run that can\'t be read, or its version, right after the receipt is written ends nothing', async () => {
+  for (const what of ['run', 'version']) {
+    const app = await loopSetup(), kid = kidPaths(app)[0], k = JSON.parse(app.fs.files[kid].t);
+    const map = app.files('publications/validate-story/').find(p => p.indexOf('/' + k.folder + '/map.md') >= 0);
+    assert.ok(map, 'set-up: the child\'s version');
+    await endDamaged(app, () => { if (what === 'run') app.fs.files[kid] = { t: '{ not json', m: Date.now() }; else app.fs.files[map] = { t: app.fs.files[map].t + '\nchanged', m: Date.now() }; });
+  }
+});
+
 run();

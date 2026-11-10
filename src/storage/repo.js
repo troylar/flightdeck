@@ -2618,10 +2618,43 @@ PF.repo = (function () {
     return Promise.all([readPlans(fs, o && o.evidence ? null : []), loadPeople(fs).then(null, function (e) { return { failed: why(e) }; })]).then(function (r) {
       var unread = (r[0].todosUnread || []).slice(), people = r[1];
       if (people.failed) { unread.push({ file: 'people.json', why: 'people.json couldn\'t be read, so no one\'s authority over to-dos can be checked.', run: null }); people = null; }
-      var out = { records: r[0].todos || [], unread: unread, people: people };
+      /* The loops' scope records from the same one read (a receipt is asked again on them, 4.0 slice 6). */
+      var out = { records: r[0].todos || [], unread: unread, people: people, scopes: r[0].scopes || [], scopesUnread: r[0].scopesUnread || [] };
       if (!o || !o.evidence) return out;
       return readEvidence(fs, r[0], out.records, o.also).then(function (ev) { out.evidence = ev; return out; });
     });
+  }
+  /* A loop parent's child runs read again (4.0 slice 6: what a receipt is asked again on), each through readRunOnly with the
+     version it ran checked: { runs, unread: [{ key, why }] }. A child folder listed under one of the run's {for.each}
+     processes that can't be read, or whose version can't be read or doesn't verify, is unread, never left out. judge(run, pub):
+     the verdict every reader gives a run (once it is shared), else the version's own check. */
+  function readLoopChildren(fs, self, judge) {
+    var map = null; try { map = R.mapOf(self); } catch (e) { map = null; }
+    var procs = [], out = { runs: [], unread: [] };
+    (map ? map.phases : []).forEach(function (ph) { ph.steps.forEach(function (st) { var cp = st.type === 'for.each' ? String(R.fieldsOf(self, st).process || '') : ''; if (cp && /^[a-z0-9][a-z0-9-]{0,59}$/.test(cp) && procs.indexOf(cp) < 0) procs.push(cp); }); });
+    var pubWhy = function (r, pub) {
+      if (judge) return judge(r, pub);
+      if (!pub) return '';
+      if (pub._readFailed || !pub.ok) return 'its version ' + String(r.folder) + ' can\'t be read or doesn\'t verify: ' + String(pub.why || 'unknown');
+      return pub.info ? runMismatch(r, pub.info) : '';
+    };
+    return procs.reduce(function (q, cp) { return q.then(function () {
+      return fs.list('runs/' + cp).then(null, function () { return null; }).then(function (items) {
+        if (items === null) { out.unread.push({ key: cp, why: 'runs/' + cp + ' couldn\'t be listed' }); return; }
+        return limited(items.filter(function (i) { return i.kind === 'dir' && /^[a-z0-9-]{1,40}$/i.test(i.name); }).map(function (i) { return i.name; }).sort(), 4, function (cid) {
+          var key = cp + '/' + cid;
+          return readRunOnly(fs, cp, cid).then(function (one) {
+            if (!one || !one.found) return;
+            var c = one.run, bad = (one.bad || []).filter(function (b) { return String(b.path || '').indexOf('runs/' + key + '/') === 0; });
+            if (!c || bad.length || one.nofile) { out.unread.push({ key: key, why: bad.length ? String(bad[0].why) : 'its run.json can\'t be read' }); return; }
+            if (!(c.parent && c.parent.item && c.parent.process === self.process && c.parent.id === self.id)) return;
+            var w = pubWhy(c, one.pub);
+            if (w) { out.unread.push({ key: key, why: w }); return; }
+            out.runs.push(c);
+          }, function (e) { out.unread.push({ key: key, why: why(e) }); });
+        });
+      });
+    }); }, Promise.resolve()).then(function () { return out; });
   }
   /* Checklist-linked to-dos (4.0 slice 5): what a done on a run's result is checked against, from one read of proposals/ (got,
      as readPlans gave it): every plan grouped as the folder reader groups them (a decision that can't be read holds its plan),
@@ -3515,5 +3548,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readTodos: readTodos, readEvidence: readEvidence, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, saveScope: saveScope, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readTodos: readTodos, readLoopChildren: readLoopChildren, readEvidence: readEvidence, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, saveScope: saveScope, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

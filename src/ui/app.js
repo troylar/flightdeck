@@ -3052,7 +3052,8 @@
   function todoSaveChain(cx, ed) {
     ed.opts.fresh = function () {
       if (!cx.todo || !cx.todo.living) return true;
-      return tdFresh(cx).then(function (x) { if (!x || !cx.todo) { ed.opts.putBack(); return false; } cx.todo.snap = x; return true; });
+      /* A save that ends the run with its receipt reads its loops' scope records and child runs again too (rcptFresh). */
+      return (cx.receipt ? rcptFresh(cx, cx.todo.key) : tdFresh(cx)).then(function (x) { if (!x || !cx.todo) { ed.opts.putBack(); return false; } cx.todo.snap = x; return true; });
     };
     return ed;
   }
@@ -3548,14 +3549,37 @@
     }, function (err) { endBusy(); if (sg !== gen) return; say('Couldn\'t save what was kept: ' + (err && err.message || err) + ' It may or may not have been saved; keeping it again is the same keep.', 'bad'); render(); });
   }
   /* ---- Plan versus now and the receipt (4.0 slice 6, docs/design.md 45.5) ---- */
-  /* What a receipt is prepared from: the to-do records, unread files, people and evidence (sn: the folder read again at a
-     write, tdFresh; else what this window read), and the loops' scope records and runs as this window read them. */
-  function rcptInputs(sn) { sn = sn || tdData(); return { records: sn.records, unread: sn.unread, people: sn.people, evidence: sn.evidence || null, now: tdNow(), loops: { records: data.scopes || [], unread: data.scopesUnread || [], procOf: ctx.procOf }, runs: data.runs || [] }; }
+  /* What a receipt is prepared from: the to-do records, unread files, people and evidence, the loops' scope records and the
+     runs (sn: the folder read again at a write, rcptFresh; else what this window read, for the screen and the first check). */
+  function rcptInputs(sn) {
+    sn = sn || tdData();
+    var lp = sn.loops || { records: data.scopes || [], unread: data.scopesUnread || [] };
+    return { records: sn.records, unread: sn.unread, people: sn.people, evidence: sn.evidence || null, now: tdNow(), loops: { records: lp.records, unread: lp.unread, procOf: ctx.procOf }, runs: sn.runs || data.runs || [] };
+  }
+  /* The one fresh dependency read a receipt is prepared and asked again on, right before each write that writes it or ends the
+     run: the to-do records, people and evidence (tdFresh), the loops' scope records from that same read, and the run's loop
+     children read again with the versions they ran checked (repo.readLoopChildren). null, and nothing is written, when any of
+     it can't be read, a child or its version can't be read, or the window moved on. rcptJudge is where the verdict every
+     reader gives a run (PF.appjson.judgeRun, 4.0 slice 5) plugs in; until then a child's version is checked as it verifies. */
+  function rcptJudge(r, pub) { return pub && (pub._readFailed || !pub.ok) ? 'its version ' + String(r.folder) + ' can\'t be read or doesn\'t verify' : pub && pub.info ? repo.runMismatch(r, pub.info) : ''; }
+  function rcptFresh(cx, key) {
+    var bound = function () { return !!cx && cx.g === gen && cx.fs === state.fs && cx.me === state.me; };
+    var self = findRun(key);
+    if (!self) return Promise.resolve(null);
+    return Promise.all([repo.readTodos(cx.fs, { evidence: true }).then(null, function () { return null; }), repo.readLoopChildren(cx.fs, self, rcptJudge).then(null, function () { return null; })]).then(function (x) {
+      if (!bound() || !x[0] || !x[1] || x[1].unread.length) return null;
+      var s = x[0], d = { todos: s.records, todosUnread: s.unread }; todoBodies(d);
+      var mine = function (c) { return c && c.parent && c.parent.item && c.parent.process === self.process && c.parent.id === self.id; };
+      return { records: d.todos || [], unread: d.todosUnread || [], people: s.people || data.people, evidence: s.evidence || null, loops: { records: s.scopes || [], unread: s.scopesUnread || [] },
+        runs: (data.runs || []).filter(function (c) { return !mine(c); }).concat(x[1].runs), rcpt: true };
+    });
+  }
   /* The receipt guard, asked before every write of the run's save that ends it (guardOk, with the to-do guard): on the run as
-     it was before it ended, prepared again from the folder read again right there, it is still exactly the receipt written,
-     and that record is in the folder. */
+     it was before it ended, prepared again from the folder read again right there (rcptFresh: never what this window read),
+     it is still exactly the receipt written, and that record is in the folder. */
   function receiptStill(cx) {
-    var t = cx.receipt, sn = (cx.todo && cx.todo.snap) || tdData(), pre;
+    var t = cx.receipt, sn = cx.todo && cx.todo.snap, pre;
+    if (!sn || !sn.rcpt) return false;
     try { pre = R.sanitize(JSON.parse(t.pre)); } catch (e) { return false; }
     if (!pre || pre._unrunnable) return false;
     if (!(sn.records || []).some(function (x) { return x && x.kind === 'receipt' && x.id === t.id; })) return false;
@@ -3583,7 +3607,7 @@
     if (kept && kept.id === P.id) P = kept;
     state.rcptTry = { sig: sig, P: P };
     var cx = loopGuard({ run: key, readable: true }), text = PF.todos.text(P.file), endBusy = busyStart(), snap = null;
-    var fresh = function () { return tdFresh(cx).then(function (s) { snap = s; return !!s; }); };
+    var fresh = function () { return rcptFresh(cx, key).then(function (s) { snap = s; return !!s; }); };
     var still = function () { if (!guardOk(cx) || !snap) return false; var A = ask(findRun(key), snap); return !A.why && !A.none && A.id === P.id; };
     repo.saveScope(cx.fs, P.name, P.file, { fresh: fresh, still: still }).then(function (res) {
       endBusy(); if (g !== gen) return;
