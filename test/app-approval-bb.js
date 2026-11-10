@@ -192,6 +192,13 @@ const rebuiltPub = (app) => {
   const kept = {}; Object.keys(b.files).forEach(k => { kept[k] = app.fs.files[base + k]; app.fs.files[base + k] = { t: b.files[k], m: Date.now() }; });
   return () => { Object.keys(kept).forEach(k => { if (kept[k]) app.fs.files[base + k] = kept[k]; else delete app.fs.files[base + k]; }); };
 };
+/* Round 15 (SA): the run handed to another session (its recorder changed, its revision bumped) by another window. */
+const handedOff = (app) => {
+  const p = parentPath(app), kept = app.fs.files[p], j = JSON.parse(kept.t);
+  j.recorder = Object.assign({}, j.recorder, { session: 'other-window-sa' }); j.rev = (j.rev || 0) + 1; j.savedAt = new Date().toISOString(); j.savedBy = 'other-window-sa';
+  app.fs.files[p] = { t: JSON.stringify(j, null, 2), m: Date.now() };
+  return () => { app.fs.files[p] = kept; };
+};
 const isList = (op, p, dir) => op === 'list' && p.replace(/\/$/, '') === dir;
 /* A read point by its role, the same in every app: the run, the story's run, the first scope record, the story's application. */
 function namer(app, kid) {
@@ -216,7 +223,8 @@ const CHANGES = {
   'a second run for the story\'s attempt': { make: secondRun, sees: (op, p) => isList(op, p, 'runs/validate-story') },
   'the run\'s version absent': { make: (app) => gone(app, parentPub(app)), sees: (op, p) => op === 'read' && /^publications\/release-readiness\/[^/]+\/publication\.json$/.test(p) },
   'the run\'s version EIO': { make: (app) => eio(app, parentPub(app)), sees: (op, p) => op === 'read' && /^publications\/release-readiness\/[^/]+\/publication\.json$/.test(p) },
-  'the run\'s version rebuilt with another step': { make: rebuiltPub, sees: (op, p) => op === 'read' && /^publications\/release-readiness\//.test(p) }
+  'the run\'s version rebuilt with another step': { make: rebuiltPub, sees: (op, p) => op === 'read' && /^publications\/release-readiness\//.test(p) },
+  'the run handed to another session': { make: handedOff, sees: (op, p) => op === 'read' && p === 'runs/release-readiness/<run>/run.json' }
 };
 const localKeyOf = (app, id) => 'preflight:unsaved:' + app.fs.kind + ':' + (app.fs.id || app.fs.name) + ':' + id;
 const failCand = (app) => { const write = app.fs.write; let n = 0; app.fs.write = (q, t, x) => CAND_RE.test(q) && ++n === 1 ? Promise.reject(new Error('EIO')) : write.call(app.fs, q, t, x); return { n: () => n, off: () => { app.fs.write = write; } }; };
