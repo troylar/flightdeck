@@ -125,6 +125,9 @@
       var x = fuOf(f);
       return '<div class="rrow"><span class="ric open">→</span><span>' + esc(f.text) + (f.ticket ? ' <span class="cat">' + esc(f.ticket) + '</span>' : '') + (x ? ' ' + V.fuPill(x) : '') + (x && x.decision && !x.tie && x.status !== 'open' ? '<span class="small" style="display:block">' + esc(fuStatusOf(f)) + '</span>' : '') + '</span><span class="small">' + esc(f.owner ? nameOf(ctx, f.owner) : '') + '</span></div>';
     }).join('') + '</div>';
+    /* A living run's receipt record (4.0 slice 6): its frozen plan-versus-now words, and what arrived after it ended. */
+    var pv = r.living && V.planVsNow ? V.planVsNow(ctx, r) : '';
+    if (pv) body = '<div class="r-pvn"><h4><span>Plan versus now</span></h4>' + (function () { var v = ctx.planVsNow(r); return v && v.lines.length ? '<ul class="small">' + v.lines.map(function (l) { return '<li>' + esc(l) + '</li>'; }).join('') + '</ul>' : ''; })() + pv + '</div>' + body;
     var unread = reps.filter(function (g) { return g.unreadable.length; }).length;
     /* 50 report groups at a time, formatted only when drawn (2.11); Copy for Jira formats every one. */
     if (reps.length || (rb && (rb.loading || rb.failed))) body += '<div class="r-reps"><h4><span>Reports · ' + reps.length + '</span></h4>' +

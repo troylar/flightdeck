@@ -408,7 +408,9 @@ PF.todos = (function () {
     if (o.kind === 'fact') return PF.facts.cleanFile(o, name, mal);
     /* A keep (4.0 slice 5) suggests a step for next time: its own reader (PF.learn), never a request, never in the chain. */
     if (o.kind === 'keep') return PF.learn.cleanFile(o, name, mal);
-    if (PKINDS.indexOf(o.kind) < 0) return mal('is a to-do record that isn\'t a proposal, a compound, a grant, a revoke, a fact or a keep');
+    /* A receipt (4.0 slice 6) is what a living run ended with: its own reader (PF.receipts), never a request, never in the chain. */
+    if (o.kind === 'receipt') return PF.receipts.cleanFile(o, name, mal);
+    if (PKINDS.indexOf(o.kind) < 0) return mal('is a to-do record that isn\'t a proposal, a compound, a grant, a revoke, a fact, a keep or a receipt');
     if (typeof o.id !== 'string' || !REQ.test(o.id)) return mal('is a to-do record without a request id');
     if (typeof name === 'string' && !requestFile(name, o.id)) return mal('is a to-do record whose name isn\'t its id');
     var r = { id: o.id, kind: o.kind, run: cleanRun(o.run, errors), seen: cleanSeen(o.seen, errors), by: cleanBy(o, errors), at: '' };
@@ -497,8 +499,8 @@ PF.todos = (function () {
   /* The run a record names, when it says one plainly, even when it isn't in its format; null otherwise. */
   function runOf(o) { var v = isMap(o) && isMap(o.run) ? o.run : null; return v && typeof v.process === 'string' && typeof v.id === 'string' ? { process: v.process, id: v.id } : null; }
   function recordsFor(records, r) { return (records || []).filter(function (x) { return x.run && x.run.process === r.process && x.run.id === r.id; }); }
-  /* Informational records (facts, keeps) never enter the to-do order or the chain of applications. */
-  function notFact(x) { return !x || (x.kind !== 'fact' && x.kind !== 'keep'); }
+  /* Informational records (facts, keeps, receipts) never enter the to-do order or the chain of applications. */
+  function notFact(x) { return !x || (x.kind !== 'fact' && x.kind !== 'keep' && x.kind !== 'receipt'); }
   /* Whether a file in proposals/ may be a to-do or fact record (req-*.json, in any case): the one test for both noticing a
      file that can't be read (a link, one cut short) and holding on it, so no name is noticed and then dropped. */
   function recordName(name) { return /^req-[^/]*\.json$/i.test(String(name || '')); }
@@ -969,7 +971,14 @@ PF.todos = (function () {
     return { cut: v.cut.slice() };
   }
   var HEAD = /^(req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})(\.status-[a-z0-9][a-z0-9-]{0,39}-[0-9a-f]{8})?$/;
-  function cleanLiving(v) { return isMap(v) && Object.keys(v).length === 1 && typeof v.head === 'string' && HEAD.test(v.head) ? { head: v.head } : null; }
+  /* living: { head } and, once the run has ended with one (4.0 slice 6), { head, receipt }: the receipt record it ended with. */
+  function cleanLiving(v) {
+    if (!isMap(v) || typeof v.head !== 'string' || !HEAD.test(v.head)) return null;
+    var ks = Object.keys(v);
+    if (ks.length === 1) return { head: v.head };
+    if (ks.length === 2 && ks[0] === 'head' && ks[1] === 'receipt' && typeof v.receipt === 'string' && REQ.test(v.receipt)) return { head: v.head, receipt: v.receipt };
+    return null;
+  }
 
   /* ---- Application (slice 1, commit 3). The recorder's window carries out a queued request in two writes: the application
      record first (in proposals/, guarded), then the run, whose living.head moves to it. Recovery reads what is there before

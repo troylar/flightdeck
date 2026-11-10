@@ -2987,7 +2987,7 @@ PF.repo = (function () {
       return (procCache[proc] = Promise.all([decisions, runMetas, pubMetas]).then(function (r) {
         var ds = r[0], total = 0, over = false;
         r[1].concat(r[2]).forEach(function (m) { m.sizes.forEach(function (z) { if (z == null) return; total += z; if (z > recordMax) over = true; }); });
-        if (over || total > CTX_MAX) return { decisions: ds, groups: [], pubs: [], why: 'The runs and versions of ' + proc + ' are too big to read here (' + E.size(total) + '), so where its corrections stand can\'t be worked out.' };
+        if (over || total > CTX_MAX) return { decisions: ds, groups: [], pubs: [], runs: [], index: null, why: 'The runs and versions of ' + proc + ' are too big to read here (' + E.size(total) + '), so where its corrections stand can\'t be worked out.' };
         var runs = limited(r[1].filter(function (m) { return m.want.length; }), 8, function (m) {
           /* A run in the pack is read from its snapshot; any other only as text. */
           var read = function (n) { return selected[m.key] ? record(m.base + n).then(function (x) { return x.text == null ? null : x.text; }) : sizedText(m.base + n, recordMax).then(function (x) { return x.text == null ? null : x.text; }); };
@@ -3008,7 +3008,8 @@ PF.repo = (function () {
         });
         return Promise.all([runs, pubs]).then(function (x) {
           var pubList = x[1], verified = pubList.filter(function (p) { return p.v.ok; }).map(function (p) { return p.v; });
-          return { decisions: ds, groups: C.forProcess(x[0].filter(Boolean), proc, ds.filter(function (y) { return y.d; }).map(function (y) { return y.d; }), P.index(verified)), pubs: pubList, why: '' };
+          var runsRead = x[0].filter(Boolean), index = P.index(verified);
+          return { decisions: ds, groups: C.forProcess(runsRead, proc, ds.filter(function (y) { return y.d; }).map(function (y) { return y.d; }), index), pubs: pubList, why: '', runs: runsRead, index: index };
         });
       }));
     }
@@ -3054,7 +3055,7 @@ PF.repo = (function () {
              on the group belongs to the pack whatever else can be read. */
           var self = raw && !p.foreign ? R.sanitize(raw) : null;
           if (self) { self._notes = []; t.forEach(function (x) { if (x != null) E.notesFile(x).notes.forEach(function (n) { self._notes.push(cleanNote(n.note, base + '/')); }); }); }
-          p.ownGroups = {};
+          p.ownGroups = {}; p.self = self;
           if (self) try { C.groups(C.collect([self], proc)).forEach(function (g) { p.ownGroups[g.id] = true; }); } catch (e) { /* a run this copy can't fully read has no groups to add */ }
         });
         });
@@ -3141,6 +3142,8 @@ PF.repo = (function () {
           }));
         });
       }).then(function () {
+        return livingPart(p, add);
+      }).then(function () {
         /* Sizes: attachments left out, or over the one-file limit, are listed with their size and never read. */
         return limited(p.files, 8, function (f) { return done[f.path] ? (f.size = done[f.path].gone ? null : done[f.path].statSize) : statOf(f.path).then(function (z) { f.size = z; }); }).then(function () {
           p.files = p.files.filter(function (f) {
@@ -3152,6 +3155,88 @@ PF.repo = (function () {
           return p;
         });
       });
+    }
+
+    /* ---- a living run's work (4.0 slice 6): what it rests on ----
+       One checked read of proposals/ for the whole collection (readPlans, the readers' own), and the loops' child runs. Every
+       record the run's work rests on goes in (the application chain from living.head, its requests and their decisions, the
+       facts used as evidence, the loops' scope records, every record on a child run and every request fulfilling a spread,
+       the receipt), with the evidence runs and plans and the publication proof of what it kept for next time. Anything that
+       can't be found or read is named (p.living.missing): the pack is partial and no claim resting on it is confirmed. Past
+       the cap the export is refused, never cut. A run with no to-do records is packed exactly as in 3.0. */
+    var propsOnce = null;
+    function proposalsRead() {
+      if (!propsOnce) propsOnce = Promise.all([readPlans(ro, null), ro.list('proposals').then(function (it) { return it.filter(function (i) { return PF.todos.recordName(i.name); }).map(function (i) { return i.name; }).sort(); })])
+        .then(function (x) { x[0].listing = x[1]; return x[0]; }, function (e) { return { failed: why(e) }; });
+      return propsOnce;
+    }
+    function childrenOf(self) {
+      var map = null; try { map = R.mapOf(self); } catch (e) { map = null; }
+      var procs = [];
+      (map ? map.phases : []).forEach(function (ph) { ph.steps.forEach(function (st) { if (st.type === 'for.each' && st.fields && typeof st.fields.process === 'string' && EV_PROC.test(st.fields.process) && procs.indexOf(st.fields.process) < 0) procs.push(st.fields.process); }); });
+      var out = { runs: [], unread: [] };
+      return procs.reduce(function (q, cp) { return q.then(function () {
+        return ro.list('runs/' + cp).then(null, function () { return []; }).then(function (items) {
+          return limited(items.filter(function (i) { return i.kind === 'dir' && /^[a-z0-9-]{1,40}$/i.test(i.name); }).map(function (i) { return i.name; }).sort(), 4, function (cid) {
+            return sizedText('runs/' + cp + '/' + cid + '/run.json', recordMax).then(function (x) {
+              if (x.missing) return;
+              var c = x.text == null ? null : R.sanitize(json(x.text));
+              if (!c) { out.unread.push(cp + '/' + cid); return; }
+              if (c.parent && c.parent.item && c.parent.process === self.process && c.parent.id === self.id && c.id === cid && c.process === cp) out.runs.push(c);
+            });
+          });
+        });
+      }); }, Promise.resolve()).then(function () { return out; });
+    }
+    function livingPart(p, add) {
+      var self = p.self;
+      if (!self) return Promise.resolve();
+      return proposalsRead().then(function (Pr) {
+        if (Pr.failed) { if (self.living) p.living = { head: self.living.head, chain: [], receipt: null, missing: ['proposals/ ' + Pr.failed + ', so the run\'s work can\'t be packed.'], recs: {}, listing: null }; return; }
+        if (!self.living && !PF.todos.recordsFor(Pr.todos, self).length) return;
+        return childrenOf(self).then(function (ch) {
+          var D = PF.receipts.deps(self, { records: Pr.todos, unread: Pr.todosUnread, scopes: Pr.scopes, scopesUnread: Pr.scopesUnread, children: ch.runs, childUnread: ch.unread });
+          if (D.over) throw new Error(D.over);
+          var L = p.living = { head: self.living ? self.living.head : '', chain: D.chain, receipt: D.receipt ? { id: self.living.receipt || '', state: D.receipt.state, why: D.receipt.why } : null, missing: D.missing.slice(), recs: {}, listing: Pr.listing };
+          var byFile = Object.create(null);
+          Pr.todos.concat(Pr.scopes).forEach(function (x) { if (x && x._file) byFile[x._file] = x; });
+          D.files.forEach(function (f) { var path = 'proposals/' + f.file; L.recs[path] = byFile[f.file] || null; add(path, { role: 'living', label: f.label }); });
+          var planFiles = Object.create(null); (Pr.plans || []).forEach(function (pl) { if (pl && pl._file) planFiles[pl.id] = pl._file; });
+          D.plans.forEach(function (id) { if (planFiles[id]) add('proposals/' + planFiles[id], { role: 'evidence plan', label: 'The evidence plan a to-do was done on' }); else L.missing.push('proposals/' + id + '.json: a to-do was done on this evidence plan, but it isn\'t in the folder as read.'); });
+          return limited(D.runs, 4, function (x) {
+            var path = 'runs/' + x.process + '/' + x.id + '/run.json';
+            return statOf(path).then(function (z) {
+              if (z == null) { L.missing.push(path + ': ' + (x.role === 'evidence' ? 'a to-do was done on this run\'s result' : 'a child run of its loops') + ', but it isn\'t in the folder.'); return; }
+              add(path, x.role === 'evidence' ? { role: 'evidence run', label: 'The run a to-do was done on (its result is the evidence)' } : { role: 'child run', label: 'A child run of the run\'s loops' });
+            });
+          }).then(function () { return keepClaims(p, add, Pr); });
+        });
+      });
+    }
+    /* What the run kept for next time, and where each stands: its correction's decisions and, once published, the version's
+       files as proof (a claim like any correction's). */
+    function keepClaims(p, add, Pr) {
+      var self = p.self, ks = PF.todos.recordsFor(Pr.todos, self).filter(function (x) { return x.kind === 'keep' && x.template && x.anchor; });
+      var procs = []; ks.forEach(function (k) { if (procs.indexOf(k.template.process) < 0 && EV_PROC.test(k.template.process)) procs.push(k.template.process); });
+      return procs.reduce(function (q, kp) { return q.then(function () {
+        return processContext(kp).then(function (ctx) {
+          var mineK = ks.filter(function (k) { return k.template.process === kp; });
+          if (ctx.why) { mineK.forEach(function (k) { p.claims.push({ correction: k.id, group: '', process: kp, text: 'Where it stands', folder: '', why: ctx.why }); }); return; }
+          var gs = [];
+          try { gs = C.forProcess(ctx.runs, kp, ctx.decisions.filter(function (y) { return y.d; }).map(function (y) { return y.d; }), ctx.index, PF.learn.members(Pr.todos, ctx.runs, kp)); } catch (e) { gs = []; }
+          var vers = {};
+          mineK.forEach(function (k) {
+            var g = gs.filter(function (x) { return x.keep && x.members.some(function (m) { return m.keep && m.keep.record === k.id; }); })[0];
+            if (!g) return;
+            ctx.decisions.forEach(function (y) { if (y.d && y.d.group === g.id) add(y.path, { role: 'correction', label: 'A decision on what was kept for next time' }); });
+            if (g.landed) { vers[g.landed.folder] = true; p.claims.push({ correction: k.id, group: g.id, process: kp, text: 'Published in v' + g.landed.version, folder: g.landed.folder }); }
+          });
+          return Promise.all(Object.keys(vers).map(function (folder) {
+            var b = 'publications/' + kp + '/' + folder;
+            return listFiles(b).then(function (items) { items.forEach(function (x) { var rel = x.path.slice(b.length + 1); if (x.kind === 'file' && ['map.md', 'types.json', 'publication.json'].indexOf(rel) >= 0) add(x.path, { role: 'proof', label: 'Backs up "Published in v' + P.versionOf(folder) + '" of what was kept' }); }); }, function () { /* the claim stays unconfirmed: its files aren't here */ });
+          }));
+        });
+      }); }, Promise.resolve());
     }
 
     /* ---- after collecting: did anything the pack holds change? ---- */
@@ -3180,6 +3265,9 @@ PF.repo = (function () {
             }));
           }).then(function (x) {
             if (x[0].concat(x[1]).sort().join('/') !== p.decListing.join('/')) note('corrections/' + p.process, 'a decision on corrections was added or removed', p.key);
+            /* A living run's work rests on proposals/: a to-do record added or removed there is a change. */
+            if (p.living && p.living.listing) return ro.list('proposals').then(function (it) { var nowP = it.filter(function (i) { return PF.todos.recordName(i.name); }).map(function (i) { return i.name; }).sort(); if (nowP.join('/') !== p.living.listing.join('/')) note('proposals', 'a to-do record was added or removed', p.key); });
+          }).then(function () {
             (p.changes || []).forEach(function (c) { note(c.path, c.what, p.key); });
           });
         });
@@ -3248,8 +3336,25 @@ PF.repo = (function () {
       rc.checks = E.checks(rc.raw, p.folder ? pubTexts : null, p.folder ? pubShots : null, p.test);
       rc.test = p.test;
       if (rc.raw && !p.folder) limits.push('The version it names isn\'t one this copy can find.');
+      /* A living run (4.0 slice 6): each record its work rests on, as packed, must be the record the one checked read of
+         proposals/ read; one that changed, went or wasn't read is named, and nothing kept for next time is confirmed. */
+      if (p.living) {
+        var L = p.living, lm = L.missing.slice();
+        Object.keys(L.recs).sort().forEach(function (path) {
+          var x = done[path], was = L.recs[path];
+          if (!x || x.gone) { lm.push(path + ' was removed while the pack was made.'); return; }
+          if (x.skipped || x.text == null) { lm.push(path + ' wasn\'t read into the pack, so what it says can\'t be checked.'); return; }
+          var o = json(x.text), name = path.slice('proposals/'.length), v = null;
+          try { v = o && typeof o === 'object' ? (PF.loop.isScope(o) ? PF.loop.cleanFile(o, name) : PF.todos.cleanFile(o, name, PF.util.utf8Bytes(x.text))) : null; } catch (e) { v = null; }
+          var strip = function (r) { if (!r) return ''; var c = {}; Object.keys(r).forEach(function (k) { if (k.charAt(0) !== '_') c[k] = r[k]; }); return E.canonical(c); };
+          if (!v || !v.ok || !was || strip(v.record) !== strip(was)) lm.push(path + ' changed while the pack was made.');
+        });
+        lm.forEach(function (m) { col.unresolved.push(p.key + ': ' + m); });
+        if (lm.length) { limits.push('What the run\'s work rests on isn\'t all in this pack, so nothing it claims from its to-dos is confirmed.'); p.claims.forEach(function (c) { if (c.process) c.why = c.why || 'what the run\'s work rests on isn\'t all in this pack.'; }); }
+        rc.living = { head: L.head, chain: L.chain.slice(), receipt: L.receipt, records: Object.keys(L.recs).sort(), missing: lm, complete: !lm.length };
+      }
       rc.claims = p.claims.map(function (c) {
-        var proof = c.folder ? ['map.md', 'types.json', 'publication.json'].map(function (n) { return 'publications/' + p.process + '/' + c.folder + '/' + n; }) : [];
+        var proof = c.folder ? ['map.md', 'types.json', 'publication.json'].map(function (n) { return 'publications/' + (c.process || p.process) + '/' + c.folder + '/' + n; }) : [];
         var have = proof.length && proof.every(function (x) { return p.files.some(function (f) { return f.path === x; }) && done[x] && !done[x].gone; });
         var ok = !!have && !c.why;
         return { correction: c.correction, group: c.group, text: c.text, folder: c.folder, proof: proof, verified: ok, status: ok ? c.text : 'Can\'t be confirmed from this pack: ' + (c.why || 'the files of that version aren\'t all here.') };
@@ -3329,7 +3434,7 @@ PF.repo = (function () {
           attempt++;
           paths.forEach(function (pth) { forget(pth); delete decHash[pth]; });
           Object.keys(rc.runs).forEach(function (k) { var base = 'runs/' + k + '/'; Object.keys(done).forEach(function (pth) { if (pth.indexOf(base) === 0) forget(pth); }); });
-          procCache = {}; decHash = {};
+          procCache = {}; decHash = {}; propsOnce = null;
           /* Every attempt starts as the first did: sizes and the cap checked before anything new is read. */
           return preEstimate(keysAll).then(function () { return planAll(keysAll); }).then(fullEstimate).then(round);
         });

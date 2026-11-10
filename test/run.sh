@@ -123,6 +123,7 @@ test/todos-rules.test.js -
 test/spreads.test.js -
 test/facts.test.js -
 test/learn.test.js -
+test/receipts.test.js -
 test/learn-cli.test.js -
 test/detours.test.js -
 test/detours-cli.test.js -
@@ -161,6 +162,7 @@ test/app-todos-inbox.test.js -
 test/app-spreads.test.js -
 test/app-facts.test.js -
 test/app-learn.test.js -
+test/app-receipts.test.js -
 test/app-detours.test.js -
 test/staging-app.test.js -
 test/test-runs-app.test.js -
@@ -196,6 +198,7 @@ test/agents-inventory.test.js -
 test/old-bundles.test.js -
 test/clarity-compat.test.js -
 test/evidence.test.js -
+test/evidence-living.test.js -
 test/light.test.js -
 test/wrong-record.test.js -
 test/practice.test.js -

@@ -174,6 +174,7 @@
     todoGrants: function () { return tdInboxNow().grants; },
     /* Spreads on a run (4.0 slice 3): coverage as every window and the CLI work it out (PF.spreads.coverage), once per draw. */
     spreadCoverage: function (r) { return spreadCoverageOf(r); },
+    planVsNow: function (r) { return planVsNowOf(r); },
     /* Facts on a run (4.0 slice 4) and the time they are judged at; a suggestion's evidence as it stands now. */
     factView: function (r) { return factViewOf(r); },
     factNow: function () { return tdNow(); },
@@ -3012,6 +3013,7 @@
   function guardOk(cx) {
     if (!cx || cx.g !== gen || cx.fs !== state.fs || cx.me !== state.me) return false;
     if (cx.todo && !todoStill(cx.todo)) return false;
+    if (cx.receipt && !receiptStill(cx)) return false;
     if (!cx.run) return true;
     var r = findRun(cx.run);
     if (!r || runSig(r) !== cx.sig) return false;
@@ -3544,6 +3546,88 @@
       lastAll = -Infinity;
       render();
     }, function (err) { endBusy(); if (sg !== gen) return; say('Couldn\'t save what was kept: ' + (err && err.message || err) + ' It may or may not have been saved; keeping it again is the same keep.', 'bad'); render(); });
+  }
+  /* ---- Plan versus now and the receipt (4.0 slice 6, docs/design.md 45.5) ---- */
+  /* What a receipt is prepared from: the to-do records, unread files, people and evidence (sn: the folder read again at a
+     write, tdFresh; else what this window read), and the loops' scope records and runs as this window read them. */
+  function rcptInputs(sn) { sn = sn || tdData(); return { records: sn.records, unread: sn.unread, people: sn.people, evidence: sn.evidence || null, now: tdNow(), loops: { records: data.scopes || [], unread: data.scopesUnread || [], procOf: ctx.procOf }, runs: data.runs || [] }; }
+  /* The receipt guard, asked before every write of the run's save that ends it (guardOk, with the to-do guard): on the run as
+     it was before it ended, prepared again from the folder read again right there, it is still exactly the receipt written,
+     and that record is in the folder. */
+  function receiptStill(cx) {
+    var t = cx.receipt, sn = (cx.todo && cx.todo.snap) || tdData(), pre;
+    try { pre = R.sanitize(JSON.parse(t.pre)); } catch (e) { return false; }
+    if (!pre || pre._unrunnable) return false;
+    if (!(sn.records || []).some(function (x) { return x && x.kind === 'receipt' && x.id === t.id; })) return false;
+    var A = PF.receipts.prepare(pre, Object.assign(rcptInputs(sn), { outcome: t.outcome, by: cx.me, at: t.at, app: APP_VERSION }));
+    return !A.why && !A.none && A.id === t.id;
+  }
+  /* Ending a run. A run that isn't living ends exactly as in 3.0. A living run ends with its receipt: prepared from the folder
+     as this window reads it (nothing is written when it can't be: a record, the loop or a spread's coverage that can't be
+     read, a list over its limit), written once under the run guard (prepared again on the folder read again right before
+     the write; a retry writes exactly the first bytes), then the run's save sets ended and living.receipt together, with the
+     to-do and receipt guards asked again before each of its writes. Refused there, nothing more is written and the end is
+     put back; the receipt record stays, naming nothing, and ending again prepares it again. */
+  function endRun(outcome) {
+    var g = gen, key = state.runKey, r = ctx.run();
+    var after = function (ok) { if (ok && g === gen && state.runKey === key && ctx.run() && ctx.run().ended) { backMode(true); setView('receipt'); render(); window.scrollTo(0, 0); } };
+    if (!r || !r.living) { mutate(function (rr, map, me, now) { R.end(rr, map, outcome, me, V.nameOf(ctx, me), now); }).then(after); return; }
+    if (!ctx.recording(r)) { say('Only the recorder\'s window can end the run.', 'warn'); render(); return; }
+    if (runUnread(r)) { say(runUnread(r) + ' The run wasn\'t ended.', 'warn'); render(); return; }
+    var sig = JSON.stringify([fsKey(), key, state.me, outcome, r.living.head]), kept = state.rcptTry && state.rcptTry.sig === sig ? state.rcptTry.P : null;
+    var at = kept ? kept.record.at : new Date().toISOString();
+    var ask = function (run, sn) { return PF.receipts.prepare(run, Object.assign(rcptInputs(sn), { outcome: outcome, by: state.me, at: at, app: APP_VERSION })); };
+    var P = ask(r, null);
+    if (P.none) { mutate(function (rr, map, me, now) { R.end(rr, map, outcome, me, V.nameOf(ctx, me), now); }).then(after); return; }
+    if (P.why) { say(P.why, 'warn'); render(); return; }
+    if (kept && kept.id === P.id) P = kept;
+    state.rcptTry = { sig: sig, P: P };
+    var cx = loopGuard({ run: key, readable: true }), text = PF.todos.text(P.file), endBusy = busyStart(), snap = null;
+    var fresh = function () { return tdFresh(cx).then(function (s) { snap = s; return !!s; }); };
+    var still = function () { if (!guardOk(cx) || !snap) return false; var A = ask(findRun(key), snap); return !A.why && !A.none && A.id === P.id; };
+    repo.saveScope(cx.fs, P.name, P.file, { fresh: fresh, still: still }).then(function (res) {
+      endBusy(); if (g !== gen) return;
+      if (res && res.dropped) { say('The run wasn\'t ended: the folder, the person, the run or its to-dos changed before its receipt was written. End it again if it still should.', 'warn'); render(); return; }
+      /* A receipt already in the folder under its name says the same (its name is what it says); anything else there isn't one. */
+      if (res && res.conflict && res.theirs !== text) {
+        var o = null; try { o = PF.util.jsonTooDeep(res.theirs) ? null : JSON.parse(res.theirs); } catch (e) { o = null; }
+        var v = o && typeof o === 'object' ? PF.todos.cleanFile(o, P.name, PF.util.utf8Bytes(res.theirs)) : null;
+        if (!v || !v.ok || v.record.kind !== 'receipt' || v.record.id !== P.id) { say('Something else is already saved under the receipt\'s name. The run wasn\'t ended; read the folder again.', 'bad'); render(); return; }
+      }
+      var rec = P.record; rec._file = P.name;
+      if (!(data.todos || []).some(function (x) { return x.id === rec.id; })) data.todos = (data.todos || []).concat([rec]);
+      var lcx = loopGuard({ run: key, readable: true });
+      var ed = loopEdit(lcx, key, function (rr, m, me, now) {
+        if (!rr.living || rr.living.head !== P.record.head) throw new Error('The run\'s to-dos changed since its receipt was prepared, so it wasn\'t ended. End it again.');
+        var pre = todoPre(rr);
+        lcx.todo = { key: key, from: rr.living.head, head: rr.living.head, pre: pre, living: true };
+        lcx.receipt = { pre: pre, id: P.id, at: at, outcome: outcome };
+        R.end(rr, m, outcome, me, V.nameOf(ctx, me), now, { receipt: P.id });
+        /* The guard asks after the end: the run as this change left it (ended) is the one it compares with. */
+        lcx.sig = runSig(rr);
+      }, { redo: true });
+      todoSaveChain(lcx, ed);
+      mutate(ed.fn, ed.opts).then(function (ok) { if (ok && state.rcptTry && state.rcptTry.P === P) state.rcptTry = null; after(ok); });
+    }, function (err) { endBusy(); if (g !== gen) return; say('Couldn\'t save the run\'s receipt: ' + (err && err.message || err) + ' It may or may not have been saved; ending again writes the same receipt. The run wasn\'t ended.', 'bad'); render(); });
+  }
+  var pvnMemo = null;
+  function planVsNowOf(r) {
+    if (!r || !r.living || r._unrunnable) return null;
+    var k = [r, r.rev || 0, r.living.head, r.living.receipt || '', r.ended, data.todos, data.todosUnread, data.scopes, data.runs, data.people, Math.floor(tdNow() / 60000)];
+    if (pvnMemo && pvnMemo.k.length === k.length && pvnMemo.k.every(function (x, i) { return x === k[i]; })) return pvnMemo.v;
+    var v = null;
+    try {
+      if (r.ended) {
+        var S = PF.receipts.stateOf(r, data.todos || [], data.todosUnread || []);
+        v = { ended: true, state: S, lines: [], chips: [], since: null };
+        if (S && S.record) { var w = PF.receipts.words(S.record.counts, S.record.coverage); v.lines = w.lines; v.chips = w.chips; v.since = PF.receipts.since(r, S.record, data.todos || [], spreadCoverageOf(r)); }
+      } else {
+        var C = PF.receipts.compare(r, PF.run.mapOf(r), todoViewFor(r), spreadCoverageOf(r), rcptInputs());
+        v = { ended: false, lines: C.lines, chips: C.chips, phases: C.phases, unread: C.unread };
+      }
+    } catch (e) { v = null; }
+    pvnMemo = { k: k, v: v };
+    return v;
   }
   var spBox = null;
   function spreadCoverageOf(r) {
@@ -8531,7 +8615,7 @@
     pickup: function () { if (runBusy(ctx.run())) return; fresh().then(function (t) { if (t) mutateRun(t.key, t.g, function (r, map, me, now) { R.pickUp(r, me, SESSION, now, R.legacyLinks(r, ctx.findRun)); }, { any: true }); }); },
     takeover: function () { if (runBusy(ctx.run())) return; fresh().then(function (t) { if (t) mutateRun(t.key, t.g, function (r, map, me, now) { R.takeOver(r, me, SESSION, now, R.legacyLinks(r, ctx.findRun)); }, { any: true, takeover: true }); }); },
     /* The receipt opens only once the ending is really in the team folder; a failed save keeps you here with Try again. */
-    end: function (id) { var g = gen, key = state.runKey; mutate(function (r, map, me, now) { R.end(r, map, id, me, V.nameOf(ctx, me), now); }).then(function (ok) { if (ok && g === gen && state.runKey === key && ctx.run() && ctx.run().ended) { backMode(true); setView('receipt'); render(); window.scrollTo(0, 0); } }); },
+    end: function (id) { endRun(id); },
     /* Finishing: outcome, follow-ups and suggested map changes, then the receipt. */
     finish: function () { setView('finish'); state.pick = null; render(); window.scrollTo(0, 0); },
     'add-followup': function (id, b) {

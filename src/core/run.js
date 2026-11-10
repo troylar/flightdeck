@@ -1543,7 +1543,9 @@ PF.run = (function () {
        applications this run never landed are still authorized; '' keeps none). */
     var lv = cur.format !== FORMAT3 ? null : o && typeof o.head === 'string' ? (o.head ? { head: o.head } : null) : copy.living || cur.living;
     if (!lv) { delete cur.living; if (cur.features) cur.features = cur.features.filter(function (f) { return f !== PF.todos.FEATURE; }); dropCuts(cur, who, now); }
-    if (lv) { cur.living = { head: lv.head }; addFeature(cur, PF.todos.FEATURE); var lo = order3(cur); Object.keys(cur).forEach(function (k) { delete cur[k]; }); Object.keys(lo).forEach(function (k) { cur[k] = lo[k]; }); }
+    /* A receipt (4.0 slice 6) stays with the head it was written on, and only on a run kept ended. */
+    var rcpt = lv && lv.receipt ? lv.receipt : lv && o && typeof o.head === 'string' && copy.living && copy.living.head === lv.head ? copy.living.receipt : '';
+    if (lv) { cur.living = rcpt && cur.ended ? { head: lv.head, receipt: rcpt } : { head: lv.head }; addFeature(cur, PF.todos.FEATURE); var lo = order3(cur); Object.keys(cur).forEach(function (k) { delete cur[k]; }); Object.keys(lo).forEach(function (k) { cur[k] = lo[k]; }); }
     if (cur.format === FORMAT3) { var re = withPins(cur); Object.keys(cur).forEach(function (k) { delete cur[k]; }); Object.keys(re).forEach(function (k) { cur[k] = re[k]; }); }
     /* Deviation marks record what happened in this run in either version, so keeping a copy keeps both versions' marks;
        they're complete only if both versions' were. */
@@ -2044,10 +2046,15 @@ PF.run = (function () {
       deviated: deviated, steps: deviated.slice(0, 10), notes: res.notes, excluded: res.excluded.map(function (e) { return e.text; }), final: res.final };
   }
 
-  function end(r, map, outcome, who, whoName, now) {
+  /* o.receipt (4.0 slice 6): a living run ends with the receipt record its recorder wrote (PF.receipts), named in living in
+     the same save that sets ended. Everything is checked before anything is set. */
+  function end(r, map, outcome, who, whoName, now, o) {
     if (outcome === 'Completed' && !allGatesOk(r, map)) throw new Error('Pass or waive every gate before ending as Completed.');
     if (['Completed', 'Stopped early', 'Cancelled'].indexOf(outcome) < 0) throw new Error('Unknown outcome.');
+    var rc = o && o.receipt != null ? o.receipt : null;
+    if (rc != null && !(r.living && PF.todos.cleanLiving({ head: r.living.head, receipt: rc }))) throw new Error('That receipt can\'t be named by this run, so it wasn\'t ended.');
     if (r.paused) resume(r, who, now);
+    if (rc != null) r.living = { head: r.living.head, receipt: rc };
     r.ended = { outcome: outcome, by: who, byName: whoName, at: now };
     r.state = outcome === 'Completed' ? 'completed' : outcome === 'Cancelled' ? 'cancelled' : 'stopped';
     addLog(r, who, now, 'Ended the run: ' + outcome);
@@ -2258,6 +2265,8 @@ PF.run = (function () {
       var lf = Array.isArray(o.features) && o.features.indexOf(PF.todos.FEATURE) >= 0;
       if (!why && o.living !== undefined && !PF.todos.cleanLiving(o.living)) why = 'Its record of its to-dos isn\'t one this copy reads.';
       if (!why && (o.living !== undefined) !== lf) why = lf ? 'It names the living-runs feature without its record of its to-dos.' : 'It records to-dos without naming the living-runs feature.';
+      /* Its receipt (4.0 slice 6) is named only by a run that has ended. */
+      if (!why && obj(o.living) && o.living.receipt !== undefined && !obj(o.ended)) why = 'It names the receipt it ended with, but it hasn\'t ended.';
     }
     if (three && obj(o.pins)) look(o.pins, 'pins', 'Its pins'); if (obj(o.parent)) text(o.parent.inputs, 'Its parent run\'s details', 300);
     /* Maps of text (details, roles, answers, approvals): anything else in them is dropped on load. */

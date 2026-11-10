@@ -9880,7 +9880,9 @@ PF.run = (function () {
        applications this run never landed are still authorized; '' keeps none). */
     var lv = cur.format !== FORMAT3 ? null : o && typeof o.head === 'string' ? (o.head ? { head: o.head } : null) : copy.living || cur.living;
     if (!lv) { delete cur.living; if (cur.features) cur.features = cur.features.filter(function (f) { return f !== PF.todos.FEATURE; }); dropCuts(cur, who, now); }
-    if (lv) { cur.living = { head: lv.head }; addFeature(cur, PF.todos.FEATURE); var lo = order3(cur); Object.keys(cur).forEach(function (k) { delete cur[k]; }); Object.keys(lo).forEach(function (k) { cur[k] = lo[k]; }); }
+    /* A receipt (4.0 slice 6) stays with the head it was written on, and only on a run kept ended. */
+    var rcpt = lv && lv.receipt ? lv.receipt : lv && o && typeof o.head === 'string' && copy.living && copy.living.head === lv.head ? copy.living.receipt : '';
+    if (lv) { cur.living = rcpt && cur.ended ? { head: lv.head, receipt: rcpt } : { head: lv.head }; addFeature(cur, PF.todos.FEATURE); var lo = order3(cur); Object.keys(cur).forEach(function (k) { delete cur[k]; }); Object.keys(lo).forEach(function (k) { cur[k] = lo[k]; }); }
     if (cur.format === FORMAT3) { var re = withPins(cur); Object.keys(cur).forEach(function (k) { delete cur[k]; }); Object.keys(re).forEach(function (k) { cur[k] = re[k]; }); }
     /* Deviation marks record what happened in this run in either version, so keeping a copy keeps both versions' marks;
        they're complete only if both versions' were. */
@@ -10381,10 +10383,15 @@ PF.run = (function () {
       deviated: deviated, steps: deviated.slice(0, 10), notes: res.notes, excluded: res.excluded.map(function (e) { return e.text; }), final: res.final };
   }
 
-  function end(r, map, outcome, who, whoName, now) {
+  /* o.receipt (4.0 slice 6): a living run ends with the receipt record its recorder wrote (PF.receipts), named in living in
+     the same save that sets ended. Everything is checked before anything is set. */
+  function end(r, map, outcome, who, whoName, now, o) {
     if (outcome === 'Completed' && !allGatesOk(r, map)) throw new Error('Pass or waive every gate before ending as Completed.');
     if (['Completed', 'Stopped early', 'Cancelled'].indexOf(outcome) < 0) throw new Error('Unknown outcome.');
+    var rc = o && o.receipt != null ? o.receipt : null;
+    if (rc != null && !(r.living && PF.todos.cleanLiving({ head: r.living.head, receipt: rc }))) throw new Error('That receipt can\'t be named by this run, so it wasn\'t ended.');
     if (r.paused) resume(r, who, now);
+    if (rc != null) r.living = { head: r.living.head, receipt: rc };
     r.ended = { outcome: outcome, by: who, byName: whoName, at: now };
     r.state = outcome === 'Completed' ? 'completed' : outcome === 'Cancelled' ? 'cancelled' : 'stopped';
     addLog(r, who, now, 'Ended the run: ' + outcome);
@@ -10595,6 +10602,8 @@ PF.run = (function () {
       var lf = Array.isArray(o.features) && o.features.indexOf(PF.todos.FEATURE) >= 0;
       if (!why && o.living !== undefined && !PF.todos.cleanLiving(o.living)) why = 'Its record of its to-dos isn\'t one this copy reads.';
       if (!why && (o.living !== undefined) !== lf) why = lf ? 'It names the living-runs feature without its record of its to-dos.' : 'It records to-dos without naming the living-runs feature.';
+      /* Its receipt (4.0 slice 6) is named only by a run that has ended. */
+      if (!why && obj(o.living) && o.living.receipt !== undefined && !obj(o.ended)) why = 'It names the receipt it ended with, but it hasn\'t ended.';
     }
     if (three && obj(o.pins)) look(o.pins, 'pins', 'Its pins'); if (obj(o.parent)) text(o.parent.inputs, 'Its parent run\'s details', 300);
     /* Maps of text (details, roles, answers, approvals): anything else in them is dropped on load. */
@@ -16344,7 +16353,19 @@ PF.evidence = (function () {
       h += '<p class="soft">Recorder: ' + esc(nameOf(col, r.recorder && r.recorder.person)) + (roles.length ? ' · ' + roles.map(function (k) { return esc(k) + ': ' + esc(nameOf(col, r.roles[k])); }).join(' · ') : '') + '</p>';
     }
     h += '<h3>Checks against the version it ran</h3><table>' + (rc.checks || []).map(function (c) { return '<tr><td>' + esc(c.what) + '</td><td class="' + (c.ok === true ? 'yes' : c.ok === false ? 'no' : 'soft') + '">' + (c.ok === true ? 'Yes' : c.ok === false ? 'No' : 'Can\'t tell') + '</td><td>' + esc(c.detail) + '</td></tr>'; }).join('') + '</table>';
-    return h + stepRows(col, rc) + notesHtml(col, rc) + correctionsHtml(col, rc) + followUpsHtml(col, rc) + filesHtml(col, rc, opts);
+    return h + stepRows(col, rc) + livingHtml(col, rc) + notesHtml(col, rc) + correctionsHtml(col, rc) + followUpsHtml(col, rc) + filesHtml(col, rc, opts);
+  }
+  /* A living run's work (4.0 slice 6): its application chain, its receipt, and anything it rests on that isn't in the pack. */
+  function livingHtml(col, rc) {
+    var L = rc.living;
+    if (!L) return '';
+    var rs = L.receipt, keeps = (rc.claims || []).filter(function (c) { return /^req-keep-/.test(c.correction || ''); });
+    var h = '<h3>Its to-dos and the work they changed</h3><p>' + (L.complete ? '<span class="yes">Everything the run\'s work rests on is in this pack</span>' : '<span class="no">Not everything the run\'s work rests on is in this pack</span>') + ' · ' + L.records.length + ' record' + (L.records.length === 1 ? '' : 's') + ' from <span class="mono">proposals/</span></p>';
+    h += '<p class="soft">Work head: <span class="mono">' + esc(L.head || 'none') + '</span> · ' + L.chain.length + ' application' + (L.chain.length === 1 ? '' : 's') + ' in its chain</p>';
+    if (rs) h += '<p>Receipt: ' + (rs.state === 'confirmed' ? '<span class="yes">in this pack and says what the run ended with</span> <span class="mono">' + esc(rs.id) + '</span>' : rs.state === 'none' ? '<span class="soft">It ended without a receipt record.</span>' : '<span class="no">' + esc(rs.why) + '</span>') + '</p>';
+    if (L.missing.length) h += '<ul>' + L.missing.map(function (m) { return '<li class="no">' + esc(m) + '</li>'; }).join('') + '</ul>';
+    if (keeps.length) h += '<table><tr><th>Kept for next time</th><th>Where it stands</th></tr>' + keeps.map(function (c) { return '<tr><td class="mono">' + esc(c.correction) + '</td><td>' + (c.verified ? '<b>' + esc(c.text) + '</b> <span class="yes">proof in this pack</span>' : '<span class="no">' + esc(c.status) + '</span>') + '</td></tr>'; }).join('') + '</table>';
+    return h;
   }
   /* The page. opts.report: the one-file readable report, which says plainly it isn't the pack and what it leaves out. */
   function page(col, opts) {
@@ -16382,7 +16403,7 @@ PF.evidence = (function () {
     var man = {
       format: FORMAT, app: col.app || '', madeWith: col.madeWith || '', status: col.status, createdAt: col.endedAt, scope: col.scope, tz: col.tz,
       collection: { startedAt: col.startedAt, endedAt: col.endedAt, attempts: col.attempts }, unresolved: col.unresolved, window: col.window || null,
-      runs: col.runs.map(function (r) { return { key: r.key, title: r.title || '', runJson: r.source.runJson, listing: r.source.listing, checks: r.checks, claims: (r.claims || []).map(function (c) { return { correction: c.correction, group: c.group, text: c.text, verified: c.verified, status: c.status, proof: c.proof }; }), malformed: r.notes.filter(function (n) { return n.malformed.length; }).map(function (n) { return { file: n.file, lines: n.malformed }; }), limited: r.limited || '' }; }),
+      runs: col.runs.map(function (r) { return { key: r.key, title: r.title || '', runJson: r.source.runJson, listing: r.source.listing, checks: r.checks, claims: (r.claims || []).map(function (c) { return { correction: c.correction, group: c.group, text: c.text, verified: c.verified, status: c.status, proof: c.proof }; }), malformed: r.notes.filter(function (n) { return n.malformed.length; }).map(function (n) { return { file: n.file, lines: n.malformed }; }), limited: r.limited || '', living: r.living || undefined }; }),
       files: col.files.map(function (f) { var o = { pack: f.pack, path: f.path, size: f.size, sha256: f.sha256, role: f.role, label: f.label }; if (f.flag) o.flag = f.flag; return o; }),
       generated: gen.map(function (g) { return { path: g.path, size: g.size, sha256: g.sha256 }; }),
       exclusions: col.exclusions, options: col.options, privacy: PRIVACY, integrity: VERIFY
@@ -18251,7 +18272,9 @@ PF.todos = (function () {
     if (o.kind === 'fact') return PF.facts.cleanFile(o, name, mal);
     /* A keep (4.0 slice 5) suggests a step for next time: its own reader (PF.learn), never a request, never in the chain. */
     if (o.kind === 'keep') return PF.learn.cleanFile(o, name, mal);
-    if (PKINDS.indexOf(o.kind) < 0) return mal('is a to-do record that isn\'t a proposal, a compound, a grant, a revoke, a fact or a keep');
+    /* A receipt (4.0 slice 6) is what a living run ended with: its own reader (PF.receipts), never a request, never in the chain. */
+    if (o.kind === 'receipt') return PF.receipts.cleanFile(o, name, mal);
+    if (PKINDS.indexOf(o.kind) < 0) return mal('is a to-do record that isn\'t a proposal, a compound, a grant, a revoke, a fact, a keep or a receipt');
     if (typeof o.id !== 'string' || !REQ.test(o.id)) return mal('is a to-do record without a request id');
     if (typeof name === 'string' && !requestFile(name, o.id)) return mal('is a to-do record whose name isn\'t its id');
     var r = { id: o.id, kind: o.kind, run: cleanRun(o.run, errors), seen: cleanSeen(o.seen, errors), by: cleanBy(o, errors), at: '' };
@@ -18340,8 +18363,8 @@ PF.todos = (function () {
   /* The run a record names, when it says one plainly, even when it isn't in its format; null otherwise. */
   function runOf(o) { var v = isMap(o) && isMap(o.run) ? o.run : null; return v && typeof v.process === 'string' && typeof v.id === 'string' ? { process: v.process, id: v.id } : null; }
   function recordsFor(records, r) { return (records || []).filter(function (x) { return x.run && x.run.process === r.process && x.run.id === r.id; }); }
-  /* Informational records (facts, keeps) never enter the to-do order or the chain of applications. */
-  function notFact(x) { return !x || (x.kind !== 'fact' && x.kind !== 'keep'); }
+  /* Informational records (facts, keeps, receipts) never enter the to-do order or the chain of applications. */
+  function notFact(x) { return !x || (x.kind !== 'fact' && x.kind !== 'keep' && x.kind !== 'receipt'); }
   /* Whether a file in proposals/ may be a to-do or fact record (req-*.json, in any case): the one test for both noticing a
      file that can't be read (a link, one cut short) and holding on it, so no name is noticed and then dropped. */
   function recordName(name) { return /^req-[^/]*\.json$/i.test(String(name || '')); }
@@ -18812,7 +18835,14 @@ PF.todos = (function () {
     return { cut: v.cut.slice() };
   }
   var HEAD = /^(req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})(\.status-[a-z0-9][a-z0-9-]{0,39}-[0-9a-f]{8})?$/;
-  function cleanLiving(v) { return isMap(v) && Object.keys(v).length === 1 && typeof v.head === 'string' && HEAD.test(v.head) ? { head: v.head } : null; }
+  /* living: { head } and, once the run has ended with one (4.0 slice 6), { head, receipt }: the receipt record it ended with. */
+  function cleanLiving(v) {
+    if (!isMap(v) || typeof v.head !== 'string' || !HEAD.test(v.head)) return null;
+    var ks = Object.keys(v);
+    if (ks.length === 1) return { head: v.head };
+    if (ks.length === 2 && ks[0] === 'head' && ks[1] === 'receipt' && typeof v.receipt === 'string' && REQ.test(v.receipt)) return { head: v.head, receipt: v.receipt };
+    return null;
+  }
 
   /* ---- Application (slice 1, commit 3). The recorder's window carries out a queued request in two writes: the application
      record first (in proposals/, guarded), then the run, whose living.head moves to it. Recovery reads what is there before
@@ -20314,6 +20344,351 @@ PF.detours = (function () {
 
   return { LIMITS: LIMITS, cleanChecklist: cleanChecklist, cleanEvidence: cleanEvidence, planId: planId, planOf: planOf, requestId: requestId, requestKey: requestKey, pinFor: pinFor, planFor: planFor,
     startsOf: startsOf, evidenceFor: evidenceFor, evidenceWhy: evidenceWhy, provenance: provenance, returnOf: returnOf, evidenceWords: evidenceWords };
+})();
+
+/* Plan versus now, and a living run's receipt (4.0 slice 6, docs/design.md 45.5). Pure: no files, no clocks.
+
+   Plan versus now compares the frozen checklist (the steps its version published) with the work the run has now: the to-dos
+   its chain of applications landed, the requests not landed yet (asked, queued for the recorder, waiting, held, disputed or
+   declined, never counted as applied) and a loop's items and spreads. Nothing here is a second plan anyone edits. Every
+   number names its denominator, and the checklist's steps, a loop's items and the run's to-dos are three lines, never one.
+
+   A receipt is the record a living run ends with: a kind "receipt" record in proposals/ (flightdeck-plan/4), written once by
+   the recorder's window before the run is saved, which names it (run.json living.receipt) in the same checked save that sets
+   ended. It holds the work head, plan versus now's numbers, each spread's coverage, the evidence each done rested on (facts
+   and runs, by identity) and the keeps (corrections) the run filed: bounded lists, refused whole when over a limit, never
+   cut. It never enters the to-do order or the chain. What arrives after (a request, a story resolving its obligation) is
+   shown apart and never rewrites the ended outcome. */
+PF.receipts = (function () {
+  'use strict';
+  var LIMITS = { refs: 500, spreads: 50, count: 1000000, answer: 80, result: 60, seen: 50 };
+  /* Plan versus now's numbers, in this order. steps/answered: the checklist; items/cleared/abandoned: a loop's items (every loop
+     of the run); todos/resolved/done/wont/moved and where moved work went (ticket, toRun, link); asked/added and the additions
+     not landed by status; applied/pending: every request; owed/covered: spreads' obligations. */
+  var COUNTS = ['steps', 'answered', 'items', 'cleared', 'abandoned', 'todos', 'resolved', 'done', 'wont', 'moved', 'ticket', 'toRun', 'link',
+    'asked', 'added', 'queued', 'waiting', 'held', 'disputed', 'declined', 'applied', 'pending', 'owed', 'covered'];
+  var KEYS = ['format', 'features', 'app', 'kind', 'id', 'run', 'seen', 'by', 'at', 'outcome', 'head', 'counts', 'coverage', 'evidence', 'keeps'];
+  var OUTCOMES = ['Completed', 'Stopped early', 'Cancelled'];
+  var REQ = /^req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24}$/, STATUS = /^req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24}\.status-[a-z0-9][a-z0-9-]{0,39}-[0-9a-f]{8}$/;
+  var TD = /^td-[0-9a-f]{24}$/, SP = /^sp-[0-9a-f]{24}$/, FP = /^[0-9a-f]{16}$/, PLAN = /^plan-ev-[0-9a-f]{24}$/;
+  var PROC = /^[a-z0-9][a-z0-9-]{0,59}$/, RUN = /^[a-z0-9-]{1,40}$/i, PERSON = /^[A-Za-z0-9_.-]{1,80}$/;
+  var ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/, CONTROL = /[\u0000-\u001f\u007f\u2028\u2029]/;
+  var REQ_WORDS = { queued: 'queued for the recorder', waiting: 'waiting for approval', held: 'held', disputed: 'disputed', declined: 'declined' };
+
+  function isMap(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
+  function own(o, k) { return !!o && Object.prototype.hasOwnProperty.call(o, k); }
+  function cmpStr(a, b) { return a < b ? -1 : a > b ? 1 : 0; }
+  function q(k) { return '"' + String(k).slice(0, 70) + '"'; }
+  function only(o, keys, what, errors) { Object.keys(o).forEach(function (k) { if (keys.indexOf(k) < 0) errors.push(what + ' has ' + q(k) + '.'); }); }
+  function count(v) { return typeof v === 'number' && v % 1 === 0 && v >= 0 && v <= LIMITS.count; }
+  function recId(x) { return typeof x === 'string' && (REQ.test(x) || STATUS.test(x)); }
+  function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many || one + 's'); }
+  function mapOf(r) { try { return PF.run.mapOf(r); } catch (e) { return null; } }
+
+  /* ---- Plan versus now ---- */
+  /* Every loop of the run, as PF.loop.view reads it; null for one that can't be read here. o: { loops: { records, unread,
+     procOf }, runs }. */
+  function loopsOf(r, map, o) {
+    var out = [];
+    (map ? map.phases : []).forEach(function (p) { p.steps.forEach(function (s) {
+      if (s.type !== 'for.each') return;
+      var V = null;
+      if (o && o.loops) { try { V = PF.loop.view(r, s.id, { records: o.loops.records || [], unread: o.loops.unread || [], runs: o.runs || [], procOf: o.loops.procOf }); } catch (e) { V = null; } }
+      out.push({ step: s.id, view: V && !V.ledger.held.length ? V : null });
+    }); });
+    return out;
+  }
+  /* The numbers, from the run, its to-do view (PF.todos.view), its spreads' coverage (PF.spreads.coverage, or null) and its
+     loops (loopsOf). Requests not landed are counted by their status, never as applied. */
+  function tally(r, map, T, cov, loops) {
+    var n = Object.create(null); COUNTS.forEach(function (k) { n[k] = 0; });
+    var t = PF.run.totals(r, map); n.steps = t.total; n.answered = t.done;
+    (loops || []).forEach(function (L) {
+      if (!L.view) return;
+      L.view.rollup.items.forEach(function (i) {
+        if (!i.required) return;
+        n.items++;
+        if (i.status === 'cleared' || i.status === 'exception') n.cleared++;
+        else if (i.status === 'stopped') n.abandoned++;
+      });
+    });
+    (T ? T.todos : []).forEach(function (x) {
+      n.todos++;
+      if (x.state === 'open') return;
+      n.resolved++; n[x.state]++;
+      if (x.state === 'moved' && x.to) { if (x.to.ticket) n.ticket++; else if (x.to.run) n.toRun++; else if (x.to.link) n.link++; }
+    });
+    (T ? PF.todos.requestsOf(T) : []).forEach(function (q1) {
+      var st = q1.status;
+      if (st === 'applied') n.applied++; else if (st !== 'declined') n.pending++;
+      if (q1.op !== 'add') return;
+      n.asked++;
+      if (st === 'applied') n.added++; else if (own(REQ_WORDS, st)) n[st]++;
+    });
+    ((cov && cov.spreads) || []).forEach(function (C) { if (!C.counts) return; n.owed += C.counts.owed; n.covered += C.counts.resolved; });
+    var out = {}; COUNTS.forEach(function (k) { out[k] = n[k]; });
+    return out;
+  }
+  /* The lines and chips plan versus now shows, from its numbers alone (so a receipt's frozen numbers read the same way). */
+  function words(n, coverage) {
+    var lines = ['This checklist: ' + n.answered + ' of ' + n.steps + ' current steps answered'];
+    if (n.items) lines.push('Items: ' + n.cleared + ' of ' + n.items + ' cleared' + (n.abandoned ? ' · ' + n.abandoned + ' abandoned' : ''));
+    if (n.todos) lines.push('To-dos: ' + n.resolved + ' of ' + n.todos + ' resolved');
+    var chips = [], rest = function (keys) { return keys.filter(function (k) { return n[k]; }).map(function (k) { return n[k] + ' ' + REQ_WORDS[k]; }); };
+    if (n.asked) chips.push({ id: 'additions', words: 'Additions: ' + n.added + ' of ' + plural(n.asked, 'asked', 'asked') + ' applied' + rest(['queued', 'waiting', 'held', 'disputed', 'declined']).map(function (x) { return ' · ' + x; }).join('') });
+    if (n.todos) {
+      var to = [n.ticket ? plural(n.ticket, 'to a ticket', 'to tickets') : '', n.toRun ? plural(n.toRun, 'to another run', 'to other runs') : '', n.link ? plural(n.link, 'to a link', 'to links') : ''].filter(Boolean);
+      chips.push({ id: 'resolutions', words: 'Resolved: ' + n.resolved + ' of ' + plural(n.todos, 'to-do') + (n.done ? ' · ' + n.done + ' done' : '') + (n.wont ? ' · ' + n.wont + ' won\'t do' : '') + (n.moved ? ' · ' + n.moved + ' moved' + (to.length ? ' (' + to.join(', ') + ')' : '') : '') });
+    }
+    if (n.owed) chips.push({ id: 'coverage', words: 'Coverage: ' + n.covered + ' of ' + plural(n.owed, 'owed item') + ' resolved' + (coverage && coverage.length > 1 ? ' across ' + coverage.length + ' spreads' : '') });
+    if (n.applied || n.pending) chips.push({ id: 'changes', words: 'Changes: ' + n.applied + ' of ' + plural(n.applied + n.pending, 'request') + ' applied' + (n.pending ? ' · ' + n.pending + ' not applied yet' : '') });
+    return { lines: lines, chips: chips };
+  }
+  /* Plan versus now for a run as it is. o: { loops, runs } for its items. Returns { counts, lines, chips, phases, coverage }:
+     phases, the frozen checklist's phases each with its planned steps and the to-dos landed on it. */
+  function compare(r, map, T, cov, o) {
+    var loops = loopsOf(r, map, o), n = tally(r, map, T, cov, loops), w = words(n, coverageOf(cov));
+    var phases = (map ? map.phases : []).map(function (p) {
+      var mine = (T ? T.todos : []).filter(function (x) { var P = PF.todos.placeOf(map, x.target); return !P.why && P.phaseId === p.id; });
+      return { id: p.id, title: p.title, steps: p.steps.length, todos: mine.length, open: mine.filter(function (x) { return x.state === 'open'; }).length };
+    });
+    return { counts: n, lines: w.lines, chips: w.chips, phases: phases, coverage: coverageOf(cov), unread: loops.filter(function (L) { return !L.view; }).map(function (L) { return L.step; }) };
+  }
+  function coverageOf(cov) { return ((cov && cov.spreads) || []).filter(function (C) { return C.counts; }).map(function (C) { return { spread: C.id, owed: C.counts.owed, resolved: C.counts.resolved }; }); }
+  /* What a spread's coverage can't be worked out from: fail closed (a loop or a child that can't be read). */
+  function coverageWhy(cov) {
+    var bad = ((cov && cov.spreads) || []).filter(function (C) { return !C.counts || (!C.items.length && C.unresolved.length) || C.items.some(function (i) { return i.state === 'unread'; }); })[0];
+    return bad ? 'Spread "' + bad.text + '": its coverage can\'t be worked out here' + (bad.unresolved[0] ? ' (' + bad.unresolved[0] + ')' : '') + '.' : '';
+  }
+
+  /* ---- The receipt record ---- */
+  /* The evidence each done to-do rested on, by identity: a fact (its id and content fingerprint) or a run's result. */
+  function evidenceOf(T) {
+    var out = [];
+    (T ? T.todos : []).forEach(function (x) {
+      if (x.state !== 'done') return;
+      if (x.support) out.push({ todo: x.id, fact: x.support.fact, content: x.support.content });
+      else if (x.evidence) out.push({ todo: x.id, plan: x.evidence.plan, run: { process: x.evidence.run.process, id: x.evidence.run.id }, answer: x.evidence.answer, result: x.evidence.result });
+    });
+    return out;
+  }
+  /* The keeps (corrections kept for next time) filed on the run: their ids. */
+  function keepsOf(records, r) { return (records || []).filter(function (x) { return x && x.kind === 'keep' && x.run && x.run.process === r.process && x.run.id === r.id; }).map(function (x) { return x.id; }).filter(function (id, i, a) { return a.indexOf(id) === i; }).sort(cmpStr); }
+  function bodyOf(b) { return { head: b.head, outcome: b.outcome, seen: b.seen, counts: b.counts, coverage: b.coverage, evidence: b.evidence, keeps: b.keeps }; }
+  /* A receipt is named by its run and what it says, never who or when: preparing it again on the run as it stands is the same
+     file, and anything that changed since is another. */
+  function idFor(run, b) { return 'req-receipt-' + PF.sha256.hex(JSON.stringify(['receipt', run.process, run.id, PF.todos.fingerprint(bodyOf(b))])).slice(0, 24); }
+  function build(o) {
+    var f = { format: PF.todos.FORMAT, features: [PF.todos.FEATURE] };
+    if (PF.envelope.semver(o.app)) f.app = o.app;
+    var b = bodyOf(o);
+    f.kind = 'receipt'; f.id = idFor(o.run, b); f.run = { process: o.run.process, id: o.run.id }; f.seen = b.seen.slice(); f.by = o.by; f.at = o.at;
+    f.outcome = b.outcome; f.head = b.head; f.counts = b.counts; f.coverage = b.coverage; f.evidence = b.evidence; f.keeps = b.keeps;
+    return f;
+  }
+  function cleanEvidence(v, i, errors) {
+    var w = '"evidence" ' + (i + 1);
+    if (!isMap(v)) { errors.push(w + ' is {"todo", "fact", "content"} or {"todo", "plan", "run", "answer", "result"}.'); return null; }
+    var n0 = errors.length;
+    if (own(v, 'fact')) {
+      only(v, ['todo', 'fact', 'content'], w, errors);
+      if (typeof v.todo !== 'string' || !TD.test(v.todo)) errors.push(w + ' "todo" is a to-do id.');
+      if (typeof v.fact !== 'string' || !REQ.test(v.fact)) errors.push(w + ' "fact" is a fact\'s id.');
+      if (typeof v.content !== 'string' || !FP.test(v.content)) errors.push(w + ' "content" is the fact\'s content fingerprint.');
+      return errors.length > n0 ? null : { todo: v.todo, fact: v.fact, content: v.content };
+    }
+    only(v, ['todo', 'plan', 'run', 'answer', 'result'], w, errors);
+    if (typeof v.todo !== 'string' || !TD.test(v.todo)) errors.push(w + ' "todo" is a to-do id.');
+    if (typeof v.plan !== 'string' || !PLAN.test(v.plan)) errors.push(w + ' "plan" is the to-do\'s evidence plan (plan-ev-...).');
+    var r = v.run;
+    if (!isMap(r) || Object.keys(r).length !== 2 || typeof r.process !== 'string' || !PROC.test(r.process) || typeof r.id !== 'string' || !RUN.test(r.id)) errors.push(w + ' "run" is {"process", "id"}.');
+    if (typeof v.answer !== 'string' || !v.answer.trim() || v.answer.length > LIMITS.answer || CONTROL.test(v.answer)) errors.push(w + ' "answer" is the run\'s answer, as Flightdeck records it.');
+    if (typeof v.result !== 'string' || v.result.length > LIMITS.result || CONTROL.test(v.result)) errors.push(w + ' "result" is the run\'s result, at most ' + LIMITS.result + ' characters.');
+    return errors.length > n0 ? null : { todo: v.todo, plan: v.plan, run: { process: r.process, id: r.id }, answer: v.answer, result: v.result };
+  }
+  /* A receipt record read back (PF.todos.cleanFile hands it over once the format and feature are checked): { ok, record } or a
+     refusal. Every field is checked whole; a list over its limit is refused, never cut. */
+  function cleanFile(o, name, mal) {
+    if (typeof o.id !== 'string' || !REQ.test(o.id)) return mal('is a receipt without a request id');
+    if (typeof name === 'string' && !PF.todos.requestFile(name, o.id)) return mal('is a receipt whose name isn\'t its id');
+    var errors = [];
+    only(o, KEYS, 'It', errors);
+    var rec = { id: o.id, kind: 'receipt', run: null, seen: null, by: null, at: '', outcome: '', head: '', counts: null, coverage: null, evidence: null, keeps: null };
+    var run = o.run;
+    if (!isMap(run) || Object.keys(run).length !== 2 || typeof run.process !== 'string' || !PROC.test(run.process) || typeof run.id !== 'string' || !RUN.test(run.id)) errors.push('"run" is {"process": <checklist>, "id": <run id>}.');
+    else rec.run = { process: run.process, id: run.id };
+    if (!Array.isArray(o.seen) || o.seen.length > LIMITS.seen || !o.seen.every(recId)) errors.push('"seen" is a list of at most ' + LIMITS.seen + ' to-do record ids.');
+    else if (o.seen.some(function (x, i) { return o.seen.indexOf(x) !== i; })) errors.push('"seen" names a record twice.');
+    else rec.seen = o.seen.slice();
+    if (typeof o.by !== 'string' || !PERSON.test(o.by)) errors.push('"by" is the ID from people.json of the person who ended the run.'); else rec.by = { person: o.by };
+    if (typeof o.at !== 'string' || !ISO.test(o.at)) errors.push('"at" is a date and time.'); else rec.at = o.at;
+    if (OUTCOMES.indexOf(o.outcome) < 0) errors.push('"outcome" is Completed, Stopped early or Cancelled.'); else rec.outcome = o.outcome;
+    if (typeof o.head !== 'string' || !PF.todos.cleanLiving({ head: o.head })) errors.push('"head" is the run\'s last application.'); else rec.head = o.head;
+    var c = o.counts;
+    if (!isMap(c)) errors.push('"counts" is {' + COUNTS.map(function (k) { return '"' + k + '"'; }).join(', ') + '}.');
+    else {
+      var n0 = errors.length;
+      only(c, COUNTS, '"counts"', errors);
+      COUNTS.forEach(function (k) { if (!count(c[k])) errors.push('"counts" "' + k + '" is a whole number from 0 to ' + LIMITS.count + '.'); });
+      if (errors.length === n0) { rec.counts = {}; COUNTS.forEach(function (k) { rec.counts[k] = c[k]; }); }
+    }
+    if (!Array.isArray(o.coverage) || o.coverage.length > LIMITS.spreads) errors.push('"coverage" is a list of at most ' + LIMITS.spreads + ' spreads.');
+    else {
+      var cv = [];
+      o.coverage.forEach(function (x, i) {
+        var w = '"coverage" ' + (i + 1);
+        if (!isMap(x)) { errors.push(w + ' is {"spread", "owed", "resolved"}.'); return; }
+        var n1 = errors.length;
+        only(x, ['spread', 'owed', 'resolved'], w, errors);
+        if (typeof x.spread !== 'string' || !SP.test(x.spread)) errors.push(w + ' "spread" is a spread id.');
+        else if (cv.some(function (y) { return y.spread === x.spread; })) errors.push(w + ' names ' + x.spread + ' again.');
+        if (!count(x.owed) || !count(x.resolved)) errors.push(w + ' "owed" and "resolved" are whole numbers.');
+        if (errors.length === n1) cv.push({ spread: x.spread, owed: x.owed, resolved: x.resolved });
+      });
+      rec.coverage = cv;
+    }
+    if (!Array.isArray(o.evidence) || o.evidence.length > LIMITS.refs) errors.push('"evidence" is a list of at most ' + LIMITS.refs + ' to-dos\' evidence.');
+    else {
+      var ev = [];
+      o.evidence.forEach(function (x, i) { var e = cleanEvidence(x, i, errors); if (e) { if (ev.some(function (y) { return y.todo === e.todo; })) errors.push('"evidence" ' + (i + 1) + ' names ' + e.todo + ' again.'); else ev.push(e); } });
+      rec.evidence = ev;
+    }
+    if (!Array.isArray(o.keeps) || o.keeps.length > LIMITS.refs || !o.keeps.every(function (x) { return typeof x === 'string' && REQ.test(x); })) errors.push('"keeps" is a list of at most ' + LIMITS.refs + ' keep ids.');
+    else if (o.keeps.some(function (x, i) { return o.keeps.indexOf(x) !== i; })) errors.push('"keeps" names a keep twice.');
+    else rec.keeps = o.keeps.slice();
+    if (!errors.length && o.id !== idFor(rec.run, rec)) errors.push('Its id isn\'t the one its run and what it says give.');
+    if (errors.length) return mal('is a receipt that isn\'t in its format: ' + errors[0]);
+    return { ok: true, record: rec };
+  }
+
+  /* The receipt a living run ends with, prepared on the run as it stands (not ended yet): { none } for a run that isn't living
+     (it ends exactly as in 3.0), { why } when it can't be (nothing is ended), else { id, name, file, record, counts, words }.
+     Fail closed: a to-do record, the loop or a spread's coverage that can't be read, a chain that can't be walked, or a list
+     over its limit refuses it, before anything is written. o: { outcome, by, at, app, records, unread, people, evidence, now,
+     loops, runs }. */
+  function prepare(r, o) {
+    o = o || {};
+    if (!r || !r.living) return { none: true };
+    if (r._unrunnable) return { why: r._unrunnable };
+    if (r.ended) return { why: 'The run has ended already.' };
+    if (OUTCOMES.indexOf(o.outcome) < 0) return { why: 'Unknown outcome.' };
+    var map = mapOf(r), tail = ' The receipt couldn\'t say what was done, so the run wasn\'t ended.';
+    if (!map) return { why: 'This run\'s checklist can\'t be read.' + tail };
+    var records = o.records || [], unread = (o.unread || []).filter(function (u) { return u && (!u.run || (u.run.process === r.process && u.run.id === r.id)); });
+    var T = PF.todos.view(r, { records: PF.todos.recordsFor(records, r), unread: unread, people: o.people, now: o.now, deps: { records: records, unread: o.unread || [], evidence: o.evidence || null } });
+    if (T.broken) return { why: T.broken.why + tail };
+    if (T.unread.length) return { why: 'A to-do record (' + String(T.unread[0].file || '').slice(0, 120) + ') can\'t be read yet.' + tail };
+    if (T.held.length) return { why: 'A to-do record (' + T.held[0].record + ') can\'t be read in order yet.' + tail };
+    var loops = loopsOf(r, map, o), lost = loops.filter(function (L) { return !L.view; })[0];
+    if (lost) return { why: 'The loop ' + lost.step + ' or its scope records can\'t be read here.' + tail };
+    var cov = T.spreads.length ? PF.spreads.coverage(r, T, { runs: o.runs || [], records: records, unread: o.unread || [], people: o.people, loops: o.loops, now: o.now, evidence: o.evidence || null }) : null;
+    var cw = coverageWhy(cov);
+    if (cw) return { why: cw + tail };
+    if (T.heads.length > LIMITS.seen) return { why: T.heads.length + ' to-do records are unsettled at once; a receipt sees at most ' + LIMITS.seen + '. Settle some open decisions first. Nothing was ended.' };
+    var b = { head: r.living.head, outcome: o.outcome, seen: T.heads.slice().sort(cmpStr), counts: tally(r, map, T, cov, loops), coverage: coverageOf(cov), evidence: evidenceOf(T), keeps: keepsOf(records, r) };
+    if (b.evidence.length > LIMITS.refs) return { why: 'The receipt would name the evidence of ' + b.evidence.length + ' to-dos; a receipt names at most ' + LIMITS.refs + '. Nothing was cut and nothing was ended.' };
+    if (b.keeps.length > LIMITS.refs) return { why: 'The receipt would name ' + b.keeps.length + ' keeps; a receipt names at most ' + LIMITS.refs + '. Nothing was cut and nothing was ended.' };
+    var f = build(Object.assign({ run: { process: r.process, id: r.id }, by: o.by, at: o.at, app: o.app }, b)), fd = PF.todos.filed(f.id + '.json', f);
+    if (fd.why) return { why: 'The receipt can\'t be written: ' + fd.why.charAt(0).toLowerCase() + fd.why.slice(1) + ' Nothing was ended.' };
+    var w = words(b.counts, b.coverage);
+    return { id: f.id, name: f.id + '.json', file: f, record: fd.record, counts: b.counts, lines: w.lines, chips: w.chips };
+  }
+
+  /* How an ended living run's receipt stands: null for a run that isn't an ended living run; else { state, why, path, kind,
+     record }. confirmed: the record named is in the folder, read, and says this run's head and outcome. none: it ended
+     without one (a run ended before receipts). missing, unread or mismatch: a problem, named by its path. */
+  function stateOf(r, records, unread) {
+    if (!r || !r.living || !r.ended) return null;
+    var id = r.living.receipt;
+    if (!id) return { state: 'none', why: 'It ended without a receipt record.', path: '', kind: '', record: null };
+    var path = 'proposals/' + id + '.json';
+    var un = (unread || []).filter(function (u) { return u && PF.todos.requestFile(u.file, id); })[0];
+    if (un) return { state: 'unread', why: 'Its receipt (' + id + ') can\'t be read: ' + String(un.why || 'unreadable'), path: path, kind: un.kind === 'newer' ? 'newer' : un.kind === 'unreadable' ? 'unreadable' : 'malformed', record: null };
+    var mine = (records || []).filter(function (x) { return x && x.kind === 'receipt' && x.id === id; });
+    if (!mine.length) return { state: 'missing', why: 'Its receipt (' + id + ') isn\'t in the folder, so what it ended with can\'t be confirmed.', path: path, kind: 'nofile', record: null };
+    var rec = mine[0];
+    if (mine.some(function (x) { return JSON.stringify(PF.todos.fingerprint(bodyOf(x))) !== JSON.stringify(PF.todos.fingerprint(bodyOf(rec))); })) return { state: 'mismatch', why: 'Its receipt (' + id + ') has two different copies in the folder.', path: path, kind: 'malformed', record: null };
+    if (!rec.run || rec.run.process !== r.process || rec.run.id !== r.id) return { state: 'mismatch', why: 'Its receipt (' + id + ') is another run\'s.', path: path, kind: 'malformed', record: null };
+    if (rec.head !== r.living.head || rec.outcome !== r.ended.outcome) return { state: 'mismatch', why: 'Its receipt (' + id + ') doesn\'t say what the run ended with (its work head or outcome differs).', path: path, kind: 'malformed', record: null };
+    return { state: 'confirmed', why: '', path: path, kind: '', record: rec };
+  }
+
+  /* What arrived after a receipt, shown apart and never counted in its outcome: the run's to-do records it didn't see (requests
+     filed after the end, decisions on them; they stay notices), and each spread's obligations resolved since. rec: the
+     receipt record (stateOf's). cov: the coverage now, or null. */
+  function since(r, rec, records, cov) {
+    var mine = PF.todos.recordsFor(records, r).filter(function (x) { return PF.todos.notFact(x) && x.kind !== 'receipt'; });
+    var c = PF.loop.causal(mine.concat([{ id: rec.id, seen: rec.seen }]));
+    var lost = c.held.some(function (h) { return h.record === rec.id; });
+    var after = lost ? [] : mine.filter(function (x) { return x.id !== rec.id && !c.saw(rec.id, x.id); });
+    var asks = after.filter(function (x) { return x.kind === 'proposal' || x.kind === 'compound'; });
+    var now = coverageOf(cov), drift = (rec.coverage || []).map(function (x) {
+      var y = now.filter(function (z) { return z.spread === x.spread; })[0];
+      return y ? { spread: x.spread, then: x.resolved, now: y.resolved, owed: x.owed } : null;
+    }).filter(function (x) { return x && x.now !== x.then; });
+    var lines = [];
+    if (lost) lines.push('What arrived after the run ended can\'t be told here: a record its receipt saw isn\'t in the folder.');
+    if (asks.length) lines.push(plural(asks.length, 'request') + ' arrived after the run ended. ' + (asks.length === 1 ? 'It stays a notice' : 'They stay notices') + '; the ended outcome is unchanged.');
+    else if (after.length) lines.push(plural(after.length, 'to-do record') + ' arrived after the run ended; the ended outcome is unchanged.');
+    drift.forEach(function (d) { lines.push('Coverage of ' + d.spread + ': ' + d.now + ' of ' + d.owed + ' resolved now (' + d.then + ' when the run ended).'); });
+    return { unknown: lost, records: after.map(function (x) { return x.id; }), requests: asks.map(function (x) { return { id: x.id, op: x.op || '', text: x.text || '' }; }), coverage: drift, lines: lines };
+  }
+
+  /* ---- What an evidence pack needs for a living run (repo.collectEvidence) ----
+     r: the run (sanitized). o: { records, unread (the one checked read of proposals/), scopes, scopesUnread, children (the
+     loops' child runs, sanitized), childUnread (child run keys that couldn't be read), cap }. Returns { files: [{ file, kind,
+     label }] (names in proposals/, each once), runs: [{ process, id, role }], plans: [plan ids], chain: [application ids, head
+     last], receipt: stateOf's, missing: [why] }. Anything that can't be found, read or bounded is named in missing: the pack is
+     then partial and no claim on it is confirmed. */
+  var DEP_CAP = 5000;
+  function deps(r, o) {
+    o = o || {};
+    var records = o.records || [], files = [], seenF = Object.create(null), runs = [], seenR = Object.create(null), plans = [], missing = [], byId = Object.create(null);
+    records.forEach(function (x) { if (x && typeof x.id === 'string') (byId[x.id] = byId[x.id] || []).push(x); });
+    var LABEL = { proposal: 'A to-do request', compound: 'A to-do request with its decision and application', decision: 'A decision on a to-do request', application: 'An application: the run\'s work as it landed', fact: 'A fact a tool observed', keep: 'A to-do kept for next time', receipt: 'The receipt the run ended with' };
+    var file = function (x, label) { var f = String(x._file || ''); if (!f || seenF[f]) return; seenF[f] = true; files.push({ file: f, kind: x.kind, label: label || LABEL[x.kind] || 'A to-do record' }); };
+    var run = function (p, id, role) { var k = p + '/' + id; if (seenR[k] || (p === r.process && id === r.id)) return; seenR[k] = true; runs.push({ process: p, id: id, role: role }); };
+    var mine = PF.todos.recordsFor(records, r);
+    mine.forEach(function (x) { file(x); });
+    /* The chain the run's work rests on: from living.head back through previous, every link in the folder. */
+    var chain = [], at = r.living && r.living.head || '', visited = Object.create(null);
+    while (at) {
+      if (visited[at]) { missing.push('The run\'s applications go round in a circle at ' + at + '.'); break; }
+      visited[at] = true;
+      var a = (byId[at] || []).filter(function (x) { return x.run && x.run.process === r.process && x.run.id === r.id; })[0];
+      if (!a) { missing.push('proposals/' + at + '.json: the run\'s work names this application, but it isn\'t in the folder as read.'); break; }
+      var ap = a.kind === 'application' ? a : a.kind === 'compound' ? a.application : null;
+      if (!ap) { missing.push('proposals/' + at + '.json: the run\'s work names it, but it isn\'t an application.'); break; }
+      chain.unshift(at); at = ap.previous;
+    }
+    var rs = r.ended ? stateOf(r, records, o.unread) : null;
+    if (rs && rs.state !== 'confirmed' && rs.state !== 'none') missing.push(rs.why + ' (' + rs.path + ')');
+    /* Facts used as evidence, evidence runs and their plans, and the spreads this run's work holds. */
+    var spreads = Object.create(null);
+    var look = function (b) {
+      if (!b) return;
+      if (b.support && b.support.fact) { var fx = byId[b.support.fact]; if (fx && fx.length) fx.forEach(function (f) { file(f, 'A fact used as evidence'); }); else missing.push('proposals/' + b.support.fact + '.json: a to-do rests on this fact, but it isn\'t in the folder as read.'); }
+      if (b.evidence && b.evidence.run) { run(b.evidence.run.process, b.evidence.run.id, 'evidence'); if (plans.indexOf(b.evidence.plan) < 0) plans.push(b.evidence.plan); }
+      if (b.spread) spreads[b.spread] = true;
+    };
+    mine.forEach(function (x) { look(x); look(x.effect); look(x.application && x.application.effect); });
+    /* Each child run's records, and every record fulfilling one of this run's spreads (on any run). */
+    (o.children || []).forEach(function (c) { run(c.process, c.id, 'child'); PF.todos.recordsFor(records, c).forEach(function (x) { file(x, 'A to-do record on a child run'); look(x); look(x.effect); look(x.application && x.application.effect); }); });
+    records.forEach(function (x) { if (x && x.fulfills && spreads[x.fulfills.spread]) { file(x, 'A to-do request fulfilling a spread'); if (x.run) run(x.run.process, x.run.id, 'child'); } });
+    (o.childUnread || []).forEach(function (k) { missing.push('runs/' + k + '/run.json: a child run of this run\'s loops can\'t be read.'); });
+    /* The loops' scope records. */
+    (o.scopes || []).forEach(function (x) { var l = PF.loop.loopOf(x); if (l && l.process === r.process && l.run === r.id) file(x, 'A loop scope record'); });
+    (o.scopesUnread || []).forEach(function (u) { if (!u.loop || (u.loop.process === r.process && u.loop.run === r.id)) missing.push('proposals/' + u.file + ': a scope record that can\'t be read (' + String(u.why || 'unreadable') + ').'); });
+    /* Records that can't be read: on this run, a child, or a run that can't be told, they may be part of its work. */
+    var kids = Object.create(null); (o.children || []).forEach(function (c) { kids[c.process + '/' + c.id] = true; });
+    (o.unread || []).forEach(function (u) { var k = u.run ? u.run.process + '/' + u.run.id : ''; if (!u.run || k === r.process + '/' + r.id || kids[k]) missing.push('proposals/' + u.file + ' can\'t be read (' + String(u.why || 'unreadable') + '), so what the run\'s work rests on may be missing.'); });
+    /* Past the cap nothing is cut: the export is refused (over), naming why. */
+    var over = files.length + runs.length > (o.cap || DEP_CAP) ? 'The work of ' + r.process + '/' + r.id + ' rests on ' + (files.length + runs.length) + ' records and runs; a pack made here holds at most ' + (o.cap || DEP_CAP) + '. Nothing was packed.' : '';
+    return { files: files, runs: runs, plans: plans, chain: chain, receipt: rs, missing: missing, over: over };
+  }
+
+  return { LIMITS: LIMITS, COUNTS: COUNTS, deps: deps, OUTCOMES: OUTCOMES, loopsOf: loopsOf, tally: tally, words: words, compare: compare, coverageOf: coverageOf, evidenceOf: evidenceOf, keepsOf: keepsOf,
+    idFor: idFor, build: build, cleanFile: cleanFile, prepare: prepare, stateOf: stateOf, since: since };
 })();
 
 /* Reports from other apps (docs/apps.md, docs/design.md section 26): a tool that did a step's work says so in a report, a file
@@ -25493,7 +25868,7 @@ PF.repo = (function () {
       return (procCache[proc] = Promise.all([decisions, runMetas, pubMetas]).then(function (r) {
         var ds = r[0], total = 0, over = false;
         r[1].concat(r[2]).forEach(function (m) { m.sizes.forEach(function (z) { if (z == null) return; total += z; if (z > recordMax) over = true; }); });
-        if (over || total > CTX_MAX) return { decisions: ds, groups: [], pubs: [], why: 'The runs and versions of ' + proc + ' are too big to read here (' + E.size(total) + '), so where its corrections stand can\'t be worked out.' };
+        if (over || total > CTX_MAX) return { decisions: ds, groups: [], pubs: [], runs: [], index: null, why: 'The runs and versions of ' + proc + ' are too big to read here (' + E.size(total) + '), so where its corrections stand can\'t be worked out.' };
         var runs = limited(r[1].filter(function (m) { return m.want.length; }), 8, function (m) {
           /* A run in the pack is read from its snapshot; any other only as text. */
           var read = function (n) { return selected[m.key] ? record(m.base + n).then(function (x) { return x.text == null ? null : x.text; }) : sizedText(m.base + n, recordMax).then(function (x) { return x.text == null ? null : x.text; }); };
@@ -25514,7 +25889,8 @@ PF.repo = (function () {
         });
         return Promise.all([runs, pubs]).then(function (x) {
           var pubList = x[1], verified = pubList.filter(function (p) { return p.v.ok; }).map(function (p) { return p.v; });
-          return { decisions: ds, groups: C.forProcess(x[0].filter(Boolean), proc, ds.filter(function (y) { return y.d; }).map(function (y) { return y.d; }), P.index(verified)), pubs: pubList, why: '' };
+          var runsRead = x[0].filter(Boolean), index = P.index(verified);
+          return { decisions: ds, groups: C.forProcess(runsRead, proc, ds.filter(function (y) { return y.d; }).map(function (y) { return y.d; }), index), pubs: pubList, why: '', runs: runsRead, index: index };
         });
       }));
     }
@@ -25560,7 +25936,7 @@ PF.repo = (function () {
              on the group belongs to the pack whatever else can be read. */
           var self = raw && !p.foreign ? R.sanitize(raw) : null;
           if (self) { self._notes = []; t.forEach(function (x) { if (x != null) E.notesFile(x).notes.forEach(function (n) { self._notes.push(cleanNote(n.note, base + '/')); }); }); }
-          p.ownGroups = {};
+          p.ownGroups = {}; p.self = self;
           if (self) try { C.groups(C.collect([self], proc)).forEach(function (g) { p.ownGroups[g.id] = true; }); } catch (e) { /* a run this copy can't fully read has no groups to add */ }
         });
         });
@@ -25647,6 +26023,8 @@ PF.repo = (function () {
           }));
         });
       }).then(function () {
+        return livingPart(p, add);
+      }).then(function () {
         /* Sizes: attachments left out, or over the one-file limit, are listed with their size and never read. */
         return limited(p.files, 8, function (f) { return done[f.path] ? (f.size = done[f.path].gone ? null : done[f.path].statSize) : statOf(f.path).then(function (z) { f.size = z; }); }).then(function () {
           p.files = p.files.filter(function (f) {
@@ -25658,6 +26036,88 @@ PF.repo = (function () {
           return p;
         });
       });
+    }
+
+    /* ---- a living run's work (4.0 slice 6): what it rests on ----
+       One checked read of proposals/ for the whole collection (readPlans, the readers' own), and the loops' child runs. Every
+       record the run's work rests on goes in (the application chain from living.head, its requests and their decisions, the
+       facts used as evidence, the loops' scope records, every record on a child run and every request fulfilling a spread,
+       the receipt), with the evidence runs and plans and the publication proof of what it kept for next time. Anything that
+       can't be found or read is named (p.living.missing): the pack is partial and no claim resting on it is confirmed. Past
+       the cap the export is refused, never cut. A run with no to-do records is packed exactly as in 3.0. */
+    var propsOnce = null;
+    function proposalsRead() {
+      if (!propsOnce) propsOnce = Promise.all([readPlans(ro, null), ro.list('proposals').then(function (it) { return it.filter(function (i) { return PF.todos.recordName(i.name); }).map(function (i) { return i.name; }).sort(); })])
+        .then(function (x) { x[0].listing = x[1]; return x[0]; }, function (e) { return { failed: why(e) }; });
+      return propsOnce;
+    }
+    function childrenOf(self) {
+      var map = null; try { map = R.mapOf(self); } catch (e) { map = null; }
+      var procs = [];
+      (map ? map.phases : []).forEach(function (ph) { ph.steps.forEach(function (st) { if (st.type === 'for.each' && st.fields && typeof st.fields.process === 'string' && EV_PROC.test(st.fields.process) && procs.indexOf(st.fields.process) < 0) procs.push(st.fields.process); }); });
+      var out = { runs: [], unread: [] };
+      return procs.reduce(function (q, cp) { return q.then(function () {
+        return ro.list('runs/' + cp).then(null, function () { return []; }).then(function (items) {
+          return limited(items.filter(function (i) { return i.kind === 'dir' && /^[a-z0-9-]{1,40}$/i.test(i.name); }).map(function (i) { return i.name; }).sort(), 4, function (cid) {
+            return sizedText('runs/' + cp + '/' + cid + '/run.json', recordMax).then(function (x) {
+              if (x.missing) return;
+              var c = x.text == null ? null : R.sanitize(json(x.text));
+              if (!c) { out.unread.push(cp + '/' + cid); return; }
+              if (c.parent && c.parent.item && c.parent.process === self.process && c.parent.id === self.id && c.id === cid && c.process === cp) out.runs.push(c);
+            });
+          });
+        });
+      }); }, Promise.resolve()).then(function () { return out; });
+    }
+    function livingPart(p, add) {
+      var self = p.self;
+      if (!self) return Promise.resolve();
+      return proposalsRead().then(function (Pr) {
+        if (Pr.failed) { if (self.living) p.living = { head: self.living.head, chain: [], receipt: null, missing: ['proposals/ ' + Pr.failed + ', so the run\'s work can\'t be packed.'], recs: {}, listing: null }; return; }
+        if (!self.living && !PF.todos.recordsFor(Pr.todos, self).length) return;
+        return childrenOf(self).then(function (ch) {
+          var D = PF.receipts.deps(self, { records: Pr.todos, unread: Pr.todosUnread, scopes: Pr.scopes, scopesUnread: Pr.scopesUnread, children: ch.runs, childUnread: ch.unread });
+          if (D.over) throw new Error(D.over);
+          var L = p.living = { head: self.living ? self.living.head : '', chain: D.chain, receipt: D.receipt ? { id: self.living.receipt || '', state: D.receipt.state, why: D.receipt.why } : null, missing: D.missing.slice(), recs: {}, listing: Pr.listing };
+          var byFile = Object.create(null);
+          Pr.todos.concat(Pr.scopes).forEach(function (x) { if (x && x._file) byFile[x._file] = x; });
+          D.files.forEach(function (f) { var path = 'proposals/' + f.file; L.recs[path] = byFile[f.file] || null; add(path, { role: 'living', label: f.label }); });
+          var planFiles = Object.create(null); (Pr.plans || []).forEach(function (pl) { if (pl && pl._file) planFiles[pl.id] = pl._file; });
+          D.plans.forEach(function (id) { if (planFiles[id]) add('proposals/' + planFiles[id], { role: 'evidence plan', label: 'The evidence plan a to-do was done on' }); else L.missing.push('proposals/' + id + '.json: a to-do was done on this evidence plan, but it isn\'t in the folder as read.'); });
+          return limited(D.runs, 4, function (x) {
+            var path = 'runs/' + x.process + '/' + x.id + '/run.json';
+            return statOf(path).then(function (z) {
+              if (z == null) { L.missing.push(path + ': ' + (x.role === 'evidence' ? 'a to-do was done on this run\'s result' : 'a child run of its loops') + ', but it isn\'t in the folder.'); return; }
+              add(path, x.role === 'evidence' ? { role: 'evidence run', label: 'The run a to-do was done on (its result is the evidence)' } : { role: 'child run', label: 'A child run of the run\'s loops' });
+            });
+          }).then(function () { return keepClaims(p, add, Pr); });
+        });
+      });
+    }
+    /* What the run kept for next time, and where each stands: its correction's decisions and, once published, the version's
+       files as proof (a claim like any correction's). */
+    function keepClaims(p, add, Pr) {
+      var self = p.self, ks = PF.todos.recordsFor(Pr.todos, self).filter(function (x) { return x.kind === 'keep' && x.template && x.anchor; });
+      var procs = []; ks.forEach(function (k) { if (procs.indexOf(k.template.process) < 0 && EV_PROC.test(k.template.process)) procs.push(k.template.process); });
+      return procs.reduce(function (q, kp) { return q.then(function () {
+        return processContext(kp).then(function (ctx) {
+          var mineK = ks.filter(function (k) { return k.template.process === kp; });
+          if (ctx.why) { mineK.forEach(function (k) { p.claims.push({ correction: k.id, group: '', process: kp, text: 'Where it stands', folder: '', why: ctx.why }); }); return; }
+          var gs = [];
+          try { gs = C.forProcess(ctx.runs, kp, ctx.decisions.filter(function (y) { return y.d; }).map(function (y) { return y.d; }), ctx.index, PF.learn.members(Pr.todos, ctx.runs, kp)); } catch (e) { gs = []; }
+          var vers = {};
+          mineK.forEach(function (k) {
+            var g = gs.filter(function (x) { return x.keep && x.members.some(function (m) { return m.keep && m.keep.record === k.id; }); })[0];
+            if (!g) return;
+            ctx.decisions.forEach(function (y) { if (y.d && y.d.group === g.id) add(y.path, { role: 'correction', label: 'A decision on what was kept for next time' }); });
+            if (g.landed) { vers[g.landed.folder] = true; p.claims.push({ correction: k.id, group: g.id, process: kp, text: 'Published in v' + g.landed.version, folder: g.landed.folder }); }
+          });
+          return Promise.all(Object.keys(vers).map(function (folder) {
+            var b = 'publications/' + kp + '/' + folder;
+            return listFiles(b).then(function (items) { items.forEach(function (x) { var rel = x.path.slice(b.length + 1); if (x.kind === 'file' && ['map.md', 'types.json', 'publication.json'].indexOf(rel) >= 0) add(x.path, { role: 'proof', label: 'Backs up "Published in v' + P.versionOf(folder) + '" of what was kept' }); }); }, function () { /* the claim stays unconfirmed: its files aren't here */ });
+          }));
+        });
+      }); }, Promise.resolve());
     }
 
     /* ---- after collecting: did anything the pack holds change? ---- */
@@ -25686,6 +26146,9 @@ PF.repo = (function () {
             }));
           }).then(function (x) {
             if (x[0].concat(x[1]).sort().join('/') !== p.decListing.join('/')) note('corrections/' + p.process, 'a decision on corrections was added or removed', p.key);
+            /* A living run's work rests on proposals/: a to-do record added or removed there is a change. */
+            if (p.living && p.living.listing) return ro.list('proposals').then(function (it) { var nowP = it.filter(function (i) { return PF.todos.recordName(i.name); }).map(function (i) { return i.name; }).sort(); if (nowP.join('/') !== p.living.listing.join('/')) note('proposals', 'a to-do record was added or removed', p.key); });
+          }).then(function () {
             (p.changes || []).forEach(function (c) { note(c.path, c.what, p.key); });
           });
         });
@@ -25754,8 +26217,25 @@ PF.repo = (function () {
       rc.checks = E.checks(rc.raw, p.folder ? pubTexts : null, p.folder ? pubShots : null, p.test);
       rc.test = p.test;
       if (rc.raw && !p.folder) limits.push('The version it names isn\'t one this copy can find.');
+      /* A living run (4.0 slice 6): each record its work rests on, as packed, must be the record the one checked read of
+         proposals/ read; one that changed, went or wasn't read is named, and nothing kept for next time is confirmed. */
+      if (p.living) {
+        var L = p.living, lm = L.missing.slice();
+        Object.keys(L.recs).sort().forEach(function (path) {
+          var x = done[path], was = L.recs[path];
+          if (!x || x.gone) { lm.push(path + ' was removed while the pack was made.'); return; }
+          if (x.skipped || x.text == null) { lm.push(path + ' wasn\'t read into the pack, so what it says can\'t be checked.'); return; }
+          var o = json(x.text), name = path.slice('proposals/'.length), v = null;
+          try { v = o && typeof o === 'object' ? (PF.loop.isScope(o) ? PF.loop.cleanFile(o, name) : PF.todos.cleanFile(o, name, PF.util.utf8Bytes(x.text))) : null; } catch (e) { v = null; }
+          var strip = function (r) { if (!r) return ''; var c = {}; Object.keys(r).forEach(function (k) { if (k.charAt(0) !== '_') c[k] = r[k]; }); return E.canonical(c); };
+          if (!v || !v.ok || !was || strip(v.record) !== strip(was)) lm.push(path + ' changed while the pack was made.');
+        });
+        lm.forEach(function (m) { col.unresolved.push(p.key + ': ' + m); });
+        if (lm.length) { limits.push('What the run\'s work rests on isn\'t all in this pack, so nothing it claims from its to-dos is confirmed.'); p.claims.forEach(function (c) { if (c.process) c.why = c.why || 'what the run\'s work rests on isn\'t all in this pack.'; }); }
+        rc.living = { head: L.head, chain: L.chain.slice(), receipt: L.receipt, records: Object.keys(L.recs).sort(), missing: lm, complete: !lm.length };
+      }
       rc.claims = p.claims.map(function (c) {
-        var proof = c.folder ? ['map.md', 'types.json', 'publication.json'].map(function (n) { return 'publications/' + p.process + '/' + c.folder + '/' + n; }) : [];
+        var proof = c.folder ? ['map.md', 'types.json', 'publication.json'].map(function (n) { return 'publications/' + (c.process || p.process) + '/' + c.folder + '/' + n; }) : [];
         var have = proof.length && proof.every(function (x) { return p.files.some(function (f) { return f.path === x; }) && done[x] && !done[x].gone; });
         var ok = !!have && !c.why;
         return { correction: c.correction, group: c.group, text: c.text, folder: c.folder, proof: proof, verified: ok, status: ok ? c.text : 'Can\'t be confirmed from this pack: ' + (c.why || 'the files of that version aren\'t all here.') };
@@ -25835,7 +26315,7 @@ PF.repo = (function () {
           attempt++;
           paths.forEach(function (pth) { forget(pth); delete decHash[pth]; });
           Object.keys(rc.runs).forEach(function (k) { var base = 'runs/' + k + '/'; Object.keys(done).forEach(function (pth) { if (pth.indexOf(base) === 0) forget(pth); }); });
-          procCache = {}; decHash = {};
+          procCache = {}; decHash = {}; propsOnce = null;
           /* Every attempt starts as the first did: sizes and the cap checked before anything new is read. */
           return preEstimate(keysAll).then(function () { return planAll(keysAll); }).then(fullEstimate).then(round);
         });
@@ -29692,8 +30172,23 @@ PF.vk = (function () {
     }
     var TV = prOf(ctx) ? null : tdView(ctx, r);
     if (TV && TV.todos.length) out.push('To-dos: ' + TV.todos.filter(function (x) { return x.state !== 'open'; }).length + ' of ' + TV.todos.length);
-    return '<ul class="rw-counts small" aria-label="Progress">' + out.map(function (o) { return '<li>' + esc(o) + '</li>'; }).join('') + '</ul>';
+    return '<ul class="rw-counts small" aria-label="Progress">' + out.map(function (o) { return '<li>' + esc(o) + '</li>'; }).join('') + '</ul>' + (prOf(ctx) ? '' : planVsNow(ctx, r));
   }
+  /* Plan versus now (4.0 slice 6): for a living run, what was asked and what landed, each with its own denominator (chips:
+     additions, resolutions, coverage, changes). Running, it is worked out now; ended, it is the receipt's frozen words, and
+     what arrived since is shown apart, never changing them. A receipt that can't be confirmed says so by its path. */
+  function planVsNow(ctx, r) {
+    var v = r && r.living && ctx.planVsNow ? ctx.planVsNow(r) : null;
+    if (!v) return '';
+    var h = '<div class="pvn" aria-label="Plan versus now">';
+    if (v.ended && v.state && v.state.state !== 'confirmed') h += '<p class="small pvn-why">' + esc(v.state.state === 'none' ? 'It ended without a receipt record, so what it ended with is only what the run says.' : v.state.why + (v.state.path ? ' (' + v.state.path + ')' : '')) + '</p>';
+    if (v.chips.length) h += '<ul class="pvn-chips small">' + v.chips.map(function (c) { return '<li class="chip pvn-' + esc(c.id) + '">' + esc(c.words) + '</li>'; }).join('') + '</ul>';
+    if (v.ended && v.state && v.state.state === 'confirmed') h += '<p class="small">As the receipt froze it when the run ended.</p>';
+    if (v.unread && v.unread.length) h += '<p class="small">' + esc('The loop ' + v.unread[0] + ' can\'t be read here, so its items aren\'t counted.') + '</p>';
+    if (v.since && v.since.lines && v.since.lines.length) h += '<div class="pvn-since"><h4><span>After it ended</span></h4><ul class="small">' + v.since.lines.map(function (l) { return '<li>' + esc(l) + '</li>'; }).join('') + '</ul></div>';
+    return h + '</div>';
+  }
+  V.planVsNow = planVsNow;
 
   /* The phases rail, the checklist with Next up docked at its top, and the selected step: the same for a run and Practice. */
   function panes(ctx, r, map, rec, nx, items, schedBy, late) {
@@ -30176,6 +30671,9 @@ PF.vk = (function () {
       var x = fuOf(f);
       return '<div class="rrow"><span class="ric open">→</span><span>' + esc(f.text) + (f.ticket ? ' <span class="cat">' + esc(f.ticket) + '</span>' : '') + (x ? ' ' + V.fuPill(x) : '') + (x && x.decision && !x.tie && x.status !== 'open' ? '<span class="small" style="display:block">' + esc(fuStatusOf(f)) + '</span>' : '') + '</span><span class="small">' + esc(f.owner ? nameOf(ctx, f.owner) : '') + '</span></div>';
     }).join('') + '</div>';
+    /* A living run's receipt record (4.0 slice 6): its frozen plan-versus-now words, and what arrived after it ended. */
+    var pv = r.living && V.planVsNow ? V.planVsNow(ctx, r) : '';
+    if (pv) body = '<div class="r-pvn"><h4><span>Plan versus now</span></h4>' + (function () { var v = ctx.planVsNow(r); return v && v.lines.length ? '<ul class="small">' + v.lines.map(function (l) { return '<li>' + esc(l) + '</li>'; }).join('') + '</ul>' : ''; })() + pv + '</div>' + body;
     var unread = reps.filter(function (g) { return g.unreadable.length; }).length;
     /* 50 report groups at a time, formatted only when drawn (2.11); Copy for Jira formats every one. */
     if (reps.length || (rb && (rb.loading || rb.failed))) body += '<div class="r-reps"><h4><span>Reports · ' + reps.length + '</span></h4>' +
@@ -33931,6 +34429,7 @@ PF.examples = (function () {
     todoGrants: function () { return tdInboxNow().grants; },
     /* Spreads on a run (4.0 slice 3): coverage as every window and the CLI work it out (PF.spreads.coverage), once per draw. */
     spreadCoverage: function (r) { return spreadCoverageOf(r); },
+    planVsNow: function (r) { return planVsNowOf(r); },
     /* Facts on a run (4.0 slice 4) and the time they are judged at; a suggestion's evidence as it stands now. */
     factView: function (r) { return factViewOf(r); },
     factNow: function () { return tdNow(); },
@@ -36769,6 +37268,7 @@ PF.examples = (function () {
   function guardOk(cx) {
     if (!cx || cx.g !== gen || cx.fs !== state.fs || cx.me !== state.me) return false;
     if (cx.todo && !todoStill(cx.todo)) return false;
+    if (cx.receipt && !receiptStill(cx)) return false;
     if (!cx.run) return true;
     var r = findRun(cx.run);
     if (!r || runSig(r) !== cx.sig) return false;
@@ -37301,6 +37801,88 @@ PF.examples = (function () {
       lastAll = -Infinity;
       render();
     }, function (err) { endBusy(); if (sg !== gen) return; say('Couldn\'t save what was kept: ' + (err && err.message || err) + ' It may or may not have been saved; keeping it again is the same keep.', 'bad'); render(); });
+  }
+  /* ---- Plan versus now and the receipt (4.0 slice 6, docs/design.md 45.5) ---- */
+  /* What a receipt is prepared from: the to-do records, unread files, people and evidence (sn: the folder read again at a
+     write, tdFresh; else what this window read), and the loops' scope records and runs as this window read them. */
+  function rcptInputs(sn) { sn = sn || tdData(); return { records: sn.records, unread: sn.unread, people: sn.people, evidence: sn.evidence || null, now: tdNow(), loops: { records: data.scopes || [], unread: data.scopesUnread || [], procOf: ctx.procOf }, runs: data.runs || [] }; }
+  /* The receipt guard, asked before every write of the run's save that ends it (guardOk, with the to-do guard): on the run as
+     it was before it ended, prepared again from the folder read again right there, it is still exactly the receipt written,
+     and that record is in the folder. */
+  function receiptStill(cx) {
+    var t = cx.receipt, sn = (cx.todo && cx.todo.snap) || tdData(), pre;
+    try { pre = R.sanitize(JSON.parse(t.pre)); } catch (e) { return false; }
+    if (!pre || pre._unrunnable) return false;
+    if (!(sn.records || []).some(function (x) { return x && x.kind === 'receipt' && x.id === t.id; })) return false;
+    var A = PF.receipts.prepare(pre, Object.assign(rcptInputs(sn), { outcome: t.outcome, by: cx.me, at: t.at, app: APP_VERSION }));
+    return !A.why && !A.none && A.id === t.id;
+  }
+  /* Ending a run. A run that isn't living ends exactly as in 3.0. A living run ends with its receipt: prepared from the folder
+     as this window reads it (nothing is written when it can't be: a record, the loop or a spread's coverage that can't be
+     read, a list over its limit), written once under the run guard (prepared again on the folder read again right before
+     the write; a retry writes exactly the first bytes), then the run's save sets ended and living.receipt together, with the
+     to-do and receipt guards asked again before each of its writes. Refused there, nothing more is written and the end is
+     put back; the receipt record stays, naming nothing, and ending again prepares it again. */
+  function endRun(outcome) {
+    var g = gen, key = state.runKey, r = ctx.run();
+    var after = function (ok) { if (ok && g === gen && state.runKey === key && ctx.run() && ctx.run().ended) { backMode(true); setView('receipt'); render(); window.scrollTo(0, 0); } };
+    if (!r || !r.living) { mutate(function (rr, map, me, now) { R.end(rr, map, outcome, me, V.nameOf(ctx, me), now); }).then(after); return; }
+    if (!ctx.recording(r)) { say('Only the recorder\'s window can end the run.', 'warn'); render(); return; }
+    if (runUnread(r)) { say(runUnread(r) + ' The run wasn\'t ended.', 'warn'); render(); return; }
+    var sig = JSON.stringify([fsKey(), key, state.me, outcome, r.living.head]), kept = state.rcptTry && state.rcptTry.sig === sig ? state.rcptTry.P : null;
+    var at = kept ? kept.record.at : new Date().toISOString();
+    var ask = function (run, sn) { return PF.receipts.prepare(run, Object.assign(rcptInputs(sn), { outcome: outcome, by: state.me, at: at, app: APP_VERSION })); };
+    var P = ask(r, null);
+    if (P.none) { mutate(function (rr, map, me, now) { R.end(rr, map, outcome, me, V.nameOf(ctx, me), now); }).then(after); return; }
+    if (P.why) { say(P.why, 'warn'); render(); return; }
+    if (kept && kept.id === P.id) P = kept;
+    state.rcptTry = { sig: sig, P: P };
+    var cx = loopGuard({ run: key, readable: true }), text = PF.todos.text(P.file), endBusy = busyStart(), snap = null;
+    var fresh = function () { return tdFresh(cx).then(function (s) { snap = s; return !!s; }); };
+    var still = function () { if (!guardOk(cx) || !snap) return false; var A = ask(findRun(key), snap); return !A.why && !A.none && A.id === P.id; };
+    repo.saveScope(cx.fs, P.name, P.file, { fresh: fresh, still: still }).then(function (res) {
+      endBusy(); if (g !== gen) return;
+      if (res && res.dropped) { say('The run wasn\'t ended: the folder, the person, the run or its to-dos changed before its receipt was written. End it again if it still should.', 'warn'); render(); return; }
+      /* A receipt already in the folder under its name says the same (its name is what it says); anything else there isn't one. */
+      if (res && res.conflict && res.theirs !== text) {
+        var o = null; try { o = PF.util.jsonTooDeep(res.theirs) ? null : JSON.parse(res.theirs); } catch (e) { o = null; }
+        var v = o && typeof o === 'object' ? PF.todos.cleanFile(o, P.name, PF.util.utf8Bytes(res.theirs)) : null;
+        if (!v || !v.ok || v.record.kind !== 'receipt' || v.record.id !== P.id) { say('Something else is already saved under the receipt\'s name. The run wasn\'t ended; read the folder again.', 'bad'); render(); return; }
+      }
+      var rec = P.record; rec._file = P.name;
+      if (!(data.todos || []).some(function (x) { return x.id === rec.id; })) data.todos = (data.todos || []).concat([rec]);
+      var lcx = loopGuard({ run: key, readable: true });
+      var ed = loopEdit(lcx, key, function (rr, m, me, now) {
+        if (!rr.living || rr.living.head !== P.record.head) throw new Error('The run\'s to-dos changed since its receipt was prepared, so it wasn\'t ended. End it again.');
+        var pre = todoPre(rr);
+        lcx.todo = { key: key, from: rr.living.head, head: rr.living.head, pre: pre, living: true };
+        lcx.receipt = { pre: pre, id: P.id, at: at, outcome: outcome };
+        R.end(rr, m, outcome, me, V.nameOf(ctx, me), now, { receipt: P.id });
+        /* The guard asks after the end: the run as this change left it (ended) is the one it compares with. */
+        lcx.sig = runSig(rr);
+      }, { redo: true });
+      todoSaveChain(lcx, ed);
+      mutate(ed.fn, ed.opts).then(function (ok) { if (ok && state.rcptTry && state.rcptTry.P === P) state.rcptTry = null; after(ok); });
+    }, function (err) { endBusy(); if (g !== gen) return; say('Couldn\'t save the run\'s receipt: ' + (err && err.message || err) + ' It may or may not have been saved; ending again writes the same receipt. The run wasn\'t ended.', 'bad'); render(); });
+  }
+  var pvnMemo = null;
+  function planVsNowOf(r) {
+    if (!r || !r.living || r._unrunnable) return null;
+    var k = [r, r.rev || 0, r.living.head, r.living.receipt || '', r.ended, data.todos, data.todosUnread, data.scopes, data.runs, data.people, Math.floor(tdNow() / 60000)];
+    if (pvnMemo && pvnMemo.k.length === k.length && pvnMemo.k.every(function (x, i) { return x === k[i]; })) return pvnMemo.v;
+    var v = null;
+    try {
+      if (r.ended) {
+        var S = PF.receipts.stateOf(r, data.todos || [], data.todosUnread || []);
+        v = { ended: true, state: S, lines: [], chips: [], since: null };
+        if (S && S.record) { var w = PF.receipts.words(S.record.counts, S.record.coverage); v.lines = w.lines; v.chips = w.chips; v.since = PF.receipts.since(r, S.record, data.todos || [], spreadCoverageOf(r)); }
+      } else {
+        var C = PF.receipts.compare(r, PF.run.mapOf(r), todoViewFor(r), spreadCoverageOf(r), rcptInputs());
+        v = { ended: false, lines: C.lines, chips: C.chips, phases: C.phases, unread: C.unread };
+      }
+    } catch (e) { v = null; }
+    pvnMemo = { k: k, v: v };
+    return v;
   }
   var spBox = null;
   function spreadCoverageOf(r) {
@@ -42288,7 +42870,7 @@ PF.examples = (function () {
     pickup: function () { if (runBusy(ctx.run())) return; fresh().then(function (t) { if (t) mutateRun(t.key, t.g, function (r, map, me, now) { R.pickUp(r, me, SESSION, now, R.legacyLinks(r, ctx.findRun)); }, { any: true }); }); },
     takeover: function () { if (runBusy(ctx.run())) return; fresh().then(function (t) { if (t) mutateRun(t.key, t.g, function (r, map, me, now) { R.takeOver(r, me, SESSION, now, R.legacyLinks(r, ctx.findRun)); }, { any: true, takeover: true }); }); },
     /* The receipt opens only once the ending is really in the team folder; a failed save keeps you here with Try again. */
-    end: function (id) { var g = gen, key = state.runKey; mutate(function (r, map, me, now) { R.end(r, map, id, me, V.nameOf(ctx, me), now); }).then(function (ok) { if (ok && g === gen && state.runKey === key && ctx.run() && ctx.run().ended) { backMode(true); setView('receipt'); render(); window.scrollTo(0, 0); } }); },
+    end: function (id) { endRun(id); },
     /* Finishing: outcome, follow-ups and suggested map changes, then the receipt. */
     finish: function () { setView('finish'); state.pick = null; render(); window.scrollTo(0, 0); },
     'add-followup': function (id, b) {
