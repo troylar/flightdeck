@@ -385,13 +385,24 @@ PF.receipts = (function () {
       var v = X.ended ? stateOf(X, records, o.unread) : null;
       if (v && v.state !== 'confirmed' && v.state !== 'none') missing.push(on + v.why + ' (' + v.path + ')');
       if (k === rootKey) rs = v;
+      /* Every request the receipt names as seen (pending ones included) is part of what it froze. */
+      if (v && v.record) (v.record.seen || []).forEach(function (id) { var sx = witness(id, on + 'the receipt names this record as seen'); if (sx) saw(sx); });
       /* Facts used as evidence, evidence runs and their plans, the spreads this run's work holds and the parents whose spread
          one of its requests fulfills. */
       var sp = Object.create(null);
       mine.forEach(function (x) { look(x); look(x.effect); look(x.application && x.application.effect); [x, x.effect, x.application && x.application.effect].forEach(function (b) { if (b && b.spread) sp[b.spread] = spreads[b.spread] = true; }); if (x.fulfills && x.fulfills.run) run(x.fulfills.run.process, x.fulfills.run.id, 'fulfills'); });
       (kids[k] || []).forEach(function (c) { allKids[keyOf(c)] = true; run(c.process, c.id, 'child'); });
       records.forEach(function (x) { if (x && x.fulfills && sp[x.fulfills.spread]) { file(x, 'A to-do request fulfilling a spread'); if (x.run) run(x.run.process, x.run.id, 'child'); } });
-      (o.scopes || []).forEach(function (x) { var l = PF.loop.loopOf(x); if (l && l.process === X.process && l.run === X.id) file(x, 'A loop scope record'); });
+      /* The loops' scope records, and the run a loop item's choice names (a child of that loop step's process). */
+      var xmap = mapOf(X), procOfStep = function (stepId) { var f = null; (xmap ? xmap.phases : []).forEach(function (ph) { ph.steps.forEach(function (st) { if (st.id === stepId && st.type === 'for.each') { try { f = PF.run.fieldsOf(X, st); } catch (e) { f = null; } } }); }); return f && typeof f.process === 'string' ? f.process : ''; };
+      (o.scopes || []).forEach(function (x) {
+        var l = PF.loop.loopOf(x);
+        if (!l || l.process !== X.process || l.run !== X.id) return;
+        file(x, 'A loop scope record');
+        (Array.isArray(x.changes) ? x.changes : []).forEach(function (chg) { if (chg && chg.op === 'choose' && typeof chg.run === 'string' && chg.run) { var cp = procOfStep(l.step); if (cp) run(cp, chg.run, 'child'); else missing.push(on + 'proposals/' + String(x._file || x.id + '.json') + ': it chooses ' + chg.run + ' for a loop item, but the loop\'s checklist can\'t be told.'); } });
+      });
+      /* A spread's binding names the run that covers an item: that run is part of the work too. */
+      mine.forEach(function (x) { [x.dest, x.effect && x.effect.dest, x.application && x.application.effect && x.application.effect.dest].forEach(function (dv) { if (dv && typeof dv.process === 'string' && typeof dv.id === 'string') run(dv.process, dv.id, 'child'); }); });
       (o.scopesUnread || []).forEach(function (u) { if (u.loop && u.loop.process === X.process && u.loop.run === X.id) missing.push('proposals/' + u.file + ': a scope record that can\'t be read (' + String(u.why || 'unreadable') + ').'); });
     };
     for (var qi = 0; qi < queue.length; qi++) {
@@ -417,6 +428,6 @@ PF.receipts = (function () {
   }
 
 
-  return { LIMITS: LIMITS, COUNTS: COUNTS, deps: deps, OUTCOMES: OUTCOMES, loopsOf: loopsOf, tally: tally, words: words, compare: compare, coverageOf: coverageOf, evidenceOf: evidenceOf, keepsOf: keepsOf,
+  return { LIMITS: LIMITS, COUNTS: COUNTS, deps: deps, DEP_CAP: DEP_CAP, OUTCOMES: OUTCOMES, loopsOf: loopsOf, tally: tally, words: words, compare: compare, coverageOf: coverageOf, evidenceOf: evidenceOf, keepsOf: keepsOf,
     idFor: idFor, build: build, cleanFile: cleanFile, prepare: prepare, stateOf: stateOf, verdict: verdict, since: since };
 })();

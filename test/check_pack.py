@@ -3,7 +3,11 @@ manifest.json's SHA-256 for every payload file and SHA256SUMS for payload plus m
 application chain from the packed run.json's living.head through each application's previous, and checks the receipt the run
 names says the run's work head and outcome: a pack that calls a run's work complete must hold all of it, and a pack missing
 any of it must say it is partial. Run with python3 -I."""
-import hashlib, json, re, sys, zipfile
+import hashlib, json, os, re, sys, zipfile
+
+# The shipped checker's own record reader (Python, independent of the app): a packed receipt is read by its rules.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "example-folder", ".flightdeck", "skills", "_flightdeck"))
+import check_folder as CF  # noqa: E402
 
 
 def main(path):
@@ -45,8 +49,6 @@ def main(path):
 
 
 COPY = re.compile(r"^( \([0-9]{1,3}\)|-[A-Za-z0-9-]{1,63})$")
-
-
 ISO = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$")
 
 
@@ -177,6 +179,16 @@ def check_living(z, man):
             ended = run.get("ended") or {}
             good_receipt = (rec is not None and rec.get("kind") == "receipt" and rec.get("id") == receipt and rec.get("head") == head
                             and rec.get("outcome") == ended.get("outcome") and rec.get("run") == me)
+            # Read as the shipped checker reads it: its format, limits and the id its content gives.
+            if good_receipt:
+                path = [p for p in by_path if p == "proposals/" + receipt + ".json"]
+                raw = json.loads(z.read(by_path[path[0]]).decode("utf-8"), parse_int=float) if path else None
+                good_receipt = raw is not None and CF.todo_why(raw, receipt + ".json") == ""
+            # Every record it names as seen (pending requests included) is in the pack.
+            if good_receipt:
+                for x in rec.get("seen") or []:
+                    if wit(str(x)) is None:
+                        good_receipt = False
         return whole, chain, closed, good_receipt, copies[0]
 
     def depends_on(run):
@@ -202,6 +214,22 @@ def check_living(z, man):
                 ff = o.get("fulfills") or {}
                 if isinstance(ff, dict) and isinstance(ff.get("run"), dict):
                     out.add(str(ff["run"].get("process")) + "/" + str(ff["run"].get("id")))
+                for b in (o, o.get("effect") or {}, (o.get("application") or {}).get("effect") or {}):
+                    dv = (b or {}).get("dest")
+                    if isinstance(dv, dict) and isinstance(dv.get("process"), str):
+                        out.add(dv["process"] + "/" + str(dv.get("id")))
+        # A loop item's choice names a child run by id: the packed run of that id, or one that isn't here.
+        for path in by_path:
+            if not path.startswith("proposals/req-") or ".status-" in path:
+                continue
+            o = packed(path)
+            lp = (o or {}).get("loop") if isinstance(o, dict) else None
+            if not isinstance(lp, dict) or lp.get("process") != me["process"] or lp.get("run") != me["id"]:
+                continue
+            for ch in o.get("changes") or []:
+                if isinstance(ch, dict) and ch.get("op") == "choose" and isinstance(ch.get("run"), str) and ch["run"]:
+                    hit = [p.split("/")[1] + "/" + p.split("/")[2] for p in by_path if p.startswith("runs/") and p.endswith("/" + ch["run"] + "/run.json") and p.count("/") == 3]
+                    out.update(hit or ["?/" + ch["run"]])
         return out
 
     n = 0

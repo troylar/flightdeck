@@ -3252,7 +3252,7 @@ PF.repo = (function () {
         if (!self.living && !PF.todos.recordsFor(Pr.todos, self).length && !mineUnread) return;
         /* The closure, walked until it holds every run it depends on: the shared collector (PF.receipts.deps) names the runs it
            found that aren't read yet; they are read (and their loop children listed), and it is asked again. Bounded. */
-        var got = Object.create(null), known = Object.create(null), kids = Object.create(null), runBad = [], listed = Object.create(null), D = null, rounds = 0;
+        var got = Object.create(null), known = Object.create(null), kids = Object.create(null), runBad = [], listed = Object.create(null), D = null, DEP_RUNS = PF.receipts.DEP_CAP;
         var ask = function () { return PF.receipts.deps(self, { records: Pr.todos, unread: Pr.todosUnread, scopes: Pr.scopes, scopesUnread: Pr.scopesUnread, runs: known, kids: kids, runBad: runBad }); };
         var listKids = function (X) {
           var k = X.process + '/' + X.id;
@@ -3263,7 +3263,9 @@ PF.repo = (function () {
           D = ask();
           if (D.over) throw new Error(D.over);
           var fresh = Object.keys(known).filter(function (k) { return !listed[k]; }).map(function (k) { return known[k]; });
-          if ((!D.toRead.length && !fresh.length) || ++rounds > 64) return null;
+          if (!D.toRead.length && !fresh.length) return null;
+          /* Within the one shared bound: past it the export is refused, never cut and never called complete. */
+          if (Object.keys(got).length + D.toRead.length > DEP_RUNS) throw new Error('The work of ' + self.process + '/' + self.id + ' depends on more than ' + DEP_RUNS + ' runs; a pack made here holds at most that many. Nothing was packed.');
           return limited(D.toRead, 4, function (x) {
             var k = x.process + '/' + x.id;
             return (got[k] ? Promise.resolve(got[k]) : depRun(x.process, x.id).then(function (y) { got[k] = y; return y; })).then(function (y) { if (y.bad) runBad.push(y.bad); else known[k] = y.run; });
@@ -3272,6 +3274,7 @@ PF.repo = (function () {
         return listKids(self).then(step).then(function () {
           D = ask();
           if (D.over) throw new Error(D.over);
+          if (D.toRead.length) throw new Error('The runs the work of ' + self.process + '/' + self.id + ' depends on weren\'t all read, so no pack was made.');
           var L = p.living = { head: self.living ? self.living.head : '', chain: D.chain, receipt: D.receipt ? { id: self.living.receipt || '', state: D.receipt.state, why: D.receipt.why } : null, missing: D.missing.slice(), recs: {}, listing: Pr.listing, deps: [], runTexts: {} };
           var byFile = Object.create(null);
           Pr.todos.concat(Pr.scopes).forEach(function (x) { if (x && x._file) byFile[x._file] = x; });
@@ -3283,15 +3286,13 @@ PF.repo = (function () {
             var k = x.process + '/' + x.id, path = 'runs/' + k + '/run.json';
             L.deps.push({ key: k, role: x.role, head: x.head || '', chain: (x.chain || []).slice(), receipt: x.receipt || '', problem: x.problem ? x.problem.kind : '' });
             if (x.problem || !known[k]) return;
-            L.runTexts[path] = runMark(known[k]);
+            L.runTexts[path] = known[k]._fileHash || '';
             add(path, LBL[x.role] || LBL.child);
           });
           return keepClaims(p, add, Pr);
         });
       });
     }
-    /* What the closure read of a run it depends on, to tell whether the copy packed is that one. */
-    function runMark(r) { return JSON.stringify([r.rev || 0, r.state || '', r.living || null, r.ended || null]); }
     /* What the run kept for next time, and where each stands: its correction's decisions and, once published, the version's
        files as proof (a claim like any correction's). */
     function keepClaims(p, add, Pr) {
@@ -3433,8 +3434,8 @@ PF.repo = (function () {
           var x = done[path];
           if (!x || x.gone) { lm.push(path + ' was removed while the pack was made.'); return; }
           if (x.skipped || x.text == null) { lm.push(path + ' wasn\'t read into the pack, so what it says can\'t be checked.'); return; }
-          var o = R.sanitize(json(x.text));
-          if (!o || runMark(o) !== L.runTexts[path]) lm.push(path + ' changed while the pack was made.');
+          /* The bytes packed are the bytes the checked read judged: the same SHA-256, whole. */
+          if (!L.runTexts[path] || fileHash(x.text) !== L.runTexts[path]) lm.push(path + ' changed while the pack was made.');
         });
         lm.forEach(function (m) { col.unresolved.push(p.key + ': ' + m); });
         if (lm.length) { limits.push('What the run\'s work rests on isn\'t all in this pack, so nothing it claims from its to-dos is confirmed.'); p.claims.forEach(function (c) { if (c.process) c.why = c.why || 'what the run\'s work rests on isn\'t all in this pack.'; }); }

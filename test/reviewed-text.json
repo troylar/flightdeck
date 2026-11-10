@@ -25,8 +25,8 @@
       "reviewed": "slice 6: pending and unreadable records shown before living; receipt head ''"
     },
     "docs/design.md": {
-      "sha256": "98adee4a681ac4eabba8e9dd3dc677274f3aec6dfeebf1b57d688e0fc8a341ff",
-      "reviewed": "GB: one bounded closure over every dependency run in the evidence pack; checked for direct writes and unconditional deletes"
+      "sha256": "925b8db9a1afbda160408b90e665e2ee91d6ffeb51920e8b663fd9872fbc1128",
+      "reviewed": "IC: the closure walk is complete within the shared bound, byte-exact, and follows the receipt's seen, scope choices and bindings"
     },
     "docs/evidence.md": {
       "sha256": "bda337bfb28a2fba4655b8433018d40585a80efd261c9c1afd477c6b409694d8",
@@ -309,8 +309,8 @@
       "reviewed": "loops: items: item kind, feed binding, completeness fix, nouns, unknown-kind refusal in loop.js/map.js/publish.js/types.js and check_folder.py parity; pure checks only, checked for direct writes and unconditional deletes"
     },
     "src/core/receipts.js": {
-      "sha256": "dd9818212cb6eea2a1c7b7f86d45cb998b4d780381f0c643c414f790d734847e",
-      "reviewed": "GB: one bounded closure over every dependency run in the evidence pack; checked for direct writes and unconditional deletes"
+      "sha256": "4ef7acb92861dcfa87164925c6c7ab9d74a7c3a4f0e86774c298b415bac2a8e9",
+      "reviewed": "IC: the closure walk is complete within the shared bound, byte-exact, and follows the receipt's seen, scope choices and bindings"
     },
     "src/core/refs.js": {
       "sha256": "24b7d2b52fcd99673fcc427db286a7224af83342da19efcd561ac850d6baa441",
@@ -421,8 +421,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "8a10f71d128bd5bdf345b3b1a50ab2590308fecd866abea872a9e4a86410ace4",
-      "reviewed": "IB: every dependency run gets the run verdict (PF.appjson.judgeRun, shared with the commands)"
+      "sha256": "b58594bc2e13fe0452da227bddc7b2f45d8a0826a9c3eec2c1536ad5bf625337",
+      "reviewed": "IC: the closure walk is complete within the shared bound, byte-exact, and follows the receipt's seen, scope choices and bindings"
     },
     "src/ui/app.js": {
       "sha256": "955af8f925081742c4cc70ae0cdd02f7f8d4fad57f45a7601250bd8b50f44dcb",

@@ -42,10 +42,18 @@ async function made(o) {
     app.click('refresh'); await app.tick(500); app.click('refresh'); await app.tick(400);
     o.request = { proposal: 'proposals/' + q.id + '.json', decision: 'proposals/' + st.name };
   }
+  /* o.pending: a tool's request filed before the end, waiting for approval (the receipt names it as seen). */
+  if (o.pending) {
+    const T = PF.todos, rp = app.files('runs/release-notes/').find(p => /run\.json$/.test(p)), r0 = PF.run.sanitize(JSON.parse(app.fs.files[rp].t));
+    const q = T.buildProposal({ run: { process: r0.process, id: r0.id }, producer: { name: 'notes-bot', version: '1.0' }, key: 'k-pend1', seen: [], at: new Date().toISOString(), body: { op: 'add', text: 'Waiting for approval', target: { phase: 'review' }, placement: T.placementFor(PF.run.mapOf(r0), { phase: 'review' }) } });
+    await app.fs.write('proposals/' + q.id + '.json', T.text(q));
+    app.click('refresh'); await app.tick(400);
+    o.pendingId = q.id;
+  }
   if (o.end !== false) { app.click('end', 'Cancelled'); await app.tick(300); }
   const runPath = app.files('runs/release-notes/').find(p => /run\.json$/.test(p)), r = JSON.parse(app.fs.files[runPath].t);
   const files = {}; Object.keys(app.fs.files).forEach(p => { files[p] = app.fs.files[p].t; });
-  return { PF, files, key: r.process + '/' + r.id, run: r, runPath, request: o.request || null };
+  return { PF, files, key: r.process + '/' + r.id, run: r, runPath, request: o.request || null, pendingId: o.pendingId || '' };
 }
 async function pack(PF, fsx, key) {
   const parts = [];
@@ -356,6 +364,65 @@ rule('A dependency run with a time the app can\'t read is judged as run judges i
     const bad = checkPack(await repacked(W.PF, full.zip, (e, man, f) => { const x = f(W.kidPath), o = JSON.parse(e[x.pack]); damage(o); e[x.pack] = Buffer.from(JSON.stringify(o, null, 2)); }));
     assert.ok(!bad.ok && bad.out.indexOf(W.kidKey) >= 0 && /times/.test(bad.out), what + ': ' + bad.out);
   }
+});
+
+rule('A chain of 70 runs, each fulfilling the next one\'s spread, is walked to its end: every one packed and named; Python agrees', async () => {
+  const W = await made({ todos: 1 }), PF = W.PF, T = PF.todos, base = JSON.parse(W.files[W.runPath]), files = Object.assign({}, W.files), N = 70;
+  const ids = Array.from({ length: N }, (_, i) => 'dep-' + (i + 1));
+  const hex = (i) => crypto.createHash('sha256').update('s' + i).digest('hex').slice(0, 24);
+  const file = (from, to, i) => {
+    const r = PF.run.sanitize(JSON.parse(files[W.runPath]));
+    const body = { op: 'add', text: 'Covered ' + i, target: { phase: 'draft' }, placement: T.placementFor(PF.run.mapOf(r), { phase: 'draft' }), fulfills: { run: { process: base.process, id: to }, spread: 'sp-' + hex(i), uid: 'jira.issue:key:ABC-' + (i + 1), attempt: 1 } };
+    const q = T.buildProposal({ run: { process: base.process, id: from }, producer: { name: 'notes-bot', version: '1.0' }, key: 'k-ch' + i, seen: [], at: new Date().toISOString(), body });
+    assert.ok(T.cleanFile(JSON.parse(T.text(q)), q.id + '.json').ok, 'set-up: request ' + i + ' reads: ' + JSON.stringify(T.cleanFile(JSON.parse(T.text(q)), q.id + '.json')));
+    files['proposals/' + q.id + '.json'] = T.text(q);
+  };
+  ids.forEach((id, i) => { const o = Object.assign({}, base, { id }); delete o.living; delete o.ended; o.state = 'running'; if (Array.isArray(o.features)) o.features = o.features.filter(f => f !== 'living-runs'); files['runs/' + base.process + '/' + id + '/run.json'] = JSON.stringify(o, null, 2); });
+  file(base.id, ids[0], 0);
+  ids.slice(0, -1).forEach((id, i) => file(id, ids[i + 1], i + 1));
+  const { zip, res } = await pack(PF, new BytesFS(files), W.key);
+  assert.strictEqual(res.status, 'complete', JSON.stringify(res.col.unresolved).slice(0, 2000));
+  const man = manifestOf(zip), L = man.runs[0].living, keys = (L.deps || []).map(d => d.key);
+  ids.forEach((id) => { assert.ok(keys.indexOf(base.process + '/' + id) >= 0, id + ' is named'); assert.ok(man.files.some(f => f.path === 'runs/' + base.process + '/' + id + '/run.json'), id + ' is packed'); });
+  if (PY) { const c = checkPack(zip); assert.ok(c.ok, c.out); }
+});
+
+rule('A dependency run changed between the checked read and the bytes packed, at the same length, leaves the pack partial', async () => {
+  const W = await loopMade(), t = W.files[W.kidPath], i = t.indexOf('"title": "') + 10;
+  let n = 0;
+  const swap = (x) => { const b = x.files.get(W.kidPath).toString('utf8'); const c = b.charAt(i) === 'Q' ? 'R' : 'Q'; x.files.set(W.kidPath, Buffer.from(b.slice(0, i) + c + b.slice(i + 1))); };
+  const fsx = new BytesFS(W.files, { hooks: { blob: (p, x) => { if (p === W.kidPath && !n++) swap(x); } } });
+  const { res } = await pack(W.PF, fsx, W.key);
+  assert.ok(n >= 1, 'set-up: the bytes changed before the capture');
+  assert.strictEqual(res.status, 'partial', JSON.stringify(res.col.unresolved));
+  assert.ok(res.col.unresolved.some(u => u.indexOf(W.kidPath) >= 0 && /changed/.test(u)), JSON.stringify(res.col.unresolved));
+});
+
+rule('A pending request the receipt names as seen, deleted later, leaves the pack partial by its path; Python refuses a complete claim without it', async () => {
+  const W = await made({ todos: 1, pending: true }), PF = W.PF, id = W.pendingId;
+  assert.ok(W.run.ended && W.run.living.receipt, 'set-up: ended with a receipt');
+  const rec = JSON.parse(W.files['proposals/' + W.run.living.receipt + '.json']);
+  assert.ok(rec.seen.indexOf(id) >= 0, 'set-up: the receipt names the pending request: ' + JSON.stringify(rec.seen));
+  const full = await pack(PF, new BytesFS(W.files), W.key);
+  assert.strictEqual(full.res.status, 'complete', JSON.stringify(full.res.col.unresolved));
+  const files = Object.assign({}, W.files); delete files['proposals/' + id + '.json'];
+  const { res } = await pack(PF, new BytesFS(files), W.key);
+  assert.strictEqual(res.status, 'partial', JSON.stringify(res.col.unresolved));
+  assert.ok(res.col.unresolved.some(u => u.indexOf('proposals/' + id + '.json') >= 0), JSON.stringify(res.col.unresolved));
+  if (!PY) return;
+  const bad = checkPack(await repacked(PF, full.zip, (e, man, f) => { const x = f('proposals/' + id + '.json'); delete e[x.pack]; man.files = man.files.filter(y => y !== x); }));
+  assert.ok(!bad.ok && /receipt/.test(bad.out), bad.out);
+});
+
+rule('The shared collector follows a loop item\'s choice and a spread\'s binding to the runs they name: one that can\'t be read is named', async () => {
+  const W = await loopMade(), PF = W.PF, self = PF.run.sanitize(JSON.parse(JSON.stringify(W.run)));
+  const scope = { id: 'req-flightdeck-' + 'f'.repeat(24), _file: 'req-flightdeck-' + 'f'.repeat(24) + '.json', loop: { process: self.process, run: self.id, step: 'each' }, changes: [{ op: 'choose', run: 'chosen-1' }] };
+  const bind = { id: 'req-flightdeck-' + 'e'.repeat(24), _file: 'req-flightdeck-' + 'e'.repeat(24) + '.json', kind: 'proposal', run: { process: self.process, id: self.id }, op: 'spread-bind', dest: { process: 'validate-story', id: 'bound-1' } };
+  const D = PF.receipts.deps(self, { records: [bind], scopes: [scope], runs: Object.create(null), runBad: [{ key: 'validate-story/chosen-1', path: 'runs/validate-story/chosen-1/run.json', kind: 'missing', why: 'it isn\'t in the folder' }] });
+  const keys = D.runs.map(x => x.process + '/' + x.id);
+  assert.ok(keys.indexOf('validate-story/chosen-1') >= 0 && keys.indexOf('validate-story/bound-1') >= 0, JSON.stringify(D.runs));
+  assert.ok(D.missing.some(m => m.indexOf('runs/validate-story/chosen-1/run.json (missing)') === 0), JSON.stringify(D.missing));
+  assert.ok(D.toRead.some(x => x.id === 'bound-1'), 'the bound run is read next');
 });
 
 run();
