@@ -35985,12 +35985,13 @@ PF.examples = (function () {
   }
   /* Round 14 (HA): a run's version as read now: there, read whole, and verified. */
   function pubFits(run, pub) { return !!run && !!pub && !pub._readFailed && !!pub.ok; }
-  /* Round 14 (HA): the one approval snapshot, taken before every approval write (the candidate, the final write, a
+  /* Round 14 (HA, HB): the one approval snapshot, taken before every approval write (the candidate, the final write, a
      retry's, and each write of keeping a copy: its backup, the run, removing the copy). It reads, one after another, never
      side by side:
        1. the run and its version (readRunOnly), which must verify (pubFits);
-       2. each run of the phase's loops the holds were worked out from, with its version: each must read cleanly, be the
-          same copy, and run on a version that verifies;
+       2. the loops' runs, listed fresh (runs/<child process>/), each with its version: every run there must read cleanly,
+          and the loops' runs must be exactly those the holds were worked out from (none new, none gone, each the same
+          copy), each on a version that verifies; the folder is listed again once they're read, and must list the same runs;
        3. last, proposals/ listed fresh and read (readPlans): every scope record of those loops and every to-do record of
           those runs, new files and copies included, must be exactly those read before, none unread, refused or part-read.
      Then, with no read in between, it judges from that snapshot only: the window's guard (guardOk), and the holds of the
@@ -36011,23 +36012,52 @@ PF.examples = (function () {
     var known = [];
     steps.forEach(function (x) { (data.runs || []).forEach(function (c) { if (isKid(c, x)) known.push(c); }); });
     var loops = steps.map(function (x) { return { process: r.process, run: r.id, step: x.id }; });
+    var procs = [];
+    steps.forEach(function (x) {
+      var kp = ''; try { kp = String(PF.run.fieldsOf(r, x).process || ''); } catch (e) { bad = true; }
+      if (kp && procs.indexOf(kp) < 0) procs.push(kp);
+    });
+    if (bad) return Promise.resolve(false);
+    if (known.some(function (c) { return procs.indexOf(c.process) < 0; })) return Promise.resolve(false);
     var clean = function (one) { return !!one && one.found && !one.nofile && !!one.run && !(one.bad && one.bad.length) && !one.run._unrunnable; };
-    var snap = { parent: null, kids: [] };
+    var snap = { parent: null, kids: [] }, listed = Object.create(null);
     var no = function () { return false; };
+    var dirsOf = function (items) { return (items || []).filter(function (i) { return i.kind === 'dir'; }).map(function (i) { return i.name; }).sort(); };
     /* 1. The run and its version. */
     return PF.repo.readRunOnly(src, r.process, r.id).then(function (one) {
       if (!clean(one) || !pubFits(r, one.pub) || !pubFits(one.run, one.pub)) return false;
       snap.parent = one.run;
-      /* 2. Each of the loops' runs the holds were worked out from, with its version, one after another. */
+      /* 2. The loops' runs, listed fresh, one process after another. */
       var chain = Promise.resolve(true);
-      known.forEach(function (c) {
+      procs.forEach(function (kp) {
         chain = chain.then(function (ok) {
           if (!ok) return false;
-          return PF.repo.readRunOnly(src, c.process, c.id).then(function (k) {
-            if (!clean(k) || !pubFits(k.run, k.pub)) return false;
-            snap.kids.push(k.run);
-            return true;
+          return src.list('runs/' + kp).then(function (items) {
+            var dirs = dirsOf(items);
+            listed[kp] = dirs;
+            var reads = Promise.resolve(true);
+            dirs.forEach(function (id) {
+              reads = reads.then(function (fine) {
+                if (!fine) return false;
+                return PF.repo.readRunOnly(src, kp, id).then(function (k) {
+                  /* A run there that can't be read whole may be one of the loop's: it holds the approval. */
+                  if (!clean(k)) return false;
+                  if (!steps.some(function (x) { return isKid(k.run, x); })) return true;
+                  if (!pubFits(k.run, k.pub)) return false;
+                  snap.kids.push(k.run);
+                  return true;
+                }, no);
+              });
+            });
+            return reads;
           }, no);
+        });
+      });
+      /* Listed again once they're read: a run that arrived (or went) while they were read changes the set. */
+      procs.forEach(function (kp) {
+        chain = chain.then(function (ok) {
+          if (!ok) return false;
+          return src.list('runs/' + kp).then(function (items) { return JSON.stringify(dirsOf(items)) === JSON.stringify(listed[kp]); }, no);
         });
       });
       return chain;
