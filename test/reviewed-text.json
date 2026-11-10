@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "f6dfacff614f9dc4e42c0f267d83d18d7390c977abe0db868ddecbaa8c0a16bd",
-      "reviewed": "YD: runs collects missing dependencies"
+      "sha256": "4a5ba9450a226a54e4924654cda6f9a024891a32e38403b541b118d59a8146ca",
+      "reviewed": "YF: one proposals read"
     },
     "build.py": {
       "sha256": "1dce012e7269422f84c2c2aeb7b327b242a28e4990a5c5c95a22dc98228122dc",

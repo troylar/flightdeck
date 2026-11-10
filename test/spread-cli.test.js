@@ -421,4 +421,15 @@ rule('YA: loop sync on a living run names the parent head; an item it brings in 
   const l = json('spread', 'list', root, PR, '--json');
   assert.deepStrictEqual([l.code, l.data.spreads[0].state, l.data.spreads[0].items.filter(i => i.owed).map(i => i.key)], [0, 'stopped', ['ABC-102', 'ABC-103']], 'ABC-105 arrived after the stop');
 });
+/* Review round 7 (YF): run reads proposals/ once, checked, for the loop and the to-dos alike: one read per file. */
+rule('YF: run --contract 2 on a run with spreads reads each proposal file once', async () => {
+  const F = await spread(), FD = require(BIN), eng = FD.loadEngine(), counts = {};
+  const base = FD.readAdapter(F.root, { maxBytes: 16 * 1048576 }), ad = Object.create(base);
+  ad.read = (p, o) => { if (/^proposals\/[^/]+$/.test(p)) counts[p] = (counts[p] || 0) + 1; return base.read(p, o); };
+  const r = await FD.readData(eng, ad, { cmd: 'run', key: PR, contract: '2' });
+  assert.strictEqual(r.code, 0, JSON.stringify(r.json).slice(0, 300));
+  const many = Object.keys(counts).filter(k => counts[k] !== 1).map(k => k + ' x' + counts[k]);
+  assert.ok(Object.keys(counts).length > 0, 'set-up: proposals were read');
+  assert.deepStrictEqual(many, []);
+});
 run();

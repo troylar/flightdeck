@@ -912,7 +912,9 @@ async function readDeps(PF, L, r, o) {
   const self = (x) => !!x && x.process === r.process && x.id === r.id;
   const bad = [];
   let got = null;
-  try { got = await repo.readPlans(L.fs, bad, null, true); } catch (e) { put({ path: 'proposals', kind: 'unreadable', why: fileWhy(e && e.message || String(e)) }); }
+  /* o.plans: the caller's checked read of proposals/ ({ got, bad } or { why, bad }), taken as is rather than read again. */
+  if (o.plans) { (o.plans.bad || []).forEach((b) => bad.push(b)); if (o.plans.got) got = o.plans.got; else put({ path: 'proposals', kind: 'unreadable', why: o.plans.why || fileWhy('') }); }
+  else { try { got = await repo.readPlans(L.fs, bad, null, true); } catch (e) { put({ path: 'proposals', kind: 'unreadable', why: fileWhy(e && e.message || String(e)) }); } }
   const parents = {};
   ((got && got.todos) || []).forEach((x) => { if (x && self(x.run) && x.fulfills && x.fulfills.run) parents[key(x.fulfills.run)] = true; });
   /* Each parent a request of this run fulfils: its run file, and every record its applied work names (living.head, its chain),
@@ -1017,7 +1019,8 @@ async function readData(eng, adapter, req) {
       const usable = !!r && !newerRun(PF, r);
       /* proposals/ is read once, checked, for the loop and the to-dos alike: { got } or { why } when it can't be read. */
       let plansRead = null;
-      const plansOnce = () => plansRead || (plansRead = repo.readPlans(L.fs, null, null, true).then((got) => ({ got }), (e) => ({ why: fileWhy(e && e.message || String(e)) })));
+      /* YF: the one checked read, with what it couldn't read (bad), handed to readDeps so proposals/ is read once. */
+      const plansOnce = () => plansRead || (plansRead = (() => { const bad = []; return repo.readPlans(L.fs, bad, null, true).then((got) => ({ got, bad }), (e) => ({ why: fileWhy(e && e.message || String(e)), bad })); })());
       /* Loops (3.0): an approval the folder no longer matches holds its gate here as in every window (PF.loop.markStale). */
       /* Spreads (4.0) read a loop's items and their runs as well, so a run with a {for.each} step reads them for both. */
       let loopIn = null;
@@ -1028,7 +1031,7 @@ async function readData(eng, adapter, req) {
         const pre = await plansOnce(), pg = pre.got || null;
         const fulfils = !!pg && (pg.todos || []).some((x) => x && x.run && x.run.process === m[1] && x.run.id === m[2] && x.fulfills);
         const ownUnread = !!pg && (pg.todosUnread || []).some((u) => u.run && u.run.process === m[1] && u.run.id === m[2]);
-        if (!pg || r.living || fulfils || ownUnread || PF.todos.recordsFor(pg.todos || [], r).length) dep = await readDeps(PF, L, r, { people: one.people });
+        if (!pg || r.living || fulfils || ownUnread || PF.todos.recordsFor(pg.todos || [], r).length) dep = await readDeps(PF, L, r, { people: one.people, plans: pre });
       }
       const looped = usable && two && Object.keys(r.steps || {}).some((id) => r.steps[id] && r.steps[id].loop);
       if (dep && dep.coverage && dep.got) loopIn = { runs: dep.runs, loops: dep.inputs(L.problems()).loops };
