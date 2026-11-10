@@ -13,20 +13,20 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "51ae3180df5b5c5952e14b37b01dabc3f6730d64c505ac9333bb678977df1d5b",
-      "reviewed": "OD: keep commands name source diagnostics and judge the source again before writing; checked for direct writes and unconditional deletes"
+      "sha256": "f7ce239ce8a06fa5410f92bc4863e1039d6d0342c17dc4f64446ec15336af667",
+      "reviewed": "QC: spread keep's final check rereads and judges the items' checklist and rebuilds from it; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "e641a0f9f4655b4634b9d2661fe4e4b97222f23ece79f5917e6c99f174218087",
       "reviewed": "4.0 slice 5 commit 6, checklist-linked to-dos: PF.detours (pins, the evidence plan, evidence, provenance), the checklist and evidence fields in to-do records, repo.readEvidence, the app's Run this checklist, Accept and the way back, the living-run skill and command guide sections, the 4.0.0 release entry; checked for direct writes and unconditional deletes: the plan is written create-once through repo.savePlan under the run guard, a done on a run through saveScope with a fresh read before the write, nothing deleted"
     },
     "docs/apps.md": {
-      "sha256": "faf70c2778294c3e3f13982dc9f122428210344e255ba307366feb258d6a7fe2",
-      "reviewed": "OD: keep commands name source diagnostics and judge the source again before writing; checked for direct writes and unconditional deletes"
+      "sha256": "797ae5ccd4777d3489a1600534e479c5433a5a99fce66b085685ba08d4a4a41d",
+      "reviewed": "QC: spread keep's final check rereads and judges the items' checklist and rebuilds from it; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "06cec96aa504ba08234ecde9f7c82541d57f3e054a272348eb1e1e0feb88dc49",
-      "reviewed": "QD: identical keep copies are one keep before retry, grouping and counting; checked for direct writes and unconditional deletes"
+      "sha256": "3feb40125646e33c50bd183c2d612a4548a76ee1b8f72bb9951708d97344f263",
+      "reviewed": "QC: spread keep's final check rereads and judges the items' checklist and rebuilds from it; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",

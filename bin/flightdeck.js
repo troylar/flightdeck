@@ -3203,10 +3203,17 @@ async function keepMain(argv, noun) {
        refused, never written from the earlier copy. */
     const ra2 = readAdapter(dir, { maxBytes: READ_MAX }), LG2 = repo.ledger(repo.readOnly(ra2, 'Reading what to keep')), now1 = await repo.readRunOnly(LG2.fs, proc, runId);
     const late = now1.found ? sourceProblems(now1) : [{ path: runFile, kind: 'nofile', why: 'The run this keeps from isn\'t in the team folder now.' }];
+    /* The checklist the items run is read and judged again too, and the keep is made again from that read, never the first. */
+    const d2 = kid ? await repo.loadAll(dependsOn(LG2.fs, ['publications/' + kid]), { readOnly: true, explain: true, deep: true }) : { processes: [] };
+    if (kid) {
+      const e = (d2.processes || []).filter((x) => x.process === kid)[0];
+      if (!e || !(e.pubs || []).length) late.push({ path: 'publications/' + kid, kind: 'nofile', why: 'The checklist ' + kid + ' that the loop\'s items run isn\'t published in this folder now.' });
+      else e.pubs.filter((x) => x && !x.ok).forEach((x) => late.push({ path: 'publications/' + kid + '/' + x.folder + '/', kind: 'malformed', why: x.folder + ' can\'t be used: ' + String(x.why || 'it doesn\'t pass its check') }));
+    }
     LG2.problems().concat(adapterProblems(ra2)).filter((x) => relevant(x.path)).forEach((q) => { if (!late.some((x) => x.path === q.path && x.kind === q.kind)) late.push(q); });
-    if (late.length) { late.forEach((q) => { if (!extra.some((x) => x.path === q.path && x.kind === q.kind)) extra.push(q); }); return held('The run this keeps from, or its version, changed or can\'t be read now.'); }
+    if (late.length) { late.forEach((q) => { if (!extra.some((x) => x.path === q.path && x.kind === q.kind)) extra.push(q); }); return held('The run this keeps from, its version or the checklist its items run changed or can\'t be read now.'); }
     const K2 = L.prepare(now1.run, { source: noun === 'todo' ? { todo: val['--todo'] } : { spread: val['--spread'] }, text: val['--text'], reason: val['--reason'], place, by: { tool: tm[1], version: tm[2] },
-      records, unread, people, procOf: procOfFrom(d), at: K.record.at, app: eng.version, now: NOW });
+      records, unread, people, procOf: procOfFrom(d2), at: K.record.at, app: eng.version, now: NOW });
     if (K2.why || K2.status !== K.status || K2.id !== K.id || T.text(K2.file) !== T.text(K.file)) return failOut('failed', 'The run this keeps from changed while it was being read, so this keep isn\'t the one checked.' + nothing + ' Run it again.', problems());
     let res;
     try { res = writeOnce(dir, ['proposals'], K.name, T.text(K.file)); } catch (e) { return failOut('failed', 'Could not confirm whether the keep was saved. Try again: the same keep is never filed twice. (' + (e && e.message || String(e)) + ')', problems()); }

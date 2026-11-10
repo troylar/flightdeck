@@ -220,4 +220,22 @@ rule('A keep names every problem of its source run with exit 4, and judges the s
   }
 });
 
+/* QC: a spread keep's final check reads the checklist its items run again: broken after the first check (when the source run
+   is read the second time, at the final check), nothing is written, with the path named and exit 4. */
+rule('A spread keep reads the items\' checklist again at its final check: one made unreadable or deleted meanwhile writes nothing', async () => {
+  for (const how of ['eacces', 'gone']) {
+    const F = await folder(), pubDir = path.join(F.root, 'publications', 'validate-story', F.child.info.folder), pf = path.join(pubDir, 'publication.json');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-keep-hook-')), hook = path.join(dir, 'hook.js');
+    fs.writeFileSync(hook, "const fs = require('fs'); let n = 0, done = false; const hit = (p) => { if (done || String(p).indexOf('/runs/release-readiness/r-41/run.json') < 0) return; if (++n < 2) return; done = true; if (process.env.KEEP_HOW === 'eacces') fs.chmodSync(process.env.KEEP_PUB, 0); else fs.rmSync(process.env.KEEP_DIR, { recursive: true }); };" +
+      " for (const k of ['openSync', 'readFileSync']) { const o = fs[k]; fs[k] = function (p) { hit(p); return o.apply(this, arguments); }; } const pr = fs.promises; for (const k of ['open', 'readFile']) { const o = pr[k]; pr[k] = function (p) { hit(p); return o.apply(this, arguments); }; }");
+    const before = ls(F.root).length;
+    let code = 0, text = '';
+    try { text = execFileSync(process.execPath, ['-r', hook, BIN, 'spread', 'keep', F.root, PR, '--spread', F.spread, '--json', ...TOOL], { encoding: 'utf8', stdio: 'pipe', env: Object.assign({}, process.env, { KEEP_HOW: how, KEEP_PUB: pf, KEEP_DIR: pubDir }) }); } catch (e) { code = e.status; text = String(e.stdout); }
+    if (how === 'eacces' && fs.existsSync(pf)) fs.chmodSync(pf, 0o644);
+    const x = JSON.parse(text);
+    assert.deepStrictEqual([how, code, x.complete, ls(F.root).length], [how, 4, false, before], how + ': judged again at the final check: ' + JSON.stringify([x.data && x.data.status, x.problems]));
+    assert.ok((x.problems || []).some(q => q.path.indexOf('publications/validate-story') === 0), how + ': named: ' + JSON.stringify(x.problems));
+  }
+});
+
 run();
