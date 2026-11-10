@@ -2181,7 +2181,11 @@ PF.run = (function () {
   var STEP_STATES = Object.assign(Object.create(null), { done: 1, na: 1, blocked: 1, recheck: 1, open: 1 }), GATE_STATES = Object.assign(Object.create(null), { passed: 1, waived: 1, failed: 1, review: 1 });
   var RUN_STATES = { running: 1, completed: 1, stopped: 1, cancelled: 1 }, OUTCOMES = { Completed: 1, 'Stopped early': 1, Cancelled: 1 };
   function str(v, max) { return typeof v === 'string' ? v.slice(0, max || 200) : ''; }
-  function isoOrNull(v) { return typeof v === 'string' && !isNaN(new Date(v)) ? v : null; }
+  /* A time in a run: exactly the form Flightdeck writes (toISOString: YYYY-MM-DDTHH:mm:ss.sssZ, a six-digit signed year
+     outside 0000-9999), a real calendar time within the date range. Every copy since 1.10 writes only this; anything else
+     (a bare number, a date alone, an offset, no milliseconds) is no time, as the pack reader reads it too (4.0, NB). */
+  var ISO_TIME = /^(\d{4}|[+-]\d{6})-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+  function isoOrNull(v) { if (typeof v !== 'string' || !ISO_TIME.test(v)) return null; var d = new Date(v); return !isNaN(d) && d.toISOString() === v ? v : null; }
   /* A child's input snapshot keeps every run-detail name a map can declare, so nothing it was started for is lost on reload. */
   function inputsOf(o) { var c = {}; if (o && typeof o === 'object') Object.keys(o).slice(0, 60).forEach(function (k) { if (/^[\w-]{1,120}$/.test(k)) c[k] = str(o[k], 300); }); return c; }
   function values(o) { var c = {}; if (o && typeof o === 'object') Object.keys(o).slice(0, 120).forEach(function (k) { if (/^[\w-]{1,40}$/.test(k)) c[k] = str(o[k], 300); }); return c; }

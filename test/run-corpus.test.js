@@ -54,6 +54,12 @@ rule('the corpus mutates every place of a dependency run in all three roles, and
   });
 });
 
+rule('a time in any form but the one the app writes (toISOString, within the date range) is malformed in every role, wherever it is', async () => {
+  const { cases } = await corpus(), off = cases.filter((c) => /\(not the written form\)$/.test(c.name) && !c.js);
+  assert.ok(cases.filter((c) => /\(not the written form\)$/.test(c.name)).length > 100, 'the corpus tries them');
+  assert.strictEqual(off.length, 0, off.length + ' accepted:\n  ' + off.slice(0, 30).map((c) => c.role + ' · ' + c.name).join('\n  '));
+});
+
 rule('the pack reader gives every case in the corpus the verdict the app gives it: accepted, or refused at the same first path', async () => {
   if (!PY) { console.log('    (skipped: no Python)'); return; }
   const { cases, worlds } = await corpus(), py = pyVerdicts(worlds, cases), off = [];

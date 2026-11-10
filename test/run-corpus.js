@@ -66,7 +66,10 @@ function mutationsOf(v, at) {
   if (at.length) out.push(['deleted', DELETE]);
   if (typeof v === 'string') {
     out.push(['a number', 42], ['unknown value', 'banana'], ['oversized', v + 'x'.repeat(10001)], ['empty', '']);
-    if (ISO.test(v)) out.push(['not a time', 'bad'], ['an invalid calendar date', '2026-02-30T10:00:00.000Z'], ['an invalid month', '2026-13-01T10:00:00.000Z']);
+    if (ISO.test(v)) out.push(['not a time', 'bad'], ['an invalid calendar date', '2026-02-30T10:00:00.000Z'], ['an invalid month', '2026-13-01T10:00:00.000Z'],
+      /* Times the engine reads but the app never wrote (NB): one form only, toISOString's, within the date range. */
+      ['a bare number (not the written form)', '7'], ['a ticket key (not the written form)', 'ABC-101'], ['no milliseconds (not the written form)', v.replace(/\.\d{3}Z$/, 'Z')],
+      ['an offset (not the written form)', v.replace(/Z$/, '+00:00')], ['a date only (not the written form)', v.slice(0, 10)], ['past the date range (not the written form)', '+275760-09-13T00:00:00.001Z']);
   } else if (typeof v === 'number') {
     out.push(['text', String(v)], ['negative', -1], ['a fraction', v + 0.5], ['huge', 1e15]);
   } else if (typeof v === 'boolean') {

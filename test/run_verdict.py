@@ -7,7 +7,7 @@ version it ran. test/run-corpus.test.js holds it to the app on a generated corpu
 Not mirrored, and accepted as written when present (none is in a run the corpus or a fixture makes): a skill registration on
 a step (cleanSkill), a loop approval (PF.loop.cleanSnapshot), a to-do count on a step or gate (PF.todos.cleanCut), the Jira
 search fields (searchSites, searchGen, searchRec) and a migration list. The app's own date reading (V8's Date) accepts
-legacy forms ("7", "ABC-101") as times; here a time is the ISO form V8 reads, so such a value is refused."""
+"""
 import json
 import math
 import os
@@ -146,29 +146,33 @@ def count(v):
     return max(0, n) if n else 0
 
 
-ISO_DATE = re.compile(r"^([+-]\d{6}|\d{4})(?:-(\d{2})(?:-(\d{2}))?)?(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?(Z|[+-]\d{2}:\d{2})?)?\Z", re.A)
+ISO_TIME = re.compile(r"^(\d{4}|[+-]\d{6})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d{3})Z\Z", re.A)
+TIME_CLIP = 8.64e15
 
 
 def iso(v):
-    """isoOrNull: a string new Date() reads, in the ISO forms V8 reads (see the module's note on its legacy forms)."""
+    """isoOrNull: exactly the form Flightdeck writes (toISOString), a real calendar time within ECMAScript's date range."""
     if not isinstance(v, str):
         return None
-    m = ISO_DATE.match(v)
+    m = ISO_TIME.match(v)
     if not m:
         return None
-    mo, d, h, mi, se = (int(x) if x else None for x in m.group(2, 3, 4, 5, 6))
-    if m.group(1) in ("-000000",):
+    y = int(m.group(1))
+    mo, d, h, mi, se, ms = (int(x) for x in m.group(2, 3, 4, 5, 6, 7))
+    if (0 <= y <= 9999) != (len(m.group(1)) == 4) or m.group(1) == "-000000":
         return None
-    if mo is not None and not 1 <= mo <= 12:
+    leap = (y % 4 == 0 and y % 100 != 0) or y % 400 == 0
+    days = [31, 29 if leap else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    if not 1 <= mo <= 12 or not 1 <= d <= days[mo - 1] or h > 23 or mi > 59 or se > 59:
         return None
-    if d is not None and not 1 <= d <= 31:
-        return None
-    if h is not None and (h > 24 or mi > 59 or (se or 0) > 59 or (h == 24 and (mi or se or int(m.group(7) or "0")))):
-        return None
-    tz = m.group(8)
-    if tz and tz != "Z" and (int(tz[1:3]) > 23 or int(tz[4:6]) > 59):
-        return None
-    return v
+    # Days from 1970-01-01 in the proleptic Gregorian calendar.
+    yy = y - (1 if mo <= 2 else 0)
+    era = yy // 400
+    yoe = yy - era * 400
+    doy = (153 * (mo + (-3 if mo > 2 else 9)) + 2) // 5 + d - 1
+    doe = yoe * 365 + yoe // 4 - yoe // 100 + doy
+    t = (era * 146097 + doe - 719468) * 86400000 + ((h * 60 + mi) * 60 + se) * 1000 + ms
+    return v if abs(t) <= TIME_CLIP else None
 
 
 def text_len(v, unit):
