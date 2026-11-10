@@ -17530,6 +17530,9 @@ PF.loop = (function () {
      ['scope', tool, key], so a scope request and a plan request with the same key never share a name. */
   function idFor(tool, key) { return 'req-' + tool + '-' + PF.sha256.hex(JSON.stringify(['scope', tool, key])).slice(0, 24); }
   function isScope(o) { return isMap(o) && typeof o.format === 'string' && (o.format === FORMAT || o.format === STATUS); }
+  /* A scope record of any version: this copy's format, or a later plan or plan-status format naming the loops feature, so a
+     newer one is refused by the scope reader (and holds its loop), never read as a plan. */
+  function claims(o) { if (isScope(o)) return true; var m = isMap(o) && typeof o.format === 'string' ? /^flightdeck-plan(-status)?\/([0-9]{1,6})$/.exec(o.format) : null; return !!m && +m[2] > 3 && Array.isArray(o.features) && o.features.indexOf('loops') >= 0; }
   function line(v, max, what, errors, opt) {
     if (v == null && opt) return '';
     if (typeof v !== 'string' || (!opt && !v.trim())) { errors.push(what + ' is text.'); return null; }
@@ -17790,12 +17793,12 @@ PF.loop = (function () {
     return v.ok ? '' : 'It wouldn\'t read back: it ' + v.why + '.';
   }
   /* A file of either kind, as the folder reader dispatches it before the plan reader. */
-  function cleanFile(o, name) { return o.format === STATUS ? cleanDecision(o, name) : cleanRequest(o, name); }
+  function cleanFile(o, name) { return /^flightdeck-plan-status\//.test(String(o.format)) ? cleanDecision(o, name) : cleanRequest(o, name); }
   /* The records about one loop instance. */
   function recordsFor(records, loop) { return (records || []).filter(function (r) { return r.loop && r.loop.process === loop.process && r.loop.run === loop.run && r.loop.step === loop.step; }); }
 
   return { askerWhy: askerWhy, seenFor: seenFor, page: page, settleIn: settleIn, pageWords: pageWords, fileWhy: fileWhy, KINDS: KINDS, kindOf: kindOf, nounOf: nounOf, count: count, feedWhy: feedWhy, httpLink: httpLink, cleanItem: cleanItem, cleanChanges: cleanChanges, FEED: FEED, NOUN: NOUN, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
-    idFor: idFor, isScope: isScope, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
+    idFor: idFor, isScope: isScope, claims: claims, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
     rollup: rollup, view: view, markStale: markStale, rowId: rowId, choiceWhy: choiceWhy, resolveWhy: resolveWhy, resolvedBy: resolvedBy, planWhy: planWhy, sendBackWhy: sendBackWhy, again: again, appliedIn: appliedIn, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();
 
@@ -24189,8 +24192,8 @@ PF.repo = (function () {
           tv.record._file = p._file; todos.push(tv.record); return;
         }
         /* A scope request or decision (3.0, PF.loop) goes to its own reader first and never reaches the plan reader. */
-        if (PF.loop.isScope(p)) {
-          var sv = PF.loop.cleanFile(asWritten(p), p._file), sp = 'proposals/' + p._file, sf = p.format === PF.loop.STATUS ? 'flightdeck-plan-status' : 'flightdeck-plan';
+        if (PF.loop.claims(p)) {
+          var sv = PF.loop.cleanFile(asWritten(p), p._file), sp = 'proposals/' + p._file, sf = /^flightdeck-plan-status\//.test(p.format) ? 'flightdeck-plan-status' : 'flightdeck-plan';
           if (!sv.ok) { if (bad) bad.push({ path: sp, kind: sv.kind, why: sv.why }); refused.push(PF.envelope.refusal(sp, sf, sv)); scopesUnread.push({ file: p._file, why: sv.why, loop: PF.loop.loopOf(p) }); return; }
           sv.record._file = p._file; scopes.push(sv.record); return;
         }

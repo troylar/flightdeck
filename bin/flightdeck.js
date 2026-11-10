@@ -938,8 +938,19 @@ async function readDeps(PF, L, r, o) {
     const inDeps = covers(prefixes);
     folderProblems(PF, d).filter((x) => x.path && inDeps(String(x.path).replace(/\/$/, ''))).forEach(put);
     runs.forEach((c) => { if (newerRun(PF, c)) put({ path: 'runs/' + key(c) + '/run.json', kind: 'newer', why: 'This run was made with a newer Flightdeck: ' + c._unrunnable }); });
+    /* Each item's run's own version, expected whether or not its folder is there: one that's missing, damaged or newer makes
+       the run unreadable here, as reading it alone does. */
+    runs.forEach((c) => {
+      if (PF.run.isTest(c) || typeof c.folder !== 'string') return;
+      const e = (d.processes || []).filter((p) => p.process === c.process)[0], pub = e ? (e.pubs || []).filter((p) => p.folder === c.folder)[0] : null;
+      const pth = 'publications/' + c.process + '/' + c.folder + '/';
+      if (!pub) { put({ path: pth, kind: 'nofile', why: 'Run ' + key(c) + ' runs on this version, and it isn\'t in the folder.' }); if (!c._unrunnable) c._unrunnable = 'Its version ' + c.folder + ' isn\'t in the team folder.'; return; }
+      if (!pub.ok && !c._unrunnable) c._unrunnable = 'Its version ' + c.folder + ' can\'t be read here.';
+    });
   }
-  return { got, runs, procOf: d ? procOfFrom(d) : () => null, problems: probs, coverage, bad,
+  /* Every item run that couldn't be read, by its path, for coverage (PF.spreads.coverage: loops.runsUnread). */
+  const runsUnread = probs.filter((x) => /^runs\//.test(String(x.path))).map((x) => String(x.path));
+  return { got, runs, procOf: d ? procOfFrom(d) : () => null, problems: probs, coverage, bad, runsUnread, add: put,
     covers: (pth) => !!named[pth] || prefixes.some((k) => pth === k || String(pth).indexOf(k + '/') === 0) };
 }
 /* Puts a reader's dependency problems in its ledger, once each (a read the ledger saw fail is there already). */
@@ -1008,7 +1019,7 @@ async function readData(eng, adapter, req) {
         if (!pg || r.living || fulfils || ownUnread || PF.todos.recordsFor(pg.todos || [], r).length) dep = await readDeps(PF, L, r, { people: one.people });
       }
       const looped = usable && two && Object.keys(r.steps || {}).some((id) => r.steps[id] && r.steps[id].loop);
-      if (dep && dep.coverage && dep.got) loopIn = { runs: dep.runs, loops: { records: dep.got.scopes || [], unread: dep.got.scopesUnread || [], procOf: dep.procOf } };
+      if (dep && dep.coverage && dep.got) loopIn = { runs: dep.runs, loops: { records: dep.got.scopes || [], unread: dep.got.scopesUnread || [], procOf: dep.procOf, runsUnread: dep.runsUnread } };
       else if (usable && two && (looped || (r.living && PF.run.mapOf(r).phases.some((p) => p.steps.some((x) => x.type === 'for.each'))))) {
         const mp = PF.run.mapOf(r), kids = [];
         mp.phases.forEach((p) => p.steps.forEach((x) => { if (x.type !== 'for.each') return; const pr = String(PF.run.fieldsOf(r, x).process || ''); if (pr && kids.indexOf('runs/' + pr) < 0) kids.push('runs/' + pr, 'publications/' + pr); }));
@@ -1026,6 +1037,7 @@ async function readData(eng, adapter, req) {
       if (usable && two) {
         const gp = dep ? dep.got : (await plansOnce()).got || null;
         if (gp) markTodos(PF, [r], gp, one.people, !!(one.peopleWhy || pw), loopIn);
+        if (dep && r._todos) (r._todos.missing || []).forEach(dep.add);
         if (dep) { noteDeps(L, dep); const was = relevant; relevant = (p) => was(p) || dep.covers(p); }
       }
       /* run and next read only what they depend on (readRunOnly), so every problem met counts. */
@@ -2860,7 +2872,8 @@ async function spreadMain(argv) {
   const PF = eng.PF, A = PF.appjson, T = PF.todos, S = PF.spreads, LP = PF.loop, R = PF.run, repo = PF.repo, proc = m[1], runId = m[2];
   const ra = readAdapter(dir, { maxBytes: READ_MAX }), L = repo.ledger(repo.readOnly(ra, 'Reading spreads'));
   let kidProcs = [];
-  const relevant = (p) => p === '' || p === 'people.json' || /^proposals(\/|$)/.test(p) || p.indexOf('runs/' + proc + '/' + runId) === 0 || p === 'runs' || p === 'runs/' + proc || kidProcs.some((k) => p.indexOf('runs/' + k) === 0 || p.indexOf('publications/' + k) === 0);
+  let ownPub = '';
+  const relevant = (p) => p === '' || p === 'people.json' || /^proposals(\/|$)/.test(p) || p.indexOf('runs/' + proc + '/' + runId) === 0 || p === 'runs' || p === 'runs/' + proc || (!!ownPub && (p === 'publications' || p === 'publications/' + proc || String(p).indexOf(ownPub) === 0)) || kidProcs.some((k) => p.indexOf('runs/' + k) === 0 || p.indexOf('publications/' + k) === 0);
   const more = [];
   const problems = () => { const all = L.problems(), seen = {}; all.forEach((x) => { seen[x.path + '\u0000' + x.kind] = true; }); adapterProblems(ra).forEach((x) => { if (!seen[x.path + '\u0000' + x.kind]) all.push(x); }); return all.filter((x) => relevant(x.path)).concat(more); };
   const done = (data, code) => { const e = A.envelope(eng.version, new Date().toISOString(), problems(), data, C2); return out(e, code != null ? code : e.complete ? 0 : EXIT.partial); };
@@ -2875,6 +2888,10 @@ async function spreadMain(argv) {
     if (one.peopleWhy) L.note('people.json', one.peopleKind || 'unreadable', fileWhy(one.peopleWhy));
     const pw = peopleWhy(one.people);
     if (pw) L.note('people.json', 'malformed', pw);
+    /* The run's own version, judged as run and next judge it: missing, damaged, newer or unreadable is this command's problem. */
+    if (typeof r.folder === 'string') ownPub = (r.test === true ? 'staged/' : 'publications/') + r.process + '/' + r.folder;
+    (one.bad || []).forEach((b) => L.note(b.path, b.kind || 'unreadable', fileWhy(b.why)));
+    judgeRun(PF, r, one.pub).forEach((x) => { if (!more.some((y) => y.path === x.path)) more.push(x); });
     /* Everything the spreads depend on, read once through the one shared reader (readDeps), every failure named. */
     map.phases.forEach((p) => p.steps.forEach((s) => { if (s.type === 'for.each') { const c = String(R.fieldsOf(r, s).process || ''); if (c && kidProcs.indexOf(c) < 0) kidProcs.push(c); } }));
     const dep = await readDeps(PF, L, r, { people: one.people, coverage: 'always', unknown: true });
@@ -2887,7 +2904,8 @@ async function spreadMain(argv) {
     const sunread = (got.scopesUnread || []).concat(bad.filter((b) => /^proposals\/req-/.test(String(b.path || ''))).map((b) => ({ file: String(b.path).slice(10), why: b.why, loop: null })));
     const records = got.todos || [], people = one.people, deps = { records, unread };
     const V = T.view(r, { records, unread, people, deps }), title = String(r.title || r.process);
-    const cov = S.coverage(r, V, { runs, records, unread, people, loops: { records: got.scopes || [], unread: sunread, procOf } });
+    const cov = S.coverage(r, V, { runs, records, unread, people, loops: { records: got.scopes || [], unread: sunread, procOf, runsUnread: dep.runsUnread } });
+    T.missingOf(V, cov).forEach((x) => { if (!more.some((y) => y.path === x.path) && !L.problems().some((y) => y.path === x.path)) more.push(x); });
     const shape = (C) => ({ id: C.id, complete: !!C.complete, text: C.text, loop: C.loopStep, beforeGate: C.child.beforeGate, state: C.state, row: C.row, summary: C.summary, preview: C.preview, counts: C.counts ? { owed: C.counts.owed, done: C.counts.resolved, unchanged: C.counts.exempt, arrivals: C.counts.arrivals } : null,
       items: C.items.map((i) => ({ uid: i.uid, key: i.key || null, attempt: i.attempt, state: i.state, words: i.words, why: i.why || null, owed: i.owed, resolved: i.resolved, arrival: !!i.arrival, run: i.run || null, request: i.request || null, requested: !!i.requested, todo: i.todo || null })),
       notices: C.notices, holds: C.unresolved, stop: C.stop ? { reason: C.stop.reason } : null });
@@ -2899,6 +2917,9 @@ async function spreadMain(argv) {
     /* Anything this depends on that couldn't be read holds the write (exit 4): reading it again could change the answer. */
     const held = (why) => done({ run: { process: proc, id: runId }, status: 'held', why, preview: why + ' Nothing was written. Check folder availability, then retry' + (sub === 'sync' ? '.' : ' with the same key.') }, EXIT.partial);
     const C = val['--spread'] ? cov.spreads.filter((x) => x.id === val['--spread'])[0] : null;
+    /* A spread that isn't there as read while a dependency failed may be there once it's read: held, never refused. */
+    const unsure = () => problems().length > 0 || !!V.broken || V.unread.length > 0 || V.held.length > 0;
+    if (sub !== 'add' && !C && unsure()) return held('Part of the team folder this depends on couldn\'t be read, so whether the spread is on this run isn\'t known.');
     if (sub === 'sync') {
       if (!C) return failOut('invalid', 'That spread isn\'t on ' + proc + '/' + runId + ' (flightdeck spread list shows them).' + nothing, problems());
       if (problems().length) return held('Part of the team folder this depends on couldn\'t be read.');
@@ -3056,10 +3077,12 @@ async function todoMain(argv) {
   const PF = eng.PF, A = PF.appjson, T = PF.todos, R = PF.run, repo = PF.repo, proc = m[1], runId = m[2];
   const ra = readAdapter(dir, { maxBytes: READ_MAX }), L = repo.ledger(repo.readOnly(ra, 'Reading to-dos'));
   const mineRun = (u) => !u || !u.run || (u.run.process === proc && u.run.id === runId);
-  const relevant = (p) => p === '' || p === 'people.json' || p === 'proposals' || p === 'proposals/' || p.indexOf('runs/' + proc + '/' + runId) === 0 || p === 'runs' || p === 'runs/' + proc;
+  /* ownPub: the run's own version; depCovers: what the shared reader read for its spreads' coverage, once known. */
+  let ownPub = '', depCovers = () => false;
+  const relevant = (p) => p === '' || p === 'people.json' || p === 'proposals' || p === 'proposals/' || p.indexOf('runs/' + proc + '/' + runId) === 0 || p === 'runs' || p === 'runs/' + proc || (!!ownPub && (p === 'publications' || p === 'publications/' + proc || String(p).indexOf(ownPub) === 0)) || depCovers(String(p));
   const extra = [];
   const problems = () => { const all = L.problems(), seen = {}; all.forEach((x) => { seen[x.path + '\u0000' + x.kind] = true; }); adapterProblems(ra).forEach((x) => { if (!seen[x.path + '\u0000' + x.kind]) all.push(x); }); return all.filter((x) => relevant(x.path)).concat(extra); };
-  const done = (data) => { const e = A.envelope(eng.version, new Date().toISOString(), problems(), data, C2); return out(e, e.complete ? 0 : EXIT.partial); };
+  const done = (data, code) => { const e = A.envelope(eng.version, new Date().toISOString(), problems(), data, C2); return out(e, code != null ? code : e.complete ? 0 : EXIT.partial); };
   const nothing = writes ? ' Nothing was written.' : '';
   try {
     const one = await repo.readRunOnly(L.fs, proc, runId);
@@ -3073,7 +3096,12 @@ async function todoMain(argv) {
     if (pw) L.note('people.json', 'malformed', pw);
     /* What its to-dos depend on, through the one shared reader (readDeps): its own records, any that can't say whose they
        are, and the parents' records its requests fulfil; each that can't be read is this command's problem. */
-    const dep = await readDeps(PF, L, r, { people: one.people, coverage: false, unknown: true });
+    /* The run's own version, judged as run and next judge it, and (for a run with spreads) everything their coverage reads. */
+    if (typeof r.folder === 'string') ownPub = (r.test === true ? 'staged/' : 'publications/') + r.process + '/' + r.folder;
+    (one.bad || []).forEach((b) => { if (!extra.some((y) => y.path === b.path)) extra.push({ path: b.path, kind: b.kind || 'unreadable', why: fileWhy(b.why) }); });
+    judgeRun(PF, r, one.pub).forEach((x) => { if (!extra.some((y) => y.path === x.path)) extra.push(x); });
+    const dep = await readDeps(PF, L, r, { people: one.people, unknown: true });
+    if (dep.coverage) depCovers = dep.covers;
     if (!dep.got) return failOut('failed', 'The proposals/ folder couldn\'t be read, so the run\'s to-dos can\'t be.' + nothing, problems().concat(dep.problems));
     const got = dep.got;
     dep.problems.forEach((x) => { if (!extra.some((y) => y.path === x.path) && !L.problems().some((y) => y.path === x.path && relevant(y.path))) extra.push(x); });
@@ -3081,6 +3109,10 @@ async function todoMain(argv) {
     if (one.peopleWhy || pw) unread.push({ file: 'people.json', why: 'people.json couldn\'t be read, so no one\'s authority over to-dos can be checked.', run: null });
     const records = T.recordsFor(got.todos || [], r), people = one.people;
     const V = T.view(r, { records, unread, people, deps: { records: got.todos || [], unread: got.todosUnread || [] } }), nameOf = A.names(people), title = String(r.title || r.process);
+    const sunread = (got.scopesUnread || []).concat((dep.bad || []).filter((b) => /^proposals\/req-/.test(String(b.path || ''))).map((b) => ({ file: String(b.path).slice(10), why: b.why, loop: null })));
+    const cov = dep.coverage ? PF.spreads.coverage(r, V, { runs: [r].concat(dep.runs), records: got.todos || [], unread: got.todosUnread || [], people, loops: { records: got.scopes || [], unread: sunread, procOf: dep.procOf, runsUnread: dep.runsUnread } }) : null;
+    T.missingOf(V, cov).forEach((x) => { if (!extra.some((y) => y.path === x.path) && !L.problems().some((y) => y.path === x.path)) extra.push(x); });
+    const gaps = cov ? cov.spreads.filter((C) => !C.complete).map((C) => C.unresolved[0] || 'Spread "' + C.text + '": what it is owed on can\'t all be read yet.') : [];
     const gateOf = (pl) => (pl ? T.gateTitle(map, pl.beforeGate) : '');
     if (sub === 'list') {
       const open = V.todos.filter((x) => x.state === 'open').length;
@@ -3089,7 +3121,7 @@ async function todoMain(argv) {
         todos: V.todos.map((x) => ({ id: x.id, text: x.text, state: x.state, stateWords: T.STATE_WORDS[x.state], target: x.target || null, placement: x.placement || null, beforeGate: x.placement ? x.placement.beforeGate : null, gate: gateOf(x.placement) || null,
           owner: x.owner ? nameOf(x.owner) : null, reason: x.why || null, addedReason: x.reason || null, to: x.to || null })),
         requests: T.requestsOf(V).map((q) => ({ id: q.id, kind: q.kind, op: q.op, todo: q.todo || null, status: q.status, statusWords: T.WORDS[q.status] || q.status, why: q.why || null, by: q.by || null, requester: q.requester || null, at: q.at || null })),
-        held: (V.broken ? [V.broken.why] : []).concat(V.unread.map((u) => String(u.file) + ': ' + u.why), V.held.map((h) => h.record + ': ' + h.why)) });
+        held: (V.broken ? [V.broken.why] : []).concat(V.unread.map((u) => String(u.file) + ': ' + u.why), V.held.map((h) => h.record + ': ' + h.why), gaps) }, gaps.length ? EXIT.partial : undefined);
     }
     const id = T.idFor(tool.name, val['--key']), file = 'proposals/' + id + '.json';
     if (unread.some((u) => u.file === id + '.json')) return done({ run: { process: proc, id: runId }, status: 'held', request: { id, file }, preview: 'A request under this key is in the folder but can\'t be read yet. Nothing written. Check folder availability, then retry with the same key.' });

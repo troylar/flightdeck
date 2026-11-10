@@ -124,6 +124,7 @@ test/spreads.test.js -
 test/loop-cli.test.js -
 test/todo-cli.test.js -
 test/spread-cli.test.js -
+test/spread-deps.test.js 0/4
 test/patterns.test.js -
 test/link-fields.test.js -
 test/library.test.js -

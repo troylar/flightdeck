@@ -726,7 +726,7 @@ While what a spread is owed on can't all be read (a scope record of its loop is 
 
 | Situation | What it says |
 |---|---|
-| A record or part of the folder this depends on can't be read | `held` (exit 4): nothing was written; retry once the folder is available |
+| A record or part of the folder this depends on can't be read, or one it expects isn't there (a scope record the spread was reviewed against, the spread's own records, a story's run or its version, the run's own version) | `held` (exit 4), the path named in `problems`: nothing was written, and a spread is never called absent while this is so; retry once the folder is available |
 | An item's request couldn't be written | `partial` (exit 4): the rest stand; run `sync` again |
 | The same key, another ask | `key-taken`, with the changed fields |
 | No such spread, a step that isn't a loop, a change the run doesn't allow | `invalid`, with why |

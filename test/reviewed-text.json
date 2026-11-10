@@ -13,16 +13,16 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "16cc0c3b22dc9feeb872c70dae12be40cf17f7c90be8d72685d5f16f30fa8b93",
-      "reviewed": "retry without --attempt compares with the attempt first resolved; checked for direct writes and unconditional deletes"
+      "sha256": "078720c5a9030e3264488a66d4eb27f22326d3f29b752a62e816e57cee7e0190",
+      "reviewed": "readers expect and name every dependency of a spread; a failed dependency holds before a spread is called absent; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "1dce012e7269422f84c2c2aeb7b327b242a28e4990a5c5c95a22dc98228122dc",
       "reviewed": "slice 3 commit 1: spreads core (spreads.js), todos reduction and holds, run.js todoLand, app wiring, Python checker parity; no direct writes or unconditional deletes"
     },
     "docs/apps.md": {
-      "sha256": "ad5ddc040d80d10b8089f349f4a469f581d54a1653f0cf1154fe50d300012929",
-      "reviewed": "retry without --attempt compares with the attempt first resolved; checked for direct writes and unconditional deletes"
+      "sha256": "77cbd1b4e80082eaed26ee520b2856ea6dd9e068598ef95ea2f70db77d054dfa",
+      "reviewed": "readers expect and name every dependency of a spread; a failed dependency holds before a spread is called absent; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
       "sha256": "84dbf8c659e3e0fe3ecd2b2dda07cd1fe11e5bff60bd1511251285ac0359ce62",
@@ -257,8 +257,8 @@
       "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
     },
     "src/core/loop.js": {
-      "sha256": "c66615af3fce35850d92c3f125a6f91839d79063ab7caee8ee9b78be87a4be9e",
-      "reviewed": "Round 2 U: only to-do records are capped in bytes; scope records read and write as in 3.0; checked for direct writes and unconditional deletes"
+      "sha256": "b6094f6a75df8498dca54c2877f246b6185197b48c3551ad05cc052e3088e208",
+      "reviewed": "readers expect and name every dependency of a spread; a failed dependency holds before a spread is called absent; checked for direct writes and unconditional deletes"
     },
     "src/core/map.js": {
       "sha256": "f9eae33f6635cd1b3983fc1c71eb7a3b3c8dc1c70ca3ef8ce8807d5228165d2f",
@@ -405,8 +405,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "de2faf18cb0bd7d4fd89dd057542b8cb0eec0d19e7671f72fbb3bfbb7c17bf9c",
-      "reviewed": "AY: the folder reader keeps a file's own _file/_bytes apart from the loader's and validates to-do and scope records as written; checked for direct writes and unconditional deletes (none)"
+      "sha256": "9dbc20c1374f4129768d79afcec51322d5c680e7879b10ddba3f44f12337332a",
+      "reviewed": "readers expect and name every dependency of a spread; a failed dependency holds before a spread is called absent; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "0721cdde8bf1668989154322089ed906b9979b8baae491d167f78183158b339f",
