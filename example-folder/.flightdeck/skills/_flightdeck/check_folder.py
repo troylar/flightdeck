@@ -2634,6 +2634,12 @@ def todo_why(o, name, nbytes=None, unchecked=None):
                     b["to"] = clean_to(o.get("to"))
                 elif o.get("to") is not None:
                     err("Only a move has to")
+            # PF.todos.cleanBody's order: support before owner, reason and requester, so the first refusal is the app's.
+            if o.get("support") is not None:
+                if op != "done":
+                    err("Only a done request has support")
+                else:
+                    b["support"] = fact_clean_support(o["support"], err)
             if op == "add" and o.get("owner") is not None:
                 if not _tstr(o["owner"]) or not T_PERSON.match(o["owner"]):
                     err("owner")
@@ -2647,11 +2653,6 @@ def todo_why(o, name, nbytes=None, unchecked=None):
                     b["reason"] = rr
             if o.get("requester") is not None and (not _tstr(o["requester"]) or not T_PERSON.match(o["requester"])):
                 err("requester")
-            if o.get("support") is not None:
-                if op != "done":
-                    err("Only a done request has support")
-                else:
-                    b["support"] = fact_clean_support(o["support"], err)
             self_move(run, b.get("to"))
         if kind == "compound":
             if not by or not by.get("person"):

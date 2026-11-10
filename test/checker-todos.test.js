@@ -146,6 +146,32 @@ rule('The checker refuses exactly the to-do records the app refuses, over every 
   assert.ok(cs.filter((c, i) => c.label === 'valid').every((c) => !jsRefuses(c)), 'every valid record reads');
   assert.ok(cs.filter((c) => c.label !== 'valid').some((c) => jsRefuses(c)), 'damage is refused');
 });
+rule('A done on evidence with more than one damaged field is refused by the checker for the same field first as the app', () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const [name, sug] = valid().filter(([n, f]) => f.support && f.kind === 'proposal')[0], o = JSON.parse(T.text(sug));
+  const edit = (fn) => { const c = JSON.parse(JSON.stringify(o)); fn(c); return c; };
+  const cases = [
+    ['fact broken, reason empty', (c) => { c.support.fact = 'broken'; c.reason = ''; }],
+    ['fact broken, requester bad', (c) => { c.support.fact = 'broken'; c.requester = 'a b'; }],
+    ['domain bad, reason long', (c) => { c.support.domain = 'nope'; c.reason = 'r'.repeat(301); }],
+    ['support extra, requester bad', (c) => { c.support.extra = 1; c.requester = 'a b'; }],
+    ['support text, reason empty', (c) => { c.support = 'x'; c.reason = ''; }],
+    ['support source bad, reason control', (c) => { c.support.source = { feed: 'Bad Feed' }; c.reason = 'a\u0001b'; }],
+    ['todo bad, support broken', (c) => { c.todo = 'x'; c.support.fact = 'broken'; }],
+    ['reason empty alone', (c) => { c.reason = ''; }]
+  ].map(([label, fn]) => ({ name, text: JSON.stringify(edit(fn)), label }));
+  const pyOut = JSON.parse(cp.execFileSync(py, ['-I', '-B', '-c', DRIVER, DIR], { input: JSON.stringify(cases), encoding: 'utf8', maxBuffer: 64 * 1048576 }));
+  const field = (w) => /support/.test(w) ? 'support' : /requester/.test(w) ? 'requester' : /reason/.test(w) ? 'reason' : /todo/.test(w) ? 'todo' : w.replace(/\.$/, '');
+  const off = [];
+  cases.forEach((c, i) => {
+    const j = jsRefuses(c), x = pyOut[i], p = Array.isArray(x) ? x[0] : x;
+    assert.ok(j && p, c.label + ': both refuse it (app: ' + j + ' · checker: ' + p + ')');
+    if (field(j) !== field(p)) off.push(c.label + ' · app: ' + j + ' · checker: ' + p);
+  });
+  assert.deepStrictEqual(off, [], off.length + ' first reasons differ');
+});
+
 rule('In a folder, a refused to-do record is listed under refused as the app names it, and a readable one never is', () => {
   const py = python();
   if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
