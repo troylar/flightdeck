@@ -606,9 +606,10 @@ PF.run = (function () {
   /* Why a phase's gate is held by to-dos, or null: its own work, and an item's open or disputed work in any of its loops, so
      neither passing nor waiving the phase (an optional loop's included) gets past work that isn't resolved. */
   /* A loop's run or version that couldn't be read holds the phase too (round 8, ZB: r._loopUnread, set by the reader on every
-     read, never saved), with or without to-dos: its approval stays as recorded, and the gate waits until they read again. */
+     read, never saved), with or without to-dos: its approval stays as recorded, and the gate waits until they read again.
+     Practice's stand-in has no loops read, so it is never asked. */
   function phaseHeld(r, map, pi) {
-    var H = todoHolds(r), p = map.phases[pi], U = r && !r.ended ? r._loopUnread : null;
+    var H = todoHolds(r), p = map.phases[pi], U = r && !r.practice && !r.ended ? r._loopUnread : null;
     if ((!H && !U) || !p) return null;
     var why = H ? H.all.concat(own(H.phases, p.id) ? H.phases[p.id] : []) : [];
     p.steps.forEach(function (s) {
