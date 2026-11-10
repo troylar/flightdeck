@@ -231,10 +231,12 @@ rule('Kept content needs its owner from durable proof read at the write: Reopen,
   }
 });
 
-/* OA: lost proof never frees kept content. Every way of losing it (the keep, the decision, both, one member, a truncated keep
-   or decision, Reopen with the decisions deleted, and staging before that) × Publish and Promote × refreshed and cached:
-   someone else publishes nothing; the owner publishes, unless a keep a readable decision names is gone (held for everyone). */
-const OA_WAYS = ['keep', 'decision', 'both', 'member', 'trunc-keep', 'trunc-decision', 'reopen', 'staged'];
+/* OA: lost proof never frees kept content while any trace of it survives. Every way of losing it (the keep, the decision,
+   the keep deleted with its decision truncated, one member, a truncated keep or decision, Reopen with the decisions deleted,
+   and staging before that) × Publish and Promote × refreshed and cached: someone else publishes nothing; the owner publishes,
+   unless a keep a readable decision names is gone (held for everyone). With every trace deleted (both-deleted), the draft is
+   a hand edit, which anyone may publish: the documented limit (design.md 45.3); a stage that still lists it is a trace. */
+const OA_WAYS = ['keep', 'decision', 'both-trunc', 'both-deleted', 'member', 'trunc-keep', 'trunc-decision', 'reopen', 'staged'];
 rule('Lost proof never lets anyone but the owner publish kept content: every way of losing it, for Publish and Promote, refreshed or cached', async () => {
   const stage = async (app) => {
     await openPage(app); app.set('change-note', 'Post the notes'); app.click('stage-draft', 'release-notes'); await app.tick(300);
@@ -244,7 +246,8 @@ rule('Lost proof never lets anyone but the owner publish kept content: every way
   const decFiles = (app) => Object.keys(app.fs.files).filter(f => /^corrections\//.test(f) && (() => { try { return JSON.parse(app.fs.files[f].t).kind === 'correction-decision'; } catch (e) { return false; } })());
   const cut = (app, f) => { app.fs.files[f] = { t: app.fs.files[f].t.slice(0, 20), m: Date.now() }; };
   let checks = 0;
-  for (const how of OA_WAYS) for (const path of ['publish', 'promote']) for (const mode of ['refresh', 'cached']) {
+  const ways = OA_WAYS.filter(h => !process.env.OA_WAY || process.env.OA_WAY.split(',').indexOf(h) >= 0);
+  for (const how of ways) for (const path of ['publish', 'promote']) for (const mode of ['refresh', 'cached']) {
     const label = how + ' · ' + path + ' · ' + mode, { app, gid } = await appliedKeep(), k1 = app.files('proposals/req-keep-')[0];
     let folder = null;
     if (how === 'staged') folder = await stage(app);
@@ -259,13 +262,19 @@ rule('Lost proof never lets anyone but the owner publish kept content: every way
     const n = versions(app), ds = decFiles(app);
     assert.ok(ds.length, label + ': set-up: decisions');
     app.choose('person-avery'); await app.tick(80); await refresh(app, 300); await openPage(app);
-    if (how === 'keep' || how === 'both' || how === 'member') delete app.fs.files[k1];
+    if (how === 'keep' || how === 'both-trunc' || how === 'both-deleted' || how === 'member') delete app.fs.files[k1];
     if (how === 'trunc-keep') cut(app, k1);
-    if (how === 'decision' || how === 'reopen' || how === 'staged') ds.forEach(f => { delete app.fs.files[f]; });
-    if (how === 'both' || how === 'trunc-decision') ds.forEach(f => cut(app, f));
+    if (how === 'decision' || how === 'both-deleted' || how === 'reopen' || how === 'staged') ds.forEach(f => { delete app.fs.files[f]; });
+    if (how === 'both-trunc' || how === 'trunc-decision') ds.forEach(f => cut(app, f));
     if (mode === 'refresh') { await refresh(app, 300); await openPage(app); }
     const go = async () => { if (path === 'publish') { app.set('change-note', 'Post the notes'); app.click('publish', 'release-notes'); } else app.click('promote-stage', folder); await app.tick(400); };
     await go();
+    if (how === 'both-deleted' && path === 'publish') {
+      /* Cached, the window still shows the keep it last read and refuses at the click; once it reads the folder, the draft is
+         a hand edit, which anyone publishes (the documented limit). */
+      if (mode === 'cached') { assert.strictEqual(versions(app), n, label + ': the window\'s last read still shows the keep'); await refresh(app, 300); await openPage(app); await go(); }
+      assert.strictEqual(versions(app), n + 1, label + ': every trace deleted is a hand edit of the draft, which anyone publishes (the documented limit)'); checks += 2; continue;
+    }
     assert.strictEqual(versions(app), n, label + ': nothing published by someone else'); checks++;
     assert.ok(/kept for next time/.test(txt(app.html())), label + ': said why: ' + (txt(app.html()).match(/Nothing was (published|promoted)[^.]*\.[^.]*\./) || [])[0]);
     app.choose('person-morgan'); await app.tick(80); await refresh(app, 300); await openPage(app);
@@ -273,7 +282,27 @@ rule('Lost proof never lets anyone but the owner publish kept content: every way
     const held = how === 'keep' || how === 'member' || how === 'trunc-keep';
     assert.strictEqual(versions(app), held ? n : n + 1, label + (held ? ': a keep a decision names is gone: held for the owner too' : ': the owner publishes it')); checks++;
   }
-  assert.strictEqual(checks, OA_WAYS.length * 2 * 2 * 2, 'the whole matrix ran');
+  assert.strictEqual(checks, ways.length * 2 * 2 * 2, 'the whole matrix ran');
+});
+
+/* The documented limit: the owner requirement guards the keep workflow, not a folder writer who erases every trace. A kept
+   step whose keep and every decision are deleted is exactly a hand edit of the draft: published by anyone, the same as the
+   same step typed by hand, and ordinary corrections and direct edits are unchanged. */
+rule('A kept step with every trace deleted publishes exactly like the same step typed into the draft by hand', async () => {
+  const { app } = await appliedKeep(), draft = app.fs.files['maps/drafts/release-notes.md'].t;
+  Object.keys(app.fs.files).filter(f => /^proposals\/req-keep-/.test(f) || /^corrections\//.test(f)).forEach(f => { delete app.fs.files[f]; });
+  const hand = await setup();
+  await hand.fs.write('maps/drafts/release-notes.md', draft);
+  const out = [];
+  for (const a of [app, hand]) {
+    const n = versions(a);
+    a.choose('person-avery'); await a.tick(80); await refresh(a, 300); await openPage(a);
+    a.set('change-note', 'Post the notes'); a.click('publish', 'release-notes'); await a.tick(400);
+    const pub = a.files('publications/release-notes/').filter(p => /publication\.json$/.test(p)).map(p => JSON.parse(a.fs.files[p].t)).sort((x, y) => y.version - x.version)[0];
+    out.push([versions(a) - n, pub.corrections || [], a.fs.files['publications/release-notes/' + pub.folder + '/map.md'].t]);
+  }
+  assert.deepStrictEqual(out[0], out[1], 'the same as a hand edit');
+  assert.strictEqual(out[0][0], 1, 'published by someone other than the owner');
 });
 
 rule('A keep checks the 500 limit on the keep records read again at the write: one filed meanwhile by another writer stops the 501st', async () => {
