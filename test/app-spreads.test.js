@@ -295,7 +295,7 @@ for (const brk of BB.GA_GB) {
 const HA_CHANGES = BB.HOLD_CHANGES;
 for (const how of BB.HOLD_PATHS) for (const ch of HA_CHANGES) rule('HA: ' + how + ' on a fulfilled spread\'s loop, ' + ch + ' while a read of its guard waits, writes nothing', async () => {
   const r = await BB.suspension(bbSpread, how, [ch]);
-  console.log('HA cells · a fulfilled spread\'s loop · ' + how + ' · ' + ch + ' · ran ' + r.applicable + ' of ' + r.todo + ' it can see (' + r.required + ' read the change), of ' + r.cells + ' cells');
+  console.log('HA cells · a fulfilled spread\'s loop · ' + how + ' · ' + ch + ' · ran ' + r.applicable + ' of ' + r.cells + ' cells, none left out (' + r.required + ' judged, ' + r.limit + ' at the stated limit)');
   assert.deepStrictEqual(r.off, []);
 });
 run();

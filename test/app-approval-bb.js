@@ -280,7 +280,9 @@ const GUARD = new (require('async_hooks').AsyncLocalStorage)();
 function guardWatch(app, name) {
   const R = app.PF.repo, ro = R.readRunOnly, rp = R.readPlans, fs0 = app.fs, read = fs0.read, list = fs0.list, write = fs0.write, remove = fs0.remove;
   const st = { on: false, win: 0, seen: Object.create(null), log: [], hook: null, ops: 0, sawAfter: false, busy: 0, plans: false, pass: 0 };
-  const settle = () => { if (st.on && st.plans && !st.busy) st.on = false; };
+  /* Once its proposals read is done, the window stays open through the stability pass (round 15, SC): it closes at a write
+     or removal, or once a later turn finds none of its reads under way. */
+  const settle = () => { if (!(st.on && st.plans && !st.busy)) return; const win = st.win; setImmediate(() => { if (st.on && st.win === win && st.plans && !st.busy) st.on = false; }); };
   R.readRunOnly = function (fs, proc, id) { if (proc === 'release-readiness' && !st.on) { st.on = true; st.win++; st.plans = false; GUARD.enterWith(true); } const a = arguments; return st.on ? GUARD.run(true, () => ro.apply(this, a)) : ro.apply(this, a); };
   /* The window also closes once its proposals read is done and no read of it is still under way (a write-free last step). */
   R.readPlans = function () { const mine = st.on, a = arguments; const done = (x) => { if (mine) { st.plans = true; settle(); } return x; }; return (mine ? GUARD.run(true, () => rp.apply(this, a)) : rp.apply(this, a)).then(done, (e) => { done(); throw e; }); };
@@ -291,7 +293,7 @@ function guardWatch(app, name) {
     /* The guard's own reads: issued from within its reads of runs and of proposals/ (their async context), never another
        read under way at the same time (a Refresh the recorder runs alongside). */
     if (!st.on || GUARD.getStore() !== true) return real.apply(fs0, args);
-    const np = name(p), k = op + ' ' + np, n = st.seen[k] = (st.seen[k] || 0) + 1, at = { op, p: np, n, i: st.log.length, win: st.win };
+    const np = name(p), k = op + ' ' + np, n = st.seen[k] = (st.seen[k] || 0) + 1, at = { op, p: np, n, i: st.log.length, win: st.win, phase: st.plans ? 'stable' : 'snap' };
     st.log.push(at);
     const h = st.hook && st.hook(at);
     st.busy++;
@@ -325,7 +327,7 @@ async function opened(t, P) {
 }
 async function suspension(o, how, changes, shard) {
   const P = PATHS[how], off = [];
-  let cells = 0, applicable = 0, required = 0;
+  let cells = 0, applicable = 0, required = 0, limit = 0;
   const tpl = await template(o, P);
   /* The dry run: the read points, and that the write happens when nothing changes. */
   const { app: app0, why: why0 } = await opened(tpl, P);
@@ -339,15 +341,16 @@ async function suspension(o, how, changes, shard) {
   /* The order the guard reads in: within each snapshot, nothing but the records it lists is read after proposals/ is listed. */
   for (let i = 0; i < points.length; i++) {
     if (points[i].op !== 'list' || points[i].p !== 'proposals') continue;
-    for (let j = i + 1; j < points.length && points[j].win === points[i].win; j++) if (!/^proposals\//.test(points[j].p)) { off.push(how + ': read after the proposals listing: ' + points[j].op + ' ' + points[j].p + ' #' + points[j].n); break; }
+    for (let j = i + 1; j < points.length && points[j].win === points[i].win && points[j].phase === 'snap'; j++) if (!/^proposals\//.test(points[j].p)) { off.push(how + ': read after the proposals listing: ' + points[j].op + ' ' + points[j].p + ' #' + points[j].n); break; }
   }
   const todo = [];
   for (const ch of changes || Object.keys(CHANGES)) {
     if (ch === 'the story\'s to-do changed' && !hasHead) continue;
-    for (let k = 0; k < points.length; k++) { cells++; if (points.slice(k).some(q => CHANGES[ch].sees(q.op, q.p))) todo.push([ch, points[k]]); }
+    /* Round 15 (SC): every read point, whether or not the guard reads that input again after it. */
+    for (let k = 0; k < points.length; k++) { cells++; todo.push([ch, points[k]]); }
   }
-  /* HA_STRIDE=n runs every n-th applicable cell (10 in the full run, for its time; HA_STRIDE=1 runs every one). */
-  const [si, sn] = shard || [0, 1], stride = Math.max(1, +(process.env.HA_STRIDE || 10)), picked = todo.filter((x, c) => c % stride === 0);
+  /* HA_STRIDE=n runs every n-th cell (a quick look); left out, every one runs. */
+  const [si, sn] = shard || [0, 1], stride = Math.max(1, +(process.env.HA_STRIDE || 1)), picked = todo.filter((x, c) => c % stride === 0);
   for (let c = 0; c < picked.length; c++) {
     if (c % sn !== si) continue;
     const [ch, pt] = picked[c], C = CHANGES[ch];
@@ -373,19 +376,20 @@ async function suspension(o, how, changes, shard) {
     app.fs.list = function (q) { if (w.st.on && GUARD.getStore() === true && C.sees('list', nm(q))) w.st.sawAfter = true; return inner.list.apply(app.fs, arguments); };
     /* What is written or removed once the guard has read the change: none of it may be. A request the recorder couldn't
        carry out is answered (its decision, op 'refused'): that is its outcome, not a write. */
-    app.fs.write = function (q, t) { if (w.st.sawAfter && !(/^proposals\//.test(q) && (() => { try { return JSON.parse(t).op === 'refused'; } catch (e) { return false; } })())) late.push(q); return inner.write.apply(app.fs, arguments); };
-    app.fs.remove = function (q) { if (w.st.sawAfter) late.push('-' + q); return inner.remove.apply(app.fs, arguments); };
+    app.fs.write = function (q, t) { if (!(/^proposals\//.test(q) && (() => { try { return JSON.parse(t).op === 'refused'; } catch (e) { return false; } })())) late.push(q); return inner.write.apply(app.fs, arguments); };
+    app.fs.remove = function (q) { late.push('-' + q); return inner.remove.apply(app.fs, arguments); };
     hold.open(); await quiet(app, w);
     Object.assign(app.fs, inner);
-    /* Asked of the guard only when it read the changed input after the change: the paused read itself, or one it made
-       later. A read it made before (side by side with the paused one) is a read of the folder as it was. */
-    if (!C.sees(pt.op, pt.p) && !w.st.sawAfter) { w.off(); undo(); continue; }
+    /* Round 15 (SC): a change made while the snapshot reads (before its stability pass) always refuses, whether or not that
+       input was read already. One made during the stability pass refuses when that pass rereads the input after the change
+       (the paused read itself, or a later one); else it is the documented limit (docs/design.md), counted, not judged. */
+    if (pt.phase === 'stable' && !C.sees(pt.op, pt.p) && !w.st.sawAfter) { limit++; w.off(); undo(); continue; }
     required++;
-    if (late.length) off.push(tag + ': written after the guard read the change: ' + JSON.stringify(late));
+    if (late.length) off.push(tag + ': written after the change' + (pt.phase === 'stable' ? ' (its stability pass reread it)' : ' (made before the stability pass)') + ': ' + JSON.stringify(late));
     else if (P.kept && !P.kept(app)) off.push(tag + ': the recovery source was removed');
     w.off(); undo();
   }
-  return { cells, applicable, required, points: points.length, todo: todo.length, off };
+  return { cells, applicable, required, limit, points: points.length, todo: todo.length, off };
 }
 module.exports.suspension = suspension;
 module.exports.HOLD_PATHS = Object.keys(PATHS);
