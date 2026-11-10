@@ -154,6 +154,24 @@ rule('Evidence the write guard would refuse is never offered: a conflict copy be
   assert.ok(/can.t be read now|can only be read here|Conflict/i.test(txt(app.html())), 'the hold is said: ' + txt(app.html()).slice(0, 1500));
 });
 
+rule('Evidence held by a torn plan beside a readable (1) copy, a version that can\'t be read, or a version that is gone is never offered', async () => {
+  for (const how of ['torn plan with a copy', 'version unreadable', 'version gone']) {
+    const { app, todo, kp } = await setup();
+    const key = await runIt(app, todo);
+    finish(app, key, 'pass'); await toParent(app); await refresh(app, 300);
+    assert.ok(/data-act="td-evidence"/.test(app.html()), how + ': set-up: Accept offered');
+    const pf = plans(app)[0];
+    if (how === 'torn plan with a copy') { app.fs.files[pf.replace(/\.json$/, ' (1).json')] = { t: app.fs.files[pf].t, m: Date.now() }; app.fs.files[pf] = { t: '{ torn', m: Date.now() + 1000 }; }
+    /* The checklist's versions can't be listed now (EACCES): what was read before is no longer known to hold. */
+    if (how === 'version unreadable') { const fs = app.fs, list = fs.list.bind(fs); fs.list = (p, o) => /^publications\/smoke-test\/?$/.test(p) ? Promise.reject(Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES', name: 'NotAllowedError' })) : list(p, o); }
+    if (how === 'version gone') app.files('publications/smoke-test/' + kp.folder + '/').forEach(f => { delete app.fs.files[f]; });
+    await refresh(app, 400); await toParent(app); await refresh(app, 300);
+    assert.ok(!/data-act="td-evidence"/.test(app.html()), how + ': no Accept');
+    app.click('td-evidence', todo, { run: key.split('/')[1] }); await app.tick(400);
+    assert.strictEqual(evRecs(app).length, 0, how + ': nothing written');
+  }
+});
+
 rule('Run this checklist whose folder or person changes before the plan is written writes nothing; a pin that can\'t be used offers nothing', async () => {
   const { app, todo } = await setup();
   const fs = app.fs, read = fs.read.bind(fs); let release = null;

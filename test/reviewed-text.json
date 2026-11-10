@@ -13,20 +13,20 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "020ab367fbf636b44206a7bf58d407eba3f87421d48760b5be312a40c2c5b7f5",
-      "reviewed": "HB: one judged evidence verdict (publication read failures, runs via readEvidence, explicit evidence runs, the app view's judge); checked for direct writes and unconditional deletes"
+      "sha256": "fad50349f9f0ee9b3451de7ac320122194071bddfebceb631ad2f7562102de7d",
+      "reviewed": "JC: evidence verdict validates start proof, holds torn plans beside copies, runs reuses one proposals read, view memo keyed on read failures; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "e641a0f9f4655b4634b9d2661fe4e4b97222f23ece79f5917e6c99f174218087",
       "reviewed": "4.0 slice 5 commit 6, checklist-linked to-dos: PF.detours (pins, the evidence plan, evidence, provenance), the checklist and evidence fields in to-do records, repo.readEvidence, the app's Run this checklist, Accept and the way back, the living-run skill and command guide sections, the 4.0.0 release entry; checked for direct writes and unconditional deletes: the plan is written create-once through repo.savePlan under the run guard, a done on a run through saveScope with a fresh read before the write, nothing deleted"
     },
     "docs/apps.md": {
-      "sha256": "d955e2853ce74a019ed3f9d904bd07a26a6da8437cb993b4c77d80a88bcd585c",
-      "reviewed": "JD: the 501st keep at one place is refused in PF.learn.prepare; checked for direct writes and unconditional deletes"
+      "sha256": "3d991fa235f0570cd2d3ef33bfaadb02d4d701afe25ce04f2e6a84167d93936f",
+      "reviewed": "JC: evidence verdict validates start proof, holds torn plans beside copies, runs reuses one proposals read, view memo keyed on read failures; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "3ee2f03f41d2babdb5789e328e022d82bc42b43cbd2ee760cf78ac4c6bb47513",
-      "reviewed": "JB: promote classifies listed corrections whose keep is gone from retained decisions; checked for direct writes and unconditional deletes"
+      "sha256": "1c35ab606c41638baa478808223e450379f5124e8fbb1ccc1931438bfe881ab7",
+      "reviewed": "JC: evidence verdict validates start proof, holds torn plans beside copies, runs reuses one proposals read, view memo keyed on read failures; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -225,8 +225,8 @@
       "reviewed": "JE: keep members counted by runKey; checked for direct writes and unconditional deletes"
     },
     "src/core/detours.js": {
-      "sha256": "d098d6cc46e50879d4d91b05af495a69ab94decfdd380dd18ad6807d726a7735",
-      "reviewed": "HB: one judged evidence verdict (publication read failures, runs via readEvidence, explicit evidence runs, the app view's judge); checked for direct writes and unconditional deletes"
+      "sha256": "915ca7db09471b88aca7d97e3df30010af7ec2d46a96d57324cdc7bc6aa19398",
+      "reviewed": "JC: evidence verdict validates start proof, holds torn plans beside copies, runs reuses one proposals read, view memo keyed on read failures; checked for direct writes and unconditional deletes"
     },
     "src/core/envelope.js": {
       "sha256": "55710b76ab73ab450583c0d6262a25ac9b05004dd8cce86cdf67c8810f46dbd2",
@@ -417,12 +417,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "bc072ab852486786a6246f34781aee3c4c55d44958db661384390de7d14d1a74",
-      "reviewed": "HB: one judged evidence verdict (publication read failures, runs via readEvidence, explicit evidence runs, the app view's judge); checked for direct writes and unconditional deletes"
+      "sha256": "632e00295f8fcd54ae2f5bb92cb29461a5dbfedb4ebe1dabf0b8c89a777ab4e8",
+      "reviewed": "JC: evidence verdict validates start proof, holds torn plans beside copies, runs reuses one proposals read, view memo keyed on read failures; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "3509c21664b71195ac623d1873537269ba9d4c5df3c711e470b1bf8e67cde4cb",
-      "reviewed": "JB: promote classifies listed corrections whose keep is gone from retained decisions; checked for direct writes and unconditional deletes"
+      "sha256": "42b902fecd113bca945b36f0c2048505a3b2f1b7f309cb002f5d9bb272042c3c",
+      "reviewed": "JC: evidence verdict validates start proof, holds torn plans beside copies, runs reuses one proposals read, view memo keyed on read failures; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

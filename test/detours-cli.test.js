@@ -216,6 +216,10 @@ rule('Evidence that reads but isn\'t trusted, and an evidence plan or decision t
     plan: (F, S) => { fs.writeFileSync(path.join(F.root, 'proposals', S.plan.id + '.json'), '{ torn'); },
     absent: (F, S) => { fs.rmSync(path.join(F.root, 'proposals', S.plan.id + '.json')); fs.rmSync(path.join(F.root, 'proposals', S.plan.id + '.status-sk1-d.json')); },
     planonly: (F, S) => { fs.rmSync(path.join(F.root, 'proposals', S.plan.id + '.json')); },
+    /* The started decision is gone: the plan reads, but nothing proves it started the run. */
+    nostart: (F, S) => { fs.rmSync(path.join(F.root, 'proposals', S.plan.id + '.status-sk1-d.json')); },
+    /* A torn plan beside a readable OneDrive copy of it: still held. */
+    copytorn: (F, S) => { const f = path.join(F.root, 'proposals', S.plan.id + '.json'); fs.copyFileSync(f, path.join(F.root, 'proposals', S.plan.id + ' (1).json')); fs.writeFileSync(f, '{ torn'); },
     /* The evidence run's version can't be read at all (EACCES): never usable evidence. */
     pubread: (F, S) => { fs.chmodSync(path.join(F.root, 'publications', 'smoke-test', F.kp.info.folder, 'publication.json'), 0); }
   };
@@ -227,8 +231,8 @@ rule('Evidence that reads but isn\'t trusted, and an evidence plan or decision t
     const runPath = 'runs/smoke-test/k1/run.json', runs = json('runs', F.root, '--contract', '2', '--json');
     /* What runs says of the run is the verdict; a plan or decision is named at its own file. */
     const want = how === 'decision' ? { path: 'proposals/' + S.plan.id + '.status-sk1-d.json', kinds: ['unreadable', 'malformed'] }
-      : how === 'plan' ? { path: 'proposals/' + S.plan.id + '.json', kinds: ['unreadable', 'malformed'] }
-        : how === 'absent' || how === 'planonly' ? { path: 'proposals/' + S.plan.id + '.json', kinds: ['nofile'] }
+      : how === 'plan' || how === 'copytorn' ? { path: 'proposals/' + S.plan.id + '.json', kinds: ['unreadable', 'malformed'] }
+        : how === 'absent' || how === 'planonly' || how === 'nostart' ? { path: 'proposals/' + S.plan.id + '.json', kinds: ['nofile'] }
           : how === 'pubread' ? { path: 'publications/smoke-test/' + F.kp.info.folder + '/publication.json', prefix: 'publications/smoke-test/' + F.kp.info.folder, kinds: ['unreadable'] }
           : { path: runPath, kinds: (runs.problems || []).filter(q => q.path === runPath).map(q => q.kind) };
     assert.ok(want.kinds.length, how + ': set-up: runs names the run: ' + JSON.stringify(runs.problems));
@@ -253,6 +257,21 @@ rule('Evidence that reads but isn\'t trusted, and an evidence plan or decision t
     const kind = how === 'gone' ? 'nofile' : how === 'newer' ? 'newer' : 'unreadable', where = how === 'pubread' ? 'publications/smoke-test/' : 'runs/smoke-test/k1/';
     assert.deepStrictEqual([how, x.code, x.complete, (x.problems || []).some(q => q.path.indexOf(where) === 0 && q.kind === kind)], [how, 4, false, true], 'first ' + how + ': ' + JSON.stringify([x.data && x.data.status, x.problems]));
   }
+});
+
+rule('runs reads each proposals file once and reports what that one read found', async () => {
+  const F = await folder(), L = await linked(F, 'pass'); await started(F, L, 'k1', 'pass');
+  const s = json('todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--json', ...TOOL);
+  assert.strictEqual(s.code, 0, JSON.stringify(s));
+  /* Every open of a file under proposals/ counted, in the command's own process. */
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-opens-')), hook = path.join(dir, 'hook.js'), out = path.join(dir, 'opens.json');
+  fs.writeFileSync(hook, "const fs = require('fs'), seen = {}, open = fs.openSync; fs.openSync = function (p) { const s = String(p); if (s.indexOf('/proposals/') >= 0) seen[s] = (seen[s] || 0) + 1; return open.apply(this, arguments); }; process.on('exit', () => fs.writeFileSync(process.env.OPENS_OUT, JSON.stringify(seen)));");
+  let code = 0, text = '';
+  try { text = execFileSync(process.execPath, ['-r', hook, BIN, 'runs', F.root, '--contract', '2', '--json'], { encoding: 'utf8', stdio: 'pipe', env: Object.assign({}, process.env, { OPENS_OUT: out }) }); } catch (e) { code = e.status; text = String(e.stdout); }
+  const x = JSON.parse(text), opens = JSON.parse(fs.readFileSync(out, 'utf8')), twice = Object.keys(opens).filter(k => opens[k] > 1);
+  assert.deepStrictEqual([code, x.complete], [0, true], 'set-up: complete: ' + JSON.stringify(x.problems));
+  assert.ok(Object.keys(opens).length > 0, 'set-up: proposals were read');
+  assert.deepStrictEqual(twice.map(k => path.basename(k)), [], 'each proposals file is read once');
 });
 
 run();

@@ -1011,7 +1011,8 @@ async function readData(eng, adapter, req) {
     if (two && req.cmd === 'runs') {
       /* Living runs (4.0): evidence judged as run and next judge it (PF.repo.readEvidence, one verdict): every run, version,
          plan and started decision a to-do record rests on, each problem named at its path. */
-      const gp = (d.todos || []).length ? await repo.readPlans(L.fs, [], null, true).catch(() => null) : null;
+      /* The one read of proposals/ loadAll made (its problems are already the ledger's), never a second read. */
+      const gp = (d.todos || []).length ? d.proposalsRead || null : null;
       const ev = gp ? await evidenceRead(PF, L.fs, gp, d.todos || []) : { runs: d.runs || runs, plans: d.plans || [], unreadRuns: [], holds: [], problems: [], paths: [] };
       ev.problems.forEach((q) => L.note(q.path, q.kind, q.why));
       markTodos(PF, runs, { todos: d.todos || [], todosUnread: d.todosUnread || [] }, d.people, !!(d.failed && 'people' in d.failed), { runs: [], loops: { records: d.scopes || [], unread: d.scopesUnread || [], procOf: procOfFrom(d) } }, ev);

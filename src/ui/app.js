@@ -3376,12 +3376,16 @@
   var evJudged = null;
   function tdEv() {
     var u = state.unread || {}, gone = Object.keys(state.missing || {}).concat(Object.keys(u.runs || {}));
-    if (!evJudged || evJudged.runs !== data.runs || evJudged.procs !== processes()) evJudged = { runs: data.runs, procs: processes(), by: new Map() };
+    /* The memo is keyed on what was read and on what couldn't be: a read failure (a run, a part of the folder) judges again. */
+    var fails = JSON.stringify([data.failed || {}, Object.keys(u.runs || {}).sort(), Object.keys(state.missing || {}).sort()]);
+    if (!evJudged || evJudged.runs !== data.runs || evJudged.procs !== processes() || evJudged.fails !== fails) evJudged = { runs: data.runs, procs: processes(), fails: fails, by: new Map() };
     var memo = evJudged;
     var judge = function (r) {
       if (memo.by.has(r)) return memo.by.get(r);
       var p = procFind(r.process), all = p ? (p.all || []).concat(p.broken || []) : [], pub = all.filter(function (x) { return x && (x.info ? x.info.folder : x.folder) === r.folder; })[0] || null, out;
-      try { out = PF.appjson.judgeRun(Object.assign({}, r), pub); if (pub && pub._readFailed) out.push({ path: PF.run.pubDir(r), kind: 'unreadable', why: String(pub.why || '') }); } catch (e) { out = [{ path: 'runs/' + r.process + '/' + r.id + '/run.json', kind: 'malformed', why: String(e && e.message || e) }]; }
+      /* A version that isn't read at all (gone, or its part of the folder failed) is judged as runs judges one that's missing. */
+      if (!pub && typeof r.folder === 'string') { pub = PF.publish.verify(r.folder, { 'map.md': null, 'types.json': null, 'publication.json': null }, null, PF.run.isTest(r) ? { stage: true } : null); pub.folder = r.folder; pub.process = r.process; }
+      try { out = PF.appjson.judgeRun(Object.assign({}, r), pub); if (pub && pub._readFailed) out.push({ path: PF.run.pubDir(r), kind: 'unreadable', why: String(pub.why || '') }); else if ((data.failed || {}).publications) out.push({ path: PF.run.pubDir(r), kind: 'unreadable', why: 'publications/ couldn\'t be read on the last check (' + String(data.failed.publications) + '), so this run\'s version isn\'t known to hold.' }); } catch (e) { out = [{ path: 'runs/' + r.process + '/' + r.id + '/run.json', kind: 'malformed', why: String(e && e.message || e) }]; }
       memo.by.set(r, out); return out;
     };
     var holds = (data.planUnread || []).filter(function (x) { return x && x.kind === 'unreadable'; }).concat((data.refused || []).filter(function (x) { return x && /^proposals\//.test(String(x.path)); }).map(function (x) { return { path: x.path, _file: String(x.path).slice('proposals/'.length), kind: x.kind }; }));

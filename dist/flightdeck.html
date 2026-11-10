@@ -20340,7 +20340,8 @@ PF.detours = (function () {
   function startsOf(r, x, ev) {
     if (!ev) return { why: 'The run it rests on can\'t be checked here.', held: true };
     var c = x.checklist, id = planOf(r, x), p = planIn(ev, id);
-    if (!p && planHeld(ev, id).length) return { why: 'Its plan (' + id + ') can\'t be read, so which run it started isn\'t known.', held: true };
+    /* The full plan-held verdict, even when a copy of the plan reads: a torn plan file beside a readable (1) copy holds it. */
+    if (planHeld(ev, id).length) return { why: 'Its plan (' + id + ') can\'t be read, so which run it started isn\'t known.', held: true };
     if (!p) return { why: 'No run of ' + c.process + ' was started for this to-do yet (Run this checklist).' };
     if ((p._statusHeld || []).length || p._copiesDiffer) return { why: 'Its plan (' + id + ') has a decision or a copy that can\'t be read, so which run it started isn\'t known.', held: true };
     if (p.process !== c.process || !p.pin || p.pin.folder !== c.folder) return { why: 'Its plan (' + id + ') isn\'t for ' + c.process + ' ' + c.folder + '.' };
@@ -23445,7 +23446,7 @@ PF.repo = (function () {
         if (x.kind === 'cached') { var e = x.entry; x.sig = sigOf(e.fileHash, e.notesSig, e.conflicts, e.unrunnable || badFor(cache, e), e.recheckAt); delete x.entry; }
       });
       var out = { people: r[0], drafts: r[1], processes: r[2], reads: reads, runsComplete: complete, legacy: r[4], skills: r[5], validations: r[9], valUnread: valUnread, corrDecisions: r[10].filter(function (d) { return !d._unread; }), corrUnread: r[10].filter(function (d) { return d._unread; }),
-        fuDecisions: r[11].filter(function (d) { return !d._unread; }), fuUnread: r[11].filter(function (d) { return d._unread; }), plans: plans, scopes: r[6].scopes || [], scopesUnread: r[6].scopesUnread || [], todos: r[6].todos || [], todosUnread: r[6].todosUnread || [], stepTypes: r[7], jira: r[8],
+        fuDecisions: r[11].filter(function (d) { return !d._unread; }), fuUnread: r[11].filter(function (d) { return d._unread; }), plans: plans, scopes: r[6].scopes || [], scopesUnread: r[6].scopesUnread || [], todos: r[6].todos || [], todosUnread: r[6].todosUnread || [], proposalsRead: 'proposals' in failed ? null : r[6], stepTypes: r[7], jira: r[8],
         unreadable: unreadable, failed: failed, planUnread: planUnread, skillsSkipped: r[5].skipped || 0, readAt: new Date().toISOString(), proposed: r[12], presence: r[13],
         reports: r[14], repDecisions: r[15].filter(function (d) { return !d._unread; }), repUnread: r[15].filter(function (d) { return d._unread; }), stages: r[16], teamValues: r[17],
         /* Files from a newer Flightdeck this copy refused, by path, with the version each needs: shown by Folder health and
@@ -25343,7 +25344,11 @@ PF.repo = (function () {
     (records || []).forEach(function (x) { if (!x) return; add(x.evidence, true); add(x.effect && x.effect.evidence, true); add(x.application && x.application.effect && x.application.effect.evidence, true); });
     (also || []).forEach(function (r) { add({ run: r }); });
     /* The evidence plans the records name: each one's refused or torn file or decision, or its absence, is a problem too. */
-    var planIds = [], addPlan = function (e) { if (e && typeof e.plan === 'string' && /^plan-ev-[a-f0-9]{24}$/.test(e.plan) && planIds.indexOf(e.plan) < 0) planIds.push(e.plan); };
+    var planIds = [], pairs = [], addPlan = function (e) {
+      if (!e || typeof e.plan !== 'string' || !/^plan-ev-[a-f0-9]{24}$/.test(e.plan)) return;
+      if (planIds.indexOf(e.plan) < 0) planIds.push(e.plan);
+      if (e.run && typeof e.run.process === 'string' && typeof e.run.id === 'string') pairs.push({ plan: e.plan, process: e.run.process, id: e.run.id });
+    };
     (records || []).forEach(function (x) { if (!x) return; addPlan(x.evidence); addPlan(x.effect && x.effect.evidence); addPlan(x.application && x.application.effect && x.application.effect.evidence); });
     var problems = [], file = function (k) { return 'runs/' + k + '/run.json'; };
     var problemAt = function (k, path, kind, why) { if ((k == null || named[k]) && !problems.some(function (q) { return q.path === path && q.kind === kind; })) problems.push({ path: path, kind: kind, why: why }); };
@@ -25383,6 +25388,14 @@ PF.repo = (function () {
         var held = PF.detours.planHeld(ev, id);
         if (held.length) held.forEach(function (q) { problemAt(null, q.path, q.kind, q.why); });
         else if (!plans.some(function (p) { return p && p.id === id; })) problemAt(null, 'proposals/' + id + '.json', 'nofile', 'The evidence plan a to-do\'s done names isn\'t in the team folder, so what rests on it can\'t be checked.');
+        else {
+          /* Each plan/run pair a record names carries its start proof: the plan is for that run's checklist and a decision of
+             its started that run. A missing one is named at the plan: which run it started can't be shown. */
+          var p = plans.filter(function (x) { return x && x.id === id; })[0];
+          pairs.filter(function (e) { return e.plan === id; }).forEach(function (e) {
+            if (p.process !== e.process || (p._starts || []).indexOf(e.id) < 0) problemAt(null, 'proposals/' + id + '.json', 'nofile', 'No decision of the evidence plan ' + id + ' says it started ' + e.process + '/' + e.id + ', the run a to-do\'s done names, so what rests on it can\'t be checked.');
+          });
+        }
       });
       /* Every path a problem names is one the caller depends on. */
       problems.forEach(function (q) { if (ev.paths.indexOf(q.path) < 0) ev.paths.push(q.path); });
@@ -37373,12 +37386,16 @@ PF.examples = (function () {
   var evJudged = null;
   function tdEv() {
     var u = state.unread || {}, gone = Object.keys(state.missing || {}).concat(Object.keys(u.runs || {}));
-    if (!evJudged || evJudged.runs !== data.runs || evJudged.procs !== processes()) evJudged = { runs: data.runs, procs: processes(), by: new Map() };
+    /* The memo is keyed on what was read and on what couldn't be: a read failure (a run, a part of the folder) judges again. */
+    var fails = JSON.stringify([data.failed || {}, Object.keys(u.runs || {}).sort(), Object.keys(state.missing || {}).sort()]);
+    if (!evJudged || evJudged.runs !== data.runs || evJudged.procs !== processes() || evJudged.fails !== fails) evJudged = { runs: data.runs, procs: processes(), fails: fails, by: new Map() };
     var memo = evJudged;
     var judge = function (r) {
       if (memo.by.has(r)) return memo.by.get(r);
       var p = procFind(r.process), all = p ? (p.all || []).concat(p.broken || []) : [], pub = all.filter(function (x) { return x && (x.info ? x.info.folder : x.folder) === r.folder; })[0] || null, out;
-      try { out = PF.appjson.judgeRun(Object.assign({}, r), pub); if (pub && pub._readFailed) out.push({ path: PF.run.pubDir(r), kind: 'unreadable', why: String(pub.why || '') }); } catch (e) { out = [{ path: 'runs/' + r.process + '/' + r.id + '/run.json', kind: 'malformed', why: String(e && e.message || e) }]; }
+      /* A version that isn't read at all (gone, or its part of the folder failed) is judged as runs judges one that's missing. */
+      if (!pub && typeof r.folder === 'string') { pub = PF.publish.verify(r.folder, { 'map.md': null, 'types.json': null, 'publication.json': null }, null, PF.run.isTest(r) ? { stage: true } : null); pub.folder = r.folder; pub.process = r.process; }
+      try { out = PF.appjson.judgeRun(Object.assign({}, r), pub); if (pub && pub._readFailed) out.push({ path: PF.run.pubDir(r), kind: 'unreadable', why: String(pub.why || '') }); else if ((data.failed || {}).publications) out.push({ path: PF.run.pubDir(r), kind: 'unreadable', why: 'publications/ couldn\'t be read on the last check (' + String(data.failed.publications) + '), so this run\'s version isn\'t known to hold.' }); } catch (e) { out = [{ path: 'runs/' + r.process + '/' + r.id + '/run.json', kind: 'malformed', why: String(e && e.message || e) }]; }
       memo.by.set(r, out); return out;
     };
     var holds = (data.planUnread || []).filter(function (x) { return x && x.kind === 'unreadable'; }).concat((data.refused || []).filter(function (x) { return x && /^proposals\//.test(String(x.path)); }).map(function (x) { return { path: x.path, _file: String(x.path).slice('proposals/'.length), kind: x.kind }; }));

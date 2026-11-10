@@ -129,7 +129,8 @@ PF.detours = (function () {
   function startsOf(r, x, ev) {
     if (!ev) return { why: 'The run it rests on can\'t be checked here.', held: true };
     var c = x.checklist, id = planOf(r, x), p = planIn(ev, id);
-    if (!p && planHeld(ev, id).length) return { why: 'Its plan (' + id + ') can\'t be read, so which run it started isn\'t known.', held: true };
+    /* The full plan-held verdict, even when a copy of the plan reads: a torn plan file beside a readable (1) copy holds it. */
+    if (planHeld(ev, id).length) return { why: 'Its plan (' + id + ') can\'t be read, so which run it started isn\'t known.', held: true };
     if (!p) return { why: 'No run of ' + c.process + ' was started for this to-do yet (Run this checklist).' };
     if ((p._statusHeld || []).length || p._copiesDiffer) return { why: 'Its plan (' + id + ') has a decision or a copy that can\'t be read, so which run it started isn\'t known.', held: true };
     if (p.process !== c.process || !p.pin || p.pin.folder !== c.folder) return { why: 'Its plan (' + id + ') isn\'t for ' + c.process + ' ' + c.folder + '.' };

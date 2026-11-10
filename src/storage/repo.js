@@ -793,7 +793,7 @@ PF.repo = (function () {
         if (x.kind === 'cached') { var e = x.entry; x.sig = sigOf(e.fileHash, e.notesSig, e.conflicts, e.unrunnable || badFor(cache, e), e.recheckAt); delete x.entry; }
       });
       var out = { people: r[0], drafts: r[1], processes: r[2], reads: reads, runsComplete: complete, legacy: r[4], skills: r[5], validations: r[9], valUnread: valUnread, corrDecisions: r[10].filter(function (d) { return !d._unread; }), corrUnread: r[10].filter(function (d) { return d._unread; }),
-        fuDecisions: r[11].filter(function (d) { return !d._unread; }), fuUnread: r[11].filter(function (d) { return d._unread; }), plans: plans, scopes: r[6].scopes || [], scopesUnread: r[6].scopesUnread || [], todos: r[6].todos || [], todosUnread: r[6].todosUnread || [], stepTypes: r[7], jira: r[8],
+        fuDecisions: r[11].filter(function (d) { return !d._unread; }), fuUnread: r[11].filter(function (d) { return d._unread; }), plans: plans, scopes: r[6].scopes || [], scopesUnread: r[6].scopesUnread || [], todos: r[6].todos || [], todosUnread: r[6].todosUnread || [], proposalsRead: 'proposals' in failed ? null : r[6], stepTypes: r[7], jira: r[8],
         unreadable: unreadable, failed: failed, planUnread: planUnread, skillsSkipped: r[5].skipped || 0, readAt: new Date().toISOString(), proposed: r[12], presence: r[13],
         reports: r[14], repDecisions: r[15].filter(function (d) { return !d._unread; }), repUnread: r[15].filter(function (d) { return d._unread; }), stages: r[16], teamValues: r[17],
         /* Files from a newer Flightdeck this copy refused, by path, with the version each needs: shown by Folder health and
@@ -2691,7 +2691,11 @@ PF.repo = (function () {
     (records || []).forEach(function (x) { if (!x) return; add(x.evidence, true); add(x.effect && x.effect.evidence, true); add(x.application && x.application.effect && x.application.effect.evidence, true); });
     (also || []).forEach(function (r) { add({ run: r }); });
     /* The evidence plans the records name: each one's refused or torn file or decision, or its absence, is a problem too. */
-    var planIds = [], addPlan = function (e) { if (e && typeof e.plan === 'string' && /^plan-ev-[a-f0-9]{24}$/.test(e.plan) && planIds.indexOf(e.plan) < 0) planIds.push(e.plan); };
+    var planIds = [], pairs = [], addPlan = function (e) {
+      if (!e || typeof e.plan !== 'string' || !/^plan-ev-[a-f0-9]{24}$/.test(e.plan)) return;
+      if (planIds.indexOf(e.plan) < 0) planIds.push(e.plan);
+      if (e.run && typeof e.run.process === 'string' && typeof e.run.id === 'string') pairs.push({ plan: e.plan, process: e.run.process, id: e.run.id });
+    };
     (records || []).forEach(function (x) { if (!x) return; addPlan(x.evidence); addPlan(x.effect && x.effect.evidence); addPlan(x.application && x.application.effect && x.application.effect.evidence); });
     var problems = [], file = function (k) { return 'runs/' + k + '/run.json'; };
     var problemAt = function (k, path, kind, why) { if ((k == null || named[k]) && !problems.some(function (q) { return q.path === path && q.kind === kind; })) problems.push({ path: path, kind: kind, why: why }); };
@@ -2731,6 +2735,14 @@ PF.repo = (function () {
         var held = PF.detours.planHeld(ev, id);
         if (held.length) held.forEach(function (q) { problemAt(null, q.path, q.kind, q.why); });
         else if (!plans.some(function (p) { return p && p.id === id; })) problemAt(null, 'proposals/' + id + '.json', 'nofile', 'The evidence plan a to-do\'s done names isn\'t in the team folder, so what rests on it can\'t be checked.');
+        else {
+          /* Each plan/run pair a record names carries its start proof: the plan is for that run's checklist and a decision of
+             its started that run. A missing one is named at the plan: which run it started can't be shown. */
+          var p = plans.filter(function (x) { return x && x.id === id; })[0];
+          pairs.filter(function (e) { return e.plan === id; }).forEach(function (e) {
+            if (p.process !== e.process || (p._starts || []).indexOf(e.id) < 0) problemAt(null, 'proposals/' + id + '.json', 'nofile', 'No decision of the evidence plan ' + id + ' says it started ' + e.process + '/' + e.id + ', the run a to-do\'s done names, so what rests on it can\'t be checked.');
+          });
+        }
       });
       /* Every path a problem names is one the caller depends on. */
       problems.forEach(function (q) { if (ev.paths.indexOf(q.path) < 0) ev.paths.push(q.path); });
