@@ -19365,8 +19365,10 @@ PF.spreads = (function () {
     var N = C.noun || { one: 'item', many: 'items' }, word = function (k) { return k === 1 ? N.one : N.many; };
     C.row = C.text + ' · on ' + n.owed + ' ' + word(n.owed) + ' · ' + n.resolved + ' done' + (C.state === 'stopped' ? ' · stopped' : '');
     var parts = [];
-    var added = (n.by.open || 0) + n.resolved;
+    /* Added: the items' own additions (open or resolved there); one approved without a run was never added. */
+    var added = (n.by.open || 0) + (n.by.done || 0) + (n.by.wont || 0) + (n.by.moved || 0);
     if (added) parts.push(added + ' added');
+    if (n.by.excepted) parts.push(n.by.excepted + ' ' + STATE.excepted.toLowerCase());
     if (n.by.waiting) parts.push(n.by.waiting + ' waiting for approval');
     if (n.by.queued) parts.push(n.by.queued + ' waiting for ' + (n.by.queued === 1 ? 'its recorder' : 'recorders'));
     if (n.by.owed) parts.push(n.by.owed + ' not requested yet');

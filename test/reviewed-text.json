@@ -337,8 +337,8 @@
       "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
     },
     "src/core/spreads.js": {
-      "sha256": "b30669565a662c3f3d87614368bc3326281561f314491741e86e1e65c7bfb449",
-      "reviewed": "spread coverage expects what it depends on and one collector names each missing record; checked for direct writes and unconditional deletes"
+      "sha256": "06169e41bf4b38f1c112a91f45a7ad029108b5ad5cf980cb072e93e35cd9ab24",
+      "reviewed": "a spread's summary counts additions apart from approvals without a run; checked for direct writes and unconditional deletes"
     },
     "src/core/staging.js": {
       "sha256": "d01a3204178bd0b055c05524916f55774c4404cca10f86fbb10a2ca675bd6b07",

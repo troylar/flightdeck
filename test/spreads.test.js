@@ -844,4 +844,14 @@ rule('WA: an explicitly recorded removal still works: a removed item owes nothin
   const C = W.one();
   same([C.complete, C.items.filter(i => i.owed).map(i => i.key)], [true, ['ABC-102']]);
 });
+/* Review round 5 (WB): an item approved without a run was never added; the summary counts additions apart from exceptions. */
+rule('WB: an exception before any addition reads "1 approved without a run", never "1 added"', () => {
+  const W = world([101, 102]); W.kid(101); W.kid(102);
+  W.spreadAdd(); W.land(W.r);
+  loopChange(W, 'ex-wb', { op: 'exception', item: { key: 'ABC-101' }, reason: 'Docs only', approver: 'person-morgan' });
+  const C = W.one();
+  same(C.items.map(i => i.state), ['excepted', 'owed'], 'set-up');
+  assert.ok(!/added/.test(C.summary), C.summary);
+  assert.ok(/1 approved without a run/.test(C.summary), C.summary);
+});
 run();
