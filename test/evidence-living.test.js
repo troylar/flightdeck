@@ -556,6 +556,39 @@ rule('The export reads proposals/ and the runs its work depends on within the si
   const ctl = await W.PF.repo.exportEvidence(new BytesFS(W.files), { run: W.key }, { sink: () => {}, now: () => Date.now(), tz: 'UTC', maxFile: MAX });
   assert.strictEqual(ctl.status, 'complete', 'the control holds: ' + JSON.stringify(ctl.col.unresolved));
 });
+/* PE: the listings the export verifies are the ones its checked reads made (proposals/, each dependency run's folder, each
+   loop's child-process folder), listed again at the end: a request, a conflict copy or a child arriving meanwhile is never
+   missed by a pack that says it is complete. */
+rule('A request arriving after the checked read of proposals/ is never missing from a pack that says it is complete', async () => {
+  const W = await made({ todos: 1, end: false }), PF = W.PF, T = PF.todos, r0 = PF.run.sanitize(JSON.parse(W.files[W.runPath]));
+  const q = T.buildProposal({ run: { process: r0.process, id: r0.id }, producer: { name: 'notes-bot', version: '1.0' }, key: 'k-late1', seen: [], at: new Date().toISOString(), body: { op: 'add', text: 'Arrived late', target: { phase: 'review' }, placement: T.placementFor(PF.run.mapOf(r0), { phase: 'review' }) } });
+  const qp = 'proposals/' + q.id + '.json';
+  let n = 0;
+  const fsx = new BytesFS(W.files, { hooks: { list: (p, x) => { if (p === 'proposals' && ++n === 2) x.files.set(qp, Buffer.from(T.text(q))); } } });
+  const { zip, res } = await pack(PF, fsx, W.key);
+  assert.ok(n >= 2, 'set-up: proposals/ listed again');
+  const packed = manifestOf(zip).files.some((f) => f.path === qp);
+  assert.ok(packed || (res.status === 'partial' && res.col.unresolved.some((u) => /proposals/.test(u))), 'packed, or the pack is partial naming proposals/: ' + res.status + ' ' + JSON.stringify(res.col.unresolved));
+});
+rule('A conflict copy or a new child arriving beside a dependency during capture is seen: the pack never says complete without it', async () => {
+  const W = await loopMade(), dir = W.kidPath.replace(/run\.json$/, ''), late = dir + 'run.conflict-late.json';
+  let n = 0;
+  const fsx = new BytesFS(W.files, { hooks: { blob: (p, x) => { if (p === W.kidPath && !n++) x.files.set(late, Buffer.from(W.files[W.kidPath])); } } });
+  const { zip, res } = await pack(W.PF, fsx, W.key);
+  assert.ok(n >= 1, 'set-up: the copy arrived during capture');
+  const dep = (manifestOf(zip).runs[0].living.deps || []).filter((d) => d.key === W.kidKey)[0];
+  assert.strictEqual(res.status, 'partial', JSON.stringify(res.col.unresolved));
+  assert.ok(!dep || !dep.confirmed, 'the dependency isn\'t confirmed');
+  assert.ok(res.col.unresolved.some((u) => u.indexOf(W.kidKey) >= 0), 'named: ' + JSON.stringify(res.col.unresolved));
+  /* A new child of the loop, arriving after its process's folder was listed. */
+  const K = JSON.parse(W.files[W.kidPath]), kid2 = Object.assign({}, K, { id: 'late-kid1' }), kp2 = 'runs/' + K.process + '/late-kid1/run.json';
+  let m = 0;
+  const fsy = new BytesFS(W.files, { hooks: { blob: (p, x) => { if (p === W.kidPath && !m++) x.files.set(kp2, Buffer.from(JSON.stringify(kid2, null, 2))); } } });
+  const two = await pack(W.PF, fsy, W.key), L2 = manifestOf(two.zip).runs[0].living;
+  assert.ok(m >= 1, 'set-up: the child arrived during capture');
+  const named = (L2.deps || []).some((d) => d.key === K.process + '/late-kid1') || two.res.col.unresolved.some((u) => u.indexOf('late-kid1') >= 0 || u.indexOf('runs/' + K.process) >= 0);
+  assert.ok(named || two.res.status === 'partial', 'the new child is in the closure, or the pack is partial: ' + two.res.status + ' ' + JSON.stringify(two.res.col.unresolved));
+});
 /* PF: whether a run's work is verified is worked out from the packed originals, never from the manifest alone: a run.json that
    names a work head or a receipt, or a packed to-do record on the run, needs the manifest's living section. */
 rule('Python works out from the packed run.json whether its work is checked: the living section deleted with every record it rests on is refused', async () => {
