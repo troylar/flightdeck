@@ -354,5 +354,7 @@ def check_living(z, man):
 if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == "--verdicts":
         RV.batch(sys.argv[2])
+    elif len(sys.argv) == 3 and sys.argv[1] == "--coverage":
+        RV.coverage(sys.argv[2])
     else:
         main(sys.argv[1])

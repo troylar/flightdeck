@@ -4,9 +4,11 @@ unknown3, newer, longIds, the version's checklist, a test run's fields, the time
 comparison of the file with what sanitize keeps (U.drift, with the same allowances), the conflict copies beside it, and the
 version it ran. test/run-corpus.test.js holds it to the app on a generated corpus of every field mutated in every role.
 
-Not mirrored, and accepted as written when present (none is in a run the corpus or a fixture makes): a skill registration on
-a step (cleanSkill), a loop approval (PF.loop.cleanSnapshot), a to-do count on a step or gate (PF.todos.cleanCut), the Jira
-search fields (searchSites, searchGen, searchRec) and a migration list. The app's own date reading (V8's Date) accepts
+Every field the app's cleaner reads is read here too: a step's skill registration (cleanSkill), a loop approval
+(PF.loop.cleanSnapshot), the to-dos an approval counted (PF.todos.cleanCut), migration records (migrationOk), typed values
+in run details and in a step's evidence (invalidValues, by the step type's own record fields), the Jira search containers
+(searchRead) and the searches the reader reopens or rebuilds (reopenAtRead). The coverage rule of test/run-corpus.test.js
+fails on any place of a run file the app's cleaner reads and this doesn't. Times are read in the one form the app writes.
 """
 import json
 import math
@@ -50,7 +52,6 @@ RUN_STATES = {"running", "completed", "stopped", "cancelled"}
 OUTCOMES = {"Completed", "Stopped early", "Cancelled"}
 MARKS = {"blocked", "recheck", "na", "differently"}
 DETAIL_MAX, LOG_MAX, HISTORY_MAX = 120, 300, 10
-NOT_MIRRORED = {"step": ["skill", "loop", "todos"], "gate": ["todos"], "history": ["skill", "loop"], "run": ["searchSites", "searchGen", "searchRec", "migrations"]}
 ALLOW_ADDED = ["title", "state", "version", "rev", "shotsFrozen", "paused.reason", "recorder.handoff.rev"]
 ALLOW_DROPPED = ["steps.*.history[*].differently.by", "steps.*.history[*].differently.at", "paused"]
 _KNOWN = {
@@ -186,6 +187,908 @@ def cut(v, n, unit):
 
 
 # ---- What sanitize refuses before it reads a field ----
+
+# ---- A step's skill registration (R.cleanSkill, snapOk), a loop approval (PF.loop.cleanSnapshot) and the to-dos an approval
+# counted (PF.todos.cleanCut), each the cleaned copy or None. ----
+SKILL_ID = re.compile(r"^sk-[a-z0-9]{8}\Z", re.A)
+SHA64 = re.compile(r"^[0-9a-f]{64}\Z", re.A)
+REQ_ID = re.compile(r"^req-[A-Za-z0-9_.-]{1,120}\Z", re.A)
+TODO_REQ = re.compile(r"^req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24}\Z", re.A)
+TODO_DNAME = re.compile(r"^(req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})\.status-([a-z0-9][a-z0-9-]{0,39})-([0-9a-f]{8})\.json\Z", re.A)
+FP16 = re.compile(r"^[0-9a-f]{0,16}\Z", re.A)
+
+
+def txt(v, mx):
+    return isinstance(v, str) and CF.js_len(v) <= mx
+
+
+def snap_ok(n):
+    if not is_obj(n) or any(k not in ("name", "version", "implements", "steps", "location", "description") for k in keys(n)):
+        return False
+    if not txt(n.get("name", MISSING), 80) or not n["name"] or not txt(n.get("version", MISSING), 40):
+        return False
+    imp = n.get("implements", MISSING)
+    if imp is not MISSING and not (is_obj(imp) and all(k in ("process", "folder", "mapHash", "typesHash") and (imp[k] is None or txt(imp[k], 80)) for k in keys(imp))):
+        return False
+    st = n.get("steps", MISSING)
+    if st is not MISSING and not (isinstance(st, list) and len(st) <= 200 and all(txt(x, 60) for x in st)):
+        return False
+    if n.get("location", MISSING) is not MISSING and not txt(n["location"], 500):
+        return False
+    if n.get("description", MISSING) is not MISSING and not txt(n["description"], 300):
+        return False
+    return True
+
+
+def clean_skill(v):
+    if not js_object(v):
+        return None
+    sid, rev, sha = get(v, "id"), get(v, "rev"), get(v, "sha")
+    if not (isinstance(sid, str) and SKILL_ID.match(sid)) or not is_num(rev) or not math.isfinite(rev) or rev < 1 or rev > 999999 or math.floor(rev) != rev:
+        return None
+    if not (isinstance(sha, str) and SHA64.match(sha)):
+        return None
+    snap = get(v, "snapshot")
+    text = CF.js_json(snap) if snap_ok(snap) else ""
+    if not text or CF.js_len(text) > 2048:
+        return None
+    return {"id": sid, "rev": rev, "sha": sha, "snapshot": whole(snap)}
+
+
+def clean_snapshot(v):
+    if not is_obj(v) or not isinstance(v.get("by"), str) or not isinstance(v.get("at"), str) or not isinstance(v.get("summary"), str):
+        return None
+    if not isinstance(v.get("records"), list) or not isinstance(v.get("items"), list) or not is_obj(v.get("counts")):
+        return None
+    if len(v["records"]) > 5000 or not all(txt(x, 120) for x in v["records"]) or len(v["items"]) > 500:
+        return None
+    items = []
+    for it in v["items"]:
+        if not is_obj(it) or any(not txt(it.get(k, MISSING), 120) for k in ("uid", "key", "state", "status", "result", "run", "exception")):
+            return None
+        item = {k: it[k] for k in ("uid", "key", "state", "status", "result", "run", "exception")}
+        fp = it.get("fp", MISSING)
+        if isinstance(fp, str) and FP16.match(fp):
+            item["fp"] = fp
+        items.append(item)
+    ob = v.get("onBehalf", MISSING)
+    out = {"by": CF.js_slice(v["by"], 80), "at": CF.js_slice(v["at"], 40), "onBehalf": CF.js_slice(ob, 80) if isinstance(ob, str) else "",
+           "records": list(v["records"]), "summary": CF.js_slice(v["summary"], 300), "counts": whole(v["counts"]), "items": items}
+    rq = v.get("request", MISSING)
+    if isinstance(rq, str) and REQ_ID.match(rq):
+        out["request"] = rq
+    return out
+
+
+def clean_cut(v):
+    if not is_obj(v) or len(v) != 1 or not isinstance(v.get("cut"), list) or len(v["cut"]) > 5000:
+        return None
+    if not all(isinstance(x, str) and (TODO_REQ.match(x) or TODO_DNAME.match(x + ".json")) for x in v["cut"]):
+        return None
+    return {"cut": list(v["cut"])}
+
+
+# ---- Typed values (PF.values.parse and valid), for any definition: a run detail's or a step's evidence. ----
+VALUE_KINDS = ("text", "number", "yes-no", "choice", "date", "url", "link", "pattern")
+NEW_KINDS = ("number", "yes-no", "date")
+NUMBER_CANON = re.compile(r"^-?(0|[1-9][0-9]*)(\.[0-9]*[1-9])?\Z", re.A)
+
+
+def kind_of(d):
+    k = d.get("kind") if is_obj(d) else None
+    k = k if isinstance(k, str) and k in VALUE_KINDS else "text"
+    return "url" if k == "link" else k
+
+
+def is_number(v):
+    return isinstance(v, str) and CF.js_len(v) <= 30 and NUMBER_CANON.match(v) and v != "-0"
+
+
+def num_compare(a, b):
+    from decimal import Decimal
+    x, y = Decimal(a), Decimal(b)
+    return -1 if x < y else 1 if x > y else 0
+
+
+def utf16(v):
+    return v.encode("utf-16-be", "surrogatepass")
+
+
+def safe_url(u):
+    return isinstance(u, str) and re.match(r"^(https?://|mailto:)[^" + CF._JWS + "\"'<>]+\\Z", u, re.I) is not None
+
+
+def link_ok(t):
+    return re.match(r"^https?://[^" + CF._JWS + "]+\\Z", t, re.I) is not None and safe_url(t)
+
+
+def vparse(d, raw, mx=None):
+    """PF.values.parse(d, raw, { max }): (ok, canonical)."""
+    k = kind_of(d)
+    if k == "pattern":
+        t = "" if raw is None or raw is MISSING else js_string(raw)
+        if t == "":
+            return True, ""
+        pc = CF.compile_pattern(d.get("pattern"))
+        if not pc.get("ok") or CF.bad_text(t):
+            return False, ""
+        if mx and len(t) > mx:
+            return False, ""
+        return (True, t) if CF.match_pattern(pc, t)[0] else (False, "")
+    t = (raw if isinstance(raw, str) else js_string(raw) if is_num(raw) or isinstance(raw, bool) else "").strip(CF.VALUE_WS)
+    if not t:
+        return True, ""
+    out = t
+    if k == "number":
+        out = None if any(c in CF.VALUE_WS for c in t) else CF._to_number(t)
+        if out is None or CF.js_len(out) > 30:
+            return False, ""
+        if d.get("min") is not None and is_number(d.get("min")) and num_compare(out, d["min"]) < 0:
+            return False, ""
+        if d.get("max") is not None and is_number(d.get("max")) and num_compare(out, d["max"]) > 0:
+            return False, ""
+    elif k == "yes-no":
+        if t.lower() not in ("yes", "no"):
+            return False, ""
+        out = t.lower()
+    elif k == "date":
+        if not CF._is_date(t):
+            return False, ""
+    elif k == "choice":
+        opts = [o for o in d.get("options") if isinstance(o, str)] if isinstance(d.get("options"), list) else []
+        hit = [o for o in opts if o.lower() == t.lower()]
+        if len(hit) != 1:
+            return False, ""
+        out = hit[0]
+    elif k == "url":
+        if not link_ok(t):
+            return False, ""
+    if mx and CF.js_len(out) > mx:
+        return False, ""
+    return True, out
+
+
+def vvalid(d, stored):
+    if not isinstance(stored, str):
+        return False
+    if stored == "":
+        return True
+    ok, c = vparse(d, stored)
+    return ok and c == stored
+
+
+# ---- A step's evidence as the run has it (R.evidenceFor, PF.types.recordFields and checkRecord). ----
+BUILTIN_RECORD = json.loads(r"""{"confirm": [], "communicate": [{"name": "sent", "label": "Link to the message", "kind": "url"}], "meeting": [{"name": "outcome", "label": "Outcome", "kind": "text", "long": true}], "decide": [{"name": "decision", "label": "Decision", "kind": "choice", "optionsFrom": "options"}, {"name": "why", "label": "Why", "kind": "text", "long": true}], "review": [{"name": "verdict", "label": "Verdict", "kind": "choice", "options": ["Approved", "Approved with comments", "Changes needed"]}, {"name": "comments", "label": "Link to comments", "kind": "url"}], "wait": [{"name": "arrived", "label": "What arrived", "kind": "text", "long": true}], "ui.action": [{"name": "reference", "label": "Reference (ID or link)", "kind": "text"}], "jenkins.job": [{"name": "build", "label": "Build number", "kind": "text"}, {"name": "buildLink", "label": "Build link", "kind": "url"}], "bitbucket.pr": [{"name": "pr", "label": "Pull request link", "kind": "url"}, {"name": "mergeCommit", "label": "Merge commit", "kind": "text", "when": {"action": "merge"}}], "jira.issue": [{"name": "key", "label": "Issue key", "kind": "text", "when": {"action": "create"}}], "run.process": [], "run.command": [{"name": "result", "label": "What you saw", "kind": "text", "long": true}], "run.script": [{"name": "result", "label": "What you saw", "kind": "text", "long": true}], "run.skill": [{"name": "output", "label": "Link to the output", "kind": "url"}], "ci.gate": [{"name": "run", "label": "Run number", "kind": "text"}, {"name": "runLink", "label": "Run link", "kind": "url"}], "jira.sprint": [{"name": "sprintLink", "label": "Sprint link", "kind": "url"}, {"name": "name", "label": "Sprint name", "kind": "text", "when": {"action": "start"}}, {"name": "dates", "label": "Sprint dates", "kind": "text", "when": {"action": "start"}}, {"name": "carriedOver", "label": "Issues carried over", "kind": "text", "when": {"action": "close"}}, {"name": "moved", "label": "Issues moved", "kind": "text", "when": {"action": "move-incomplete"}}], "deploy": [{"name": "deployed", "label": "Version deployed", "kind": "text"}, {"name": "deployLink", "label": "Deploy link", "kind": "url"}, {"name": "finished", "label": "Finished at", "kind": "text"}], "verify.health": [{"name": "result", "label": "Result", "kind": "choice", "options": ["Pass", "Fail"]}, {"name": "observed", "label": "Value you saw", "kind": "text"}, {"name": "snapshot", "label": "Screenshot or link", "kind": "url"}], "github.pr": [{"name": "pr", "label": "Pull request link", "kind": "url"}, {"name": "checks", "label": "Checks", "kind": "choice", "options": ["Passing", "Failing", "Pending"]}, {"name": "mergeCommit", "label": "Merge commit", "kind": "text", "when": {"action": "merge"}}], "measure": [{"name": "value", "label": "Value", "kind": "text"}, {"name": "unit", "label": "Unit", "kind": "text"}], "jira.search": [{"name": "searchId", "label": "Search", "kind": "text", "system": true}, {"name": "count", "label": "Results found", "kind": "number", "min": "0"}, {"name": "keys", "label": "Issue keys", "kind": "text", "long": true, "notAt": {"count": "0"}}, {"name": "resultsLink", "label": "Results link", "kind": "url"}, {"name": "ranAt", "label": "When it ran", "kind": "text"}], "for.each": []}""")
+EVIDENCE = {"link": {"name": "evidence", "label": "Link to the evidence", "kind": "url", "required": True},
+            "note": {"name": "evidence", "label": "What you saw", "kind": "text", "long": True, "required": True},
+            "number": {"name": "evidence", "label": "The number you saw", "kind": "number", "required": True},
+            "yes-no": {"name": "evidence", "label": "Your answer", "kind": "yes-no", "required": True},
+            "date": {"name": "evidence", "label": "The date", "kind": "date", "required": True}}
+
+
+def str_or(v):
+    """String(v || '')."""
+    return js_string(v) if truthy(v) else ""
+
+
+def flist(v):
+    return [x for x in (CF.js_trim(p) for p in str_or(v).split(",")) if x]
+
+
+def fields_of(r, step):
+    f = dict(step["fields"])
+    own_f = r["fields"].get(step["id"]) if step.get("id") in r["fields"] else None
+    if own_f:
+        f.update(own_f)
+    return f
+
+
+def type_def(tid, frozen):
+    if is_obj(frozen) and tid in frozen and js_object(frozen[tid]):
+        return frozen[tid]
+    return {"id": tid, "record": BUILTIN_RECORD[tid]} if tid in BUILTIN_RECORD else None
+
+
+def matches(cond, fields):
+    return all(str_or(fields.get(k, MISSING)).lower() == cond[k] for k in keys(cond))
+
+
+def options(d, fields):
+    if truthy(d.get("optionsFrom", MISSING)):
+        return [x for x in (CF.js_trim(p) for p in str_or(fields.get(d["optionsFrom"], MISSING)).split(",")) if x]
+    return d.get("options") or []
+
+
+def record_fields(t, fields, extra):
+    req = flist(fields.get("require", MISSING))
+    al = "all" in req
+    out = []
+    for d in (get(t, "record") if truthy(t) and truthy(get(t, "record")) else []):
+        if truthy(get(d, "when")) and not matches(d["when"], fields):
+            continue
+        c = whole(d)
+        if truthy(get(d, "optionsFrom")):
+            c["options"] = options(d, fields)
+        c["required"] = (al and not truthy(get(d, "system"))) or get(d, "name") in req
+        out.append(c)
+    ev = EVIDENCE.get(str_or(fields.get("evidence", MISSING)).lower())
+    if ev:
+        out.append(dict(ev))
+    return out + [dict(x) for x in extra]
+
+
+def jira_required(workflows, issue_type, status):
+    ks = [k for k in keys(workflows) if k != "#file"]
+    if truthy(issue_type):
+        hit = [k for k in ks if k.lower() == CF.js_trim(js_string(issue_type)).lower()]
+        w = workflows[hit[0]] if hit else None
+    else:
+        w = workflows[ks[0]] if len(ks) == 1 else None
+    if w is None:
+        return []
+    seen, out = {}, []
+    for t in w["transitions"]:
+        if t["to"] != status:
+            continue
+        for f in t["fields"]:
+            k = f["name"].lower()
+            if k not in seen:
+                seen[k] = {"name": f["name"], "options": f.get("options")}
+                out.append(seen[k])
+    return out
+
+
+def slug(v, mx):
+    t = re.sub(r"[^a-z0-9]+", "-", v.lower()).strip("-") if False else re.sub(r"^-|-$", "", re.sub(r"[^a-z0-9]+", "-", v.lower()))
+    return CF.js_slice(t, mx) or "x"
+
+
+def evidence_for(r, step, mp):
+    t, f, extra = type_def(step["type"], r["types"]), fields_of(r, step), []
+    if step["type"] == "jira.issue" and str_or(f.get("action", MISSING)).lower() == "transition" and truthy(f.get("status", MISSING)) and truthy(r.get("jira")):
+        for j in jira_required(r["jira"], f.get("issueType"), f["status"]):
+            d = {"name": "jf-" + slug(j["name"], 20) + "-" + CF.text_hash(CF.js_trim(j["name"]).lower()), "label": j["name"], "kind": "choice" if j["options"] else "text", "required": True, "jira": True}
+            if j["options"]:
+                d["options"] = j["options"]
+            extra.append(d)
+    bound = []
+    typed = mp["detailTypes"]
+    for b in CF.sets_of(f.get("sets", "")):
+        if b["from"]:
+            if b["from"] == "decision":
+                bound.append(b["name"])
+            continue
+        d = b["name"]
+        e = {"name": "rd-" + slug(d, 20) + "-" + CF.text_hash(d), "label": d, "kind": "text", "required": True, "cap": DETAIL_MAX, "detail": d}
+        dt = typed.get(d) if d in typed else None
+        if dt:
+            e["kind"] = "url" if dt["kind"] == "link" else dt["kind"]
+            e["detailKind"] = dt["kind"]
+            if dt.get("options"):
+                e["options"] = list(dt["options"])
+            if dt["kind"] == "pattern":
+                e["pattern"] = dt["pattern"]
+        extra.append(e)
+    rec = record_fields(t, f, extra)
+    if bound:
+        for d in rec:
+            if d.get("name") == "decision" and not d.get("detail"):
+                d["detail"], d["required"] = bound[0], True
+    return t, f, extra, rec
+
+
+def check_record(t, fields, values, partial, rec):
+    """PF.types.checkRecord over rec (recordFields' list): (values, error)."""
+    out = {}
+    for d in rec:
+        name = get(d, "name")
+        raw = values.get(name) if isinstance(name, str) and name in values else None
+        v = CF.js_trim(js_string(raw)) if raw is not None else ""
+        na = get(d, "notAt")
+        if truthy(na) and is_obj(na) and all(k in out and out[k] == na[k] for k in keys(na)):
+            if v:
+                return None, "notAt"
+            continue
+        dk = get(d, "detailKind")
+        if (isinstance(get(d, "kind"), str) and d["kind"] in NEW_KINDS) or (truthy(dk) and dk != "text"):
+            ok, c = vparse(d, "" if raw is None else raw, get(d, "cap") if truthy(get(d, "cap")) else 300)
+            if not ok:
+                return None, "value"
+            if not c:
+                if get(d, "required") and not partial:
+                    return None, "required"
+                continue
+            out[name] = c
+            continue
+        cap = get(d, "cap") if truthy(get(d, "cap")) else 300
+        if CF.js_len(v) > cap:
+            return None, "long"
+        if not v:
+            if get(d, "required") and not partial:
+                return None, "required"
+            continue
+        if get(d, "kind") == "url" and not re.match(r"^https?://[^" + CF._JWS + r"]+\Z", v, re.I):
+            return None, "url"
+        if get(d, "kind") == "choice":
+            hit = [o for o in options(d, fields) if js_string(o).lower() == v.lower()]
+            if not hit:
+                return None, "choice"
+            out[name] = hit[0]
+            continue
+        out[name] = v
+    return out, ""
+
+
+def detail_value_def(mp, name):
+    d = mp["detailTypes"].get(name) if name in mp["detailTypes"] else None
+    if not d:
+        return None
+    v = {"kind": d["kind"], "label": name, "options": d.get("options")}
+    if d["kind"] == "pattern":
+        v["pattern"] = d["pattern"]
+    return v
+
+
+def find_step(mp, sid):
+    for st in mp["steps"]:
+        if st.get("id") == sid:
+            return st
+    return None
+
+
+def typed_def(r, mp, path):
+    m = re.match(r"^details\.(.+)\Z", path, re.S)
+    if m:
+        return detail_value_def(mp, m.group(1))
+    m = re.match(r"^steps\.([^.]+)\.values\.(.+)\Z", path, re.S)
+    st = find_step(mp, m.group(1)) if m else None
+    if not st:
+        return None
+    d = [e for e in evidence_for(r, st, mp)[3] if get(e, "name") == m.group(2)]
+    d = d[0] if d else None
+    if d and ((isinstance(d.get("kind"), str) and d["kind"] in NEW_KINDS) or (truthy(d.get("detailKind", MISSING)) and d["detailKind"] != "text")):
+        return d
+    return None
+
+
+def invalid_values(r, mp):
+    """R.invalidValues: every typed value (a run detail or a step's evidence) that isn't exactly canonical, by path."""
+    out = []
+    for k, v in r["details"].items():
+        d = detail_value_def(mp, k)
+        if d and v and not vvalid(d, v):
+            out.append("details." + k)
+    for sid, a in r["steps"].items():
+        for n, v in (a.get("values") or {}).items():
+            path = "steps." + sid + ".values." + n
+            d = typed_def(r, mp, path) if v else None
+            if d and not vvalid(d, v):
+                out.append(path)
+    return out
+
+
+# ---- Migration records (R.migrationsOk, migrationOk). ----
+MIG_KEYS = ["path", "at", "from", "source", "verdict", "result", "resolved"]
+MIG_SOURCES = ("plan", "switch", "carry", "request", "report")
+
+
+def migration_ok(m, mp, r):
+    if not is_obj(m) or keys(m) != MIG_KEYS:
+        return False
+    if not txt(m["path"], 300) or not iso(m["at"]) or not txt(m["from"], 300) or not (isinstance(m["source"], str) and m["source"] in MIG_SOURCES):
+        return False
+    if not (isinstance(m["verdict"], str) and m["verdict"] in ("converted", "ambiguous", "invalid")):
+        return False
+    d = typed_def(r, mp, m["path"])
+    if not d:
+        return False
+    if not (isinstance(m["result"], str) and vvalid(d, m["result"])) if m["verdict"] == "converted" else m["result"] is not None:
+        return False
+    z = m["resolved"]
+    if z is None:
+        return True
+    return is_obj(z) and keys(z) == ["by", "at", "value"] and txt(z["by"], 80) and bool(iso(z["at"])) and isinstance(z["value"], str) and vvalid(d, z["value"])
+
+
+def migrations_ok(o, mp, r):
+    lst = o.get("migrations", MISSING)
+    if lst is MISSING or lst is None:
+        return True
+    return isinstance(lst, list) and len(lst) <= 200 and all(migration_ok(m, mp, r) for m in lst)
+
+
+def open_migrations(r):
+    return [m for m in (r.get("migrations") if isinstance(r.get("migrations"), list) else []) if truthy(m) and is_obj(m) and m.get("verdict") in ("ambiguous", "invalid") and "resolved" in m and m["resolved"] is None]
+
+
+# ---- Conditions (R.applies, PF.conditions.evaluate). ----
+def evaluate(test, stored, d, opened):
+    if opened:
+        return None
+    v, kind = stored if isinstance(stored, str) else "", kind_of(d)
+    if kind != "text" and v != "" and not vvalid(d, v):
+        return None
+    op = test["op"]
+    if op == "set":
+        return v != ""
+    if op == "notset":
+        return v == ""
+    if v == "":
+        return op == "isnot"
+    same = (lambda x: num_compare(v, x) == 0) if kind == "number" else (lambda x: v == x)
+    c = num_compare(v, test["values"][0]) if kind == "number" else (-1 if utf16(v) < utf16(test["values"][0]) else 1 if utf16(v) > utf16(test["values"][0]) else 0)
+    if op == "is":
+        return same(test["values"][0])
+    if op == "isnot":
+        return not same(test["values"][0])
+    if op == "oneof":
+        return any(same(x) for x in test["values"])
+    if op == "atleast":
+        return c >= 0
+    if op == "atmost":
+        return c <= 0
+    return None
+
+
+def applies(r, mp, step):
+    p = mp["phases"][step["phase"]] if 0 <= step.get("phase", -1) < len(mp["phases"]) else None
+    if not p:
+        return True
+    tests = (p.get("when") or []) + (step.get("when") or [])
+    if not tests:
+        return True
+    vs = []
+    for w in tests:
+        d = detail_value_def(mp, w["name"]) or {"kind": "text", "label": w["name"]}
+        v = r["details"].get(w["name"], "") if w["name"] in r["details"] else ""
+        opened = any(m.get("path") == "details." + w["name"] for m in open_migrations(r))
+        vs.append(evaluate(w, v if isinstance(v, str) else "", d, opened))
+    if any(x is False for x in vs):
+        return False
+    return None if any(x is not True for x in vs) else True
+
+
+# ---- Jira searches (PF.jsearch and the run's search reader, 2.16 section 5). ----
+GEN = re.compile(r"^[1-9][0-9]{0,8}-[0-9a-f]{8}\Z", re.A)
+ISSUE_KEY = re.compile(r"^[A-Z][A-Z0-9_]{0,19}-[1-9][0-9]{0,9}\Z", re.A)
+SEARCH_FIELDS = ["searchId", "count", "keys", "resultsLink", "ranAt"]
+SEARCH_PREFIX = "Reopened when read: "
+JS_PROTO = {"constructor", "__proto__", "toString", "toLocaleString", "valueOf", "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable",
+            "__defineGetter__", "__defineSetter__", "__lookupGetter__", "__lookupSetter__"}
+_WS = "[" + CF._JWS + "]"
+
+
+def gen_ok(v):
+    return isinstance(v, str) and GEN.match(v) is not None
+
+
+def jlex(q):
+    """PF.jsearch.lex with each token's offsets."""
+    out, i = [], 0
+    while i < len(q):
+        c = q[i]
+        if re.match(_WS, c):
+            i += 1
+            continue
+        if c in "\"'":
+            j, v = i + 1, ""
+            while j < len(q) and q[j] != c:
+                if q[j] == "\\":
+                    if j + 1 >= len(q):
+                        return None
+                    v += q[j + 1]
+                    j += 2
+                else:
+                    v += q[j]
+                    j += 1
+            if j >= len(q):
+                return None
+            out.append({"t": "str", "v": v, "s": i, "e": j + 1})
+            i = j + 1
+            continue
+        two = q[i:i + 2]
+        if two in ("!=", "!~", "<=", ">="):
+            out.append({"t": "op", "v": two, "s": i, "e": i + 2})
+            i += 2
+            continue
+        if c in "=~<>":
+            out.append({"t": "op", "v": c, "s": i, "e": i + 1})
+            i += 1
+            continue
+        if c in "(),":
+            out.append({"t": {"(": "lp", ")": "rp", ",": "comma"}[c], "v": None, "s": i, "e": i + 1})
+            i += 1
+            continue
+        if c == "!":
+            return None
+        k = i
+        while k < len(q) and not re.match("[" + CF._JWS + "\"'()=,~<>!]", q[k]):
+            k += 1
+        w = q[i:k]
+        m = re.match(r"^\^([A-Za-z0-9_-]+)\Z", w)
+        out.append({"t": "ph", "v": m.group(1), "s": i, "e": k} if m else {"t": "word", "v": w, "s": i, "e": k})
+        i = k
+    return out
+
+
+def placeholders(q, context):
+    """PF.jsearch.placeholders: (errors, tokens with slot marked, uses)."""
+    toks = jlex(q)
+    if toks is None:
+        return ["lex"], [], []
+    errors, uses, stack = [], [], []
+    kw = lambda t: t["v"].upper() if t and t["t"] == "word" else None  # noqa: E731
+    at = lambda k: toks[k] if 0 <= k < len(toks) else None  # noqa: E731
+    for k, tk in enumerate(toks):
+        if tk["t"] == "lp":
+            p = at(k - 1)
+            kind = "group"
+            if p and p["t"] == "word" and kw(p) not in ("IN", "AND", "OR", "NOT"):
+                kind = "function"
+            elif p and p["t"] == "word" and kw(p) == "IN":
+                kind = "list"
+            stack.append(kind)
+            continue
+        if tk["t"] == "rp":
+            if stack:
+                stack.pop()
+            continue
+        if tk["t"] == "str":
+            if any(m.group(1) in context for m in re.finditer(r"\^([A-Za-z0-9_-]+)", tk["v"])):
+                errors.append("quoted")
+            continue
+        if tk["t"] == "word" and re.search(r"\^[A-Za-z0-9_-]", tk["v"]):
+            errors.append("joined")
+            continue
+        if tk["t"] != "ph":
+            continue
+        if tk["v"] not in context:
+            errors.append("unknown")
+            continue
+        top = stack[-1] if stack else "top"
+        p1, p2, n = at(k - 1), at(k - 2), at(k + 1)
+        ok = False
+        if "function" in stack or (p1 and p1["t"] == "op" and p1["v"] in ("~", "!~")):
+            ok = False
+        elif p1 and p1["t"] == "op" and p1["v"] in CF.SCALAR_OPS:
+            ok = True
+        elif p1 and p1["t"] == "word" and (kw(p1) == "IS" or (kw(p1) == "NOT" and p2 and p2["t"] == "word" and kw(p2) == "IS")):
+            ok = False
+        elif top == "list" and p1 and p1["t"] in ("lp", "comma"):
+            ok = True
+        if ok and not (not n or n["t"] == "rp" or (n["t"] == "comma" and top == "list") or (n["t"] == "word" and kw(n) in ("AND", "OR", "ORDER"))):
+            ok = False
+        if ok:
+            tk["slot"] = True
+            uses.append(tk["v"])
+        else:
+            errors.append("place")
+    return errors, toks, [x for i, x in enumerate(uses) if x not in uses[:i]]
+
+
+def search_uses(f, context):
+    q = f.get("query")
+    return placeholders(js_string(q), context)[2] if q is not None and CF.js_trim(js_string(q)) else []
+
+
+def substitute(query, details, context):
+    errs, toks, _ = placeholders(query, context)
+    if errs:
+        return {"ok": False, "missing": []}
+    missing, refused, occ, out, at = [], [], [], "", 0
+    for tk in toks:
+        if tk["t"] != "ph" or not tk.get("slot"):
+            continue
+        v = details.get(tk["v"]) if tk["v"] in details else ""
+        v = "" if v is None else js_string(v)
+        if not v:
+            missing.append(tk["v"])
+            continue
+        if CF.bad_text(v) or len(v) > 300:
+            refused.append(tk["v"])
+            continue
+        out += query[at:tk["s"]]
+        lit = '"' + v.replace("\\", "\\\\").replace('"', '\\"') + '"'
+        occ.append({"name": tk["v"], "value": v, "s": len(out), "e": len(out) + len(lit)})
+        out += lit
+        at = tk["e"]
+    if missing or refused:
+        return {"ok": False, "missing": missing}
+    out += query[at:]
+    used = {}
+    for o in occ:
+        used[o["name"]] = o["value"]
+    return {"ok": True, "jql": out, "occ": occ, "used": used, "template": toks}
+
+
+def contained(template, sub):
+    out = jlex(sub["jql"])
+    if out is None:
+        return False
+    want = ["str" if t["t"] == "ph" and t.get("slot") else t["t"] for t in template]
+    if len(out) != len(want) or any(out[k]["t"] != want[k] for k in range(len(out))):
+        return False
+    for o in sub["occ"]:
+        tk = [t for t in out if t["s"] == o["s"]]
+        if not tk or tk[0]["t"] != "str" or tk[0]["e"] != o["e"] or tk[0]["v"] != o["value"]:
+            return False
+    return True
+
+
+def check_base(v):
+    """PF.jsearch.checkBase: the canonical https://host[:port][/path], or None."""
+    if not isinstance(v, str):
+        return None
+    if v != CF.js_trim(v) or CF.bad_text(v) or re.search(_WS, v):
+        return None
+    if not re.match(r"^https://", v, re.I) or re.search(r"[\\@?#%\"'<>`{}|^]", v[8:]):
+        return None
+    m = re.match(r"^https://([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*)(?::([1-9][0-9]{0,4}))?((?:/[A-Za-z0-9._~-]+)*)/?\Z", v, re.I | re.A)
+    if not m or (m.group(2) and int(m.group(2)) > 65535):
+        return None
+    if any(x in (".", "..") for x in (m.group(3) or "").split("/")):
+        return None
+    host = m.group(1).lower()
+    base = "https://" + host + (":" + m.group(2) if m.group(2) else "") + (m.group(3) or "")
+    # The WHATWG URL parser: a host whose last label is a number is an IPv4 address (canonical, or refused); 443 is dropped.
+    labels = host.split(".")
+    if re.fullmatch(r"[0-9]+|0x[0-9a-f]*", labels[-1]):
+        nums = []
+        for x in labels:
+            if re.fullmatch(r"0x[0-9a-f]*", x):
+                nums.append(int(x[2:] or "0", 16))
+            elif re.fullmatch(r"0[0-7]+", x):
+                nums.append(int(x, 8))
+            elif re.fullmatch(r"[0-9]+", x):
+                nums.append(int(x))
+            else:
+                return None
+        if len(nums) > 4 or any(n > 255 for n in nums[:-1]) or nums[-1] >= 256 ** (5 - len(nums)):
+            return None
+        n = nums[-1]
+        for i, x in enumerate(nums[:-1]):
+            n += x * 256 ** (3 - i)
+        host = ".".join(str((n >> s) & 255) for s in (24, 16, 8, 0))
+    canon = "https://" + host + (":" + m.group(2) if m.group(2) and m.group(2) != "443" else "") + (m.group(3) or "")
+    return base if canon == base else None
+
+
+def site_name(f):
+    v = CF.js_trim(js_string(f["site"]) if f.get("site") is not None else "team:jira-base-url")
+    m = re.match(r"^team:([a-z0-9][a-z0-9-]{0,39})\Z", v)
+    return m.group(1) if m else None
+
+
+def search_state(r, mp, step):
+    """R.searchState: (ok, id, damaged, why)."""
+    f, ctx = step["fields"], mp["context"]
+    rule, _ = CF.parse_results(f.get("results"))
+    n = site_name(f)
+    sites = r.get("searchSites") or {}
+    e = sites.get(n) if n and n in sites else None
+    base = e["base"] if is_obj(e) and isinstance(e.get("base"), str) else ""
+    q = f.get("query") is not None and CF.js_trim(js_string(f["query"]))
+    flt = CF.js_trim(js_string(f["filter"])) if not q and f.get("filter") is not None and CF.js_trim(js_string(f["filter"])) else ""
+    uses = search_uses(f, ctx)
+    for d in uses:
+        dd, v = detail_value_def(mp, d), r["details"].get(d)
+        if dd and v and not vvalid(dd, v):
+            return {"ok": False, "why": "invalid"}
+    sub = None
+    if not flt:
+        sub = substitute(js_string(f.get("query") or ""), r["details"], ctx)
+        if not sub["ok"]:
+            return {"ok": False, "waiting": bool(sub["missing"]), "why": "sub"}
+        if not contained(sub["template"], sub):
+            return {"ok": False, "why": "contained"}
+    if [d for d in CF.set_names(f.get("sets", "")) if d in uses]:
+        return {"ok": False, "why": "sets"}
+    gens, recs = r.get("searchGen") or {}, r.get("searchRec")
+    rec = recs.get(step["id"]) if recs else None
+    if not gen_ok(rec):
+        return {"ok": False, "damaged": True}
+    if flt:
+        idn = ["flightdeck-search/3", base, "filter", flt, [], rec]
+    else:
+        names = sorted(sub["used"], key=utf16)
+        if any(nm not in gens or not gen_ok(gens[nm]) for nm in names):
+            return {"ok": False, "damaged": True}
+        idn = ["flightdeck-search/3", base, "jql", sub["jql"], [[nm, sub["used"][nm], gens[nm]] for nm in names], rec]
+    import hashlib
+    fp = "sha256:" + hashlib.sha256(CF.js_json(idn).encode("utf-8", "surrogatepass")).hexdigest()
+    return {"ok": True, "id": fp, "rule": rule}
+
+
+def ms_of(t):
+    """Date.parse for the times realTime accepts, or None."""
+    m = re.match(r"^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2})(?::([0-9]{2})(?:\.([0-9]{1,3}))?)?(Z|([+-])([0-9]{2}):([0-9]{2}))\Z", t)
+    if not m:
+        return None
+    import datetime
+    y, mo, d, h, mi = (int(x) for x in m.group(1, 2, 3, 4, 5))
+    sec, frac = int(m.group(6) or 0), int((m.group(7) or "0").ljust(3, "0"))
+    if y < 100:
+        return "bad"
+    try:
+        day = datetime.datetime(y, mo, d, tzinfo=datetime.timezone.utc)
+    except ValueError:
+        return "bad"
+    if h > 23 or mi > 59 or sec > 59 or (m.group(9) and (int(m.group(10)) > 14 or int(m.group(11)) > 59)):
+        return "bad"
+    off = 0 if m.group(8) == "Z" else (1 if m.group(9) == "+" else -1) * (int(m.group(10)) * 60 + int(m.group(11)))
+    return int(day.timestamp() * 1000) + ((h * 60 + mi - off) * 60 + sec) * 1000 + frac
+
+
+def search_evidence(rule, v, cur, now):
+    """PF.jsearch.checkEvidence: (values, meets) or None (an error)."""
+    def st(k):
+        return CF.js_trim(js_string(v[k])) if k in v and v[k] is not None else ""
+    out = {}
+    if not cur or st("searchId") != cur:
+        return None
+    out["searchId"] = st("searchId")
+    c = st("count")
+    if not c or not re.match(r"^\+?[0-9]{1,7}\Z", c, re.A) or int(c) > 1000000:
+        return None
+    out["count"] = str(int(c))
+    k = st("keys")
+    if k and out["count"] == "0":
+        return None
+    if k:
+        m = re.match(r"^(.*?)(?:" + _WS + r"*\+" + _WS + r"*([0-9]{1,7}) more)?\Z", k, re.I | re.S)
+        parts = [x.upper() for x in re.split("[" + CF._JWS + ",]+", m.group(1)) if x]
+        if [x for x in parts if not ISSUE_KEY.match(x)]:
+            return None
+        uniq = [x for i, x in enumerate(parts) if x not in parts[:i]]
+        more = int(m.group(2)) if m.group(2) else 0
+        if not uniq:
+            return None
+        text = ", ".join(uniq) + (" +%d more" % more if more else "")
+        if CF.js_len(text) > 300 or len(uniq) + more != int(out["count"]):
+            return None
+        out["keys"] = text
+    ln = st("resultsLink")
+    if ln:
+        if CF.js_len(ln) > 300 or not re.match(r"^https?://[^" + CF._JWS + r"]+\Z", ln, re.I) or not safe_url(ln):
+            return None
+        out["resultsLink"] = ln
+    t = st("ranAt")
+    if t:
+        ms = ms_of(t)
+        if ms is None or ms == "bad" or ms > now + 300000:
+            return None
+        out["ranAt"] = t
+    n = int(out["count"])
+    ok = True if rule["op"] == "any" else n == rule["n"] if rule["op"] == "eq" else n >= rule["n"] if rule["op"] == "ge" else n <= rule["n"]
+    if not ok and n > 0 and "keys" not in out:
+        return None
+    return out, ok
+
+
+def search_stands(r, mp, step, a):
+    """R.searchStands: '' when a stored done search still counts as read, else why not."""
+    stt = search_state(r, mp, step)
+    if not stt["ok"]:
+        return "state"
+    v = a.get("values") or {}
+    if v.get("searchId") != stt["id"]:
+        return "id"
+    if stt["rule"] is None:
+        return "rule"
+    when = a.get("at") or r.get("savedAt")
+    now = ms_of(when) if isinstance(when, str) else None
+    if not isinstance(now, int):
+        import time
+        now = int(time.time() * 1000)
+    t, f, extra, rec = evidence_for(r, step, mp)
+    vals, err = check_record(t, f, v, False, rec)
+    if err:
+        return "record"
+    have = any(k != "searchId" and k in v and v[k] is not None and CF.js_trim(js_string(v[k])) != "" for k in SEARCH_FIELDS)
+    if have and not v.get("searchId"):
+        return "record"
+    names = [get(d, "name") for d in rec]
+    if [k for k in v if k not in names and v[k] is not None and js_string(v[k]) != ""]:
+        return "extra"
+    sc = search_evidence(stt["rule"], v, stt["id"], now)
+    if sc is None:
+        return "evidence"
+    canon, meets = sc
+    if not meets:
+        return "rule"
+    same = all(("" if v.get(k) is None else js_string(v[k])) == ("" if canon.get(k) is None else canon[k]) for k in SEARCH_FIELDS)
+    return "" if same else "form"
+
+
+def clean_sites(o):
+    sites, bad = {}, []
+    if o is MISSING or o is None:
+        return sites, ([] if o is MISSING else ["searchSites"])
+    if not is_obj(o):
+        return sites, ["searchSites"]
+    for k in keys(o)[:20]:
+        v = o[k]
+        ok = re.match(r"^[a-z0-9][a-z0-9-]{0,39}\Z", k) and k not in JS_PROTO and is_obj(v)
+        ks = " ".join(keys(v)) if ok else ""
+        if ok and ks == "base" and isinstance(v["base"], str) and CF.js_len(v["base"]) <= 120 and check_base(v["base"]) == v["base"]:
+            sites[k] = {"base": v["base"]}
+        elif ok and ks == "missing" and v["missing"] is True:
+            sites[k] = {"missing": True}
+        elif ok and ks == "invalid" and isinstance(v["invalid"], str) and CF.js_len(v["invalid"]) <= 200:
+            sites[k] = {"invalid": v["invalid"]}
+        else:
+            bad.append("searchSites." + k)
+    if len(o) > 20:
+        bad.append("searchSites")
+    return sites, bad
+
+
+def clean_gens(o, names, what, most):
+    out, bad = {}, []
+    if o is MISSING:
+        return out, [what]
+    if not truthy(o) or not is_obj(o):
+        return out, [what]
+    for k in keys(o):
+        if k not in names or k in JS_PROTO:
+            bad.append(what + "." + k)
+        elif gen_ok(o[k]):
+            out[k] = o[k]
+        else:
+            bad.append(what + "." + k)
+    bad.extend(what + "." + n for n in names if n not in o)
+    if len(out) > most:
+        bad.append(what)
+    return out, bad
+
+
+def search_in(o):
+    return isinstance(o.get("snapshot"), str) and "{jira.search}" in o["snapshot"]
+
+
+def search_steps(mp):
+    return [st for st in mp["steps"] if st["type"] == "jira.search"]
+
+
+def search_read(o):
+    """R.searchRead: (the containers as the reader keeps them, what it dropped or damaged), or None."""
+    try:
+        mp = CF.parse_map(o["snapshot"])
+    except Exception:  # noqa: BLE001 - a checklist that can't be read has no searches here
+        return None
+    ids = [st["id"] for st in search_steps(mp)]
+    a, ab = clean_sites(o.get("searchSites", MISSING))
+    g, gb = clean_gens(o.get("searchGen", MISSING), mp["context"], "searchGen", 40)
+    c, cb = clean_gens(o.get("searchRec", MISSING), ids, "searchRec", 200)
+    return {"searchSites": a, "searchGen": g, "searchRec": c}, ab + gb + cb
+
+
+def reopen_at_read(r):
+    """R.reopenAtRead, as far as a verdict needs it: the places it would rebuild or reopen (each a repair), [] when none."""
+    try:
+        mp = CF.parse_map(r["snapshot"])
+    except Exception:  # noqa: BLE001
+        return []
+    ss = search_steps(mp)
+    if not ss:
+        return []
+    out = []
+    if r["state"] == "completed":
+        g, rc = r.get("searchGen"), r.get("searchRec")
+        if any(any(d in search_uses(x["fields"], mp["context"]) for x in ss) and not (g and gen_ok(g.get(d))) for d in mp["context"]) or any(not (rc and gen_ok(rc.get(x["id"]))) for x in ss):
+            out.append("searchRec")
+    for x in ss:
+        a = r["steps"].get(x["id"])
+        if not a or applies(r, mp, x) is False:
+            continue
+        if a["s"] == "done" and search_stands(r, mp, x, a):
+            out.append("steps." + x["id"])
+        elif a["s"] == "open" and isinstance(a.get("reason"), str) and a["reason"].startswith(SEARCH_PREFIX):
+            h = (a.get("history") or [None])[-1]
+            if h and h["s"] == "done" and search_stands(r, mp, x, h):
+                out.append("steps." + x["id"] + ".reopened")
+    return out
+
 def valid(o):
     return (is_obj(o) and o.get("format") in (FORMAT, FORMAT3) and isinstance(o.get("id"), str) and bool(RUN_ID.match(o["id"]))
             and isinstance(o.get("snapshot"), str) and truthy(o.get("steps", MISSING)) and truthy(o.get("gates", MISSING)) and truthy(o.get("recorder", MISSING)))
@@ -404,7 +1307,11 @@ def newer(o):
                 why[0] = "answer"
             if three:
                 look(a.get("skill"), "skillSeen", "Step")
-            if three and not why[0] and "todos" in a and "living" not in o:
+                if not why[0] and "skill" in a and clean_skill(a["skill"]) is None:
+                    why[0] = "skill"
+            if three and not why[0] and "loop" in a and clean_snapshot(a["loop"]) is None:
+                why[0] = "loop"
+            if three and not why[0] and "todos" in a and not ("living" in o and clean_cut(a["todos"]) is not None):
                 why[0] = "todos"
             text(a.get("values"), "Step evidence", 300)
             if is_obj(ch):
@@ -414,6 +1321,8 @@ def newer(o):
                     look(h, "history3" if three else "history", "Step history")
                     if three and is_obj(h):
                         look(h.get("skill"), "skillSeen", "Step history")
+                        if not why[0] and "skill" in h and clean_skill(h["skill"]) is None:
+                            why[0] = "history skill"
                     if is_obj(h) and h.get("s", MISSING) != "corrected":
                         state(STEP_STATES, h.get("s", MISSING), "Step history")
                     if is_obj(h):
@@ -427,7 +1336,7 @@ def newer(o):
                 continue
             look(gt, "gate3" if three else "gate", "Gate")
             state(GATE_STATES, gt.get("s", MISSING), "Gate")
-            if three and not why[0] and "todos" in gt and "living" not in o:
+            if three and not why[0] and "todos" in gt and not ("living" in o and clean_cut(gt["todos"]) is not None):
                 why[0] = "gate todos"
             state(GATE_STATES, gt.get("was", MISSING), "Gate")
             text(gt.get("approved"), "Gate approval", DETAIL_MAX, unit)
@@ -658,10 +1567,12 @@ def sanitize(o):
             if three and uses(o, "module-results") and isinstance(get(ch, "answer"), str):
                 cc["answer"] = CF.js_slice(ch["answer"], 81)
             c["child"] = cc
-        if three:
-            for f in NOT_MIRRORED["step"]:
-                if truthy(a.get(f, MISSING)):
-                    c[f] = a[f]
+        if three and truthy(a.get("skill", MISSING)) and clean_skill(a["skill"]) is not None:
+            c["skill"] = clean_skill(a["skill"])
+        if three and truthy(a.get("loop", MISSING)) and clean_snapshot(a["loop"]) is not None:
+            c["loop"] = clean_snapshot(a["loop"])
+        if three and truthy(a.get("todos", MISSING)) and clean_cut(a["todos"]) is not None:
+            c["todos"] = clean_cut(a["todos"])
         if isinstance(a.get("history"), list):
             hist = []
             for h in a["history"][-HISTORY_MAX:]:
@@ -677,10 +1588,10 @@ def sanitize(o):
                     x["values"] = values(get(h, "values"))
                 if truthy(get(h, "fields")):
                     x["fields"] = values(get(h, "fields"))
-                if three:
-                    for f in NOT_MIRRORED["history"]:
-                        if truthy(get(h, f)):
-                            x[f] = get(h, f)
+                if three and truthy(get(h, "skill")) and clean_skill(get(h, "skill")) is not None:
+                    x["skill"] = clean_skill(get(h, "skill"))
+                if three and truthy(get(h, "loop")) and clean_snapshot(get(h, "loop")) is not None:
+                    x["loop"] = clean_snapshot(get(h, "loop"))
                 hist.append(x)
             c["history"] = hist
         r["steps"][k] = c
@@ -698,8 +1609,8 @@ def sanitize(o):
         for f in keys(ap if truthy(ap) else {}):
             v = get(ap, f)
             c["approved"][f] = cut(v, DETAIL_MAX, unit) if isinstance(v, str) else ""
-        if three and truthy(gt.get("todos", MISSING)):
-            c["todos"] = gt["todos"]
+        if three and truthy(gt.get("todos", MISSING)) and clean_cut(gt["todos"]) is not None:
+            c["todos"] = clean_cut(gt["todos"])
         r["gates"][k] = c
     for x in (o["log"][-LOG_MAX:] if isinstance(o.get("log"), list) else []):
         if truthy(x) and iso(get(x, "at")):
@@ -724,18 +1635,32 @@ def sanitize(o):
             r["app"] = CF.js_slice(o["app"], 40)
         r["typesHash"] = s(o.get("typesHash"), 16)
         if o.get("payload") is not None and "payload" in o:
-            r["payload"] = json.loads(json.dumps(o["payload"]))
+            r["payload"] = whole(o["payload"])
         pins = o.get("pins", MISSING)
         if truthy(pins) and truthy(get(pins, "children")) and keys(get(pins, "children")):
-            r["pins"] = {"children": json.loads(json.dumps(pins["children"]))}
+            r["pins"] = {"children": whole(pins["children"])}
         if isinstance(o.get("migrations"), list):
-            r["migrations"] = json.loads(json.dumps(o["migrations"]))
-        for f in NOT_MIRRORED["run"]:
-            if f in o and f != "migrations":
-                r[f] = o[f]
+            r["migrations"] = whole(o["migrations"])
         lv = o.get("living", MISSING)
         if lv is not MISSING and clean_living(lv):
             r["living"] = clean_living(lv)
+        # Jira searches (2.16): the containers read into fresh objects with only valid entries (section 5.6).
+        if search_in(o):
+            sc = search_read(o)
+            if sc:
+                r.update(sc[0])
+        # Typed values against the run's own checklist; migration records not in their frozen shape make it name-only.
+        tmap = None
+        if r["snapshot"] and not why:
+            try:
+                tmap = CF.parse_map(r["snapshot"])
+            except Exception:  # noqa: BLE001 - a checklist the reader can't parse has no typed values here
+                tmap = None
+        if tmap and not migrations_ok(o, tmap, r):
+            return name_only(o)
+        if not tmap and isinstance(o.get("migrations"), list) and o["migrations"]:
+            return name_only(o)
+        r["_invalid"] = invalid_values(r, tmap) if tmap else []
         tp = test_problem(o)
         if tp:
             why = why or "test"
@@ -743,6 +1668,11 @@ def sanitize(o):
             r["test"] = True
             r["stage"] = {"folder": get(o.get("stage"), "folder")}
     r["_unrunnable"] = why
+    if three and not why and r["snapshot"]:
+        try:
+            r["_search_repairs"] = reopen_at_read(r)
+        except Exception:  # noqa: BLE001 - where the app's reader throws, the run file isn't read: named at run.json
+            r["_search_repairs"] = ["(unreadable)"]
     return r
 
 
@@ -921,16 +1851,6 @@ def detail_valid(d, v):
         return bool(ok) and t == v
     c = CF._value(kind, d.get("options") or [], v)
     return c is not None and c == v
-
-
-def invalid_details(r):
-    """R's invalidValues for a run's details: the typed details whose value isn't canonical. (A step type's own typed
-    evidence is not mirrored: see the module's note.)"""
-    try:
-        typed = CF.parse_map(r["snapshot"])["detailTypes"]
-    except Exception:  # noqa: BLE001 - a checklist the reader can't parse has no typed details here
-        return []
-    return ["details." + k for k, v in r["details"].items() if k in typed and v and not detail_valid(typed[k], v)]
 
 
 def repairs(o):
@@ -1168,6 +2088,13 @@ def repairs(o):
             continue
         text(x.get("by", MISSING), 80, at + ".by")
         text(x.get("what", MISSING), 300, at + ".what")
+    pa = o.get("paused", MISSING)
+    if pa is not MISSING and pa is not None:
+        if not is_obj(pa):
+            add("paused")
+        elif not (isinstance(o.get("state"), str) and o["state"] in RUN_STATES) or o["state"] == "running":
+            text(pa.get("by", MISSING), 80, "paused.by")
+            text(pa.get("reason", MISSING), 120, "paused.reason")
     e = o.get("ended", MISSING)
     if e is not MISSING and e is not None:
         if not is_obj(e) or not own(OUTCOMES, e.get("outcome", MISSING)):
@@ -1177,8 +2104,14 @@ def repairs(o):
             text(e.get("byName", MISSING), 80, "ended.byName")
     if o.get("format") == FORMAT3:
         r = sanitize(o)
-        if r and not r.get("_name_only") and not r["_unrunnable"]:
-            out.extend(invalid_details(r))
+        if r and not r.get("_name_only"):
+            out.extend(r.get("_invalid") or [])
+        if search_in(o):
+            sr = search_read(o)
+            if sr:
+                out.extend(sr[1])
+            if r and not r.get("_name_only"):
+                out.extend(r.get("_search_repairs") or [])
     return out
 
 
@@ -1440,3 +2373,95 @@ def batch(path):
             out.append(json.dumps({"id": x["id"], "path": v[0] if v else None, "why": v[1] if v else ""}))
     sys.stdout.write("\n".join(out) + "\n")
 
+
+# ---- Coverage (NA): which places of a run file the cleaner reads. A run read with track() records every key and index
+# sanitize and repairs read from it, so test/run-corpus.test.js can compare them with the places the app's cleaner reads. ----
+class TDict(dict):
+    __slots__ = ("_at", "_seen")
+
+    def _rec(self, k):
+        if isinstance(k, str):
+            self._seen.add(self._at + "." + k if self._at else k)
+
+    def __getitem__(self, k):
+        self._rec(k)
+        return dict.__getitem__(self, k)
+
+    def get(self, k, d=None):
+        self._rec(k)
+        return dict.get(self, k, d)
+
+    def __contains__(self, k):
+        self._rec(k)
+        return dict.__contains__(self, k)
+
+    def items(self):
+        for k in dict.keys(self):
+            self._rec(k)
+        return dict.items(self)
+
+    def values(self):
+        for k in dict.keys(self):
+            self._rec(k)
+        return dict.values(self)
+
+
+class TList(list):
+    __slots__ = ("_at", "_seen")
+
+    def _rec(self, i):
+        self._seen.add("%s[%d]" % (self._at, i))
+
+    def __getitem__(self, i):
+        if isinstance(i, slice):
+            for j in range(*i.indices(len(self))):
+                self._rec(j)
+        elif isinstance(i, int):
+            self._rec(i if i >= 0 else len(self) + i)
+        return list.__getitem__(self, i)
+
+    def __iter__(self):
+        for j in range(len(self)):
+            self._rec(j)
+        return list.__iter__(self)
+
+
+def track(v, seen, at=""):
+    """v (parsed JSON) with every read recorded in seen, as paths (a.b[0].c)."""
+    if isinstance(v, dict):
+        t = TDict((k, track(x, seen, at + "." + k if at else k)) for k, x in v.items())
+        t._at, t._seen = at, seen
+        return t
+    if isinstance(v, list):
+        t = TList(track(x, seen, "%s[%d]" % (at, i)) for i, x in enumerate(v))
+        t._at, t._seen = at, seen
+        return t
+    return v
+
+
+def whole(v):
+    """A plain deep copy (JSON.parse(JSON.stringify(v))), every place of it read."""
+    if isinstance(v, dict):
+        return {k: whole(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [whole(x) for x in v]
+    return v
+
+
+def coverage(path):
+    """--coverage FILE: JSON lines {id, text}; prints {id, read: [paths]} with every place sanitize and repairs read."""
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            x = json.loads(line)
+            seen = set()
+            o = parse(x["text"])
+            if o is not MISSING:
+                o = track(o, seen)
+                try:
+                    sanitize(o)
+                    repairs(o)
+                except Exception as e:  # noqa: BLE001 - reported, so the test names the case
+                    seen.add("!crash " + type(e).__name__ + ": " + str(e))
+            print(json.dumps({"id": x["id"], "read": sorted(seen)}))

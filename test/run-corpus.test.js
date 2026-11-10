@@ -41,8 +41,8 @@ function pyVerdicts(worlds, cases) {
 
 rule('the corpus mutates every place of a dependency run in all three roles, and each base run holds', async () => {
   const { roles, cases } = await corpus();
-  assert.strictEqual(roles.length, 3);
-  assert.deepStrictEqual(roles.map((R) => R.X.role).join(), 'child,fulfills,evidence');
+  assert.strictEqual(roles.length, 4);
+  assert.deepStrictEqual(roles.map((R) => R.X.role).join(), 'child,fulfills,evidence,full');
   roles.forEach((R) => {
     const mine = cases.filter((c) => c.role === R.X.role);
     assert.ok(mine.length > 500, R.X.role + ': ' + mine.length + ' cases');
@@ -55,7 +55,8 @@ rule('the corpus mutates every place of a dependency run in all three roles, and
 });
 
 rule('a time in any form but the one the app writes (toISOString, within the date range) is malformed in every role, wherever it is', async () => {
-  const { cases } = await corpus(), off = cases.filter((c) => /\(not the written form\)$/.test(c.name) && !c.js);
+  /* A loop approval's "at" is part of its snapshot, kept as text (PF.loop.cleanSnapshot): never read as a time. */
+  const { cases } = await corpus(), off = cases.filter((c) => /\(not the written form\)$/.test(c.name) && !/\.loop\.at:/.test(c.name) && !c.js);
   assert.ok(cases.filter((c) => /\(not the written form\)$/.test(c.name)).length > 100, 'the corpus tries them');
   assert.strictEqual(off.length, 0, off.length + ' accepted:\n  ' + off.slice(0, 30).map((c) => c.role + ' · ' + c.name).join('\n  '));
 });
@@ -70,7 +71,7 @@ rule('the pack reader gives every case in the corpus the verdict the app gives i
   const tally = {};
   cases.forEach((c) => { const t = tally[c.role] = tally[c.role] || { cases: 0, refused: 0 }; t.cases++; if (c.js) t.refused++; });
   console.log('    ' + cases.length + ' cases: ' + Object.keys(tally).map((k) => k + ' ' + tally[k].cases + ' (' + tally[k].refused + ' refused)').join(', '));
-  assert.strictEqual(off.length, 0, off.length + ' of ' + cases.length + ' cases differ:\n  ' + off.slice(0, 40).join('\n  ') + (off.length > 40 ? '\n  …' : ''));
+  assert.strictEqual(off.length, 0, off.length + ' of ' + cases.length + ' cases differ:\n  ' + (process.env.CORPUS_ALL ? off : off.slice(0, 40)).join('\n  ') + (off.length > 40 && !process.env.CORPUS_ALL ? '\n  …' : ''));
 });
 
 /* The export and the pack reader on a sample: the first accepted and the first refused case of every top-level field in each role, every drop and fill-in,
@@ -85,7 +86,8 @@ rule('the export names a dependency exactly when the app refuses it, and Python 
     seen.add(top);
     return pick;
   });
-  for (const R of roles) {
+  /* The full world (every field family) is the readers' alone: it isn't a dependency of a living run here. */
+  for (const R of roles.filter((x) => x.X.role !== 'full')) {
     const X = R.X, base = await pack(X.PF, new BytesFS(Object.assign({}, X.files, { [X.path]: JSON.stringify(R.base, null, 2) })), X.key);
     for (const c of sample.filter((x) => x.role === X.role)) {
       const { zip, res } = await pack(X.PF, new BytesFS(Object.assign({}, X.files, { [X.path]: c.text })), X.key);
@@ -147,6 +149,60 @@ rule('a test run\'s staged version is verified in full by the app and Python ali
   const py = pyVerdicts(worlds, cases), off = [];
   cases.forEach((c) => { const p = py[c.id], want = c.js ? c.js.path : null, got = p ? p.path : 'no answer'; if (want !== got) off.push(c.name + ': the app ' + (want ? 'refuses at ' + want : 'accepts') + ', Python ' + (got ? 'refuses at ' + got + ' (' + (p && p.why) + ')' : 'accepts')); });
   assert.strictEqual(off.length, 0, off.join('\n  '));
+});
+
+/* NA: every place of a run file the app's cleaner reads (PF.run.sanitize and PF.run.repairs, through a proxy that records each
+   key and index read), the pack reader's port reads too (test/run_verdict.py, through a tracked copy of the same file). It
+   runs on every role's run as written and ended, each holding a valid value of every field, so a field the app checks and
+   Python passes over fails here by name. */
+const SKIP = new Set(Object.getOwnPropertyNames(Object.prototype).concat(Object.getOwnPropertyNames(Array.prototype), ['toJSON']));
+function jsReads(PF, text) {
+  const seen = new Set();
+  const wrap = (v, at) => {
+    if (!v || typeof v !== 'object') return v;
+    const name = (t, k) => Array.isArray(t) && /^(0|[1-9]\d*)$/.test(k) ? at + '[' + k + ']' : at ? at + '.' + k : k;
+    const rec = (t, k) => { if (typeof k === 'string' && !(Array.isArray(t) && k === 'length') && !(SKIP.has(k) && !Object.prototype.hasOwnProperty.call(t, k))) seen.add(name(t, k)); };
+    /* Listing keys (Object.keys, JSON.stringify) asks each key's descriptor right after ownKeys: that isn't a read of it. */
+    let listing = new Set();
+    return new Proxy(v, {
+      get(t, k) { rec(t, k); const x = t[k]; return typeof k === 'string' && Object.prototype.hasOwnProperty.call(t, k) ? wrap(x, name(t, k)) : x; },
+      has(t, k) { rec(t, k); return k in t; },
+      ownKeys(t) { const ks = Reflect.ownKeys(t); listing = new Set(ks); return ks; },
+      getOwnPropertyDescriptor(t, k) { if (listing.has(k)) listing.delete(k); else rec(t, k); return Object.getOwnPropertyDescriptor(t, k); }
+    });
+  };
+  const o = wrap(JSON.parse(text), '');
+  PF.run.sanitize(o); PF.run.repairs(o);
+  return seen;
+}
+function pyReads(cases) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fd-cover-')), file = path.join(dir, 'cases.jsonl');
+  try {
+    fs.writeFileSync(file, cases.map((c) => JSON.stringify({ id: c.id, text: c.text })).join('\n') + '\n');
+    const out = cp.execFileSync(PY, ['-I', path.join(__dirname, 'check_pack.py'), '--coverage', file], { encoding: 'utf8', maxBuffer: 1 << 28 });
+    const by = {};
+    out.split('\n').filter(Boolean).forEach((l) => { const x = JSON.parse(l); by[x.id] = new Set(x.read); });
+    return by;
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+rule('coverage: every place of a run file the app\'s cleaner reads, the pack reader\'s port reads too (no field left unmirrored)', async () => {
+  if (!PY) { console.log('    (skipped: no Python)'); return; }
+  const { cases } = await corpus(), pick = cases.filter((c) => c.name === 'as written' || c.name === 'a pause left on an ended run (dropped)');
+  assert.strictEqual(pick.length, 8, 'every role, as written and ended');
+  const py = pyReads(pick), off = new Set(), all = new Set();
+  pick.forEach((c) => {
+    const js = jsReads(c.R.X.PF, c.text), p = py[c.id] || new Set();
+    [...p].filter((x) => x.indexOf('!crash') === 0).forEach((x) => off.add(c.role + ': Python ' + x));
+    js.forEach((x) => { all.add(x.replace(/\[\d+\]/g, '[]')); if (!p.has(x)) off.add(x.replace(/\[\d+\]/g, '[]')); });
+  });
+  /* Read by the app's cleaner, but never to decide anything: each named with why, and each mutated by the corpus above (the
+     parity rule holds every mutation of it to the same verdict). */
+  const NO_VERDICT = [[/^types\.[^.]+(\.[^.]+)?\.fields\.[^.]+\.required$/, 'PF.types.checkFields reads it only for an editor tip; unrunnable reads its errors']];
+  NO_VERDICT.forEach(([re]) => { const hit = [...off].filter((x) => re.test(x)); hit.forEach((x) => off.delete(x)); assert.ok(!hit.length || cases.some((c) => re.test(c.name.split(':')[0])), re + ' is mutated by the corpus'); });
+  console.log('    ' + all.size + ' places the cleaner reads, over ' + pick.length + ' runs (' + NO_VERDICT.length + ' pattern read for no verdict: ' + NO_VERDICT.map((x) => x[1]).join('; ') + ')');
+  assert.ok(all.size > 300, 'the runs hold every field: ' + all.size);
+  const list = [...off].sort();
+  assert.strictEqual(list.length, 0, list.length + ' places the app reads and Python doesn\'t:\n  ' + list.slice(0, 80).join('\n  ') + (list.length > 80 ? '\n  …' : ''));
 });
 
 run();

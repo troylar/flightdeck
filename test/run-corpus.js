@@ -95,6 +95,8 @@ function casesOf(base) {
   ended.state = 'completed'; ended.ended = { outcome: 'Completed', by: P, byName: 'Avery', at: AT3 }; ended.paused = { by: P, at: AT2, reason: 'Waiting' };
   if (ended.living && Object.keys(ended.living).length === 1) { /* a living run that ended without a receipt reads as before */ }
   add('a pause left on an ended run (dropped)', ended);
+  /* A completed run's searches are repaired differently (generations rebuilt, a stuck search): their places mutated there too. */
+  if (base.searchGen) places(ended, [], []).filter(([at]) => /^(searchSites|searchGen|searchRec)$/.test(at[0]) || (at[0] === 'steps' && at[1] === 'scope')).forEach(([at, v]) => mutationsOf(v, at).forEach(([what, nv]) => add('(ended) ' + at.join('.') + ': ' + what, setAt(ended, at, () => nv))));
   /* The end itself, mutated as every other place is. */
   places(ended, [], []).filter(([at]) => at[0] === 'ended').forEach(([at, v]) => mutationsOf(v, at).forEach(([what, nv]) => add('(ended) ' + at.join('.') + ': ' + what, setAt(ended, at, () => nv))));
   const hist = JSON.parse(JSON.stringify(base)), first = Object.keys(hist.steps)[0];
@@ -110,6 +112,49 @@ async function jsVerdict(PF, files, key) {
   const v = PF.repo.depVerdict(proc, id, one);
   return v.bad ? { path: String(v.bad.path), kind: String(v.bad.kind), why: String(v.bad.why) } : null;
 }
+/* NA: a run whose checklist has every field family the run cleaner reads, so each is seeded with a valid value and mutated
+   like every other place: typed details (choice, date, pattern) and a migration record about one, Jira searches (the
+   containers, a done search with its results, one only when a detail matches), typed evidence (a number), a skill
+   registration on a step and in its history, a loop approval on a step and in its history, and the to-dos an approval
+   counted on a step and a gate (a living run). The readers' corpus only: it isn't a dependency of a living run here. */
+const FULL_MD = ['---', 'process: kit', 'title: Kit', 'context: project, version, kind:choice(minor|major), due:date, tag:pattern(v\\d{1,3})', 'roles: lead', '---', '',
+  '## Build · DO-CONFIRM {#build}',
+  '- [ ] {confirm} Look first {#look}',
+  '- [!] {jira.search} The release has stories @lead {#scope}', '  query: project = ^project AND fixVersion = ^version', '  results: at least 1',
+  '- [ ] {jira.search} Majors only {#major}', '  query: project = ^project', '  results: any', '  only when ^kind is major',
+  '- [ ] {confirm} Count the boxes {#count}', '  evidence: number',
+  '- [ ] {run.skill} Write the notes {#notes}', '  skill: notes-bot',
+  '- [ ] {for.each} Check each story {#each}', '  process: check-story', '  items: item', '  accepts: cleared',
+  '- [ ] {confirm} Wrap up {#wrap}', '',
+  '## Gate: Ready {#ready}', ''].join('\n');
+async function fullWorld() {
+  const PF = require('./harness').load(), R = PF.run, Pb = PF.publish, M = PF.map;
+  const TV = PF.teamValues.parse(JSON.stringify({ format: 'flightdeck-team-values/1', values: { 'jira-base-url': { value: 'https://jira.example.com/jira' } } }));
+  const b = Pb.build(FULL_MD, { people: [], customTypes: {}, by: P, changes: 'First', existing: [], now: AT, rand: 'kit00001', app: '4.0.0', teamValues: TV });
+  if (b.blockers) throw new Error(b.blockers.join(' | '));
+  const bytes = (t) => new Uint8Array(Buffer.from(t, 'utf8'));
+  const pub = Pb.verify(b.folder, b.files, Pb.exactOf({ 'map.md': bytes(b.files['map.md']), 'types.json': bytes(b.files['types.json']) }));
+  const r = R.create(pub, { id: 'kit-1', title: 'Kit run', details: { project: 'PAY', version: '2026.11.0', kind: 'major', due: '2026-11-20', tag: 'v12' }, roles: { lead: P }, by: P, session: 's-1', now: AT, tz: 'UTC', app: '4.0.0', teamValues: TV });
+  const map = R.mapOf(r), st = (id) => M.findStep(map, id).step;
+  R.done(r, map, 'scope', P, AT2, { searchId: R.searchId(r, map, st('scope')), count: '2', keys: 'PAY-1, PAY-2' });
+  R.done(r, map, 'count', P, AT2, { [R.evidenceFor(r, st('count'), null, map).list[0].name]: '42' });
+  const made = {}; Object.keys(r).forEach((k) => { if (k[0] !== '_') made[k] = r[k]; });
+  const o = enrich(PF, made), REQ = 'req-flightdeck-' + 'ab'.repeat(12);
+  o.steps.scope = made.steps.scope; o.steps.count = made.steps.count;
+  const skill = { id: 'sk-abcd1234', rev: 2, sha: 'c'.repeat(64), snapshot: { name: 'Notes bot', version: '1.2', implements: { process: 'kit', folder: b.folder, mapHash: null, typesHash: 'abcd' }, steps: ['notes'], location: 'skills/notes-bot', description: 'Writes the notes' } };
+  const snap = { by: P, at: AT2, onBehalf: '', records: [REQ], summary: '1 item, cleared', counts: { cleared: 1 }, items: [{ uid: 'item:1', key: 'Story one', state: 'cleared', status: 'Done', result: 'cleared', run: 'cs-1', exception: '', fp: '0123456789abcdef' }], request: REQ };
+  o.steps.notes = { s: 'done', by: P, at: AT2, skill, history: [{ s: 'blocked', by: P, at: AT, reason: 'Waiting on the bot', skill, loop: snap }] };
+  o.steps.each = { s: 'done', by: P, at: AT2, loop: snap, todos: { cut: [REQ] } };
+  Object.keys(o.gates).forEach((g) => { o.gates[g].todos = { cut: [REQ] }; });
+  o.features = PF.envelope.FROZEN.filter((f) => o.features.indexOf(f) >= 0 || f === 'living-runs');
+  const base = {};
+  Object.keys(o).forEach((k) => { if (k === 'steps') base.migrations = [{ path: 'details.kind', at: AT, from: 'Major', source: 'plan', verdict: 'converted', result: 'major', resolved: null }]; base[k] = o[k]; });
+  base.living = { head: REQ };
+  const files = {}, path = 'runs/kit/kit-1/run.json';
+  Object.keys(b.files).forEach((n) => { files['publications/kit/' + b.folder + '/' + n] = b.files[n]; });
+  files[path] = JSON.stringify(base, null, 2);
+  return { X: { role: 'full', PF, files, key: 'kit/kit-1', path, depKey: 'kit/kit-1', force: false }, base };
+}
 async function build() {
   const roles = [];
   for (const X of await roleWorlds()) {
@@ -118,6 +163,9 @@ async function build() {
     Object.keys(X.files).filter((p) => /^(publications|staged)\//.test(p)).forEach((p) => { versions[p] = X.files[p]; });
     roles.push({ X, base, versions, cases: casesOf(base) });
   }
+  const F = await fullWorld(), versions = {};
+  Object.keys(F.X.files).filter((p) => /^publications\//.test(p)).forEach((p) => { versions[p] = F.X.files[p]; });
+  roles.push({ X: F.X, base: F.base, versions, cases: casesOf(F.base) });
   return roles;
 }
-module.exports = { enrich, casesOf, jsVerdict, build };
+module.exports = { enrich, casesOf, jsVerdict, build, fullWorld };
