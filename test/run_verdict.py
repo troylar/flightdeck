@@ -2226,6 +2226,8 @@ def canonical(o, r):
             if a is not None and not allowed(dropped, path):
                 first[0] = path
             return
+        if b is None and a is not None and allowed(dropped, path):
+            return  # a documented drop the cleaner writes as null (a pause left on an ended run)
         if kind(a) != kind(b):
             first[0] = path
             return
@@ -2464,6 +2466,13 @@ def dep_verdict(key, text, read, beside=None):
     if cp:
         return path, "it isn't exactly as the app writes it, at " + cp
     return None
+
+
+def canonical_batch(path):
+    """--canonical FILE: a JSON list of run files; prints, per run, R.canonical's first place ("" when it's canonical)."""
+    with open(path, encoding="utf-8") as f:
+        runs = json.loads(f.read(), parse_constant=CF._no_constant)
+    sys.stdout.write(json.dumps([canonical(o, sanitize(o)) for o in runs]) + "\n")
 
 
 def batch(path):

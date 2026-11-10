@@ -75,7 +75,7 @@ rule('a dependency run is confirmed only as the app writes it: the reviewers\' c
     '(reviewer) snapshot: only U+0085', '(reviewer) snapshot: only U+001C'].forEach((n) => want(n, true));
   ['(reviewer) a gate\'s was: a list', '(reviewer) a loop approval\'s count: 1e999', '(reviewer) team value: over 120 characters', '(reviewer) team value: empty', '(reviewer) team value: padded',
     '(reviewer) team value: padded with U+FEFF', '(reviewer) team value: a control character', '(reviewer) team value: DEL'].forEach((n) => want(n, true, true));
-  ['title: missing (filled in)', 'state: missing (filled in)', '(reviewer) team value: valid', '(reviewer) team value: 120 characters', '(reviewer) team value: padded with U+0085 (not JavaScript white space)'].forEach((n) => want(n, false, true));
+  ['title: missing (filled in)', 'state: missing (filled in)', 'a pause left on an ended run (dropped)', 'an earlier answer\'s "done differently" with who and when (dropped)', '(reviewer) team value: valid', '(reviewer) team value: 120 characters', '(reviewer) team value: padded with U+0085 (not JavaScript white space)'].forEach((n) => want(n, false, true));
   assert.ok(cases.some((c) => c.name === '(reviewer) team value: valid'), 'a run with a team-value link is in the corpus');
   assert.ok(cases.some((c) => c.name === '(reviewer) a loop approval\'s count: 1e999'), 'a loop approval is in the corpus');
   assert.strictEqual(bad.length, 0, bad.join('\n  '));
@@ -101,6 +101,33 @@ rule('with a conflict copy beside it too, the pack reader names the same first p
   assert.ok(more.some((c) => c.js && /\/$/.test(c.js.path)) && more.some((c) => c.js && /run\.json$/.test(c.js.path)), 'both orders are tried');
   console.log('    ' + more.length + ' cases with a conflict copy beside');
   assert.strictEqual(off.length, 0, off.length + ' differ:\n  ' + off.slice(0, 30).join('\n  '));
+});
+
+/* RA: every run a shipped fixture holds (its run files, saves and the runs inside a fixture file) is canonical, in the app and
+   in the pack reader: a run from a newer Flightdeck, read by name only, is refused as newer before this rule applies. */
+rule('every run in a shipped fixture is exactly as the app writes it, in the app and in the pack reader', async () => {
+  const PF = require('./harness').load(), root = path.join(__dirname, '..'), runs = [], names = [];
+  const files = cp.execFileSync('git', ['ls-files', 'test/fixtures', 'example-folder'], { cwd: root, encoding: 'utf8' }).split('\n').filter((f) => /\.json$/.test(f));
+  const walk = (v, where) => {
+    if (Array.isArray(v)) { v.forEach((x, i) => walk(x, where + '[' + i + ']')); return; }
+    if (!v || typeof v !== 'object') return;
+    if (typeof v.format === 'string' && /^preflight-run\//.test(v.format) && v.steps && typeof v.id === 'string') {
+      const r = PF.run.sanitize(JSON.parse(JSON.stringify(v)));
+      if (r && !PF.appjson.newerRun(r)) { runs.push(v); names.push(where); }
+      return;
+    }
+    Object.keys(v).forEach((k) => walk(v[k], where + '.' + k));
+  };
+  files.forEach((f) => { let o; try { o = JSON.parse(fs.readFileSync(path.join(root, f), 'utf8')); } catch (e) { return; } walk(o, f); });
+  assert.ok(runs.length > 150 && names.some((n) => /run-vocabulary-1\.11\.json/.test(n)), 'the fixtures are found: ' + runs.length);
+  const js = runs.map((o) => PF.run.canonical(JSON.parse(JSON.stringify(o)))), off = [];
+  js.forEach((c, i) => { if (c) off.push('the app: ' + names[i] + ' at ' + c); });
+  if (PY) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fd-canon-')), file = path.join(dir, 'runs.json');
+    try { fs.writeFileSync(file, JSON.stringify(runs)); JSON.parse(cp.execFileSync(PY, ['-I', path.join(__dirname, 'check_pack.py'), '--canonical', file], { encoding: 'utf8', maxBuffer: 1 << 26 })).forEach((c, i) => { if (c) off.push('Python: ' + names[i] + ' at ' + c); }); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+  console.log('    ' + runs.length + ' runs in shipped fixtures');
+  assert.deepStrictEqual(off, []);
 });
 
 rule('the pack reader gives every case in the corpus the verdict the app gives it: accepted, or refused at the same first path', async () => {

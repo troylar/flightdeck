@@ -2584,6 +2584,8 @@ PF.run = (function () {
       if (first) return;
       if (a === undefined) { if (b !== undefined && !bare(b) && !allowed(added, path)) first = path; return; }
       if (b === undefined) { if (a !== null && !allowed(dropped, path)) first = path; return; }
+      /* A documented drop the cleaner writes as null (a pause left on an ended run). */
+      if (b === null && a !== null && allowed(dropped, path)) return;
       if (kind(a) !== kind(b)) { first = path; return; }
       if (Array.isArray(a)) { for (var i = 0; i < Math.max(a.length, b.length) && !first; i++) walk(a[i], b[i], path + '[' + i + ']'); return; }
       if (kind(a) === 'object') { Object.keys(a).concat(plain(b).filter(function (k) { return !Object.prototype.hasOwnProperty.call(a, k); })).forEach(function (k) { walk(a[k], b[k], path ? path + '.' + k : k); }); return; }
