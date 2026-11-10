@@ -691,7 +691,9 @@ PF.corrections = (function () {
       if (g.status === 'legacy' && !g.tie) out.proofless = out.old = true;
       if (g.reviewed && !g.tie) {
         var rg = Object.assign({}, g, { status: 'applied', decision: g.reviewed.decision, reviewed: null, members: g.members.filter(function (c) { return g.reviewed.members.indexOf(c.id) >= 0; }) });
-        out.reviewedLanded = landing([rg], pubs, clashes)[0].landed;
+        var rl = landing([rg], pubs, clashes)[0];
+        out.reviewedLanded = rl.landed;
+        if (rl.proofless) out.reviewedProofless = true;
       }
       if (g.status !== 'applied' || g.tie) return out;
       var d = g.decision, inc = d && d.status === 'included' ? d : null, own = ownVersion(g);
@@ -723,6 +725,11 @@ PF.corrections = (function () {
   function forPublish(text, gs) {
     var inc = [], left = [];
     (gs || []).forEach(function (g) {
+      /* A keep group open again for a new wording still publishes what its owner reviewed and applied: that subgroup is
+         listed (and proved) under the group, and the new wordings stay open. */
+      if (g.keep && g.status === 'open' && g.reviewed && !g.tie && !g.reviewedLanded && !g.reviewedProofless)
+        g = Object.assign({}, g, { status: 'applied', decision: g.reviewed.decision, reviewed: null, again: null, landed: null, proofless: false,
+          members: g.members.filter(function (c) { return g.reviewed.members.indexOf(c.id) >= 0; }) });
       if (g.status !== 'applied' || g.tie || g.landed || g.proofless) return;
       /* Addressed differently isn't the proposed change: never listed, and not "left out" either. */
       if (g.decision && g.decision.addressed) return;

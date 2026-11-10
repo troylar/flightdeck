@@ -200,7 +200,15 @@ rule('A wording kept after the owner decided waits for review: it never inherits
   const t2 = W.todo('Email the release notes', { phase: 'ship' }), t3 = W.todo('Post the release notes', { phase: 'ship' });
   W.kept({ todo: t3 }, {}, { person: 'person-casey' });
   same([words(t3).label, words(t1).label], ['Published in v2', 'Published in v2'], 'the same wording as was reviewed joins what was published');
+  /* Before v2: a new wording reopens the group, but the draft's applied step is still listed when it is published, so its
+     proof and its owner check stay with what was reviewed. */
+  const pre = W.groups('release-readiness', [d], [W.pp]);
   W.kept({ todo: t2 }, {}, { person: 'person-casey' });
+  const reopened = W.groups('release-readiness', [d], [W.pp]);
+  same([pre[0].status, reopened[0].status], ['applied', 'open']);
+  const fp = C.forPublish(rv.text, reopened);
+  same([fp.list.map(x => x.id), fp.groups.map(x => !!x.keep)], [[g.id], [true]], 'the reviewed wording is still listed for publication');
+  same(C.forPublish(W.pp.md, reopened).list, [], 'a draft without it lists nothing');
   const gs = W.groups('release-readiness', [d], [W.pp, v2]);
   same(gs.length, 1);
   assert.ok(!/Published|Applied/.test(words(t2).label + words(t2).words), 'a new wording waits for the owner: ' + words(t2).words);

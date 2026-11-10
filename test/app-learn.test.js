@@ -93,6 +93,10 @@ async function appliedKeep() {
   assert.ok(app.files('corrections/').length >= 1, 'set-up: applied');
   return { app, gid };
 }
+async function groupNow(app, gid) {
+  const PF = app.PF, d = await PF.repo.loadAll(app.fs, {}), p = d.processes.filter(x => x.process === 'release-notes')[0];
+  return PF.corrections.forProcess(d.runs.filter(r => r.process === 'release-notes'), 'release-notes', d.corrDecisions, p ? p.index : null, PF.learn.members(d.todos, d.runs, 'release-notes')).filter(x => x.id === gid)[0];
+}
 const versions = (app) => app.files('publications/release-notes/').filter(p => /publication\.json$/.test(p)).length;
 const openPage = async (app) => { app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release-notes'); await app.tick(60); };
 
@@ -123,6 +127,29 @@ rule('Publishing a version that includes a keep is the active owner\'s: anyone e
   await refresh(other, 300); await openPage(other);
   other.set('change-note', 'File them'); other.click('publish', 'release-notes'); await other.tick(300);
   assert.strictEqual(versions(other), m + 1, 'someone other than the owner publishes a version without keeps');
+});
+
+rule('A keep applied and then reopened by a new wording still publishes only through its owner, and the owner\'s version lists it', async () => {
+  const { app, gid } = await appliedKeep();
+  app.choose('person-avery'); await app.tick(80);
+  backToRun(app); await app.tick(80);
+  const b = await added(app, 'Publish the notes to the wiki');
+  app.click('keep', b, { kind: 'todo' }); await app.tick(120); await refresh(app, 300);
+  const g = await groupNow(app, gid);
+  assert.ok(g && g.status === 'open' && g.reviewed, 'set-up: the new wording reopened the group');
+  const n = versions(app);
+  await openPage(app);
+  app.set('change-note', 'Post the notes'); app.click('publish', 'release-notes'); await app.tick(300);
+  assert.strictEqual(versions(app), n, 'nothing published by someone else while a new wording is open');
+  assert.ok(/kept for next time/.test(txt(app.html())), 'said why');
+  app.choose('person-morgan'); await app.tick(80); await openPage(app);
+  app.set('change-note', 'Post the notes'); app.click('publish', 'release-notes'); await app.tick(300);
+  assert.strictEqual(versions(app), n + 1, 'the owner publishes it');
+  const pub = app.files('publications/release-notes/').filter(p => /publication\.json$/.test(p)).map(p => JSON.parse(app.fs.files[p].t)).sort((x, y) => y.version - x.version)[0];
+  assert.deepStrictEqual((pub.corrections || []).map(x => x.id || x), [gid], 'the applied wording is listed as published');
+  await refresh(app, 300);
+  const after = await groupNow(app, gid);
+  assert.ok(after.status === 'open' && after.reviewedLanded && after.reviewedLanded.version === pub.version, 'the new wording stays open; what was reviewed is published');
 });
 
 rule('Promoting a staged version that includes a keep is the active owner\'s too', async () => {
