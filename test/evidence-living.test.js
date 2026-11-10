@@ -536,6 +536,27 @@ rule('A scope record\'s seen is in the closure: a missing predecessor leaves the
   const ok = checkPack(full.zip);
   assert.ok(ok.ok, 'the control holds: ' + ok.out);
 });
+/* PB: Python requires each fact a to-do record rests on (support.fact), by that reference, as NF does for evidence plans: a
+   fact removed from the pack, with a manifest made to match, is refused. */
+rule('Python requires every fact the work\'s records rest on: a fact removed from the pack, with a manifest made to match, is refused', async () => {
+  if (!PY) return;
+  const W = await loopMade(), PF = W.PF, T = PF.todos, F = PF.facts, P = PF.run.sanitize(JSON.parse(JSON.stringify(W.run)));
+  const got = await PF.repo.readTodos(new BytesFS(W.files)), V = T.view(P, { records: got.records, people: JSON.parse(W.files['people.json']) });
+  const x = Object.keys(V.byTodo).map((k) => V.byTodo[k])[0], item = PF.loop.view(P, 'each', { records: got.scopes, runs: [P], procOf: () => null }).rollup.items[0];
+  assert.ok(x && item, 'set-up: a to-do and a loop item');
+  const at = new Date().toISOString(), BB = { feed: 'bitbucket', site: 'git.example.com' };
+  const f = F.build({ run: P, producer: { name: 'git-bot', version: '1.0' }, key: 'prs-1', seen: [], at, app: '4.0.0', loopStep: 'each', uid: item.uid, attempt: 1, source: BB, domain: 'prs', observedAt: at, maxAgeSeconds: 86400, complete: true, reported: 1, fetched: 1, errors: [], entries: [{ id: '1', text: 'Change 1', state: 'merged' }] });
+  const fr = T.cleanFile(JSON.parse(T.text(f)), f.id + '.json').record;
+  const q = T.buildProposal({ run: { process: P.process, id: P.id }, producer: { name: 'git-bot', version: '1.0' }, seen: [], at, body: { op: 'done', todo: x.id, support: { fact: f.id, content: fr.content, incarnation: x.added, source: BB, domain: 'prs' } } });
+  const fp = 'proposals/' + f.id + '.json', files = Object.assign({}, W.files, { [fp]: T.text(f), ['proposals/' + q.id + '.json']: T.text(q) });
+  const full = await pack(PF, new BytesFS(files), W.key);
+  assert.strictEqual(full.res.status, 'complete', JSON.stringify(full.res.col.unresolved));
+  assert.ok(manifestOf(full.zip).files.some((y) => y.path === fp), 'set-up: the fact is packed');
+  const ok = checkPack(full.zip);
+  assert.ok(ok.ok, 'the control holds: ' + ok.out);
+  const bad = checkPack(await repacked(PF, full.zip, (e, man, g) => { const y = g(fp); delete e[y.pack]; man.files = man.files.filter((z) => z.path !== fp); forced(man); }));
+  assert.ok(!bad.ok && bad.out.indexOf(f.id) >= 0, 'Python refuses it: ' + bad.out);
+});
 /* PC: a scope record that saw another is followed to it through the same witness index as every to-do record: a valid second
    scope record leaves the pack complete, and Python accepts it. */
 rule('A second scope record that saw the first keeps the pack complete: scope records are witnesses too', async () => {

@@ -73,7 +73,7 @@ def check_living(z, man):
     def on_run(me):
         """Every packed record the export counts for a run whatever saw it (PF.receipts.deps): each to-do record naming it, the
         facts they rest on and its loops' scope records. Returns the scope records (what each saw is walked too), and notes in
-        plans_wanted every evidence plan those records name by reference."""
+        plans_wanted every evidence plan those records name by reference, and in facts_wanted every fact they rest on."""
         scopes = []
         for path in by_path:
             if not path.startswith("proposals/") or not path.endswith(".json"):
@@ -91,18 +91,24 @@ def check_living(z, man):
                     if o.get("run") == me and isinstance(ev, dict) and isinstance(ev.get("run"), dict):
                         plans_wanted.add(str(ev.get("plan")))
                     fact = ((b or {}).get("support") or {}).get("fact") if isinstance((b or {}).get("support"), dict) else None
+                    if o.get("run") == me and isinstance(fact, str):
+                        facts_wanted.add(fact)
                     if isinstance(fact, str) and "proposals/" + fact + ".json" in by_path:
                         reached.add("proposals/" + fact + ".json")
         return scopes
 
-    reached, plans_wanted = set(), set()
+    reached, plans_wanted, facts_wanted = set(), set(), set()
+
+    def packed_ids(rid):
+        """The packed files of one record id: its own name and its synced copies (" (1)" and the like)."""
+        base = "proposals/" + rid
+        return [p for p in by_path if p == base + ".json" or (p.startswith(base) and p.endswith(".json") and COPY.match(p[len(base):-5])
+                and (not p[len(base):-5].startswith("-") or any(c.isupper() for c in p[len(base):-5])))]
 
     def witness(rid):
         """The one record packed under an id, the same in every packed copy (a synced " (1)" copy included); None when it
         isn't packed or two packed copies differ (ambiguous: which is meant isn't known)."""
-        base = "proposals/" + rid
-        paths = [p for p in by_path if p == base + ".json" or (p.startswith(base) and p.endswith(".json") and COPY.match(p[len(base):-5])
-                 and (not p[len(base):-5].startswith("-") or any(c.isupper() for c in p[len(base):-5])))]
+        paths = packed_ids(rid)
         if not paths:
             return None, False
         reached.update(paths)
@@ -287,6 +293,7 @@ def check_living(z, man):
         head = (run.get("living") or {}).get("head", "")
         reached.clear()
         plans_wanted.clear()
+        facts_wanted.clear()
         if lv["head"] != head:
             sys.exit("living: " + r["key"] + " names another work head than its run.json")
         whole, chain, closed, good_receipt, copies = check_run(run)
@@ -341,6 +348,10 @@ def check_living(z, man):
             todo.extend(sorted(depends_on(dep_run) - done))
         if len(reached) + len(done) - 1 > 5000:
             sys.exit("living: " + r["key"] + " rests on more records and runs than a pack holds at most (5000)")
+        # Each fact a to-do record rests on (support.fact), by that reference: the export packs every copy under its id.
+        for fid in sorted(facts_wanted):
+            if not packed_ids(fid):
+                sys.exit("living: " + r["key"] + " says its work is complete, but proposals/" + fid + ".json, a fact the work rests on, isn't in the pack")
         for pid in sorted(plans_wanted):
             o = packed("proposals/" + pid + ".json")
             if not isinstance(o, dict) or o.get("id") != pid or CF.plan_why(o):
