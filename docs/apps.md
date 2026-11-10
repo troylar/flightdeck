@@ -91,7 +91,7 @@ An error object (exit 1 or 5) has `contract`, `app`, `error` and `problems`, and
 | Kind | Means |
 |---|---|
 | `unreadable` | A file or a part of the folder failed to read (a cloud placeholder that isn't downloaded yet, a permissions error). One version that can't be read is named on its own; the other versions are still listed. |
-| `nofile` | A run folder without `run.json` (it may still be arriving, or it was deleted) |
+| `nofile` | A run folder without `run.json` (it may still be arriving, or it was deleted). From 4.0, also any file another record depends on that isn't in the folder at all: the parent or fact a to-do rests on, the run a to-do's evidence names (`runs/<process>/<id>/run.json`), the evidence plan a done names (`proposals/<plan>.json`), or the checklist a keep's items run (`publications/<process>`). What rests on it is held, never taken as settled. |
 | `malformed` | A run, plan, plan decision, follow-up decision or `people.json` that won't parse or isn't in the format. What's left out and what's still shown: [`malformed` in detail](#malformed-in-detail), below. |
 | `newer` | A run, version or file from a newer Flightdeck, including a run whose own copy of its checklist or step types uses features this copy can't read. A run like that is named here and left out of the data. More in [`newer` in detail](#newer-in-detail), below. |
 | `unusable` | A version this copy can't use, with why. At a run's `run.json`: the run doesn't match its version (its checklist or version number differs from the version's record), so the app opens it read-only; the version itself is fine. |
@@ -101,7 +101,6 @@ An error object (exit 1 or 5) has `contract`, `app`, `error` and `problems`, and
 | `skipped` | A file too large to read (over 16 MB). The bytes are counted as they're read, so a file that grows while it's read is refused too. |
 | `vanished` | A file or folder that was listed and then gone before it could be read or listed itself (OneDrive replacing it, or someone deleting it). A folder gone like that is never read as empty, so a decided follow-up never looks open because its folder went missing mid-read. |
 | `child-mark` | From 2.16, at a parent run's `run.json`: a linked step recorded as done whose child run says Completed but doesn't stand as read (one of its Jira searches was reopened when read, or a gate there doesn't pass). `why` names the step, the child run, and what to do: answer the child's reopened step again with Done, or, when the child's record can't be repaired, start a new run. The parent's answer is left as recorded and is still in the data. |
-| `missing` | From 4.0, a file another record depends on that isn't in the folder at all: the run a to-do's evidence names (`runs/<process>/<id>/run.json`), the evidence plan a done names (`proposals/<plan>.json`), or the checklist a keep rests on. What rests on it is held, never taken as settled. |
 
 #### `malformed` in detail
 

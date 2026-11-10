@@ -2682,7 +2682,7 @@ PF.repo = (function () {
      as readPlans gave it): every plan grouped as the folder reader groups them (a decision that can't be read holds its plan),
      and each run the records name as evidence (also: more { process, id }), read on its own; one that can't be read is in
      unreadRuns, never left out quietly. paths: the runs read, for a caller's problems. */
-  /* problems: every run a record's evidence names that is missing ({ path: runs/<process>/<id>/run.json, kind: 'missing' })
+  /* problems: every run a record's evidence names that is missing ({ path: runs/<process>/<id>/run.json, kind: 'nofile' })
      or can't be read (the checked read's own problems, by path and kind), for every reader's ledger. A run only asked about
      (also) is the asker's to judge. */
   function readEvidence(fs, got, records, also) {
@@ -2709,7 +2709,7 @@ PF.repo = (function () {
             if (!jp.length) { runs.push(one.run); return; }
             unreadRuns.push(k); jp.forEach(function (q) { problemAt(k, q.path, q.kind, q.why); }); return;
           }
-          if (!one.found || one.nofile) { problem(k, 'missing', 'The run a to-do\'s evidence names isn\'t in the team folder, so what rests on it can\'t be checked.'); if (one.found) unreadRuns.push(k); return; }
+          if (!one.found || one.nofile) { problem(k, 'nofile', 'The run a to-do\'s evidence names isn\'t in the team folder, so what rests on it can\'t be checked.'); if (one.found) unreadRuns.push(k); return; }
           unreadRuns.push(k);
           var mine = (one.bad || []).filter(function (b) { return b && typeof b.path === 'string' && b.path.indexOf('runs/' + k + '/') === 0; });
           if (mine.length) mine.forEach(function (b) { problem(k, b.kind || 'unreadable', String(b.why || 'It couldn\'t be read.')); });
@@ -2721,7 +2721,7 @@ PF.repo = (function () {
       planIds.sort().forEach(function (id) {
         var held = PF.detours.planHeld(ev, id);
         if (held.length) held.forEach(function (q) { problemAt(null, q.path, q.kind, q.why); });
-        else if (!plans.some(function (p) { return p && p.id === id; })) problemAt(null, 'proposals/' + id + '.json', 'missing', 'The evidence plan a to-do\'s done names isn\'t in the team folder, so what rests on it can\'t be checked.');
+        else if (!plans.some(function (p) { return p && p.id === id; })) problemAt(null, 'proposals/' + id + '.json', 'nofile', 'The evidence plan a to-do\'s done names isn\'t in the team folder, so what rests on it can\'t be checked.');
       });
       /* Every path a problem names is one the caller depends on. */
       problems.forEach(function (q) { if (ev.paths.indexOf(q.path) < 0) ev.paths.push(q.path); });

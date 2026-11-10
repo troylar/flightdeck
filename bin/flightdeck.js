@@ -1018,7 +1018,7 @@ async function readData(eng, adapter, req) {
         if (!e || !e.run || !PROC_ID.test(String(e.run.process)) || !/^[a-z0-9-]{1,40}$/i.test(String(e.run.id))) return;
         const k = e.run.process + '/' + e.run.id, p = 'runs/' + k + '/run.json';
         if (have[k] || seen[k] || L.problems().some((q) => q.path === p || q.path.indexOf('runs/' + k + '/') === 0)) return;
-        seen[k] = true; L.note(p, 'missing', 'The run a to-do\'s evidence names isn\'t in the team folder, so what rests on it can\'t be checked.');
+        seen[k] = true; L.note(p, 'nofile', 'The run a to-do\'s evidence names isn\'t in the team folder, so what rests on it can\'t be checked.');
       }));
     }
     const known = (p) => d.processes.some((x) => x.process === p) || d.runs.some((r) => r.process === p) || d.plans.some((x) => x.process === p);
@@ -3170,7 +3170,7 @@ async function keepMain(argv, noun) {
        a guess that it needs placement. */
     if (kid) {
       const e = (d.processes || []).filter((x) => x.process === kid)[0];
-      if (!e || !(e.pubs || []).length) extra.push({ path: 'publications/' + kid, kind: 'missing', why: 'The checklist ' + kid + ' that the loop\'s items run isn\'t published in this folder.' });
+      if (!e || !(e.pubs || []).length) extra.push({ path: 'publications/' + kid, kind: 'nofile', why: 'The checklist ' + kid + ' that the loop\'s items run isn\'t published in this folder.' });
       else e.pubs.filter((x) => x && !x.ok).forEach((x) => extra.push({ path: 'publications/' + kid + '/' + x.folder + '/', kind: 'malformed', why: x.folder + ' can\'t be used: ' + String(x.why || 'it doesn\'t pass its check') }));
     }
     if (problems().length) return held('Part of the team folder this keep rests on couldn\'t be read.');

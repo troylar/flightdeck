@@ -158,6 +158,11 @@ rule('What a keep rests on that can\'t be read holds it (exit 4) with the path n
   const s = json('spread', 'keep', F.root, PR, '--spread', F.spread, '--json', ...TOOL);
   assert.deepStrictEqual([s.code, s.data.status, ls(F.root).length], [4, 'held', n - 1], JSON.stringify(s));
   assert.ok(s.problems.some(x => x.path.indexOf('publications/validate-story') === 0), JSON.stringify(s.problems));
+  /* The items' checklist isn't published at all: held, named nofile, the kind every reader uses for what isn't there. */
+  fs.rmSync(path.join(F.root, 'publications', 'validate-story'), { recursive: true });
+  const g = json('spread', 'keep', F.root, PR, '--spread', F.spread, '--json', ...TOOL);
+  assert.deepStrictEqual([g.code, g.data.status, ls(F.root).length], [4, 'held', n - 1], JSON.stringify(g));
+  assert.ok(g.problems.some(x => x.path === 'publications/validate-story' && x.kind === 'nofile'), JSON.stringify(g.problems));
 });
 
 run();

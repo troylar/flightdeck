@@ -13,20 +13,20 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "0541ac96af007f7aa1caf8e186b38ea06ee4579d7975fe6a00325d616111f5a6",
-      "reviewed": "DC: evidence runs judged by the shared run verdict (PF.appjson.judgeRun, moved from the CLI), evidence plan and decision refusals and an absent plan are problems; no writes added; checked for direct writes and unconditional deletes"
+      "sha256": "b45b4292acba45af520ea6b5eb8bb2b1b6a48def27f8e9566e8609d022e9038b",
+      "reviewed": "DF: an absent evidence run or plan and an unpublished keep child are nofile, the existing kind; missing dropped from KINDS; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "e641a0f9f4655b4634b9d2661fe4e4b97222f23ece79f5917e6c99f174218087",
       "reviewed": "4.0 slice 5 commit 6, checklist-linked to-dos: PF.detours (pins, the evidence plan, evidence, provenance), the checklist and evidence fields in to-do records, repo.readEvidence, the app's Run this checklist, Accept and the way back, the living-run skill and command guide sections, the 4.0.0 release entry; checked for direct writes and unconditional deletes: the plan is written create-once through repo.savePlan under the run guard, a done on a run through saveScope with a fresh read before the write, nothing deleted"
     },
     "docs/apps.md": {
-      "sha256": "7a493f7ad413fd1e2a91914763964895197a835e3ba5ae858dfa85673aeec667",
-      "reviewed": "DC: evidence runs judged by the shared run verdict (PF.appjson.judgeRun, moved from the CLI), evidence plan and decision refusals and an absent plan are problems; no writes added; checked for direct writes and unconditional deletes"
+      "sha256": "2ac6427b0e1577754c9e1df43f1159fdfc4edf54dc47b0a6e54de6874ce4e523",
+      "reviewed": "DF: an absent evidence run or plan and an unpublished keep child are nofile, the existing kind; missing dropped from KINDS; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "7577cd9438937e98fd2f8684d4e543e32f6e799fe57fb37b772164c5cde0ae4f",
-      "reviewed": "DA: one write guard (writeGuard) for every slice 5 write path, fresh people.json after the path's reads and before every write; publish/promote with keeps gate each file and roll back by identity; checked for direct writes and unconditional deletes (the rollback removes only files with exactly its own bytes)"
+      "sha256": "d9b15e6b8fa8991019eace27d288a0e3c9ae6a2445c692d8f624acbcd196a6e1",
+      "reviewed": "DF: an absent evidence run or plan and an unpublished keep child are nofile, the existing kind; missing dropped from KINDS; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -201,8 +201,8 @@
       "reviewed": "keeps named by their wording too: another wording is another alternative; checked for direct writes and unconditional deletes"
     },
     "src/core/appjson.js": {
-      "sha256": "0c42bcafde0d158aa78c8f8ffada3e83d610adbcdcd84dc17db2b46687394868",
-      "reviewed": "DC: evidence runs judged by the shared run verdict (PF.appjson.judgeRun, moved from the CLI), evidence plan and decision refusals and an absent plan are problems; no writes added; checked for direct writes and unconditional deletes"
+      "sha256": "a8c8f5ed439d30899c1f9c72e7852e06cfaa4c0ee665a599704db0e8682fc960",
+      "reviewed": "DF: an absent evidence run or plan and an unpublished keep child are nofile, the existing kind; missing dropped from KINDS; checked for direct writes and unconditional deletes"
     },
     "src/core/attach.js": {
       "sha256": "0e75bc0c0d748fe10aaf5657662e4ce8679c27f9d10d85c1e34891b1c9d58df0",
@@ -417,8 +417,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "687bdfec2ce184a65b3d7ab8db20cb4fc283afe1b074b99831ae4ff29ee9b149",
-      "reviewed": "DA: one write guard (writeGuard) for every slice 5 write path, fresh people.json after the path's reads and before every write; publish/promote with keeps gate each file and roll back by identity; checked for direct writes and unconditional deletes (the rollback removes only files with exactly its own bytes)"
+      "sha256": "e08b6992a2f0cc992c2a8b92398597ae022d5e04f70c332d26c4c70939f4b98c",
+      "reviewed": "DF: an absent evidence run or plan and an unpublished keep child are nofile, the existing kind; missing dropped from KINDS; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "4af85fcbf6c7401302c41194f64bce3def53ec6e15e835dcc8630088fc9bdcd4",

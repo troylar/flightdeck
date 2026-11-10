@@ -200,7 +200,9 @@ rule('Evidence a pending request rests on, missing or unreadable, is every reade
     if (how === 'missing') readers.runs = json('runs', F.root, '--contract', '2', '--json');
     Object.keys(readers).forEach((k) => {
       const x = readers[k], hit = (x.problems || []).filter(q => q.path === 'runs/smoke-test/k1/run.json');
-      assert.deepStrictEqual([k, how, x.code, x.complete, hit.length === 1 && hit[0].kind === how], [k, how, 4, false, true], k + ' (' + how + '): ' + JSON.stringify(x.problems));
+      /* An absent run is nofile, the kind every reader uses for a file that isn't there. */
+      const kind = how === 'missing' ? 'nofile' : how;
+      assert.deepStrictEqual([k, how, x.code, x.complete, hit.length === 1 && hit[0].kind === kind], [k, how, 4, false, true], k + ' (' + how + '): ' + JSON.stringify(x.problems));
     });
   }
 });
@@ -223,7 +225,7 @@ rule('Evidence that reads but isn\'t trusted, and an evidence plan or decision t
     /* What runs says of the run is the verdict; a plan or decision is named at its own file. */
     const want = how === 'decision' ? { path: 'proposals/' + S.plan.id + '.status-sk1-d.json', kinds: ['unreadable', 'malformed'] }
       : how === 'plan' ? { path: 'proposals/' + S.plan.id + '.json', kinds: ['unreadable', 'malformed'] }
-        : how === 'absent' ? { path: 'proposals/' + S.plan.id + '.json', kinds: ['missing'] }
+        : how === 'absent' ? { path: 'proposals/' + S.plan.id + '.json', kinds: ['nofile'] }
           : { path: runPath, kinds: (runs.problems || []).filter(q => q.path === runPath).map(q => q.kind) };
     assert.ok(want.kinds.length, how + ': set-up: runs names the run: ' + JSON.stringify(runs.problems));
     const readers = { run: json('run', F.root, PR, '--contract', '2', '--json'), next: json('next', F.root, PR, '--contract', '2', '--json'), 'todo list': json('todo', 'list', F.root, PR, '--json'),
