@@ -477,14 +477,17 @@ rule('Python counts every record reached and every dependency run together again
   const W = await made({ todos: 1, pending: true }), PF = W.PF, id = W.pendingId;
   const full = await pack(PF, new BytesFS(W.files), W.key);
   assert.strictEqual(full.res.status, 'complete', JSON.stringify(full.res.col.unresolved));
+  /* A chain of N requests the app reads, each seeing the next (built from the last), the pending request seeing the first. */
+  const T = PF.todos, r0 = JSON.parse(W.files[W.runPath]), RUN = { process: r0.process, id: r0.id }, at = new Date().toISOString();
+  const placement = T.placementFor(PF.run.mapOf(PF.run.sanitize(JSON.parse(JSON.stringify(r0)))), { phase: 'review' });
+  const chainOf = (N) => { const out = []; let next = null; for (let i = N - 1; i >= 0; i--) { const q = T.buildProposal({ run: RUN, producer: { name: 'notes-bot', version: '1.0' }, key: 'k-lf' + N + '-' + i, seen: next ? [next] : [], at, body: { op: 'add', text: 'Chained ' + i, target: { phase: 'review' }, placement } }); out.unshift([q.id, T.text(q)]); next = q.id; } return out; };
   const make = (N) => repacked(PF, full.zip, (e, man, f) => {
-    const x = f('proposals/' + id + '.json'), o = JSON.parse(e[x.pack]);
-    const ids = Array.from({ length: N }, (_, i) => 'req-flightdeck-' + crypto.createHash('sha256').update('lf' + i).digest('hex').slice(0, 24));
-    o.seen = N ? [ids[0]] : [];
+    const x = f('proposals/' + id + '.json'), o = JSON.parse(e[x.pack]), recs = chainOf(N);
+    o.seen = N ? [recs[0][0]] : [];
     e[x.pack] = Buffer.from(JSON.stringify(o, null, 2) + '\n');
-    ids.forEach((rid, i) => {
+    recs.forEach(([rid, text]) => {
       const path = 'proposals/' + rid + '.json', pk = x.pack.slice(0, x.pack.length - x.path.length) + path;
-      e[pk] = Buffer.from(JSON.stringify({ id: rid, kind: 'proposal', run: o.run, seen: i + 1 < N ? [ids[i + 1]] : [] }) + '\n');
+      e[pk] = Buffer.from(text);
       man.files.push(Object.assign({}, x, { path, pack: pk }));
     });
   });
@@ -700,4 +703,71 @@ rule('Python requires every evidence plan the work\'s records name: a plan remov
   assert.ok(!bad.ok && bad.out.indexOf(planId) >= 0, 'Python refuses it: ' + bad.out);
 });
 
+/* RE: every original the closure reaches is read by its own family's reader (the shipped checker's: a to-do record's
+   proposal, compound, decision, application, fact or keep, and a loop's scope record), in the export and in Python alike. A
+   fact the work rests on is one witness under its id, carrying that id. Each family's damage is made in the folder (the
+   export names it and is partial) and in a complete pack rewritten with its hashes made to match (Python refuses it). */
+const familyOf = (o) => (o && (o.format === 'flightdeck-plan/3' || o.format === 'flightdeck-plan-status/3') ? 'scope' : o && o.kind === 'decision' ? 'authority decision' : o && o.kind);
+async function familyWorlds() {
+  const A = await made({ requested: true }), PF = A.PF;
+  const P = PF.run.sanitize(JSON.parse(JSON.stringify(A.run))), gotA = await PF.repo.readTodos(new BytesFS(A.files));
+  const td = Object.keys(PF.todos.view(P, { records: gotA.records, people: JSON.parse(A.files['people.json']) }).byTodo)[0];
+  assert.ok(td, 'set-up: a to-do to keep');
+  const keep = PF.learn.build({ run: { process: P.process, id: P.id }, by: 'person-avery', at: new Date().toISOString(), app: '4.0.0', source: { todo: td }, change: { text: 'Check the release notes twice', where: 'end' }, needs: 'It isn\'t placed yet.' });
+  A.files = Object.assign({}, A.files, { ['proposals/' + keep.id + '.json']: JSON.stringify(keep, null, 2) + '\n' });
+  const B = await loopMade(), T = B.PF.todos, F = B.PF.facts, Q = B.PF.run.sanitize(JSON.parse(JSON.stringify(B.run)));
+  const got = await B.PF.repo.readTodos(new BytesFS(B.files)), V = T.view(Q, { records: got.records, people: JSON.parse(B.files['people.json']) });
+  const x = Object.keys(V.byTodo).map((k) => V.byTodo[k])[0], item = B.PF.loop.view(Q, 'each', { records: got.scopes, runs: [Q], procOf: () => null }).rollup.items[0];
+  const at = new Date().toISOString(), BB = { feed: 'bitbucket', site: 'git.example.com' };
+  const f = F.build({ run: Q, producer: { name: 'git-bot', version: '1.0' }, key: 'prs-1', seen: [], at, app: '4.0.0', loopStep: 'each', uid: item.uid, attempt: 1, source: BB, domain: 'prs', observedAt: at, maxAgeSeconds: 86400, complete: true, reported: 1, fetched: 1, errors: [], entries: [{ id: '1', text: 'Change 1', state: 'merged' }] });
+  const fr = T.cleanFile(JSON.parse(T.text(f)), f.id + '.json').record;
+  const q = T.buildProposal({ run: { process: Q.process, id: Q.id }, producer: { name: 'git-bot', version: '1.0' }, seen: [], at, body: { op: 'done', todo: x.id, support: { fact: f.id, content: fr.content, incarnation: x.added, source: BB, domain: 'prs' } } });
+  B.files = Object.assign({}, B.files, { ['proposals/' + f.id + '.json']: T.text(f), ['proposals/' + q.id + '.json']: T.text(q) });
+  return [A, B];
+}
+const OTHER_FACT = 'req-fact-' + 'e'.repeat(24);
+const FAMILY_DAMAGE = {
+  'proposal': [['at 42', (o) => { o.at = 42; return o; }], ['seen broken', (o) => { o.seen = 'broken'; return o; }]],
+  'compound': [['at 42', (o) => { o.at = 42; return o; }]],
+  'authority decision': [['at 42', (o) => { o.at = 42; return o; }]],
+  'application': [['at 42', (o) => { o.at = 42; return o; }]],
+  'keep': [['at 42', (o) => { o.at = 42; return o; }], ['change broken', (o) => { o.change = 'broken'; return o; }]],
+  'fact': [['entries broken', (o) => { o.entries = 'broken'; return o; }], ['{}', () => ({})], ['another id', (o) => { o.id = OTHER_FACT; return o; }], ['at 42', (o) => { o.at = 42; return o; }]],
+  'scope': [['changes broken', (o) => { o.changes = 'broken'; return o; }], ['seen broken', (o) => { o.seen = 'broken'; return o; }]]
+};
+rule('Every original the closure reaches is read by its family\'s reader: each family\'s damage leaves the export partial and Python refuses a complete claim', async () => {
+  const worlds = await familyWorlds(), seen = {}, off = [];
+  for (const W of worlds) {
+    const full = await pack(W.PF, new BytesFS(W.files), W.key);
+    assert.strictEqual(full.res.status, 'complete', JSON.stringify(full.res.col.unresolved));
+    if (PY) { const c = checkPack(full.zip); assert.ok(c.ok, 'the control holds: ' + c.out); }
+    const paths = manifestOf(full.zip).files.map((y) => y.path).filter((p) => /^proposals\/req-/.test(p));
+    for (const p of paths) {
+      const fam = familyOf(JSON.parse(W.files[p]));
+      for (const [what, damage] of FAMILY_DAMAGE[fam] || []) {
+        const name = fam + ' ' + what + ' (' + p + ')', text = JSON.stringify(damage(JSON.parse(W.files[p])), null, 2) + '\n';
+        seen[fam] = true;
+        const { res } = await pack(W.PF, new BytesFS(Object.assign({}, W.files, { [p]: text })), W.key);
+        if (res.status !== 'partial' || !res.col.unresolved.some((u) => u.indexOf(p) >= 0)) off.push('export: ' + name + ' ' + res.status + ' ' + JSON.stringify(res.col.unresolved).slice(0, 300));
+        if (!PY) continue;
+        const bad = checkPack(await repacked(W.PF, full.zip, (e, man, g) => { e[g(p).pack] = Buffer.from(text); forced(man); }));
+        if (bad.ok) off.push('Python accepts: ' + name);
+      }
+    }
+  }
+  assert.deepStrictEqual(Object.keys(seen).sort(), Object.keys(FAMILY_DAMAGE).sort(), 'every family is packed in these worlds');
+  assert.deepStrictEqual(off, []);
+});
+rule('A fact the work rests on is one witness carrying its id: two different copies of it are refused by Python, and the export says which', async () => {
+  const B = (await familyWorlds())[1], fp = Object.keys(B.files).find((p) => /^proposals\/req-/.test(p) && JSON.parse(B.files[p]).kind === 'fact');
+  const o = JSON.parse(B.files[fp]); o.observedAt = new Date(Date.parse(o.observedAt) - 1000).toISOString();
+  const cp2 = fp.replace(/\.json$/, ' (1).json'), files = Object.assign({}, B.files, { [cp2]: JSON.stringify(o, null, 2) + '\n' });
+  const { res, zip } = await pack(B.PF, new BytesFS(files), B.key);
+  assert.strictEqual(res.status, 'partial', JSON.stringify(res.col.unresolved));
+  assert.ok(res.col.unresolved.some((u) => u.indexOf(fp.slice(0, -5)) >= 0), JSON.stringify(res.col.unresolved));
+  if (!PY) return;
+  const full = await pack(B.PF, new BytesFS(B.files), B.key);
+  const bad = checkPack(await repacked(B.PF, full.zip, (e, man, g) => { const y = g(fp); e['originals/' + cp2] = Buffer.from(JSON.stringify(o, null, 2) + '\n'); man.files.push(Object.assign({}, y, { path: cp2, pack: 'originals/' + cp2 })); forced(man); }));
+  assert.ok(!bad.ok && bad.out.indexOf(fp.slice('proposals/'.length, -5)) >= 0, 'Python refuses it: ' + bad.out);
+});
 run();

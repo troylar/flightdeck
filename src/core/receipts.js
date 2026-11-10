@@ -348,7 +348,8 @@ PF.receipts = (function () {
     var chain = [], rs = null, spreads = Object.create(null), allKids = Object.create(null);
     var look = function (b) {
       if (!b) return;
-      if (b.support && b.support.fact) { var fx = byId[b.support.fact]; if (fx && fx.length) fx.forEach(function (f) { file(f, 'A fact used as evidence'); }); else missing.push('proposals/' + b.support.fact + '.json: a to-do rests on this fact, but it isn\'t in the folder as read.'); }
+      /* A fact used as evidence is a witness too: one record under its id, the same in every copy, and a fact. */
+      if (b.support && b.support.fact) { var fp = 'proposals/' + b.support.fact + '.json', fx = unique(byId[b.support.fact] || [], fp, 'a to-do rests on this fact'); if (fx && fx.kind !== 'fact') missing.push(fp + ': a to-do rests on this fact, but it isn\'t that record.'); else if (fx) file(fx, 'A fact used as evidence'); }
       if (b.evidence && b.evidence.run) { run(b.evidence.run.process, b.evidence.run.id, 'evidence'); if (plans.indexOf(b.evidence.plan) < 0) plans.push(b.evidence.plan); }
     };
     /* One run's own closure: its records, its living chain (every link a witness), each application's request, authority and

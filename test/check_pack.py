@@ -279,6 +279,23 @@ def check_living(z, man):
             if not isinstance(o, dict) or o.get("id") != name or CF.plan_why(o):
                 plans_bad.append(f["path"])
 
+    def family_why(path):
+        """Why the app wouldn't read a packed original the work rests on, by its own family's reader in the shipped checker (a
+        to-do record: proposal, compound, decision, application, fact, keep or receipt; a loop's scope record), else ''."""
+        raw = z.read(by_path[path])
+        try:
+            text = raw.decode("utf-8")
+            o = json.loads(text[1:] if text.startswith("\ufeff") else text, parse_int=float, parse_constant=CF._no_constant)
+        except ValueError:
+            return "isn't complete JSON"
+        name = path[len("proposals/"):]
+        if CF.todo_claims(o):
+            return CF.todo_why(o, name, len(raw))
+        if isinstance(o, dict) and o.get("format") in (CF.SCOPE_REQUEST, CF.SCOPE_DECISION):
+            kind, needs, why = CF.scope_why(o, name)
+            return why or kind
+        return "isn't a to-do record or a loop's scope record"
+
     def has_work(key):
         """Whether a packed run has work to check, from the packed originals alone (never the manifest): its run.json names a
         work head or a receipt, or a packed to-do record (PF.todos.claims) names the run."""
@@ -372,10 +389,21 @@ def check_living(z, man):
             todo.extend(sorted(depends_on(dep_run) - done))
         if len(reached) + len(done) - 1 > 5000:
             sys.exit("living: " + r["key"] + " rests on more records and runs than a pack holds at most (5000)")
-        # Each fact a to-do record rests on (support.fact), by that reference: the export packs every copy under its id.
+        # Each fact a to-do record rests on (support.fact), by that reference: one witness under its id (every packed copy the
+        # same), a fact carrying that id.
         for fid in sorted(facts_wanted):
             if not packed_ids(fid):
                 sys.exit("living: " + r["key"] + " says its work is complete, but proposals/" + fid + ".json, a fact the work rests on, isn't in the pack")
+            rec, amb = witness(fid)
+            if amb:
+                sys.exit("living: " + r["key"] + " says its work is complete, but the pack holds two different copies of proposals/" + fid + ".json, a fact the work rests on")
+            if not isinstance(rec, dict) or rec.get("kind") != "fact" or rec.get("id") != fid:
+                sys.exit("living: " + r["key"] + " says its work is complete, but proposals/" + fid + ".json, a fact the work rests on, isn't that fact")
+        # Every original reached is one the app reads, by its own family's reader.
+        for path in sorted(reached):
+            why = family_why(path)
+            if why:
+                sys.exit("living: " + r["key"] + " says its work is complete, but " + path + ", a record its work rests on, isn't one the app reads: " + why)
         for pid in sorted(plans_wanted):
             o = packed("proposals/" + pid + ".json")
             if not isinstance(o, dict) or o.get("id") != pid or CF.plan_why(o):
