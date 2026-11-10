@@ -16,6 +16,21 @@ const BREAKS = {
   'the story\'s run EIO': (app, kid) => { const read = app.fs.read; app.fs.read = (q, o) => q === kid ? Promise.reject(new Error('EIO')) : read.call(app.fs, q, o); return () => { app.fs.read = read; }; },
   'its publication EIO': (app) => { const read = app.fs.read; app.fs.read = (q, o) => /^publications\/validate-story\//.test(q) ? Promise.reject(new Error('EIO')) : read.call(app.fs, q, o); return () => { app.fs.read = read; }; }
 };
+/* Round 12 (FB): what coverage reads besides the runs: the loop's scope records, and the story's own to-do records (the
+   application its living.head names). Each returns its undo, or null where the set-up has no such file (a story without
+   to-dos has no application). */
+const scopeFile = (app) => app.files('proposals/').filter(p => /\/req-[^/]*\.json$/.test(p)).find(p => { try { const j = JSON.parse(app.fs.files[p].t); return j.loop && j.loop.step === 'each'; } catch (e) { return false; } });
+const headFile = (app, kid) => { try { const h = JSON.parse(app.fs.files[kid].t).living; return h && h.head ? 'proposals/' + h.head + '.json' : null; } catch (e) { return null; } };
+const gone = (app, f) => { if (!f || !app.fs.files[f]) return null; const kept = app.fs.files[f]; delete app.fs.files[f]; return () => { app.fs.files[f] = kept; }; };
+const eio = (app, f) => { if (!f || !app.fs.files[f]) return null; const read = app.fs.read; app.fs.read = (q, o) => q === f ? Promise.reject(new Error('EIO')) : read.call(app.fs, q, o); return () => { app.fs.read = read; }; };
+const DEPS = {
+  'a scope record absent': (app) => gone(app, scopeFile(app)),
+  'a scope record EIO': (app) => eio(app, scopeFile(app)),
+  'the story\'s application absent': (app, kid) => gone(app, headFile(app, kid)),
+  'the story\'s application EIO': (app, kid) => eio(app, headFile(app, kid))
+};
+Object.assign(BREAKS, DEPS);
+const RUN_BREAKS = ['the story\'s run absent', 'the story\'s run EIO', 'its publication EIO'];
 /* Where the write waits: at its read of the parent, or once its candidate is written (before the final write). */
 const WAITS = {
   'at the parent read': (fs0) => { const read = fs0.read, hold = gate(); let n = 0; fs0.read = (p, o) => PARENT_RE.test(p) && ++n === 1 ? hold.p.then(() => read.call(fs0, p, o)) : read.call(fs0, p, o); return { hold, seen: () => n, off: () => { fs0.read = read; } }; },
@@ -40,10 +55,10 @@ const approved = (app) => { const s = parentRun(app).steps.each; return !!s && s
 
 /* o.prep(): an app on the parent's screen with the loop's stories cleared (and fulfilled) and the loop not yet approved.
    o.kid(app): the path of a story's run.json. o.reread(app): read again until the screen is current. Returns what was off. */
-async function matrix(o, only) {
+async function matrix(o, only, breaks) {
   const off = [];
   let cases = 0;
-  for (const how of Object.keys(WRITES).filter(h => !only || h === only)) for (const brk of Object.keys(BREAKS)) for (const wait of Object.keys(WAITS)) {
+  for (const how of Object.keys(WRITES).filter(h => !only || h === only)) for (const brk of breaks || RUN_BREAKS) for (const wait of Object.keys(WAITS)) {
     const tag = how + ', ' + brk + ', ' + wait;
     cases++;
     const app = await o.prep();
@@ -55,6 +70,7 @@ async function matrix(o, only) {
     if (!w.seen()) { off.push(tag + ': set-up: the save never reached where it waits'); w.off(); continue; }
     const mid = files(app);
     const undo = BREAKS[brk](app, o.kid(app));
+    if (!undo) { cases--; w.hold.open(); w.off(); await app.tick(300); continue; }
     w.hold.open(); await app.tick(500);
     if (app.fs.files[p].t !== before) off.push(tag + ': run.json written: ' + JSON.stringify([(JSON.parse(app.fs.files[p].t).gates || {})[gid(app)] || null, JSON.parse(app.fs.files[p].t).steps.each.s]));
     else if (files(app) !== mid) off.push(tag + ': something more was written');
@@ -70,7 +86,8 @@ async function matrix(o, only) {
 
 /* Use copy after Refresh has detected a story's run EIO: a conflict copy with the gate passed is not kept, the run and the
    folder are unchanged (no backup), and the copy stays. */
-async function useCopyAfterEio(o) {
+async function useCopyAfterEio(o, brk, noRefresh) {
+  brk = brk || 'the story\'s run EIO';
   const app = await o.prep();
   app.click('loop-approve', 'each'); await app.tick(250);
   const p = parentPath(app), approvedText = app.fs.files[p].t;
@@ -81,8 +98,9 @@ async function useCopyAfterEio(o) {
   await app.fs.write(p.replace('run.json', 'run-OTHER.json'), JSON.stringify(passed));
   await o.reread(app);
   if (!/data-act="use-copy"/.test(app.html())) return ['set-up: the copy isn\'t offered'];
-  const undo = BREAKS['the story\'s run EIO'](app, o.kid(app));
-  await o.reread(app);
+  const undo = BREAKS[brk](app, o.kid(app));
+  if (!undo) return ['set-up: no such file to break'];
+  if (!noRefresh) await o.reread(app);
   const before = files(app);
   app.click('use-copy', 'run-OTHER.json'); await app.tick(500);
   const out = [];
@@ -92,4 +110,4 @@ async function useCopyAfterEio(o) {
   return out;
 }
 
-module.exports = { matrix, useCopyAfterEio, WRITES };
+module.exports = { matrix, useCopyAfterEio, WRITES, DEPS };

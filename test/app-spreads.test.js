@@ -269,4 +269,13 @@ for (const how of Object.keys(BB.WRITES)) rule('BB: ' + how + ' on a fulfilled s
 rule('BB: Use copy of a fulfilled spread\'s parent after Refresh detected a story\'s run EIO keeps nothing, and the copy stays', async () => {
   assert.deepStrictEqual(await BB.useCopyAfterEio(bbSpread), []);
 });
+/* Review round 12 (FB): the same writes reread what coverage reads besides the runs (the scope records, and the story's to-do records) with no Refresh
+   in between: nothing written, the change put back; Use copy too, with and without a Refresh first. */
+for (const how of Object.keys(BB.WRITES)) rule('FB: ' + how + ' on a fulfilled spread\'s loop rereads its scope records and to-do records at every write', async () => {
+  const deps = Object.keys(BB.DEPS), { cases, off } = await BB.matrix(bbSpread, how, deps);
+  assert.deepStrictEqual([cases, off], [deps.length * 2, []]);
+});
+for (const brk of Object.keys(BB.DEPS)) for (const noRefresh of [false, true]) rule('FB: Use copy on a fulfilled spread\'s loop with ' + brk + (noRefresh ? ', no Refresh first' : ', after Refresh') + ' keeps nothing, and the copy stays', async () => {
+  assert.deepStrictEqual(await BB.useCopyAfterEio(bbSpread, brk, noRefresh), []);
+});
 run();

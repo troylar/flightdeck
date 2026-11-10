@@ -1140,4 +1140,13 @@ for (const how of Object.keys(BB.WRITES)) rule('BB: ' + how + ' on a plain loop 
 rule('BB: Use copy of a plain loop\'s parent after Refresh detected a story\'s run EIO keeps nothing, and the copy stays', async () => {
   assert.deepStrictEqual(await BB.useCopyAfterEio(bbLoop), []);
 });
+/* Review round 12 (FB): the same writes reread what coverage reads besides the runs (the scope records) with no Refresh
+   in between: nothing written, the change put back; Use copy too, with and without a Refresh first. */
+for (const how of Object.keys(BB.WRITES)) rule('FB: ' + how + ' on a plain loop rereads its scope records at every write', async () => {
+  const deps = ['a scope record absent', 'a scope record EIO'], { cases, off } = await BB.matrix(bbLoop, how, deps);
+  assert.deepStrictEqual([cases, off], [deps.length * 2, []]);
+});
+for (const brk of ['a scope record absent', 'a scope record EIO']) for (const noRefresh of [false, true]) rule('FB: Use copy on a plain loop with ' + brk + (noRefresh ? ', no Refresh first' : ', after Refresh') + ' keeps nothing, and the copy stays', async () => {
+  assert.deepStrictEqual(await BB.useCopyAfterEio(bbLoop, brk, noRefresh), []);
+});
 run();
