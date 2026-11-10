@@ -68,8 +68,8 @@ PF.loop = (function () {
     var split = splitIds(all), ids = Object.keys(split);
     if (!ids.length) return mine;
     var has = Object.create(null), own = typeof Set === 'function' ? new Set(mine) : null;
-    mine.forEach(function (x) { if (x && split[x.id]) has[x.id] = true; });
-    var away = (all || []).filter(function (x) { return x && has[x.id] && !(own ? own.has(x) : mine.indexOf(x) >= 0); });
+    mine.forEach(function (x) { if (x && typeof x.id === 'string' && split[x.id]) has[x.id] = true; });
+    var away = (all || []).filter(function (x) { return x && typeof x.id === 'string' && has[x.id] && !(own ? own.has(x) : mine.indexOf(x) >= 0); });
     return away.length ? mine.concat(away) : mine;
   }
   function causal(records) {

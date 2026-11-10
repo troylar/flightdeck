@@ -2604,7 +2604,7 @@ PF.repo = (function () {
          one that is a to-do or fact record while another copy is a plan or a scope record would escape every reducer, so each
          copy is held as a record that can't be read, on the run a to-do copy names (or every living run) and its loop. */
       var split = PF.loop.splitIds(props), across = Object.create(null);
-      props.forEach(function (p) { if (!split[p.id]) return; var a = across[p.id] = across[p.id] || { todo: [], other: [] }; (PF.todos.claims(p) ? a.todo : a.other).push(p); });
+      props.forEach(function (p) { if (typeof p.id !== 'string' || !split[p.id]) return; var a = across[p.id] = across[p.id] || { todo: [], other: [] }; (PF.todos.claims(p) ? a.todo : a.other).push(p); });
       Object.keys(across).forEach(function (id) {
         var a = across[id];
         if (!a.todo.length || !a.other.length) return;

@@ -261,8 +261,8 @@
       "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
     },
     "src/core/loop.js": {
-      "sha256": "faff300516e00e9c5bf67f1f17cf0de498f0250cc3686dd6552b001e7d3d47e1",
-      "reviewed": "one splitIds/withCopies over every record, used by the fact and to-do reducers; checked for direct writes and unconditional deletes"
+      "sha256": "b6fbc4b48896eb52364cfbabd3ce06baad79f21d5837529c3c8f7454890b9b4f",
+      "reviewed": "guard non-string ids in the copy checks; accept-all recheck keeps its seed; checked for direct writes and unconditional deletes"
     },
     "src/core/map.js": {
       "sha256": "f9eae33f6635cd1b3983fc1c71eb7a3b3c8dc1c70ca3ef8ce8807d5228165d2f",
@@ -409,12 +409,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "ccf9498a10b894708d5b1d29deea11b108b517564bf07e24aad454ea0048bf3b",
-      "reviewed": "readPlans: copies differing across families hold as unread before dispatch; checked for direct writes and unconditional deletes"
+      "sha256": "11c170e497c4116383e9e65b4ccee593ba86841890bfdb851d8b75d8e119a35a",
+      "reviewed": "guard non-string ids in the copy checks; accept-all recheck keeps its seed; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "9bb5340476ce918f49042b2ddcf27bd6c35db5b6e727470885e8fb570dfd2629",
-      "reviewed": "decision write guard decideStill, asked by every app decision write; checked for direct writes and unconditional deletes"
+      "sha256": "a1f4552764bb10c5584361ef6b7069b2c5352159e19c30cde6b83e72dcb95252",
+      "reviewed": "guard non-string ids in the copy checks; accept-all recheck keeps its seed; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
