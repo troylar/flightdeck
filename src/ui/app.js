@@ -2117,7 +2117,7 @@
     repHarvest();
     corrHarvest();
     tdHarvest();
-    procCache = null; pplBy = { list: null, len: -1, by: null }; pplSorted = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null; tdMemo = null; tdBox = null; spBox = null; fcMemo = null;
+    procCache = null; pplBy = { list: null, len: -1, by: null }; pplSorted = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null; tdMemo = null; tdBox = null; spBox = null; fcMemo = null; pvnMemo = null;
     pruneUnapplied();
     var keep = {}, ae = document.activeElement, focusKey = null;
     /* What a person typed or ticked survives a redraw of the same thing: the same screen, run, step and open form. Moving to
@@ -3590,8 +3590,7 @@
       if (res && res.dropped) { say('The run wasn\'t ended: the folder, the person, the run or its to-dos changed before its receipt was written. End it again if it still should.', 'warn'); render(); return; }
       /* A receipt already in the folder under its name says the same (its name is what it says); anything else there isn't one. */
       if (res && res.conflict && res.theirs !== text) {
-        var o = null; try { o = PF.util.jsonTooDeep(res.theirs) ? null : JSON.parse(res.theirs); } catch (e) { o = null; }
-        var v = o && typeof o === 'object' ? PF.todos.cleanFile(o, P.name, PF.util.utf8Bytes(res.theirs)) : null;
+        var v = null; try { var o = PF.util.jsonTooDeep(res.theirs) ? undefined : JSON.parse(res.theirs); if (o && typeof o === 'object') v = PF.todos.cleanFile(o, P.name, PF.util.utf8Bytes(res.theirs)); } catch (e) { v = null; }
         if (!v || !v.ok || v.record.kind !== 'receipt' || v.record.id !== P.id) { say('Something else is already saved under the receipt\'s name. The run wasn\'t ended; read the folder again.', 'bad'); render(); return; }
       }
       var rec = P.record; rec._file = P.name;

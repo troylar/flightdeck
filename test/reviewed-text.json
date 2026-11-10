@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "0eaa801dff22197b12cc29014fbd56ca65eb427485c6b83b3d8822c24a8415e1",
-      "reviewed": "4.0 slice 6 commit 8, readers, checker and release: appjson and bin/flightdeck.js read pending to-do requests before a run gains living and an ended run's receipt (missing or mismatch named, exit 4), check_folder.py's receipt_why port, the living-run, status and learn-from-runs skills, the command guide, file formats, docs/apps.md, the 4.0.0 release entries and the rehearsal waiver; checked for direct writes and unconditional deletes: the readers only read, the skills tell an assistant never to write a receipt or end a run, nothing deleted"
+      "sha256": "6003161caa0ebb3d0b6175df032ab9151e55c8267fd2e0c32765a1614253554f",
+      "reviewed": "slice 6: full-run fixes (file-formats.md back to 2.14.0's copy, inventory entries, reader and lookup sites, renderNow memo, markTodos)"
     },
     "build.py": {
       "sha256": "4930aee232c7766241927d231c2eb0729443450de507161a3f0e85b7e7f5fb8e",
@@ -65,8 +65,8 @@
       "reviewed": "4.0 slice 6 commit 8, readers, checker and release: appjson and bin/flightdeck.js read pending to-do requests before a run gains living and an ended run's receipt (missing or mismatch named, exit 4), check_folder.py's receipt_why port, the living-run, status and learn-from-runs skills, the command guide, file formats, docs/apps.md, the 4.0.0 release entries and the rehearsal waiver; checked for direct writes and unconditional deletes: the readers only read, the skills tell an assistant never to write a receipt or end a run, nothing deleted"
     },
     "example-folder/.flightdeck/skills/_flightdeck/file-formats.md": {
-      "sha256": "aa58c578e960108945bf7908f8a65a2fc1e48bdafbcad77ec9f19080444ea659",
-      "reviewed": "4.0 slice 6 commit 8, readers, checker and release: appjson and bin/flightdeck.js read pending to-do requests before a run gains living and an ended run's receipt (missing or mismatch named, exit 4), check_folder.py's receipt_why port, the living-run, status and learn-from-runs skills, the command guide, file formats, docs/apps.md, the 4.0.0 release entries and the rehearsal waiver; checked for direct writes and unconditional deletes: the readers only read, the skills tell an assistant never to write a receipt or end a run, nothing deleted"
+      "sha256": "3e696299bc5971a578831ad4c25330bcb87a4036c10666469e39b794a9a1bba3",
+      "reviewed": "slice 6: full-run fixes (file-formats.md back to 2.14.0's copy, inventory entries, reader and lookup sites, renderNow memo, markTodos)"
     },
     "example-folder/.flightdeck/skills/_flightdeck/good-checklists.md": {
       "sha256": "e242f8b86e5ee9578bdbec9f4ebf08402f2e494a89ecdcfdbe1062e857987713",
@@ -197,8 +197,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "abf773499e479366fc98d2aa252059bdbfd0613b441f504b22cda960033caba7",
-      "reviewed": "4.0 slice 6 commit 8, readers, checker and release: appjson and bin/flightdeck.js read pending to-do requests before a run gains living and an ended run's receipt (missing or mismatch named, exit 4), check_folder.py's receipt_why port, the living-run, status and learn-from-runs skills, the command guide, file formats, docs/apps.md, the 4.0.0 release entries and the rehearsal waiver; checked for direct writes and unconditional deletes: the readers only read, the skills tell an assistant never to write a receipt or end a run, nothing deleted"
+      "sha256": "73211b2091ffeafa9396a48debb3c657d378450e4cbb835a17ca78cf6c01e6e7",
+      "reviewed": "slice 6: full-run fixes (file-formats.md back to 2.14.0's copy, inventory entries, reader and lookup sites, renderNow memo, markTodos)"
     },
     "src/core/appjson.js": {
       "sha256": "744bdb09afa1a0dda2fe006e5b3a963ebe88bef69aaab5a41ae88515ce09cd03",
@@ -425,8 +425,8 @@
       "reviewed": "4.0 slice 6 commit 7, plan versus now and receipts: PF.receipts (compare, the receipt record, prepare, stateOf, since, deps), cleanLiving's receipt, PF.run.end's receipt, the app's end flow with its receipt guard and plan-versus-now chips, the evidence pack's living section and check_pack.py's replay, design 45.5 and docs/evidence.md; checked for direct writes and unconditional deletes: the receipt is written create-once through repo.saveScope with a fresh read before the write under the run and to-do guards, the run through the checked save chain, export only reads, nothing deleted"
     },
     "src/ui/app.js": {
-      "sha256": "f0a921db80fd97b5cccce0ff7bbbd36ec1d8415f858acd7f260ce146f37d8bc8",
-      "reviewed": "4.0 slice 6 commit 7, plan versus now and receipts: PF.receipts (compare, the receipt record, prepare, stateOf, since, deps), cleanLiving's receipt, PF.run.end's receipt, the app's end flow with its receipt guard and plan-versus-now chips, the evidence pack's living section and check_pack.py's replay, design 45.5 and docs/evidence.md; checked for direct writes and unconditional deletes: the receipt is written create-once through repo.saveScope with a fresh read before the write under the run and to-do guards, the run through the checked save chain, export only reads, nothing deleted"
+      "sha256": "d77f0b32ceba308badb1364f41a30f9813be0e62faffe9925870abb69040d7cb",
+      "reviewed": "slice 6: full-run fixes (file-formats.md back to 2.14.0's copy, inventory entries, reader and lookup sites, renderNow memo, markTodos)"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
@@ -525,8 +525,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. A maintainer tool, not shipped. Not read line by line."
     },
     "tools/readers.js": {
-      "sha256": "758d153a7d373a68f54c4e88648b3a24936824a1d9be50e8f3c3a69a5a8941b3",
-      "reviewed": "deep files refused in Folder health; readers list updated; checked for direct writes and unconditional deletes"
+      "sha256": "225e9ed156224e24e8738a2176e20e535eccd5ee3ebecb370dcffb8daffdc918",
+      "reviewed": "slice 6: full-run fixes (file-formats.md back to 2.14.0's copy, inventory entries, reader and lookup sites, renderNow memo, markTodos)"
     },
     "tools/scale-limits.js": {
       "sha256": "23e06ee46d6b4ff44216f92c530578f714aa05bcecd7a2b0458515287d554ec1",
