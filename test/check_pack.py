@@ -3,11 +3,14 @@ manifest.json's SHA-256 for every payload file and SHA256SUMS for payload plus m
 application chain from the packed run.json's living.head through each application's previous, and checks the receipt the run
 names says the run's work head and outcome: a pack that calls a run's work complete must hold all of it, and a pack missing
 any of it must say it is partial. Run with python3 -I."""
-import hashlib, json, os, re, shutil, sys, tempfile, zipfile
+import hashlib, json, os, re, sys, zipfile
 
 # The shipped checker's own record reader (Python, independent of the app): a packed receipt is read by its rules.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "example-folder", ".flightdeck", "skills", "_flightdeck"))
 import check_folder as CF  # noqa: E402
+# Every run the work depends on is judged as every reader of the app judges it (repo.depVerdict), ported in run_verdict.py.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import run_verdict as RV  # noqa: E402
 
 
 def main(path):
@@ -49,70 +52,6 @@ def main(path):
 
 
 COPY = re.compile(r"^( \([0-9]{1,3}\)|-[A-Za-z0-9-]{1,63})$")
-ISO = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$")
-
-
-def times_why(run):
-    """The times a run file holds that the app can't read (as R.sanitize drops them, and run says malformed), or ''."""
-    iso = lambda v: isinstance(v, str) and ISO.match(v)
-    bad = []
-    if not iso(run.get("created")):
-        bad.append("created")
-    if "savedAt" in run and run.get("savedAt") is not None and not iso(run.get("savedAt")):
-        bad.append("savedAt")
-    if isinstance(run.get("ended"), dict) and not iso(run["ended"].get("at")):
-        bad.append("ended")
-    for i, line in enumerate(run.get("log") or []):
-        if not isinstance(line, dict) or not iso(line.get("at")):
-            bad.append("log " + str(i + 1))
-            break
-    for i, p in enumerate(run.get("pauses") or []):
-        if not isinstance(p, dict) or not iso(p.get("from")) or not iso(p.get("to")):
-            bad.append("pause " + str(i + 1))
-            break
-    return ", ".join(bad)
-
-
-STATES = ("running", "completed", "stopped", "cancelled")
-MARKS = ("blocked", "recheck", "na", "differently")
-MARK_KEY = re.compile(r"^[\w-]{1,120}$")
-
-
-def schema_why(run):
-    """The fields a run file holds that the app wouldn't read as written (R.sanitize would drop, cut or replace them, so every
-    reader names the run malformed), checked here on their own, or ''."""
-    iso = lambda v: isinstance(v, str) and ISO.match(v)
-    bad = []
-    t = run.get("title")
-    if not isinstance(t, str) or not t or len(t) > 100:
-        bad.append("title")
-    if run.get("state") not in STATES:
-        bad.append("state")
-    rev = run.get("rev")
-    if "rev" in run and (isinstance(rev, bool) or not isinstance(rev, int) or rev < 0):
-        bad.append("rev")
-    if "followUps" in run:
-        fu = run.get("followUps")
-        if not isinstance(fu, list) or any(not isinstance(f, dict) or not isinstance(f.get("text"), str) or not f["text"].strip()
-                                           or (f.get("at") is not None and not iso(f.get("at"))) for f in fu):
-            bad.append("followUps")
-    if run.get("paused") is not None:
-        pa = run["paused"]
-        if not isinstance(pa, dict) or not iso(pa.get("at")) or run.get("state") != "running":
-            bad.append("paused")
-    if run.get("marks") is not None:
-        mk = run["marks"]
-        if not isinstance(mk, dict) or any(not MARK_KEY.match(k) or not isinstance(v, list) or not v or any(x not in MARKS for x in v)
-                                           for k, v in mk.items()):
-            bad.append("marks")
-    for kind in ("steps", "gates"):
-        for k, v in (run.get(kind) or {}).items() if isinstance(run.get(kind), dict) else []:
-            if isinstance(v, dict) and v.get("at") is not None and not iso(v.get("at")):
-                bad.append(kind[:-1] + " " + k)
-                break
-    return ", ".join(bad)
-
-
 def check_living(z, man):
     by_path = {f["path"]: f["pack"] for f in man["files"]}
 
@@ -286,40 +225,6 @@ def check_living(z, man):
                     out.update(hit or ["?/" + ch["run"]])
         return out
 
-    def version_why(run):
-        """The version a dependency run ran, as packed: its three files there and, for a published version, verified by the
-        shipped checker's rules (check_publication) and matching the run; '' when it holds."""
-        folder, proc = run.get("folder"), run.get("process")
-        if not isinstance(folder, str) or not isinstance(proc, str):
-            return "it names no version"
-        test = run.get("test") is True
-        base = ("staged/" if test else "publications/") + proc + "/" + folder + "/"
-        names = ("map.md", "types.json", "publication.json")
-        if any(base + n not in by_path for n in names):
-            return base + " isn't all in the pack"
-        if test:
-            try:
-                info = load(base + "publication.json")
-            except ValueError:
-                info = None
-            return "" if isinstance(info, dict) else base + "publication.json isn't a publication record"
-        tmp = tempfile.mkdtemp(prefix="flightdeck-pack-")
-        try:
-            vdir = os.path.join(tmp, folder)
-            os.mkdir(vdir)
-            for n in names:
-                with open(os.path.join(vdir, n), "wb") as f:
-                    f.write(z.read(by_path[base + n]))
-            state, why, info = CF.check_publication(vdir, folder)
-        finally:
-            shutil.rmtree(tmp, ignore_errors=True)
-        # A screenshot is verified by the app when the run is judged and isn't packed with a dependency's version.
-        if state != "complete" and not (state == "syncing" and why.startswith("screenshot ")):
-            return base + ": " + why
-        if info.get("mapHash") != run.get("mapHash") or info.get("folder") != folder:
-            return base + " isn't the version the run ran"
-        return ""
-
     # Each evidence plan packed reads as a plan, by the shipped checker's rules (PF.plans.planWhy), under its own name.
     plans_bad = []
     for f in man["files"]:
@@ -381,15 +286,11 @@ def check_living(z, man):
                     sys.exit("living: " + r["key"] + " says its work is complete, but " + k + ", a run it depends on, isn't in the pack")
                 if k not in named:
                     sys.exit("living: " + r["key"] + " says its work is complete, but the manifest doesn't name " + k + ", a run it depends on")
-                tw = times_why(dep_run)
-                if tw:
-                    sys.exit("living: " + r["key"] + " says its work is complete, but " + k + ", a run it depends on, has times the app can't read (" + tw + ")")
-                vw = version_why(dep_run)
-                if vw:
-                    sys.exit("living: " + r["key"] + " says its work is complete, but the version of " + k + ", a run it depends on, doesn't hold (" + vw + ")")
-                sw = schema_why(dep_run)
-                if sw:
-                    sys.exit("living: " + r["key"] + " says its work is complete, but " + k + ", a run it depends on, holds what the app wouldn't read as written (" + sw + ")")
+                # The verdict every reader gives a run (repo.depVerdict): its file as the app reads it, then the version it ran,
+                # as packed. (Conflict copies beside a run aren't packed; the export names them and stays partial.)
+                bad = RV.dep_verdict(k, z.read(by_path["runs/" + k + "/run.json"]), lambda p: z.read(by_path[p]) if p in by_path else None)
+                if bad:
+                    sys.exit("living: " + r["key"] + " says its work is complete, but " + k + ", a run it depends on, isn't one every reader accepts (" + bad[0] + ": " + bad[1] + ")")
                 w2, c2, cl2, rc2, cp2 = check_run(dep_run)
                 d = named[k]
                 if cp2:
@@ -409,27 +310,8 @@ def check_living(z, man):
     return n
 
 
-def batch(path):
-    """--verdicts FILE: each dependency run judged as this reader judged it before the port (its times and the fields it
-    checked on their own), one {id, path} line per case."""
-    out = []
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            x = json.loads(line) if line.strip() else None
-            if not x or "files" in x:
-                continue
-            try:
-                run = json.loads(x["text"])
-                bad = times_why(run) or schema_why(run)
-            except Exception as e:  # noqa: BLE001
-                bad = str(e)
-            out.append(json.dumps({"id": x["id"], "path": "runs/" + x["key"] + "/run.json" if bad else None, "why": bad}))
-    sys.stdout.write("\n".join(out) + "\n")
-
-
 if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == "--verdicts":
-        batch(sys.argv[2])
+        RV.batch(sys.argv[2])
     else:
         main(sys.argv[1])
-

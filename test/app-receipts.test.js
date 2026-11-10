@@ -324,6 +324,49 @@ rule('An evidence run or a fulfilled run changed after the receipt is written en
   }
   assert.strictEqual(misses.length, 0, misses.join('\n'));
 });
+/* LE with the mutation corpus (test/run-corpus.js): the evidence run and the fulfilled run filled out with every record a run
+   holds, then one place changed right after the receipt is written. The run ends exactly when the export's verdict on the
+   changed run (repo.depVerdict) holds; otherwise it ends nothing and names the path. One case per top-level field, the first
+   the export refuses, taken in turn from the two roles, with each role's control. */
+const CORPUS = require('./run-corpus');
+const DEP_PATHS = { evidence: 'runs/release-notes/evrun1/run.json', fulfills: 'runs/release-notes/dep-1/run.json' };
+async function guardWorld(role) {
+  const app = await withDeps(), path = DEP_PATHS[role], base = CORPUS.enrich(app.PF, JSON.parse(app.fs.files[path].t));
+  app.fs.files[path] = { t: JSON.stringify(base, null, 2), m: Date.now() };
+  return { app, path, cases: CORPUS.casesOf(base) };
+}
+const filesOf = (app) => { const o = {}; Object.keys(app.fs.files).forEach((p) => { o[p] = app.fs.files[p].t; }); return o; };
+rule('The ending guard on the mutation corpus: a changed evidence or fulfilled run ends the run exactly when the export\'s verdict holds, else names its path', async () => {
+  const picks = [], misses = [];
+  for (const role of ['evidence', 'fulfills']) {
+    const W = await guardWorld(role), key = W.path.split('/').slice(1, 3).join('/'), tops = new Set();
+    picks.push({ role, name: 'as written', bad: null });
+    for (const c of W.cases) {
+      const top = c.name.split(/[.:]/)[0];
+      if (tops.has(top)) continue;
+      const v = await CORPUS.jsVerdict(W.app.PF, Object.assign(filesOf(W.app), { [W.path]: JSON.stringify(c.run, null, 2) }), key);
+      if (v) { tops.add(top); picks.push({ role, name: c.name, bad: v }); }
+    }
+  }
+  const byTop = {}, chosen = picks.filter((p) => p.name === 'as written');
+  picks.forEach((p) => { if (p.name !== 'as written') (byTop[p.name.split(/[.:]/)[0]] = byTop[p.name.split(/[.:]/)[0]] || {})[p.role] = p; });
+  Object.keys(byTop).forEach((top, i) => { const want = i % 2 ? 'fulfills' : 'evidence'; chosen.push(byTop[top][want] || byTop[top][want === 'evidence' ? 'fulfills' : 'evidence']); });
+  for (const p of chosen) {
+    const W = await guardWorld(p.role), c = W.cases.find((x) => x.name === p.name), fs = W.app.fs, write = fs.write.bind(fs), before = fs.files[runPath(W.app)].t;
+    if (!c) { misses.push(p.role + ' · ' + p.name + ': not in this world'); continue; }
+    let hit = false;
+    fs.write = (q, t, o) => write(q, t, o).then((x) => { if (/^proposals\/req-receipt-/.test(q) && !hit) { hit = true; fs.files[W.path] = { t: JSON.stringify(c.run, null, 2), m: Date.now() }; } return x; });
+    W.app.click('end', 'Cancelled'); await W.app.tick(400);
+    fs.write = write;
+    const ended = !!theRun(W.app).ended, tag = p.role + ' · ' + p.name + ': ';
+    if (!hit) misses.push(tag + 'no receipt was written');
+    else if (!p.bad && !ended) misses.push(tag + 'the export accepts it, but the run didn\'t end: ' + txt(W.app.html()).slice(0, 300));
+    else if (p.bad && ended) misses.push(tag + 'the export refuses it at ' + p.bad.path + ', but the run ended');
+    else if (p.bad && (fs.files[runPath(W.app)].t !== before || txt(W.app.html()).indexOf(p.bad.path) < 0)) misses.push(tag + 'not named by ' + p.bad.path + ', or the run changed');
+  }
+  assert.ok(chosen.length > 20, chosen.length + ' cases');
+  assert.strictEqual(misses.length, 0, misses.length + ' of ' + chosen.length + ':\n' + misses.join('\n'));
+});
 /* An ended living copy of the run (its receipt in the folder) next to run.json as it was before the end. */
 async function endedCopy(app, change) {
   const before = app.fs.files[runPath(app)].t;

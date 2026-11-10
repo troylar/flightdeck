@@ -162,7 +162,8 @@ test/app-todos-inbox.test.js -
 test/app-spreads.test.js -
 test/app-facts.test.js -
 test/app-learn.test.js -
-test/app-receipts.test.js -
+test/app-receipts.test.js 0/2
+test/app-receipts.test.js 1/2
 test/app-detours.test.js -
 test/staging-app.test.js -
 test/test-runs-app.test.js -
