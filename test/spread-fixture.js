@@ -63,12 +63,16 @@ const ls = (root) => fs.existsSync(path.join(root, 'proposals')) ? fs.readdirSyn
 const snap = (root) => { const out = {}; const walk = (x) => fs.readdirSync(x, { withFileTypes: true }).forEach(e => { const p = path.join(x, e.name); if (e.isDirectory()) walk(p); else out[path.relative(root, p)] = fs.readFileSync(p, 'utf8'); }); walk(root); return out; };
 const runFile = (root, key) => path.join(root, 'runs', key, 'run.json');
 /* What a window reads: every run (sanitized) and every record. */
-async function read(d) { const all = await PF.repo.loadAll(d, {}); return { runs: all.runs, records: all.todos || [], unread: all.todosUnread || [] }; }
+async function read(d) {
+  const all = await PF.repo.loadAll(d, {}), procOf = (id) => { const e = (all.processes || []).filter(p => p.process === id)[0], i = e && e.index; return i ? { latest: i.latest, all: i.all || [], clashes: i.clashes || [], broken: i.broken || [] } : null; };
+  /* loops and runs: what a stop is checked against when it is decided and applied. */
+  return { runs: all.runs, records: all.todos || [], unread: all.todosUnread || [], loops: { records: all.scopes || [], unread: all.scopesUnread || [], procOf } };
+}
 /* A person decides every request on a run that waits for them, each a decision of its own. */
 async function decideAll(d, key, by, op) {
   const W = await read(d), x = W.runs.find(y => y.process + '/' + y.id === key), its = T.inbox([x], { records: W.records, unread: W.unread, people: PEOPLE, me: by });
   for (const it of its) {
-    const dd = T.decide(x, { request: it.id, op: op || 'accept', by, shown: it.consequence.fingerprint, records: W.records, unread: W.unread, people: PEOPLE, at: AT, writer: 'w' + hex(), rev: hex(), app: '4.0.0' });
+    const dd = T.decide(x, { request: it.id, op: op || 'accept', by, shown: it.consequence.fingerprint, records: W.records, unread: W.unread, people: PEOPLE, at: AT, writer: 'w' + hex(), rev: hex(), app: '4.0.0', loops: W.loops, runs: W.runs });
     assert.ok(!dd.why, dd.why);
     await d.write('proposals/' + dd.name, T.text(dd.file)); W.records.push(Object.assign(dd.record, { _file: dd.name }));
   }
@@ -80,7 +84,7 @@ async function land(d, key) {
   for (let i = 0; i < 100; i++) {
     const W = await read(d), x = W.runs.find(y => y.process + '/' + y.id === key), V = T.view(x, { records: W.records, unread: W.unread, people: PEOPLE }), q = T.nextQueued(V);
     if (!q) break;
-    const plan = T.applyPlan(x, V, q);
+    const plan = T.applyPlan(x, V, q, { records: W.records, unread: W.unread, people: PEOPLE, loops: W.loops, runs: W.runs });
     if (plan.adopt) raw.living = { head: plan.adopt.id };
     else {
       assert.ok(plan.write, JSON.stringify(plan));

@@ -5,6 +5,7 @@
 'use strict';
 const assert = require('assert');
 const { rule, run } = require('./harness');
+const F = require('./app-spread-fixture');
 const { KID, PARENT, setup, addStories, parentPath, parentRun, kidPaths, kidOf, backToParent, txt, ov, refresh, hex, finish, now, askSpread, sync, decisions, homeCount, accepts, landedSpread, fulfilled } = require('./app-spread-fixture');
 
 rule('The loop shows one spread row with a chip per story; a story that joins is announced as owed', async () => {
@@ -218,5 +219,15 @@ rule('WA: a story\'s run that couldn\'t be read on the last check holds the loop
   for (let i = 0; i < 3; i++) await refresh(app, 300);
   backToParent(app); await app.tick(80);
   assert.ok(/· Ready/.test(gateText()), 'a fresh good read counts it again: ' + gateText());
+});
+/* Review round 7 (YA): the app files a living run's scope change as a 4.0 scope request naming the parent's to-do head. */
+rule('YA: the app files a living run\'s scope change as a 4.0 scope request naming the parent head it saw', async () => {
+  const app = await F.setup();
+  await F.landedSpread(app);
+  const head = F.parentRun(app).living.head;
+  assert.ok(head, 'set-up: the parent is living');
+  await F.addStories(app, 'ABC-104');
+  const j = JSON.parse(app.fs.files[F.scopes(app).slice(-1)[0]].t);
+  assert.deepStrictEqual([j.format, j.features, j.head], ['flightdeck-plan/4', ['loops', 'living-runs'], head]);
 });
 run();

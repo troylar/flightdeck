@@ -3369,7 +3369,7 @@ async function loopMain(argv) {
       const pgA = LP.seenFor(V.ledger, [], c.intent.changes.filter((ch) => ch.op === 'resolve').map((ch) => ch.record));
       /* A resolution of more outcomes than one record names settles a page; it says how many are left (docs/design.md 44). */
       if (pgA.left && act.lines.indexOf(LP.pageWords(pgA.left)) < 0) act.lines.push(LP.pageWords(pgA.left));
-      const fa = LP.buildRequest(c.intent, { seen: pgA.seen, children: [], now: new Date().toISOString(), app: eng.version });
+      const fa = LP.buildRequest(c.intent, { seen: pgA.seen, children: [], now: new Date().toISOString(), app: eng.version, head: LP.headFor(r) });
       const faw = LP.fileWhy(id + '.json', fa); if (faw) return failOut('invalid', faw + ' Nothing was written.', problems());
       const dataA = (status) => ({ loop: V.loop, status, request: { id, file }, preview: title + (status === 'would-request' ? ' — preview only; no files written.' : ' — requested.') + '\n\n' + act.lines.join('\n'),
         start: act.start || [], skip: act.skip || [], approve: act.approve || null, sendBack: act.sendBack || null, resolve: act.resolve || null, runsStarted: 0, appliedBy: 'the recorder' });
@@ -3388,7 +3388,7 @@ async function loopMain(argv) {
     if (V.ledger.held.length) return held('This loop has a scope record this computer can\'t read yet (' + V.ledger.held.map((h) => h.record).join(', ') + '). Nothing written. Check folder availability, then retry.');
     const P = LP.project(r, V, c.intent, { who });
     if (P.overLimit) return failOut('invalid', 'This would put ' + LP.count(P.overLimit.count, N) + ' in scope; the loop takes at most ' + P.overLimit.max + '. Nothing is cut and nothing was written.', problems());
-    const f = LP.buildRequest(c.intent, { seen: P.seen, children: P.record.children, now: new Date().toISOString(), app: eng.version });
+    const f = LP.buildRequest(c.intent, { seen: P.seen, children: P.record.children, now: new Date().toISOString(), app: eng.version, head: LP.headFor(r) });
     const fw = LP.fileWhy(id + '.json', f); if (fw) return failOut('invalid', fw + ' Nothing was written.', problems());
     const data = (status) => ({ loop: V.loop, status, request: { id, file }, preview: LP.previewText(P, { title, dryRun: status === 'would-request', problems: problems() }),
       added: P.added, proposed: P.proposed.map((p) => ({ uid: p.uid, key: p.key, title: p.title, run: p.run || null, recorder: p.recorder ? nameOf(p.recorder) : null, open: !!p.open, answered: p.answered || 0, total: p.total || 0 })),

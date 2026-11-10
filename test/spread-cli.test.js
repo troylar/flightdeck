@@ -402,4 +402,23 @@ rule('XD: a sync preview is partial and exits 4 exactly when the sync is: one ob
   assert.deepStrictEqual([p.code, p.data.status, p.data.partial], [4, 'partial', true], 'the preview: ' + JSON.stringify(p.data).slice(0, 300));
   assert.deepStrictEqual(sum(p), sum(s));
 });
+const jsonFile = (root, f) => JSON.parse(fs.readFileSync(path.join(root, /^proposals\//.test(f) ? f : 'proposals/' + f), 'utf8'));
+/* Review round 7 (YA): loop sync on a living run files a 4.0 scope request naming the parent's to-do head, so an item it brings
+   in after a stop is a true later arrival and owes nothing; the stop records the scope cut it saw. */
+rule('YA: loop sync on a living run names the parent head; an item it brings in after a stop owes nothing', async () => {
+  const { root, d, sp } = await spread();
+  const st = json('spread', 'stop', root, PR, '--spread', sp.id, '--reason', 'Covered by the platform review', '--key', 'ya-stop', '--json', ...TOOL);
+  assert.strictEqual(st.code, 0, JSON.stringify(st).slice(0, 300));
+  assert.ok(Array.isArray(jsonFile(root, st.data.request.file).cut) && jsonFile(root, st.data.request.file).cut.length === 1, 'the stop records the scope cut it saw');
+  assert.strictEqual(await decideAll(d, PR, 'person-morgan'), 1); await land(d, PR);
+  const head = JSON.parse(fs.readFileSync(runFile(root, PR), 'utf8')).living.head;
+  const f = path.join(root, '..', path.basename(root) + '-ya-obs.json');
+  fs.writeFileSync(f, JSON.stringify(obs([101, 102, 103, 105])));
+  const s = json('loop', 'sync', root, PR, 'each', '--from', f, '--json', '--tool', 'release-helper@1.4.0', '--key', 'ya-sync');
+  assert.strictEqual(s.code, 0, JSON.stringify(s).slice(0, 300));
+  const rec = jsonFile(root, s.data.request.file);
+  assert.deepStrictEqual([rec.format, rec.features, rec.head], ['flightdeck-plan/4', ['loops', 'living-runs'], head], 'a 4.0 scope request names the head it saw');
+  const l = json('spread', 'list', root, PR, '--json');
+  assert.deepStrictEqual([l.code, l.data.spreads[0].state, l.data.spreads[0].items.filter(i => i.owed).map(i => i.key)], [0, 'stopped', ['ABC-102', 'ABC-103']], 'ABC-105 arrived after the stop');
+});
 run();

@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "73e4a21295cbb7a05243016a16b5b545ba12de37b5a3ed81fba30c062bf6c75d",
-      "reviewed": "Round 6 XD: sync dry-run partial status from preparation refusals"
+      "sha256": "ca6ce397ab199de52d46124f81db34d77f3911f61694bb28a3260ccf9e12addc",
+      "reviewed": "YA: scope writers record the parent head"
     },
     "build.py": {
       "sha256": "1dce012e7269422f84c2c2aeb7b327b242a28e4990a5c5c95a22dc98228122dc",
@@ -257,8 +257,8 @@
       "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
     },
     "src/core/loop.js": {
-      "sha256": "df77655eb2a36b5966d665331fd5099d189be152f9aac4a6bbe21c2c933d49fc",
-      "reviewed": "Round 7 YA: stops are causal (cut, 4.0 scope head); checker mirrors; no direct writes or deletes added"
+      "sha256": "06ad1ea26503916b1e014c57e54f39b45c0e286a2e1127bffa8c27fad5967386",
+      "reviewed": "YA: scope writers record the parent head"
     },
     "src/core/map.js": {
       "sha256": "f9eae33f6635cd1b3983fc1c71eb7a3b3c8dc1c70ca3ef8ce8807d5228165d2f",
@@ -409,8 +409,8 @@
       "reviewed": "Round 7 YA: stops are causal (cut, 4.0 scope head); checker mirrors; no direct writes or deletes added"
     },
     "src/ui/app.js": {
-      "sha256": "0be7f1eae09e6739a59aa64b1492fb959dbf19881df347300e1299d54b213846",
-      "reviewed": "Round 6 XA: one coverage input builder for the CLI and the app; the loop write guard asks it"
+      "sha256": "e5e5046bcaa5d3bb4e9bb9e716e02465fb44315b6b6f3b285320bb099ebbde57",
+      "reviewed": "YA: scope writers record the parent head"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
