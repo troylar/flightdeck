@@ -3379,11 +3379,15 @@
       if (memo.by.has(r)) return memo.by.get(r);
       var p = procFind(r.process), all = p ? (p.all || []).concat(p.broken || []) : [], pub = all.filter(function (x) { return x && (x.info ? x.info.folder : x.folder) === r.folder; })[0] || null, out;
       /* A version that isn't read at all (gone, or its part of the folder failed) is a problem at the version, never usable. */
-      try { out = PF.appjson.judgeRun(Object.assign({}, r), pub); if (!pub) out.push({ path: PF.run.pubDir(r), kind: 'nofile', why: 'This run\'s version isn\'t in the folder as this window read it, so it isn\'t known to hold.' }); else if (pub._readFailed) out.push({ path: PF.run.pubDir(r), kind: 'unreadable', why: String(pub.why || '') }); else if ((data.failed || {}).publications) out.push({ path: PF.run.pubDir(r), kind: 'unreadable', why: 'publications/ couldn\'t be read on the last check (' + String(data.failed.publications) + '), so this run\'s version isn\'t known to hold.' }); } catch (e) { out = [{ path: 'runs/' + r.process + '/' + r.id + '/run.json', kind: 'malformed', why: String(e && e.message || e) }]; }
+      try { out = PF.appjson.judgeRun(Object.assign({}, r), pub); var dq = PF.detours.versionDrift(r, pub); if (dq) out.push(dq); if (!pub) out.push({ path: PF.run.pubDir(r), kind: 'nofile', why: 'This run\'s version isn\'t in the folder as this window read it, so it isn\'t known to hold.' }); else if (pub._readFailed) out.push({ path: PF.run.pubDir(r), kind: 'unreadable', why: String(pub.why || '') }); else if ((data.failed || {}).publications) out.push({ path: PF.run.pubDir(r), kind: 'unreadable', why: 'publications/ couldn\'t be read on the last check (' + String(data.failed.publications) + '), so this run\'s version isn\'t known to hold.' }); } catch (e) { out = [{ path: 'runs/' + r.process + '/' + r.id + '/run.json', kind: 'malformed', why: String(e && e.message || e) }]; }
       memo.by.set(r, out); return out;
     };
     var holds = (data.planUnread || []).filter(function (x) { return x && x.kind === 'unreadable'; }).concat((data.refused || []).filter(function (x) { return x && /^proposals\//.test(String(x.path)); }).map(function (x) { return { path: x.path, _file: String(x.path).slice('proposals/'.length), kind: x.kind }; }));
-    return { runs: data.runs || [], plans: data.plans || [], unreadRuns: gone, judge: judge, holds: holds };
+    /* A link where a plan file would be is refused, never left out; proposals/ that couldn't be read on the last check holds
+       every evidence judgment until a read succeeds (MC). */
+    ((data.proposalsRead || {}).torn || []).forEach(function (t) { if (t && t.link) holds.push({ path: t.path, _file: t._file, kind: 'link' }); });
+    var pf = (data.failed || {}).proposals;
+    return { runs: data.runs || [], plans: data.plans || [], unreadRuns: gone, judge: judge, holds: holds, failed: pf ? String(pf) : '' };
   }
   /* The time a to-do's evidence (4.0 slice 4: facts) is judged at: now, asked again at every view and before every write. */
   function tdNow() { return Date.now(); }

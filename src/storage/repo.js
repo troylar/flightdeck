@@ -628,9 +628,9 @@ PF.repo = (function () {
   }
   function loadJsonDir(fs, dir, ok, bad, only, torn, perFile) {
     return fs.list(dir).then(function (items) {
-      /* A link where a to-do or fact record would be (4.0) is never read and never absent: it is named like one that can't be
-         read yet (readPlans). Other folders and kinds read links as 3.0 did: left out, named by the reader's adapter. */
-      if (torn && dir === 'proposals') items.forEach(function (i) { if (i && i.kind === 'link' && PF.todos.recordName(i.name) && (!only || only(i.name))) torn.push({ path: dir + '/' + i.name, _file: i.name, parsed: false, link: true, why: 'is a link, and Flightdeck never reads through links' }); });
+      /* A link where a to-do or fact record, or a plan (4.0 slice 5, MC), would be is never read and never absent: it is named
+         like one that can't be read yet (readPlans). Other folders and kinds read links as 3.0 did: left out, named by the reader's adapter. */
+      if (torn && dir === 'proposals') items.forEach(function (i) { if (i && i.kind === 'link' && (PF.todos.recordName(i.name) || PF.plans.namesPlan(i.name)) && (!only || only(i.name))) torn.push({ path: dir + '/' + i.name, _file: i.name, parsed: false, link: true, why: 'is a link, and Flightdeck never reads through links' }); });
       return Promise.all(items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name) && (!only || only(i.name)); }).map(function (i) {
         var path = dir + '/' + i.name;
         if (!bad) return fs.read(path).then(function (f) {
@@ -2712,7 +2712,8 @@ PF.repo = (function () {
     var problems = [], file = function (k) { return 'runs/' + k + '/run.json'; };
     var problemAt = function (k, path, kind, why) { if ((k == null || named[k]) && !problems.some(function (q) { return q.path === path && q.kind === kind; })) problems.push({ path: path, kind: kind, why: why }); };
     var problem = function (k, kind, why) { problemAt(k, file(k), kind, why); };
-    var holds = (got.torn || []).filter(function (u) { return !u.link && !u.deep; }).map(function (u) { return { path: u.path, _file: u._file, kind: 'unreadable' }; })
+    /* A link where a plan file would be is refused like one that can't be read (kind link), never left out (MC). */
+    var holds = (got.torn || []).filter(function (u) { return !u.deep; }).map(function (u) { return { path: u.path, _file: u._file, kind: u.link ? 'link' : 'unreadable' }; })
       .concat((got.refused || []).map(function (x) { return { path: x.path, _file: String(x.path).slice('proposals/'.length), kind: x.kind, needs: x.needs || '' }; }));
     var plans = groupPlans((got.plans || []).map(function (p) { return Object.assign({}, p); }), got.statuses || [], holds), keys = Object.keys(want).sort(), runs = [], unreadRuns = [];
     /* A run asked for by name (also: --evidence-run, the run about to be written on) is named like one a record names once an
@@ -2731,6 +2732,8 @@ PF.repo = (function () {
             var jp = PF.appjson.judgeRun(one.run, one.pub);
             /* Its version couldn't be read at all (judgeRun leaves that to its caller): never usable evidence. */
             if (one.pub && one.pub._readFailed) jp.push({ path: PF.run.pubDir(one.run), kind: 'unreadable', why: 'The version the run a to-do\'s evidence names couldn\'t be read (' + String(one.pub.why || 'it couldn\'t be read') + '), so what rests on it can\'t be checked.' });
+            /* The whole pin (MC): a version whose step types changed from the run's, even one that verifies, is never evidence. */
+            var dq = PF.detours.versionDrift(one.run, one.pub); if (dq) jp.push(dq);
             if (!jp.length) { runs.push(one.run); return; }
             unreadRuns.push(k); jp.forEach(function (q) { problemAt(k, q.path, q.kind, q.why); }); return;
           }

@@ -105,13 +105,19 @@ PF.detours = (function () {
     var r = findRun(ev, process, id);
     return !!r && ev.judge(r).length > 0;
   }
+  /* The whole pin of a run's version (MC): a run/3 records its version's step types fingerprint; a version that verifies but
+     whose step types now differ isn't the version the run (or a pin) was made on. A problem at the run, or null. */
+  function versionDrift(run, pub) {
+    if (!run || !pub || !pub.ok || !pub.info || typeof run.typesHash !== 'string' || pub.info.typesHash === run.typesHash) return null;
+    return { path: 'runs/' + run.process + '/' + run.id + '/run.json', kind: 'unusable', why: 'This run\'s version ' + run.folder + ' has other step types now than the run was made with, so it isn\'t the version that was pinned.' };
+  }
   function planIn(ev, id) { return (ev.plans || []).filter(function (p) { return p && p.id === id; })[0] || null; }
   /* What can't be read of one evidence plan, as problems ({ path, kind, why }): its own file or a decision on it refused or torn
      (ev.holds, readEvidence), a decision held (_statusHeld), or copies that differ. [] when all of it reads. */
   function planHeld(ev, id) {
     var out = [], seen = Object.create(null), push = function (path, kind, why) { if (!seen[path + '\u0000' + kind]) { seen[path + '\u0000' + kind] = true; out.push({ path: path, kind: kind, why: why }); } };
     var why = 'This file is part of a to-do\'s evidence plan (' + id + ') and can\'t be read, so which run it started isn\'t known.';
-    (ev && ev.holds || []).forEach(function (h) { var f = String(h._file || ''); if (f === id + '.json' || f.indexOf(id + '.') === 0) push(h.path, h.kind === 'newer' ? 'newer' : h.kind === 'unreadable' ? 'unreadable' : 'malformed', why); });
+    (ev && ev.holds || []).forEach(function (h) { var f = String(h._file || ''); if (f === id + '.json' || f.indexOf(id + '.') === 0) push(h.path, h.kind === 'newer' || h.kind === 'unreadable' || h.kind === 'link' ? h.kind : 'malformed', why); });
     var p = ev ? planIn(ev, id) : null;
     if (p) {
       (p._statusHeld || []).forEach(function (h) { push(h.path, h.kind === 'newer' ? 'newer' : h.kind === 'unreadable' ? 'unreadable' : 'malformed', why); });
@@ -128,6 +134,8 @@ PF.detours = (function () {
   /* The runs a to-do's evidence plan started, or why that can't be known: { plan, starts } | { why, held? }. */
   function startsOf(r, x, ev) {
     if (!ev) return { why: 'The run it rests on can\'t be checked here.', held: true };
+    /* proposals/ couldn't be read on the last check (ev.failed): the plans this window read before aren't known to hold. */
+    if (ev.failed) return { why: 'The team folder\'s proposals couldn\'t be read on the last check, so which run its plan started isn\'t known.', held: true };
     var c = x.checklist, id = planOf(r, x), p = planIn(ev, id);
     /* The full plan-held verdict, even when a copy of the plan reads: a torn plan file beside a readable (1) copy holds it. */
     if (planHeld(ev, id).length) return { why: 'Its plan (' + id + ') can\'t be read, so which run it started isn\'t known.', held: true };
@@ -150,7 +158,7 @@ PF.detours = (function () {
     if (!run) return { why: 'Its run, ' + c.process + '/' + runId + ', isn\'t in the folder as this computer reads it.', held: true };
     if (run._unrunnable) return { why: 'Its run, ' + c.process + '/' + runId + ', can only be read here: ' + String(run._unrunnable).replace(/\.$/, '') + '.', held: true };
     var title = String(run.title || run.process).slice(0, 60);
-    if (run.parent || run.folder !== c.folder || run.mapHash !== c.mapHash) return { why: title + ' isn\'t a run of ' + c.process + ' ' + c.folder + ' on its own.' };
+    if (run.parent || run.folder !== c.folder || run.mapHash !== c.mapHash || (typeof run.typesHash === 'string' && run.typesHash !== c.typesHash)) return { why: title + ' isn\'t a run of ' + c.process + ' ' + c.folder + ' on its own.' };
     if (!run.ended || run.ended.outcome !== 'Completed') return { why: title + (run.ended ? ' ended ' + String(run.ended.outcome || '').toLowerCase() + ', not completed.' : ' hasn\'t completed yet.') };
     var res = PF.run.resultOf(run), value = res ? res.value : '';
     if (res && res.conflict) return { why: title + '\'s result can\'t be told: its ^' + res.name + ' and its decision disagree. Correct that run first.' };
@@ -192,5 +200,5 @@ PF.detours = (function () {
   function evidenceWords(e) { return 'the run ' + e.run.process + '/' + e.run.id + (e.result ? ' (' + e.result + ')' : ''); }
 
   return { LIMITS: LIMITS, cleanChecklist: cleanChecklist, cleanEvidence: cleanEvidence, planId: planId, planOf: planOf, requestId: requestId, requestKey: requestKey, pinFor: pinFor, planFor: planFor,
-    planHeld: planHeld, planProblems: planProblems, startsOf: startsOf, evidenceFor: evidenceFor, evidenceWhy: evidenceWhy, provenance: provenance, returnOf: returnOf, evidenceWords: evidenceWords };
+    planHeld: planHeld, versionDrift: versionDrift, planProblems: planProblems, startsOf: startsOf, evidenceFor: evidenceFor, evidenceWhy: evidenceWhy, provenance: provenance, returnOf: returnOf, evidenceWords: evidenceWords };
 })();

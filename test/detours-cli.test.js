@@ -218,6 +218,15 @@ rule('Evidence that reads but isn\'t trusted, and an evidence plan or decision t
     planonly: (F, S) => { fs.rmSync(path.join(F.root, 'proposals', S.plan.id + '.json')); },
     /* The started decision is gone: the plan reads, but nothing proves it started the run. */
     nostart: (F, S) => { fs.rmSync(path.join(F.root, 'proposals', S.plan.id + '.status-sk1-d.json')); },
+    /* The version's step types change and its fingerprints are updated, so it still verifies: not the pinned version. */
+    typesdrift: (F, S) => {
+      const dir = path.join(F.root, 'publications', 'smoke-test', F.kp.info.folder), t2 = fs.readFileSync(path.join(dir, 'types.json'), 'utf8') + '\n', info = JSON.parse(fs.readFileSync(path.join(dir, 'publication.json'), 'utf8'));
+      info.typesHash = PF.util.hash(t2);
+      if (info.payload) info.payload.types = PF.publish.exactOf({ 'map.md': new Uint8Array(fs.readFileSync(path.join(dir, 'map.md'))), 'types.json': new Uint8Array(Buffer.from(t2, 'utf8')) })['types.json'];
+      fs.writeFileSync(path.join(dir, 'types.json'), t2); fs.writeFileSync(path.join(dir, 'publication.json'), JSON.stringify(info, null, 2));
+    },
+    /* The plan file is a link, beside a readable OneDrive copy of it: refused, never read past. */
+    planlink: (F, S) => { const f = path.join(F.root, 'proposals', S.plan.id + '.json'), c = path.join(F.root, 'proposals', S.plan.id + ' (1).json'); fs.copyFileSync(f, c); fs.rmSync(f); fs.symlinkSync(c, f); },
     /* A torn plan beside a readable OneDrive copy of it: still held. */
     copytorn: (F, S) => { const f = path.join(F.root, 'proposals', S.plan.id + '.json'); fs.copyFileSync(f, path.join(F.root, 'proposals', S.plan.id + ' (1).json')); fs.writeFileSync(f, '{ torn'); },
     /* The evidence run's version can't be read at all (EACCES): never usable evidence. */
@@ -232,6 +241,7 @@ rule('Evidence that reads but isn\'t trusted, and an evidence plan or decision t
     /* What runs says of the run is the verdict; a plan or decision is named at its own file. */
     const want = how === 'decision' ? { path: 'proposals/' + S.plan.id + '.status-sk1-d.json', kinds: ['unreadable', 'malformed'] }
       : how === 'plan' || how === 'copytorn' ? { path: 'proposals/' + S.plan.id + '.json', kinds: ['unreadable', 'malformed'] }
+        : how === 'planlink' ? { path: 'proposals/' + S.plan.id + '.json', kinds: ['link'] }
         : how === 'absent' || how === 'planonly' || how === 'nostart' ? { path: 'proposals/' + S.plan.id + '.json', kinds: ['nofile'] }
           : how === 'pubread' ? { path: 'publications/smoke-test/' + F.kp.info.folder + '/publication.json', prefix: 'publications/smoke-test/' + F.kp.info.folder, kinds: ['unreadable'] }
           : { path: runPath, kinds: (runs.problems || []).filter(q => q.path === runPath).map(q => q.kind) };

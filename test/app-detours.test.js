@@ -172,6 +172,37 @@ rule('Evidence held by a torn plan beside a readable (1) copy, a version that ca
   }
 });
 
+rule('MC: a version whose step types changed though it verifies, a plan link beside a readable (1) copy, and proposals that can\'t be read after a refresh offer no Accept', async () => {
+  for (const how of ['types drift', 'plan link', 'proposals unreadable']) {
+    const { app, todo, kp } = await setup();
+    const key = await runIt(app, todo);
+    finish(app, key, 'pass'); await toParent(app); await refresh(app, 300);
+    assert.ok(/data-act="td-evidence"/.test(app.html()), how + ': set-up: Accept offered');
+    const PF = app.PF, dir = 'publications/smoke-test/' + kp.folder + '/', pf = plans(app)[0], fs = app.fs, list = fs.list.bind(fs);
+    if (how === 'types drift') {
+      /* The version's step types change and its fingerprints are updated, so it still verifies; it is read again (gone, then back). */
+      const files = {}; app.files(dir).forEach(f => { files[f] = app.fs.files[f]; delete app.fs.files[f]; });
+      await refresh(app, 300);
+      const t2 = files[dir + 'types.json'].t + '\n', info = JSON.parse(files[dir + 'publication.json'].t);
+      info.typesHash = PF.util.hash(t2);
+      if (info.payload) info.payload.types = PF.publish.exactOf({ 'map.md': new Uint8Array(Buffer.from(files[dir + 'map.md'].t, 'utf8')), 'types.json': new Uint8Array(Buffer.from(t2, 'utf8')) })['types.json'];
+      Object.keys(files).forEach(f => { app.fs.files[f] = files[f]; });
+      app.fs.files[dir + 'types.json'] = { t: t2, m: Date.now() }; app.fs.files[dir + 'publication.json'] = { t: JSON.stringify(info, null, 2), m: Date.now() };
+    }
+    if (how === 'plan link') {
+      app.fs.files[pf.replace(/\.json$/, ' (1).json')] = { t: app.fs.files[pf].t, m: Date.now() };
+      const name = pf.split('/').pop();
+      fs.list = (p, o) => list(p, o).then(items => /^proposals\/?$/.test(p) ? items.map(i => i.name === name ? Object.assign({}, i, { kind: 'link' }) : i) : items);
+    }
+    if (how === 'proposals unreadable') fs.list = (p, o) => /^proposals\/?$/.test(p) ? Promise.reject(Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES', name: 'NotAllowedError' })) : list(p, o);
+    await refresh(app, 400); await toParent(app); await refresh(app, 300);
+    assert.ok(!/data-act="td-evidence"/.test(app.html()), how + ': no Accept: ' + txt(app.html()).slice(0, 600));
+    app.click('td-evidence', todo, { run: key.split('/')[1] }); await app.tick(400);
+    fs.list = list;
+    assert.strictEqual(evRecs(app).length, 0, how + ': nothing written');
+  }
+});
+
 rule('Run this checklist whose folder or person changes before the plan is written writes nothing; a pin that can\'t be used offers nothing', async () => {
   const { app, todo } = await setup();
   const fs = app.fs, read = fs.read.bind(fs); let release = null;
