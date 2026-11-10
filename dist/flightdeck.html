@@ -24540,6 +24540,21 @@ PF.repo = (function () {
     var refused = [], torn = [];
     return loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status' || typeof o.format === 'string'; }, bad, only, torn).then(function (props) {
       var plans = [], statuses = [], scopes = [], scopesUnread = [], todos = [], todosUnread = [];
+      /* Copies of one id that differ are compared over every file read here, before any family reads its own (PF.loop.splitIds):
+         one that is a to-do or fact record while another copy is a plan or a scope record would escape every reducer, so each
+         copy is held as a record that can't be read, on the run a to-do copy names (or every living run) and its loop. */
+      var split = PF.loop.splitIds(props), across = Object.create(null);
+      props.forEach(function (p) { if (!split[p.id]) return; var a = across[p.id] = across[p.id] || { todo: [], other: [] }; (PF.todos.claims(p) ? a.todo : a.other).push(p); });
+      Object.keys(across).forEach(function (id) {
+        var a = across[id];
+        if (!a.todo.length || !a.other.length) return;
+        var runs = a.todo.map(function (p) { var r = PF.todos.runOf(p); return r ? r.process + '/' + r.id : ''; }), one = runs.every(function (k) { return k && k === runs[0]; }) ? PF.todos.runOf(a.todo[0]) : null;
+        var why = 'has copies under one id (' + id + ') that are different kinds of record, so which is meant isn\'t known. Keep one of them';
+        a.todo.concat(a.other).forEach(function (p) {
+          todosUnread.push({ file: p._file, why: why, kind: 'malformed', run: one });
+          if (PF.loop.isScope(p)) scopesUnread.push({ file: p._file, why: why, loop: PF.loop.loopOf(p) });
+        });
+      });
       props.forEach(function (p) {
         /* A to-do record (4.0, PF.todos), or any record naming living-runs, goes to its own reader first; one that can't be
            read (newer, malformed) holds its run (or, when which run it is for can't be told, every living run). */

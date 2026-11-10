@@ -323,6 +323,22 @@ rule('A link is a hold whatever case its name is in: REQ-*.json or req-*.JSON is
   }
 });
 
+rule('A fact whose id is also a plan\'s or a scope request\'s, under a OneDrive copy\'s name, is held: copies are compared across every family before they are read apart', async () => {
+  for (const fam of ['plan', 'scope']) {
+    const F0 = await folder(), x = await todo(F0), fid = F.idFor('git-bot', 'prs-102-a');
+    assert.strictEqual(json('fact', 'sync', F0.root, PR, '--from', input({ facts: [prs()] }), '--json', ...TOOL).code, 0);
+    const other = fam === 'plan'
+      ? JSON.stringify({ kind: 'plan', id: fid, process: 'release-readiness', version: 1, title: 'Later', details: {}, roles: {} }, null, 2)
+      : (() => { const c = LP.cleanIntent({ loop: { process: 'release-readiness', run: 'r-41', step: 'each' }, observation: obs([101]), changes: [] }, 'sx', { name: 'release-helper', version: '1.0' }); const f = LP.buildRequest(c.intent, { seen: [], children: [], now: AT, app: '4.0.0' }); f.id = fid; return LP.text(f); })();
+    fs.writeFileSync(path.join(F0.root, 'proposals', fid + ' (1).json'), other);
+    const g = json('todo', 'suggest-done', F0.root, PR, '--todo', x, '--fact', fid, '--dry-run', '--json', ...TOOL);
+    assert.deepStrictEqual([g.code, g.data && g.data.status], [4, 'held'], fam + ': ' + JSON.stringify(g).slice(0, 600));
+    assert.ok(g.problems.some((p) => p.path === 'proposals/' + fid + ' (1).json' || p.path === 'proposals/' + fid + '.json'), fam + ' names a copy: ' + JSON.stringify(g.problems));
+    const l = json('fact', 'list', F0.root, PR, '--json');
+    assert.deepStrictEqual([l.code, l.complete], [4, false], fam + ' · fact list: ' + JSON.stringify(l).slice(0, 400));
+  }
+});
+
 rule('Importing facts alone changes no run bytes: every run.json and `run --contract 2` read the same before and after', async () => {
   const { root } = await folder();
   const runs0 = runsOf(root), read0 = json('run', root, PR, '--contract', '2', '--json'), kid0 = json('run', root, 'validate-story/k102', '--contract', '2', '--json');

@@ -179,6 +179,18 @@ rule('A done suggested on evidence shows that evidence while it waits; once appl
   assert.strictEqual((html.match(/class="small td-ack"/g) || []).length, 1, 'one quiet line, on the to-do');
 });
 
+rule('A plan filed under a fact\'s id as a OneDrive copy holds the suggestion resting on that fact: nothing lands', async () => {
+  for (const copy of [false, true]) {
+    const app = await setup(), x = await todo(app), f = await fact(app, 'prs-1', { observedAt: ago(30000) }), g = await grant(app);
+    const S = await suggest(app, x, f.id);
+    if (copy) app.fs.files['proposals/' + f.id + ' (1).json'] = { t: JSON.stringify({ kind: 'plan', id: f.id, process: 'release-readiness', version: 1, title: 'Later', details: {}, roles: {} }), m: Date.now() };
+    await app.fs.write('proposals/' + S.name, app.PF.todos.text(S.file));
+    await refresh(app, 300); await refresh(app, 300);
+    assert.strictEqual(landedFor(app, S.id), !copy, (copy ? 'with' : 'without') + ' the plan copy: ' + JSON.stringify(parentRun(app).living));
+    assert.ok(g);
+  }
+});
+
 rule('Evidence replaced or gone stale, a contrary fact about the item, or the delegation revoked, between preparing and each write lands nothing; with nothing changed it lands', async () => {
   for (const point of ['application', 'run']) {
     for (const how of ['none', 'replaced', 'stale', 'blocker', 'revoked']) {
