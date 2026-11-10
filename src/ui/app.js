@@ -3033,6 +3033,20 @@
     pre.roles = JSON.parse(JSON.stringify(now.roles || {}));
     return ok(pre);
   }
+  /* The one save-chain guard (4.0) for every save that keeps living work: a to-do's landing, and a copy kept (Use copy, the
+     copy kept in this browser). Before every write of the run's save (the candidate, the history, a conflict copy, run.json:
+     repo.saveRun opts.fresh) the to-do records and people.json are read again right there (tdFresh), bound to the folder,
+     the read and the person, and the to-do guard (todoStill, through guardOk and opts.still) is asked on that read. No read,
+     or a guard that refuses, writes nothing more and puts the change back (loopEdit, by identity): never kept for Try again,
+     a candidate already written stays for recovery, and the copy a recovery came from stays. A save keeping no living work
+     (cx.todo.living false) reads nothing more, as in 3.0. */
+  function todoSaveChain(cx, ed) {
+    ed.opts.fresh = function () {
+      if (!cx.todo || !cx.todo.living) return true;
+      return tdFresh(cx).then(function (x) { if (!x || !cx.todo) { ed.opts.putBack(); return false; } cx.todo.snap = x; return true; });
+    };
+    return ed;
+  }
   function todoPre(r) { return JSON.stringify(r, function (k, v) { return this === r && k.charAt(0) === '_' ? undefined : v; }); }
   /* Whether a run is a loop's parent (its checklist has a {for.each} step) or a loop's child. */
   function loopy(r) {
@@ -3096,7 +3110,7 @@
     };
     /* opts.redo: a change derived from the folder (a to-do's landing) whose save fails is put back, never kept for Try again:
        the next read derives it again, with its authority asked again on the run as it is then. */
-    var extra = { still: function () { if (guardOk(cx)) return true; undo(); return false; }, dropUndone: function () { return undone; } };
+    var extra = { still: function () { if (guardOk(cx)) return true; undo(); return false; }, dropUndone: function () { return undone; }, putBack: function () { undo(); } };
     if (opts && opts.redo) extra.undoFailed = function () { undo(); return undone; };
     return { fn: wrapped, opts: Object.assign({}, opts || {}, extra) };
   }
@@ -3650,7 +3664,7 @@
       var types = todoTypes(r), lcx = loopGuard({ run: key, readable: true });
       var ed = loopEdit(lcx, key, function (rr, m, me, now) {
         /* The write guard asks again before every write, on the run as it is now, before this landing. */
-        lcx.todo = { key: key, from: a.id, head: a.id, pre: todoPre(rr) };
+        lcx.todo = { key: key, from: a.id, head: a.id, pre: todoPre(rr), living: true };
         /* Asked again in the write queue, on the run as it is: still queued (or only its prepared applications disagree), the
            same head, the same authority. */
         var V2 = todoView(rr), q2 = V2 && V2.requests[q.id], plan2 = q2 ? PF.todos.applyPlan(rr, V2, q2) : { skip: 'gone' };
@@ -3660,10 +3674,7 @@
         var ae = (a.kind === 'compound' ? a.application : a).effect, x = ae.todo ? V2.byTodo[ae.todo] || null : null;
         R.todoLand(rr, m, a, { who: me, now: now, typesHash: types, app: APP_VERSION, todo: x, spread: ae.spread ? V2.bySpread[ae.spread] || null : null });
       }, { background: true, redo: true });
-      /* Every write of the run's save (the candidate, the history, run.json) asks the guard on the folder read again right
-         there (tdFresh, repo.saveRun opts.fresh): no records, nothing more is written. Dropped, the landing is put back like
-         one the guard drops (opts.redo): never kept for Try again; the candidate already written stays for recovery. */
-      ed.opts.fresh = function () { return tdFresh(lcx).then(function (x) { if (!x || !lcx.todo) { ed.opts.undoFailed(); return false; } lcx.todo.snap = x; return true; }); };
+      todoSaveChain(lcx, ed);
       return mutateRun(key, cx.g, ed.fn, ed.opts).then(function (ok) { return ok !== false; });
     });
   }
@@ -9309,7 +9320,7 @@
           /* A copy's to-dos this run never landed are kept only while they would land now (PF.todos.keepHead); the rest are
              prepared again. */
           var kh = PF.todos.keepHead(run, c, { records: data.todos || [], unread: data.todosUnread || [], people: data.people, now: tdNow() }), ko = { typesHash: todoTypes(run), head: kh.head };
-          rcx.todo = { key: key, from: c.living && typeof c.living.head === 'string' ? c.living.head : '', head: kh.head, dropped: kh.dropped, pre: todoPre(run) };
+          rcx.todo = { key: key, from: c.living && typeof c.living.head === 'string' ? c.living.head : '', head: kh.head, dropped: kh.dropped, pre: todoPre(run), living: !!(c.living || run.living) };
           var keep = function (t) {
             R.adopt(t, c, me, now, ko);
             if (kh.dropped) R.log(t, me, now, 'Kept the copy without its to-dos from ' + kh.dropped.slice(0, 120) + ' on: they aren\'t authorized now, so they will be prepared again');
@@ -9319,11 +9330,15 @@
              order the save writes (R.testLast), so one that wouldn't is never saved, this run stays as it is and the conflict
              copy is kept. */
           var trial = JSON.parse(snapshot(run)); keep(trial);
-          var back = R.sanitize(JSON.parse(JSON.stringify(R.testLast(trial))));
+          /* Read back as the save writes it: without this window's own bookkeeping (a full log's lines on their way to the
+             history, trial._overflow), as repo.saveRun's stripMeta leaves it. */
+          var bare = Object.create(null); Object.keys(trial).forEach(function (k) { if (k.charAt(0) !== '_') bare[k] = trial[k]; });
+          var back = R.sanitize(JSON.parse(JSON.stringify(R.testLast(bare))));
           if (!back || back._unrunnable) throw new Error('Keeping that copy would save a run this copy of Flightdeck can\'t read back' + (back && back._unrunnable ? ' (' + String(back._unrunnable).slice(0, 200) + ')' : '') + ', so nothing was replaced.');
           keep(run);
           if (extra.length) run._overflow = (run._overflow || []).concat(extra);
         }, { recovery: true, expect: cur, expectText: text });
+        todoSaveChain(rcx, ed);
         return mutateRun(key, g, ed.fn, ed.opts);
       }).then(function (ok) {
         if (!ok || g !== gen) return;

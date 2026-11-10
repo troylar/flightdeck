@@ -393,4 +393,42 @@ rule('A landing put back while a Pause, a note or a step check was made meanwhil
   }
 });
 
+/* LA: keeping a conflict copy (Use copy) that holds a supported done this run never landed goes through the same save-chain
+   guard as a landing: a change at any of its writes keeps nothing of the copy's to-dos, and the copy stays. */
+rule('Use copy of a copy holding a supported done: a blocker, unreadable evidence, an open-PR replacement or the delegation revoked at any write of its save keeps none of it and the copy stays, with no Refresh in between; with nothing changed it is kept', async () => {
+  for (const at of ['before candidate', 'after candidate', 'after archive', 'before final']) {
+    for (const how of ['none', 'blocker', 'malformed', 'replaced', 'revoked']) {
+      const app = await setup(), x = await todo(app), f = await fact(app, 'prs-1', { observedAt: ago(30000), maxAgeSeconds: 120 }), g = await grant(app), tag = 'use copy/' + at + '/' + how;
+      if (at !== 'before final') await fullLog(app);
+      const pre = app.fs.files[parentPath(app)].t, S = await suggest(app, x, f.id);
+      await app.fs.write('proposals/' + S.name, app.PF.todos.text(S.file));
+      await refresh(app, 300); await refresh(app, 300);
+      assert.ok(landedFor(app, S.id), tag + ' set-up: landed');
+      const landed = app.fs.files[parentPath(app)].t, cp = parentPath(app).replace('run.json', 'run-OTHER.json');
+      await app.fs.write(cp, landed);
+      const r0 = JSON.parse(pre); r0.paused = { by: 'person-avery', at: new Date().toISOString(), reason: 'Lunch' }; r0.rev = (JSON.parse(landed).rev || 0) + 1;
+      await app.fs.write(parentPath(app), JSON.stringify(r0, null, 2));
+      await refresh(app, 300);
+      app.click('open-run', r0.process + '/' + r0.id); await app.tick(80);
+      assert.ok(/data-act="use-copy"/.test(app.html()), tag + ' set-up: the copy is offered');
+      assert.ok(!landedFor(app, S.id), tag + ' set-up: not landed here');
+      const h = holdAt(app, at);
+      app.click('use-copy', 'run-OTHER.json'); await app.tick(80);
+      assert.strictEqual(h.seen(), 1, tag + ' set-up: held at that write');
+      h.off();
+      if (how === 'blocker') await blocker(app);
+      if (how === 'malformed') app.fs.files['proposals/' + f.name] = { t: '{"kind": "fact", ', m: Date.now() };
+      if (how === 'replaced') await fact(app, 'prs-2', { observedAt: ago(10000), maxAgeSeconds: 120, entries: [{ id: '17', text: 'Fix the login', state: 'open' }] });
+      if (how === 'revoked') {
+        const W = await now(app), rv = app.PF.todos.revokeOf(W.parent, { grant: g.id, by: 'person-avery', key: 'rv-' + hex(6), records: W.d.todos, unread: W.d.todosUnread, people: W.people, at: new Date().toISOString(), app: '4.0.0', now: Date.now() });
+        assert.ok(!rv.why, rv.why);
+        await app.fs.write('proposals/' + rv.name, app.PF.todos.text(rv.file));
+      }
+      h.hold.open(); await app.tick(600);
+      assert.strictEqual(landedFor(app, S.id), how === 'none', tag + ': ' + JSON.stringify(parentRun(app).living));
+      assert.strictEqual(!!app.fs.files[cp], how !== 'none', tag + ': the copy ' + (how === 'none' ? 'is removed once kept' : 'stays'));
+    }
+  }
+});
+
 run();

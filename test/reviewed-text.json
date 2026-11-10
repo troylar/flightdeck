@@ -25,8 +25,8 @@
       "reviewed": "takenAt: not-JSON and refused records under a taken name are problems with path and reason; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "86ab674d1700573c4da590a39576881bf8f8bebfe8c29a6bcb52f98708e092fe",
-      "reviewed": "LB: a landing is put back by log identity, no history entry lost; checked for direct writes and unconditional deletes"
+      "sha256": "3862dc86c0fa7fa2ae442c2dd1654d0d596bd256a1e9e72d378ef5b26f2e9ea7",
+      "reviewed": "LA: one save-chain guard for landing and recovery; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -413,8 +413,8 @@
       "reviewed": "KA: the to-do guard reads the folder again before every write of the run save (saveRun opts.fresh); checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "4793dfea8b26d997e20d0fe843e466b17b070ae7ad3d9e33f88f3c5e6b1b16da",
-      "reviewed": "LB: a landing is put back by log identity, no history entry lost; checked for direct writes and unconditional deletes"
+      "sha256": "77d79d0235678882b7d66b3071699236008f68620b5d06f4ad1c9170b9ccae22",
+      "reviewed": "LA: one save-chain guard for landing and recovery; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
