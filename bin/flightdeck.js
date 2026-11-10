@@ -950,7 +950,9 @@ async function readData(eng, adapter, req) {
          command's problem; the proposals/ folder can't be read: approval waits. The to-do fields print only for a living run. */
       if (usable && two) {
         const pr = await plansOnce(), gp = pr.got || null;
-        if (pr.why) L.note('proposals', 'unreadable', pr.why);
+        /* A listing that failed is this command's problem whether or not the run is living yet: a request pending on it may be
+           there (4.0, ND), so the run is never called complete. */
+        if (pr.why) { L.note('proposals/', 'unreadable', pr.why); const was = relevant; relevant = (p) => was(p) || p === 'proposals' || p === 'proposals/'; }
         if (gp) {
           const ev = await evidenceRead(PF, L.fs, gp, PF.todos.recordsFor(gp.todos || [], r)), evp = ev.paths;
           const un = markTodos(PF, [r], gp, one.people, !!(one.peopleWhy || pw), loopIn, ev), was = relevant, mine = {};
@@ -959,7 +961,7 @@ async function readData(eng, adapter, req) {
           if (rp) { mine[rp.path] = true; owned[rp.path] = rp; }
           un.filter((u) => u.run ? u.run.process === m[1] && u.run.id === m[2] : !!(r.living || r._tdv)).concat(evidenceUnread(PF, r, r._tdv, un)).forEach((u) => { if (u.file !== 'people.json' && !mine['proposals/' + u.file]) { mine['proposals/' + u.file] = true; L.note('proposals/' + u.file, u.kind === 'newer' || u.kind === 'unreadable' ? u.kind : 'malformed', u.kind === 'newer' ? u.why : fileWhy(u.why)); } });
           relevant = (p) => was(p) || !!mine[p] || evp.some((q) => p === q || String(p).indexOf(q + '/') === 0);
-        } else if (r.living) { const was = relevant; relevant = (p) => was(p) || p === 'proposals'; }
+        }
       }
       /* run and next read only what they depend on (readRunOnly), so every problem met counts. */
       const keep = (list) => list, nameOf = A.names(one.people);
@@ -3294,7 +3296,10 @@ async function todoMain(argv) {
     if (one.peopleWhy) L.note('people.json', one.peopleKind || 'unreadable', fileWhy(one.peopleWhy));
     const pw = peopleWhy(one.people);
     if (pw) L.note('people.json', 'malformed', pw);
-    const bad = [], got = await repo.readPlans(L.fs, bad, null, true);
+    const bad = [];
+    let got;
+    /* proposals/ that can't be read: nothing about the run's to-dos and requests is known, living or not (4.0, ND). */
+    try { got = await repo.readPlans(L.fs, bad, null, true); } catch (e) { L.note('proposals/', 'unreadable', fileWhy(e && e.message || String(e))); return failOut('failed', 'proposals/ couldn\'t be read, so the run\'s to-dos and requests can\'t be.' + nothing, problems(), writes ? null : EXIT.partial); }
     /* Only this run's to-do records (and one that can't say which run it is for) are this command's problems. */
     const unread = (got.todosUnread || []).filter(mineRun);
     unread.forEach((u) => extra.push({ path: 'proposals/' + u.file, kind: u.kind === 'newer' ? 'newer' : 'malformed', why: u.kind === 'newer' ? u.why : fileWhy(u.why) }));

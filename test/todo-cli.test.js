@@ -172,6 +172,25 @@ rule('A run/2 with no to-dos yet is still held by a to-do record of it that can\
   assert.deepStrictEqual(['todos', 'todoCounts', 'todoHolds', 'todoRequests'].filter(k => k in none.data.run), [], 'no record naming it: no to-do fields');
   assert.strictEqual(none.code, 0);
 });
+/* ND: proposals/ that can't be listed is named by every reader, whether or not the run is living yet, so none says complete
+   about a run whose pending requests it couldn't read: run, next, runs and todo list all exit 4 naming the same path. */
+rule('proposals/ that can\'t be listed (EIO) before a run is living: run, next, runs and todo list all exit 4 naming it', async () => {
+  const { root } = await folder();
+  const add = cli('todo', 'add', root, 'release-notes/r-1', '--text', 'Check the screenshots', '--phase', 'draft', ...TOOL);
+  assert.strictEqual(add.code, 0, add.out);
+  assert.ok(!JSON.parse(fs.readFileSync(path.join(root, 'runs/release-notes/r-1/run.json'), 'utf8')).living, 'set-up: not living yet');
+  const FD = require(BIN), readdir = fs.readdirSync, dir = fs.realpathSync(path.join(root, 'proposals')), got = {};
+  fs.readdirSync = function (p) { if ([path.resolve(String(p)), (() => { try { return fs.realpathSync(String(p)); } catch (e) { return ''; } })()].indexOf(dir) >= 0) { const e = new Error('EIO: i/o error, scandir'); e.code = 'EIO'; throw e; } return readdir.apply(fs, arguments); };
+  try {
+    for (const [name, args] of [['run', ['run', root, 'release-notes/r-1', '--contract', '2', '--json']], ['next', ['next', root, 'release-notes/r-1', '--as', 'person-avery', '--contract', '2', '--json']],
+      ['runs', ['runs', root, '--contract', '2', '--json']], ['todo list', ['todo', 'list', root, 'release-notes/r-1', '--json']]]) {
+      const r = await FD.main(args), j = JSON.parse(r.out);
+      got[name] = [r.code, j.complete === true, (j.problems || []).some((p) => p.path === 'proposals/')];
+    }
+  } finally { fs.readdirSync = readdir; }
+  const want = {}; Object.keys(got).forEach((k) => { want[k] = [4, false, true]; });
+  assert.deepStrictEqual(got, want);
+});
 rule('A to-do record from a newer Flightdeck is named newer, not malformed, by run and next', async () => {
   const { root, d } = await folder();
   const r = JSON.parse(fs.readFileSync(path.join(root, 'runs/release-notes/r-1/run.json'), 'utf8'));

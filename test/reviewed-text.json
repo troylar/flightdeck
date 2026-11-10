@@ -13,16 +13,16 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "40965b1b56c9a9c9085d98ed38aee6307ea98d5150bdcbfcbe49c1e94b9a5bcd",
-      "reviewed": "IB: every dependency run gets the run verdict (PF.appjson.judgeRun, shared with the commands)"
+      "sha256": "1839ed39a8a9e7288444bd10ed94a9dea015b726d643e46cd09267e32ff75fc3",
+      "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "4930aee232c7766241927d231c2eb0729443450de507161a3f0e85b7e7f5fb8e",
       "reviewed": "4.0 slice 6 commit 7, plan versus now and receipts: PF.receipts (compare, the receipt record, prepare, stateOf, since, deps), cleanLiving's receipt, PF.run.end's receipt, the app's end flow with its receipt guard and plan-versus-now chips, the evidence pack's living section and check_pack.py's replay, design 45.5 and docs/evidence.md; checked for direct writes and unconditional deletes: the receipt is written create-once through repo.saveScope with a fresh read before the write under the run and to-do guards, the run through the checked save chain, export only reads, nothing deleted"
     },
     "docs/apps.md": {
-      "sha256": "28d77f946a1697840e55a9ae67998f19a891e2b5504aa5d2823e2d4a9e63de85",
-      "reviewed": "slice 6: pending and unreadable records shown before living; receipt head ''"
+      "sha256": "98a0ea952f9b42d848dd978fa052686b588087aeb990870933b2a08ae1684dc7",
+      "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
       "sha256": "ed74ad9f66176328f1c97d240ac84f56cbcd7b2914f531754c905f6432328fdb",
