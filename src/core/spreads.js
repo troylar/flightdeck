@@ -106,8 +106,8 @@ PF.spreads = (function () {
      brought the item into scope in its current incarnation (x.intro). The stop saw the item when its scope cut saw any of
      them, and listed what it owed then: nothing more. Otherwise it owes unless every one is a 4.0 scope record whose parent
      head is the stop's application or later on this run's chain; a record with no head (a 3.0 writer), an empty head, or a
-     head not on the chain, owes, since the stop couldn't have seen it. A later attempt (ZC) is judged by the record that
-     planned it as well: one planned after the stop inherits nothing, like a later arrival. */
+     head not on the chain, owes, since the stop couldn't have seen it. A later attempt (ZC, AA) is judged by every record
+     that planned it: one planned only after the stop inherits nothing, like a later arrival. */
   function stoppedOwes(s, V, T, o) {
     var cut = s.stop.cut || [], saw = V.ledger.saw || function () { return false; }, chain = T.chain || [];
     var at = chain.indexOf(s.stop.application), by = Object.create(null);
@@ -122,11 +122,13 @@ PF.spreads = (function () {
     };
     return function (uid, attempt) {
       var x = items[uid]; if (!x) return true;
+      /* A later attempt with plans is judged by every plan made for it (round 9, AA): the stop saw it when its cut saw any;
+         exempt only when all came after the stop. One without a plan is judged by the item's introductions. */
+      var plans = attempt > 1 && x.attemptBy && x.attemptBy[attempt] ? x.attemptBy[attempt] : [];
+      if (plans.length) return !plans.some(seen) && !plans.every(later);
       var intro = (x.intro && x.intro.length ? x.intro : [x.since || '']).filter(Boolean);
       if (!intro.length) return true;
       if (intro.some(seen)) return false;
-      var planned = attempt > 1 && x.attemptBy ? x.attemptBy[attempt] : '';
-      if (planned && later(planned)) return false;
       return !intro.every(later);
     };
   }

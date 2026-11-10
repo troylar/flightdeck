@@ -1075,4 +1075,59 @@ rule('ZC: a later attempt planned after the stop owes nothing; one planned by a 
   W.scopes.push(LP.cleanRequest(JSON.parse(LP.text(f3)), f3.id + '.json').record);
   same(owedOf(W), [true, ['ABC-104#2']], 'a 3.0 plan can\'t say it came after the stop: owed');
 });
+/* Review round 9 (AA): no single witness chosen by id order anywhere a stop's obligation is decided. Generated: every way an
+   item or attempt comes in (an addition, a restore after a removal, an attempt's plan) made before the stop and hidden when it
+   lands, then revealed with every combination of later records (a concurrent one that didn't see it, a repeat that did, a
+   redundant restore), in both id orders: the obligation always stands. The same with the first record made after the stop
+   instead (a genuine later arrival or attempt): always exempt. 3 routes x 8 combinations x 2 orders x 2 = 96 cases. */
+const AA_ROUTES = {
+  addition: {
+    ns: [101], cleared: [101], before: () => {},
+    first: (W, k, seen, head) => scope4(k, [101, 104], seen, head),
+    repeat: (W, k, seen, head) => scope4(k, [101, 104], seen, head),
+    owes: 'ABC-104#1'
+  },
+  restore: {
+    ns: [101], cleared: [101],
+    before: (W) => { const A = scope4('aa-add', [101, 104], [W.scopes[0].id], W.r.living.head); W.scopes.push(A); W.scopes.push(scope4('aa-x', null, [A.id], W.r.living.head, [{ op: 'exclude', item: { key: 'ABC-104', id: '10104' }, reason: 'Out' }])); },
+    first: (W, k, seen, head) => scope4(k, null, seen, head, [{ op: 'restore', item: { key: 'ABC-104', id: '10104' }, reason: 'Back in' }]),
+    repeat: (W, k, seen, head) => scope4(k, [101, 104], seen, head),
+    owes: 'ABC-104#1'
+  },
+  'attempt creation': {
+    ns: [101, 104], cleared: [101, 104], before: () => {},
+    first: (W, k, seen, head) => plan4(k, 104, 2, seen, head),
+    repeat: (W, k, seen, head) => plan4(k, 104, 2, seen, head),
+    owes: 'ABC-104#2'
+  }
+};
+const AA_LATER = ['concurrent', 'repeat', 'redundant restore'];
+for (const route of Object.keys(AA_ROUTES)) for (const before of [true, false]) {
+  rule('AA: ' + route + ', first made ' + (before ? 'before the stop and hidden when it lands: always owed' : 'after the stop: always exempt') + ', with every combination of later records, both id orders', () => {
+    const R0 = AA_ROUTES[route], off = [];
+    let cases = 0;
+    for (let mask = 0; mask < 8; mask++) for (const first of [true, false]) {
+      cases++;
+      const W = world(R0.ns); R0.cleared.forEach(n => W.kid(n, { cleared: true }));
+      W.spreadAdd(); W.land(W.r);
+      R0.before(W);
+      const base = W.scopes[W.scopes.length - 1].id, tag = 'aa' + route.length + (before ? 'b' : 'l') + mask + (first ? 'f' : 's');
+      const [k1, kc] = keysIn(first, tag);
+      const preHead = W.r.living.head;
+      const one = before ? R0.first(W, k1, [base], preHead) : null;
+      W.ask(W.r, stopBody(W, []), { person: 'person-morgan' }); W.land(W.r);
+      if (spreadOf(W).state !== 'stopped') { off.push(tag + ': set-up: not stopped'); continue; }
+      const stopApp = W.r.living.head;
+      const H = one || R0.first(W, k1, [base], stopApp);
+      W.scopes.push(H);
+      const on = AA_LATER.filter((x, i) => mask & (1 << i));
+      if (on.includes('concurrent')) W.scopes.push(R0.first(W, kc, [base], stopApp));
+      if (on.includes('repeat')) W.scopes.push(R0.repeat(W, tag + '-rep', [H.id], stopApp));
+      if (on.includes('redundant restore')) W.scopes.push(scope4(tag + '-rr', null, [H.id], stopApp, [{ op: 'restore', item: { key: 'ABC-104', id: '10104' }, reason: 'Still in' }]));
+      const [complete, owed] = owedOf(W), want = before ? [R0.owes] : [];
+      if (!complete || JSON.stringify(owed) !== JSON.stringify(want)) off.push(tag + ' [' + on.join(', ') + '] ' + (first ? 'first-made sorts first' : 'later sorts first') + ': complete ' + complete + ', owed ' + JSON.stringify(owed));
+    }
+    same([cases, off], [16, []], '16 cases for each of 3 routes, made before or after the stop: 96');
+  });
+}
 run();

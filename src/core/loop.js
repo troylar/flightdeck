@@ -172,9 +172,12 @@ PF.loop = (function () {
       var s = settle(x, 'verdict', 'review', rec, { to: to, op: op }, function (p, v) { return p.to === v.to; },
         { both: function (p, v) { return 'Two people decided this item at once: ' + p.op + ' and ' + v.op + '.'; }, again: 'Decided again without seeing the earlier contrary decisions.' });
       if (s === 'contrary') { if (was === 'removed') introduce(x, rec); x.state = 'in'; return; }
-      if (s === 'held') return;
+      /* Round 9 (AA): a restore while the item is in scope is one more introduction (a concurrent one that sorted second, or a
+         redundant one), never a reset and never dropped. */
+      if (s === 'held') { if (op === 'restore' && x.state !== 'removed') introduce(x, rec); return; }
       /* Only a settled return from removed starts a new incarnation; a restore of an item already in scope changes nothing. */
       if (was === 'removed' && to !== 'removed') x.intro = [rec.id];
+      else if (op === 'restore') introduce(x, rec);
       x.state = to; x.proposal = null;
       if (to === 'removed') x.removed = { record: rec.id, reason: String(reason || ''), by: rec.by || null };
       else { delete x.removed; if (op === 'keep') x.kept = true; }
@@ -255,12 +258,16 @@ PF.loop = (function () {
           if (!x) return;
           var key = x.uid + '#' + k.attempt;
           x.planOpts[k.attempt + '#' + rec.id] = { inputs: k.inputs || {}, owner: k.owner || '' };
+          /* Round 9 (AA): every plan for an attempt is a witness of its creation, a duplicate or a concurrent one included. */
+          x.attemptBy = x.attemptBy || Object.create(null);
+          var ab = x.attemptBy[k.attempt] = x.attemptBy[k.attempt] || [];
+          if (ab.indexOf(rec.id) < 0) ab.push(rec.id);
           /* A plan that saw the first one for its attempt is a duplicate, unless the attempt's plans are in conflict: then it
              is a resolution, settled like any decision. */
           var resolving = (x.planReview || []).length && x.plan && x.plan.attempt === k.attempt;
           if (intents[key] && intents[key] !== rec.id) { duplicates.push({ record: rec.id, op: 'plan', item: x.key, why: 'attempt ' + k.attempt + ' is already planned by ' + intents[key] }); if (c.saw(rec.id, intents[key]) && !resolving) return; }
           else if (intents[key]) return;
-          else { intents[key] = rec.id; x.attemptBy = x.attemptBy || Object.create(null); x.attemptBy[k.attempt] = rec.id; }
+          else intents[key] = rec.id;
           if (k.attempt < x.attempt) return;
           settlePlan(x, rec, k.attempt, k.inputs || {}, k.owner || '', rec.id);
         });

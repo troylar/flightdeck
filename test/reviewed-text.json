@@ -25,8 +25,8 @@
       "reviewed": "Round 6 XD: sync dry-run partial status from preparation refusals"
     },
     "docs/design.md": {
-      "sha256": "5ff9222340f83d7737a15a5f6bf9d0de2fc14d4f88cb23901024425ab6def24a",
-      "reviewed": "ZC: a later attempt after a stop is exempt"
+      "sha256": "cdb1072d883578fdb4c13cdbcc18c2c20f8971900394f863e2ff0d734b87f73b",
+      "reviewed": "AA: every witness of a restore and an attempt"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -257,8 +257,8 @@
       "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
     },
     "src/core/loop.js": {
-      "sha256": "e7a32bc112ab796daa5a455985a01e96ee4f72f6e066fe54fdd9a99749827357",
-      "reviewed": "ZC: a later attempt after a stop is exempt"
+      "sha256": "ddbc7d2aa6e0c8d28bc436ca276b954f787da0f82d4fda278d14761e8028b3bf",
+      "reviewed": "AA: every witness of a restore and an attempt"
     },
     "src/core/map.js": {
       "sha256": "f9eae33f6635cd1b3983fc1c71eb7a3b3c8dc1c70ca3ef8ce8807d5228165d2f",
@@ -337,8 +337,8 @@
       "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
     },
     "src/core/spreads.js": {
-      "sha256": "0390a631b1c2c6ccc6d451e2192b72b2bc4c950de0db025a0846d0f77a91df22",
-      "reviewed": "ZC: a later attempt after a stop is exempt"
+      "sha256": "11d5abaf91b25efa567cec9174f638c4d996ed0aa1b761c8ae33087dffc69e82",
+      "reviewed": "AA: every witness of a restore and an attempt"
     },
     "src/core/staging.js": {
       "sha256": "d01a3204178bd0b055c05524916f55774c4404cca10f86fbb10a2ca675bd6b07",
