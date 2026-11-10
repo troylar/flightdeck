@@ -53,8 +53,8 @@
       "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "9e823223f24a07d68c7fedb60c6487ae3a4a6f9d94e4de0ee1e38a77af85f65e",
-      "reviewed": "slice 6 round 2 GC: one receipt verdict in every reader, view, copied text and the checker"
+      "sha256": "03c22e7812623aae671f24503d49140c1a573615a22b45901d9365f359c19db9",
+      "reviewed": "ID: the checker names every rejected named receipt as the app does"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
       "sha256": "197779e5fb047d6137527db0211659a2db320470f3086d61b5126d6e868b0cf8",
@@ -197,8 +197,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "d3fffb6ae43f927933909539969e8be4c30d279bcc63b72177a05bdc4a6d394b",
-      "reviewed": "slice 6 round 2 GC: one receipt verdict in every reader, view, copied text and the checker"
+      "sha256": "2b1fe8bbf61e82115aa67b57bd93b6957a2ce8672ebd88b1f2c14785a00a4675",
+      "reviewed": "ID: the checker names every rejected named receipt as the app does"
     },
     "src/core/appjson.js": {
       "sha256": "744bdb09afa1a0dda2fe006e5b3a963ebe88bef69aaab5a41ae88515ce09cd03",

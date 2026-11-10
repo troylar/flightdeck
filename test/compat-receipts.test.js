@@ -89,6 +89,10 @@ rule('This version: run, next, runs and todo list name the same receipt problem 
     ['mismatch', (dir) => edit(dir, 'runs/release-notes/run-l/run.json', (r) => { r.ended.outcome = 'Stopped early'; r.state = 'stopped'; }), 'malformed'],
     ['head', (dir) => edit(dir, 'proposals/' + receipt, (o) => { o.head = 'req-flightdeck-' + 'e'.repeat(24); }), 'malformed'],
     ['another run', (dir) => edit(dir, 'proposals/' + receipt, (o) => { o.run.id = 'run-q'; }), 'malformed']];
+  /* ID: a named receipt every reader refuses is unread and malformed, with the same first reason, whatever it holds. */
+  const put = (text) => (dir) => fs.writeFileSync(path.join(dir, 'proposals', receipt), text);
+  [['empty', ''], ['null', 'null'], ['a list', '[]'], ['a number', '5'], ['broken JSON', '{ broken'], ['too deep', '{"a":'.repeat(65) + '1' + '}'.repeat(65)]]
+    .forEach(([what, text]) => cases.push([what, put(text), 'malformed']));
   if (process.getuid && process.getuid() !== 0) cases.push(['unreadable', (dir) => fs.chmodSync(path.join(dir, 'proposals', receipt), 0), 'unreadable']);
   for (const [state, damage, kind] of cases) {
     const { root, dir } = tree(files);

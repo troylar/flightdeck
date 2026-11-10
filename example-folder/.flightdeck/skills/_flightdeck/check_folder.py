@@ -4387,6 +4387,8 @@ def main():
         if text and json_too_deep(text):
             out["refused"].append({"file": "proposals/" + name, "why": DEEP_WHY})
             refused_decisions.append((name, "malformed", ""))
+            if name.startswith("req-"):
+                rcpt_unread.append((name, "malformed", DEEP_WHY))
             continue
         try:
             # Numbers are read as JavaScript reads them (all doubles), so 9007199254740993 becomes ...992 here too.
@@ -4397,8 +4399,12 @@ def main():
         if not parsed:
             # Not complete JSON (it may still be arriving): named, and whether its name says which plan it's for.
             torn.append(name)
-            if text and name.startswith("req-"):
-                rcpt_unread.append((name, "malformed", "It isn't complete JSON."))
+            # As the app's loader names it: an empty file is one still arriving, too.
+            if text is not None and name.startswith("req-"):
+                rcpt_unread.append((name, "malformed", "isn't complete JSON"))
+        # JSON that isn't a proposals/ file (null, a list, a number, an object of no kind): ignored, and named, as the app does.
+        if parsed and name.startswith("req-") and not (isinstance(obj, dict) and (obj.get("kind") in ("plan", "status") or isinstance(obj.get("format"), str))):
+            rcpt_unread.append((name, "malformed", "isn't a file Flightdeck reads here, so it's ignored"))
         if not isinstance(obj, dict):
             continue
         # A to-do record (4.0, PF.todos.claims): read by its own reader first, as the app does, and never a plan or a decision.
