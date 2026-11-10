@@ -79,6 +79,68 @@ rule('The to-do opens its correction, which shows its source; only the checklist
   assert.ok(/Kept for next time in release-notes · Applied to draft\./.test(txt(app.html())), 'the to-do says it, linked both ways');
 });
 
+/* A keep applied to the draft by the owner, Morgan: the draft has the step and the group is Applied to draft. */
+async function appliedKeep() {
+  const app = await setup(), id = await added(app, 'Post the release notes');
+  app.click('keep', id, { kind: 'todo' }); await app.tick(120); await refresh(app, 300);
+  const gid = groupId(app);
+  app.click('keep-open', gid, { process: 'release-notes' }); await app.tick(120);
+  app.choose('person-morgan'); await app.tick(80);
+  app.click('corr-review', gid); await app.tick(60);
+  app.click('corr-apply', gid); await app.tick(300);
+  await refresh(app, 300);
+  assert.ok(/Post the release notes/.test(app.fs.files['maps/drafts/release-notes.md'].t), 'set-up: the draft has it');
+  assert.ok(app.files('corrections/').length >= 1, 'set-up: applied');
+  return { app, gid };
+}
+const versions = (app) => app.files('publications/release-notes/').filter(p => /publication\.json$/.test(p)).length;
+const openPage = async (app) => { app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release-notes'); await app.tick(60); };
+
+rule('Publishing a version that includes a keep is the active owner\'s: anyone else publishes nothing; an unrelated version publishes as before', async () => {
+  const { app } = await appliedKeep();
+  const n = versions(app);
+  app.choose('person-avery'); await app.tick(80); await openPage(app);
+  app.set('change-note', 'Post the notes'); app.click('publish', 'release-notes'); await app.tick(300);
+  assert.strictEqual(versions(app), n, 'nothing published by someone else');
+  assert.ok(/kept for next time/.test(txt(app.html())) && /owner/.test(txt(app.html())), 'said why: ' + (txt(app.html()).match(/Nothing was published[^.]*\.[^.]*\./) || [])[0]);
+  /* The owner changes to someone else right before the write: the check at the write refuses it too. */
+  app.choose('person-morgan'); await app.tick(80); await openPage(app);
+  const fs = app.fs, read = fs.read.bind(fs); let release = null;
+  fs.read = (p, o) => /^maps\/drafts\/release-notes\.md$/.test(p) && !release ? new Promise((res) => { release = () => res(read(p, o)); }) : read(p, o);
+  app.set('change-note', 'Post the notes'); app.click('publish', 'release-notes'); await app.tick(40);
+  assert.ok(release, 'the draft is being read');
+  const ppl = JSON.parse(fs.files['people.json'].t); (Array.isArray(ppl) ? ppl : ppl.people).forEach(p => { if (p.id === 'person-morgan') p.inactive = true; }); fs.files['people.json'] = { t: JSON.stringify(ppl), m: Date.now() };
+  release(); await app.tick(300); fs.read = read;
+  assert.strictEqual(versions(app), n, 'nothing published once the owner is inactive at the write');
+  (Array.isArray(ppl) ? ppl : ppl.people).forEach(p => { if (p.id === 'person-morgan') delete p.inactive; }); fs.files['people.json'] = { t: JSON.stringify(ppl), m: Date.now() };
+  await refresh(app, 300); await openPage(app);
+  app.set('change-note', 'Post the notes'); app.click('publish', 'release-notes'); await app.tick(300);
+  assert.strictEqual(versions(app), n + 1, 'the owner publishes it');
+  /* A version without keeps: anyone publishes, as before. */
+  const other = await setup(), m = versions(other), dp = 'maps/drafts/release-notes.md';
+  const md = other.fs.files[dp] ? other.fs.files[dp].t : MD;
+  await other.fs.write(dp, md.replace('- [!] {confirm} Read them {#read}', '- [!] {confirm} Read them {#read}\n- [ ] {confirm} File them {#file}'));
+  await refresh(other, 300); await openPage(other);
+  other.set('change-note', 'File them'); other.click('publish', 'release-notes'); await other.tick(300);
+  assert.strictEqual(versions(other), m + 1, 'someone other than the owner publishes a version without keeps');
+});
+
+rule('Promoting a staged version that includes a keep is the active owner\'s too', async () => {
+  const { app } = await appliedKeep();
+  await openPage(app);
+  app.set('change-note', 'Post the notes'); app.click('stage-draft', 'release-notes'); await app.tick(300);
+  const st = app.files('staged/release-notes/').filter(f => /publication\.json$/.test(f));
+  assert.strictEqual(st.length, 1, 'set-up: staged');
+  const folder = JSON.parse(app.fs.files[st[0]].t).folder, n = versions(app);
+  assert.ok((JSON.parse(app.fs.files[st[0]].t).corrections || []).length, 'set-up: the stage includes the keep');
+  app.choose('person-avery'); await app.tick(80); await refresh(app, 200); await openPage(app);
+  app.click('promote-stage', folder); await app.tick(300);
+  assert.strictEqual(versions(app), n, 'nothing published by someone else');
+  app.choose('person-morgan'); await app.tick(80); await refresh(app, 200); await openPage(app);
+  app.click('promote-stage', folder); await app.tick(300);
+  assert.strictEqual(versions(app), n + 1, 'the owner promotes it');
+});
+
 rule('Applying a keep whose person changes while the draft is being read writes neither the draft nor a decision', async () => {
   for (const change of ['person', 'folder-owner']) {
     const app = await setup(), id = await added(app, 'Post the release notes');

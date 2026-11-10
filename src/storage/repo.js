@@ -1510,6 +1510,9 @@ PF.repo = (function () {
       return shots.reduce(function (p, src) { return p.then(function (m) { return bytesOf(blobs[src]).then(function (b) { bytes[src] = b; m[src] = fnvBytes(b); return m; }); }); }, Promise.resolve({})).then(function (images) {
         var rebuilt = Object.keys(images).length ? P.build(draftMd, Object.assign({}, opts, { images: images, imageBytes: bytes, rand: built.folder.replace(/^v\d+-/, '') })) : built;
         if (rebuilt.blockers) return rebuilt;
+        /* opts.still (4.0, a version with what was kept for next time): asked right before the first write; false writes
+           nothing ({ dropped: true }). Without it, as before. */
+        if (typeof opts.still === 'function' && !opts.still()) return { dropped: true };
         return shots.reduce(function (p, src) { return p.then(function () { return fs.write(base + src, blobs[src]); }); }, Promise.resolve())
           .then(function () { return writePublication(fs, base, rebuilt); });
       });

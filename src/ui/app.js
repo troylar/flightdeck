@@ -1894,10 +1894,20 @@
       var still = function () { return pg === gen && state.fs === sfs && state.me === by; };
       if (!still()) return { dropped: true };
       var lk = LOCKS ? lock : null;
-      return what === 'promote' ? repo.promote(sfs, pid, folder, { by: by, now: new Date().toISOString(), app: APP_VERSION, lock: lk, still: still })
-        : repo.decideStage(sfs, pid, folder, what, { by: by, now: new Date().toISOString(), window: WRITER, app: APP_VERSION, lock: lk, still: still });
+      if (what !== 'promote') return repo.decideStage(sfs, pid, folder, what, { by: by, now: new Date().toISOString(), window: WRITER, app: APP_VERSION, lock: lk, still: still });
+      var promote = function (st) { return repo.promote(sfs, pid, folder, { by: by, now: new Date().toISOString(), app: APP_VERSION, lock: lk, still: st }); };
+      /* A stage that includes what was kept for next time is promoted only by the checklist's active owner, asked again on
+         people.json read right before the write; one that can't be read isn't promoted on a guess. */
+      return repo.readStage(sfs, pid, folder).then(function (sv) {
+        var kp = keepPubGroup(pid, sv && sv.info && Array.isArray(sv.info.corrections) ? sv.info.corrections : []);
+        if (!kp) return promote(still);
+        if (keepPubWhy(kp, pid)) return { refused: keepPubWhy(kp, pid) };
+        var kg = keepGuard(kp, pid);
+        return kg.fresh(sfs).then(function () { return promote(function () { return still() && kg.still(); }); }).then(function (res) { return res && res.dropped && !still() ? res : res && res.dropped ? { refused: 'Nothing was published: ' + kg.why() } : res; });
+      }, function (e) { return { refused: 'Nothing was published: the stage couldn\'t be read again right before it was (' + (e && e.message || e) + '), so whether it includes what was kept for next time can\'t be told.' }; });
     }).then(function (res) {
       state.stageBusy = null;
+      if (res && res.refused) { if (pg === gen) { if (done && done.fail) done.fail(res.refused); else { say(res.refused, 'warn'); render(); } } return; }
       if (res && res.dropped) { if (pg === gen) { say('Nothing was changed: another folder was opened, or the person using this window changed, before it could be saved.', 'warn'); render(); } return; }
       if (pg !== gen) return;
       if (res && res.dropped) { say('Nothing was changed: another folder was opened, or the person using this window changed, before it could be saved.', 'warn'); render(); return; }
@@ -3516,6 +3526,13 @@
   function keepFor(r, source) { try { return PF.learn.forSource(data.todos || [], function (pid) { return ctx.corrections(pid); }, r, source); } catch (e) { return null; } }
   function keepCan(r) { return !!(r && state.me && !r._unrunnable && !runUnread(r)); }
   function keepOwnerWhy(g, pid) { return g && g.keep ? PF.learn.ownerWhy(g, procFind(pid), data.people, state.me, !!(data.failed || {}).people) : ''; }
+  /* A version that includes what was kept for next time (ids: the corrections it lists) is published or promoted only by
+     the checklist's active owner: the keep group it includes, or null when it includes none (then, as before, anyone). */
+  function keepPubGroup(pid, ids) {
+    var set = Object.create(null); (ids || []).forEach(function (x) { set[typeof x === 'string' ? x : x && x.id] = true; });
+    return (ctx.corrections(pid) || []).filter(function (g) { return g && g.keep && set[g.id]; })[0] || null;
+  }
+  function keepPubWhy(g, pid) { var w = g ? keepOwnerWhy(g, pid) : ''; return w ? 'Nothing was published: this version includes what was kept for next time. ' + w : ''; }
   /* The write guard of a decision on what was kept for next time, or of its draft application (null for any other correction,
      which is guarded as before): people.json read again right before each write (fresh), then the same folder, generation
      and person as at the click, and that person still the checklist's active owner on that read (still). */
@@ -8271,6 +8288,8 @@
       /* Everything the publication is checked against comes from this folder now, before the queue waits on anything. */
       var pfs = state.fs, pg = gen, by = state.me, people = data.people, wfs = data.jira.workflows, pids = processes().filter(function (x) { return x.latest; }).map(function (x) { return x.id; });
       var tk = dlg ? wsTicket(id) : null, fail = dlg ? wsFailed(dlg, '[data-act="publish"]') : null;
+      var kw = keepPubWhy(keepPubGroup(id, PF.corrections.forPublish(shown, ctx.corrections(id)).list), id);
+      if (kw) { if (fail) fail(kw); else { say(kw, 'warn'); render(); } return; }
       if (dlg) { dlg.note = note; dlg.clicked = 'publish'; dlg.err = ''; state.overlayFocus = '[data-act="publish"]'; }
       state.publishBusy = id; render();
       queued(function () {
@@ -8281,11 +8300,17 @@
           if (!f || f.text !== shown) return { changed: true };
           /* The corrections this exact text includes, worked out from the folder as last read (see PF.corrections.forPublish). */
           var inc = pg === gen ? PF.corrections.forPublish(f.text, ctx.corrections(id)).list : [];
-          return repo.publish(pfs, f.text, { people: people, customTypes: got[1].types, workflows: wfs, processes: pids, by: by, changes: note, existing: p.taken, now: new Date().toISOString(), corrections: inc, app: APP_VERSION }).then(function (res) { if (res && !res.blockers) res.included = inc.length; return res; });
+          var kp = keepPubGroup(id, inc), kg = kp ? keepGuard(kp, id) : null, go = function (still) {
+            return repo.publish(pfs, f.text, { people: people, customTypes: got[1].types, workflows: wfs, processes: pids, by: by, changes: note, existing: p.taken, now: new Date().toISOString(), corrections: inc, app: APP_VERSION, still: still }).then(function (res) { if (res && !res.blockers && !res.dropped) res.included = inc.length; return res; });
+          };
+          if (!kp) return go(undefined);
+          if (keepPubWhy(kp, id)) return { refused: keepPubWhy(kp, id) };
+          return kg.fresh(pfs).then(function () { return go(kg.still); }).then(function (res) { return res && res.dropped ? { refused: 'Nothing was published: ' + kg.why() } : res; });
         });
       }).then(function (res) {
         state.publishBusy = null;
         if (pg !== gen) return;
+        if (res.refused) { if (fail) fail(res.refused); else { say(res.refused, 'warn'); render(); } return load(true); }
         if (res.changed) { state.publishBusy = null; if (fail) fail('The draft changed since this page was drawn, so nothing was published. Here is the newest draft: check it, then publish.'); else say('The draft changed since this page was drawn, so nothing was published. Here is the newest draft: check it, then publish.', 'warn'); return load(true); }
         if (res.blockers) { state.publishBusy = null; if (fail) fail(res.blockers[0]); else { say(res.blockers[0], 'warn'); render(); } return; }
         if (dlg) return wsWritten(dlg, tk, { kind: 'publish', version: res.version, text: shown, included: res.included });
