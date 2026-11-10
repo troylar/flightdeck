@@ -25,8 +25,8 @@
       "reviewed": "DF: an absent evidence run or plan and an unpublished keep child are nofile, the existing kind; missing dropped from KINDS; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "4339d1973cb5d3c1f495bc05caa777f13cccf57b56d1f4fae50639e343b3076a",
-      "reviewed": "HB: one judged evidence verdict (publication read failures, runs via readEvidence, explicit evidence runs, the app view's judge); checked for direct writes and unconditional deletes"
+      "sha256": "d364a550d3844ef2330672d9b76ec535b4f00ebb961baa65683f0fcf4eb3d459",
+      "reviewed": "HA: ownership from fresh publications inside the keep guard; people.json read last for recorder writes with the recorder active; publish/promote hold on unread keeps; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -421,8 +421,8 @@
       "reviewed": "HB: one judged evidence verdict (publication read failures, runs via readEvidence, explicit evidence runs, the app view's judge); checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "d80217eb070cd171d223ed626489746b3b2ea8607209fb1529508de88d6020f1",
-      "reviewed": "HB: one judged evidence verdict (publication read failures, runs via readEvidence, explicit evidence runs, the app view's judge); checked for direct writes and unconditional deletes"
+      "sha256": "3bab431b65b5e6bcaef7a03088f18b1a24128ae67ab94e14235b7aa195f56214",
+      "reviewed": "HA: ownership from fresh publications inside the keep guard; people.json read last for recorder writes with the recorder active; publish/promote hold on unread keeps; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

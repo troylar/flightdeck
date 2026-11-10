@@ -240,6 +240,21 @@ rule('Every checklist-linked write path is guarded after every read and right be
     assert.ok(m, 'set-up: Avery decides it');
     return { app, act: () => app.click('td-accept', m[1], { run: m[2], fp: m[3] }), mine: (p) => /^proposals\/req-evidence-[0-9a-f]+\.status-/.test(p) && !/apply|appl/.test(p), who: 'person-avery', other: 'person-casey' };
   });
+  /* The recorder's window lands a done on a run's result: the application record and the run's save (candidate, backup,
+     run.json), each under the to-do guard read again right there, people.json last. */
+  if (want('land')) out.land = await race('land', async () => {
+    const { app, todo, key } = await completed(), PF = app.PF;
+    const r = PF.run.sanitize(parentRun(app)), id = key.split('/')[1];
+    const sn = await PF.repo.readTodos(app.fs, { evidence: true, also: [{ process: 'smoke-test', id }] });
+    const x = PF.todos.view(r, { records: sn.records, unread: sn.unread, people: sn.people, evidence: sn.evidence }).byTodo[todo];
+    const E = PF.detours.evidenceFor(r, x, id, sn.evidence);
+    assert.ok(!E.why, 'set-up: ' + E.why);
+    const P = PF.todos.prepare(r, { body: { op: 'done', todo, evidence: E.evidence }, by: { person: 'person-avery' }, key: 'ui-land', records: sn.records, unread: sn.unread, people: sn.people, at: AT(), app: '4.0.0', evidence: sn.evidence });
+    assert.ok(!P.why, P.why);
+    app.fs.files['proposals/' + P.name] = { t: PF.todos.text(P.file), m: Date.now() };
+    const pp = parentPath(app), dir = pp.slice(0, pp.lastIndexOf('/') + 1);
+    return { app, act: () => app.click('refresh'), mine: (p) => p.indexOf(dir) === 0 || (/^proposals\/req-evidence-/.test(p) && p !== 'proposals/' + P.name), who: 'person-avery', other: 'person-casey' };
+  }, { near: 8, settle: 600 });
   if (process.env.RACE_SAY) console.log(JSON.stringify(out));
 });
 

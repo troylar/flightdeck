@@ -37,6 +37,7 @@ const textOf = (fs, p) => (fs.files[p] ? (typeof fs.files[p].t === 'string' ? fs
 const snapshot = (fs) => { const o = {}; Object.keys(fs.files).forEach((p) => { o[p] = textOf(fs, p); }); return o; };
 
 async function perturb(app, how, ctx, was) {
+  if (how === 'owner') { await ctx.transfer(was); return; }
   if (how === 'person') { app.choose(ctx.other); return; }
   if (how === 'folder') { app.click('reset-examples'); return; }
   const f = was.files['people.json'];
@@ -46,7 +47,7 @@ async function perturb(app, how, ctx, was) {
   was.files['people.json'] = { t: JSON.stringify(ppl), m: Date.now() };
 }
 
-/* One path's race. make() resolves to { app, act(), mine(path), who, other, allowed?(path, before, was) }. */
+/* One path's race. make() resolves to { app, act(), mine(path), who, other, allowed?(path, before, was), transfer?(fs) }. */
 async function race(name, make, o) {
   o = o || {};
   const settle = o.settle || 400;
@@ -56,11 +57,20 @@ async function race(name, make, o) {
   assert.ok(mineWrites.length, name + ': set-up: the path writes when nothing changes (reads: ' + ds.log.length + ')');
   /* The reads up to the path's last write: each is a step to pause. */
   const lastW = ds.writes.lastIndexOf(mineWrites[mineWrites.length - 1]) + 1;
-  const steps = ds.log.filter((x) => x.writes < lastW);
+  /* o.near: only the reads within that many before one of the path's writes (a path that starts with a whole folder read). */
+  const writeAt = ds.writes.map((w, i) => (w.m === 'write' && dry.mine(w.p) ? i + 1 : 0)).filter(Boolean);
+  const all = ds.log.filter((x) => x.writes < lastW);
+  const steps = o.near ? all.filter((x, i) => writeAt.some((w) => x.writes < w && all.slice(i + 1).filter((y) => y.writes < w).length < o.near)) : all;
+  /* An ownership transfer (a valid newer version owned by someone else) is a fifth change where the path has an owner. */
+  const perts = dry.transfer ? PERTS.concat(['owner']) : PERTS;
   const cases = [];
+  /* One read is always last before a write, and a folder can't check and write in one step: a change to another file made
+     while that last read is in flight is the one window no guard closes. So at the guard's last read (people.json) an
+     ownership transfer (another file) isn't asked; a change to that read's own file, the person or the folder still is. */
+  const lastRead = (s, i) => (steps[i + 1] ? steps[i + 1].writes > s.writes : true) && /^read:people\.json$/.test(s.sig);
   steps.forEach((s, i) => {
     const before = steps[i + 1] ? steps[i + 1].writes > s.writes : true;
-    (before ? PERTS : [PERTS[i % PERTS.length]]).forEach((how) => cases.push({ s, how }));
+    (before ? perts : [perts[i % perts.length]]).filter((how) => !(how === 'owner' && lastRead(s, i))).forEach((how) => cases.push({ s, how }));
   });
   let ran = 0;
   for (const c of cases) {

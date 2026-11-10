@@ -98,6 +98,14 @@ async function groupNow(app, gid) {
   const PF = app.PF, d = await PF.repo.loadAll(app.fs, {}), p = d.processes.filter(x => x.process === 'release-notes')[0];
   return PF.corrections.forProcess(d.runs.filter(r => r.process === 'release-notes'), 'release-notes', d.corrDecisions, p ? p.index : null, PF.learn.members(d.todos, d.runs, 'release-notes')).filter(x => x.id === gid)[0];
 }
+/* A valid newer version of release-notes, owned by Blake, published into fs: ownership moves mid-write. */
+async function transfer(app, fs) {
+  const PF = app.PF, people = JSON.parse(fs.files['people.json'].t), have = Object.keys(fs.files).filter(p => /^publications\/release-notes\/v\d+-[^/]+\/publication\.json$/.test(p));
+  const existing = have.map(p => ({ version: PF.publish.versionOf(p.split('/')[2]) }));
+  const b = PF.publish.build(MD.replace('owner: person-morgan', 'owner: person-blake'), { people, ...require('./harness').exampleSetup(PF), by: 'person-blake', changes: 'Owner', existing, now: new Date().toISOString(), rand: 'ow' + String(existing.length).padStart(6, '0'), app: '4.0.0' });
+  assert.ok(!b.blockers, JSON.stringify(b.blockers));
+  Object.keys(b.files).forEach(k => { fs.files['publications/release-notes/' + b.folder + '/' + k] = { t: b.files[k], m: Date.now() }; });
+}
 const versions = (app) => app.files('publications/release-notes/').filter(p => /publication\.json$/.test(p)).length;
 const openPage = async (app) => { app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release-notes'); await app.tick(60); };
 
@@ -151,6 +159,22 @@ rule('A keep applied and then reopened by a new wording still publishes only thr
   await refresh(app, 300);
   const after = await groupNow(app, gid);
   assert.ok(after.status === 'open' && after.reviewedLanded && after.reviewedLanded.version === pub.version, 'the new wording stays open; what was reviewed is published');
+});
+
+rule('A keep record that can\'t be read holds publishing and promoting a version that may include it: never published past the owner check', async () => {
+  const { app } = await appliedKeep();
+  await openPage(app);
+  app.set('change-note', 'Post the notes'); app.click('stage-draft', 'release-notes'); await app.tick(300);
+  const st = app.files('staged/release-notes/').filter(f => /publication\.json$/.test(f)), folder = JSON.parse(app.fs.files[st[0]].t).folder, n = versions(app);
+  const kf = app.files('proposals/req-keep-')[0];
+  assert.ok(kf, 'set-up: the keep record');
+  app.fs.files[kf] = { t: app.fs.files[kf].t.slice(0, 40), m: Date.now() };
+  app.choose('person-avery'); await app.tick(80); await refresh(app, 300); await openPage(app);
+  app.click('promote-stage', folder); await app.tick(300);
+  assert.strictEqual(versions(app), n, 'nothing promoted while the keep can\'t be read');
+  app.set('change-note', 'Post the notes'); app.click('publish', 'release-notes'); await app.tick(300);
+  assert.strictEqual(versions(app), n, 'nothing published while the keep can\'t be read');
+  assert.ok(/can.t be read/.test(txt(app.html())), 'said why: ' + txt(app.html()).slice(0, 600));
 });
 
 rule('Promoting a staged version that includes a keep is the active owner\'s too', async () => {
@@ -317,26 +341,26 @@ rule('Every keep write path is guarded after every read and right before every w
   });
   if (want('decide')) out.decide = await race('decide', async () => {
     const { app, gid } = await kept('person-morgan'); await openPage(app);
-    return { app, act: () => app.click('corr-applied', gid), mine: corr, who: 'person-morgan', other: 'person-avery' };
+    return { app, act: () => app.click('corr-applied', gid), mine: corr, who: 'person-morgan', other: 'person-avery', transfer: (fs) => transfer(app, fs) };
   });
   if (want('apply')) out.apply = await race('apply', async () => {
     const { app, gid } = await kept();
     app.click('keep-open', gid, { process: 'release-notes' }); await app.tick(120);
     app.choose('person-morgan'); await app.tick(80);
     app.click('corr-review', gid); await app.tick(60);
-    return { app, act: () => app.click('corr-apply', gid), mine: (p) => corr(p) || /^maps\/drafts\//.test(p), who: 'person-morgan', other: 'person-avery' };
+    return { app, act: () => app.click('corr-apply', gid), mine: (p) => corr(p) || /^maps\/drafts\//.test(p), who: 'person-morgan', other: 'person-avery', transfer: (fs) => transfer(app, fs) };
   });
   if (want('publish')) out.publish = await race('publish', async () => {
     const { app } = await appliedKeep(); await openPage(app);
     app.set('change-note', 'Post the notes');
-    return { app, act: () => app.click('publish', 'release-notes'), mine: (p) => /^publications\//.test(p), who: 'person-morgan', other: 'person-avery' };
+    return { app, act: () => app.click('publish', 'release-notes'), mine: (p) => /^publications\//.test(p) && !/\/v\d+-ow/.test(p), who: 'person-morgan', other: 'person-avery', transfer: (fs) => transfer(app, fs) };
   });
   if (want('promote')) out.promote = await race('promote', async () => {
     const { app } = await appliedKeep(); await openPage(app);
     app.set('change-note', 'Post the notes'); app.click('stage-draft', 'release-notes'); await app.tick(300);
     const st = app.files('staged/release-notes/').filter(f => /publication\.json$/.test(f)), folder = JSON.parse(app.fs.files[st[0]].t).folder;
     await refresh(app, 200); await openPage(app);
-    return { app, act: () => app.click('promote-stage', folder), mine: (p) => /^publications\//.test(p), who: 'person-morgan', other: 'person-avery' };
+    return { app, act: () => app.click('promote-stage', folder), mine: (p) => /^publications\//.test(p) && !/\/v\d+-ow/.test(p), who: 'person-morgan', other: 'person-avery', transfer: (fs) => transfer(app, fs) };
   });
   if (process.env.RACE_SAY) console.log(JSON.stringify(out));
 });

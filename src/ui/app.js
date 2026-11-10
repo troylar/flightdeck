@@ -1899,7 +1899,9 @@
       /* A stage that includes what was kept for next time is promoted only by the checklist's active owner, asked again on
          people.json read right before the write; one that can't be read isn't promoted on a guess. */
       return repo.readStage(sfs, pid, folder).then(function (sv) {
-        var kp = keepPubGroup(pid, sv && sv.info && Array.isArray(sv.info.corrections) ? sv.info.corrections : []);
+        var listed = sv && sv.info && Array.isArray(sv.info.corrections) ? sv.info.corrections : [];
+        if (keepUnreadWhy(pid, listed)) return { refused: keepUnreadWhy(pid, listed) };
+        var kp = keepPubGroup(pid, listed);
         if (!kp) return promote(still);
         if (keepPubWhy(kp, pid)) return { refused: keepPubWhy(kp, pid) };
         var kg = keepGuard(kp, pid, false, { me: by, fs: sfs, gen: pg });
@@ -3040,6 +3042,8 @@
     if (!pre || pre._unrunnable) return false;
     /* t.snap: the records and people.json read again at the write (tdFresh), once they are; until then what this window read. */
     var sn = t.snap || tdData();
+    /* Read again at the write: the recorder writing it is still listed and active on that people.json. */
+    if (t.snap && !snapPersonOk(t.snap)) return false;
     var ok = function (run) { var kh = PF.todos.keepHead(run, { living: t.from ? { head: t.from } : null }, { records: sn.records, unread: sn.unread, people: sn.people, now: tdNow(), evidence: sn.evidence || null }); return kh.head === t.head && kh.dropped === (t.dropped || ''); };
     if (!ok(pre)) return false;
     /* Asked again with the roles the run has now (the durable head stays the one before): a role reassigned meanwhile takes
@@ -3395,10 +3399,25 @@
     if (!bound()) return Promise.resolve(null);
     return repo.readTodos(cx.fs, { evidence: true, also: also || [] }).then(function (s) {
       if (!bound()) return null;
-      var d = { todos: s.records, todosUnread: s.unread }; todoBodies(d);
-      /* people.json that can't be read now is unread here too (s.unread names it), never this window's older copy. */
-      return { records: d.todos || [], unread: d.todosUnread || [], people: s.people || null, evidence: s.evidence || null };
+      /* people.json is read again last, after the records and everything their evidence rests on: authority is asked on
+         what it says right before the write. One that can't be read now is unread, never this window's older copy. */
+      return cx.fs.read(PF.people.FILE).then(function (x) {
+        var o; try { o = x ? JSON.parse(x.text) : null; } catch (e) { return null; }
+        return PF.people.verdict(o).ok ? PF.people.clean(o) : null;
+      }, function () { return null; }).then(function (ppl) {
+        if (!bound()) return null;
+        var d = { todos: s.records, todosUnread: s.unread }; todoBodies(d);
+        var unread = (d.todosUnread || []).filter(function (u) { return !(u && u.file === 'people.json'); });
+        if (!ppl) unread.push({ file: 'people.json', why: 'people.json couldn\'t be read again right before the write, so no one\'s authority over to-dos can be checked.', run: null });
+        return { records: d.todos || [], unread: unread, people: ppl, evidence: s.evidence || null };
+      });
     }, function () { return null; });
+  }
+  /* On a read again at the write (tdFresh): people.json read, and the person this window writes for listed and active there. */
+  function snapPersonOk(sn) {
+    if (!sn || !sn.people || (sn.unread || []).some(function (u) { return u && u.file === 'people.json'; })) return false;
+    var mine = sn.people.filter(function (x) { return x && x.id === state.me; })[0];
+    return !!mine && !mine.inactive;
   }
   /* A run's facts (PF.facts.view), worked out once per read of the folder; how they stand is judged at tdNow(). */
   var fcMemo = null;
@@ -3572,6 +3591,18 @@
     var set = Object.create(null); (ids || []).forEach(function (x) { set[typeof x === 'string' ? x : x && x.id] = true; });
     return (ctx.corrections(pid) || []).filter(function (g) { return g && g.keep && set[g.id]; })[0] || null;
   }
+  /* A keep record that can't be read leaves its group out of ctx.corrections, so a version listing that group, or a group
+     decided on this checklist, can't be told to include a keep: publishing and promoting hold, never skip the owner check
+     ('' or why). Without an unread keep record, as before. */
+  function keepUnreadWhy(pid, ids) {
+    var un = (data.todosUnread || []).filter(function (u) { return u && /^req-keep-/.test(String(u.file)); });
+    if (!un.length) return '';
+    var known = Object.create(null); (ctx.corrections(pid) || []).forEach(function (g) { if (g) known[g.id] = true; });
+    var listed = (ids || []).map(function (x) { return typeof x === 'string' ? x : x && x.id; }).filter(Boolean);
+    var decided = (data.corrDecisions || []).filter(function (d) { return d && d.process === pid && typeof d.group === 'string'; }).map(function (d) { return d.group; });
+    if (!listed.concat(decided).some(function (id) { return !known[id]; })) return '';
+    return 'Nothing was published: a record kept for next time can\'t be read (proposals/' + un[0].file + '), so whether this version includes one, and who may publish it, can\'t be told. Check Folder health, then try again.';
+  }
   function keepPubWhy(g, pid) { var w = g ? keepOwnerWhy(g, pid) : ''; return w ? 'Nothing was published: this version includes what was kept for next time. ' + w : ''; }
   /* The write guard every write slice 5 added takes (4.0): bound at the click to the folder, the read (generation) and the
      person; fresh(fs) runs the path's own reads (o.fresh(fs)) and then reads people.json again, awaited after every other read and
@@ -3610,12 +3641,31 @@
   /* The write guard of a decision on what was kept for next time, or of its draft application (null for any other correction,
      which is guarded as before): the checklist's active owner on people.json read again right before each write. Withdrawing
      a keep is its author's (every keep in it theirs). */
+  /* Ownership comes from the checklist's publications read again inside the guard (its usable latest now), never this
+     window's copy: a version published meanwhile that moves ownership moves it at the write. Unreadable, it refuses. */
   function keepGuard(g, pid, withdraw, at) {
     if (!g || !g.keep) return null;
-    return writeGuard({ at: at, who: function (ppl, me) {
-      if (withdraw) return g.members.every(function (c) { return c.by === me; }) ? '' : 'Only whoever kept it can withdraw it.';
-      return PF.learn.ownerWhy(g, procFind(pid), ppl, me, false);
-    } });
+    var proc = null, pw = '';
+    return writeGuard({ at: at,
+      fresh: withdraw ? null : function (fx) {
+        proc = null; pw = '';
+        var gone = 'its checklist\'s publications couldn\'t be read again right before it was written, so its owner can\'t be told.';
+        return repo.readProcess(fx, pid).then(function (p) {
+          if (!p || p.unlisted || !p.latest) { pw = gone; return true; }
+          /* Listed again after every version was read: one published meanwhile (it may move ownership) refuses the write. */
+          var seen = (p.all || []).concat(p.broken || []).map(function (x) { return x && (x.info ? x.info.folder : x.folder); }).filter(Boolean).sort().join('|');
+          return fx.list('publications/' + pid).then(function (items) {
+            var now = (items || []).filter(function (v) { return v.kind === 'dir' && PF.publish.versionOf(v.name); }).map(function (v) { return v.name; }).sort().join('|');
+            if (now !== seen) pw = 'a version of its checklist was published while it was being written, so its owner is asked again: look again, then decide.'; else proc = p;
+            return true;
+          }, function () { pw = gone; return true; });
+        }, function (e) { pw = 'its checklist\'s publications couldn\'t be read again right before it was written (' + (e && e.message || e) + '), so its owner can\'t be told.'; return true; });
+      },
+      who: function (ppl, me) {
+        if (withdraw) return g.members.every(function (c) { return c.by === me; }) ? '' : 'Only whoever kept it can withdraw it.';
+        if (pw || !proc) return pw || 'its checklist\'s owner can\'t be told.';
+        return PF.learn.ownerWhy(g, proc, ppl, me, false);
+      } });
   }
   function keepWrite(r, source) {
     if (!r || !state.me) return;
@@ -3896,7 +3946,7 @@
          rests on and that evidence's freshness) still prepares exactly this application. */
       /* ...asked on the folder read again right there (tdFresh), never on what this window read last. */
       var snap = null, fresh = function () { return tdFresh(cx).then(function (x) { snap = x; return !!x; }); };
-      var still = function () { return !!snap && guardOk(cx) && todoPlanStill(key, q.id, plan, snap); };
+      var still = function () { return !!snap && snapPersonOk(snap) && guardOk(cx) && todoPlanStill(key, q.id, plan, snap); };
       prepared = repo.saveScope(cx.fs, s.name, s.file, { fresh: fresh, still: still }).then(function (res) { if ((res && res.dropped) || !guardOk(cx)) return null; rec._file = s.name; (data.todos = (data.todos || []).slice()).push(rec); return rec; });
     }
     return prepared.then(function (a) {
@@ -8363,7 +8413,7 @@
       /* Everything the publication is checked against comes from this folder now, before the queue waits on anything. */
       var pfs = state.fs, pg = gen, by = state.me, people = data.people, wfs = data.jira.workflows, pids = processes().filter(function (x) { return x.latest; }).map(function (x) { return x.id; });
       var tk = dlg ? wsTicket(id) : null, fail = dlg ? wsFailed(dlg, '[data-act="publish"]') : null;
-      var kp0 = keepPubGroup(id, PF.corrections.forPublish(shown, ctx.corrections(id)).list), at0 = { me: state.me, fs: state.fs, gen: gen }, kw = keepPubWhy(kp0, id);
+      var kp0 = keepPubGroup(id, PF.corrections.forPublish(shown, ctx.corrections(id)).list), at0 = { me: state.me, fs: state.fs, gen: gen }, kw = keepUnreadWhy(id, []) || keepPubWhy(kp0, id);
       if (kw) { if (fail) fail(kw); else { say(kw, 'warn'); render(); } return; }
       if (dlg) { dlg.note = note; dlg.clicked = 'publish'; dlg.err = ''; state.overlayFocus = '[data-act="publish"]'; }
       state.publishBusy = id; render();
@@ -8377,6 +8427,7 @@
           var inc = pg === gen ? PF.corrections.forPublish(f.text, ctx.corrections(id)).list : [];
           /* A version that included what was kept when it was clicked is never published past a change of folder or read. */
           if (kp0 && pg !== gen) return { refused: 'Nothing was published: the folder or the person changed before it was written.' };
+          if (keepUnreadWhy(id, inc)) return { refused: keepUnreadWhy(id, inc) };
           var kp = keepPubGroup(id, inc), kg = kp ? keepGuard(kp, id, false, at0) : null, go = function (still, fresh) {
             return repo.publish(pfs, f.text, { people: people, customTypes: got[1].types, workflows: wfs, processes: pids, by: by, changes: note, existing: p.taken, now: new Date().toISOString(), corrections: inc, app: APP_VERSION, still: still, fresh: fresh }).then(function (res) { if (res && !res.blockers && !res.dropped) res.included = inc.length; return res; });
           };
