@@ -2580,6 +2580,8 @@ PF.run = (function () {
     var kind = function (v) { return Array.isArray(v) ? 'list' : v === null ? 'null' : typeof v; };
     var bare = function (v) { return v === '' || v === null || (Array.isArray(v) && !v.length) || (kind(v) === 'object' && !Object.keys(v).length); };
     var plain = function (v) { return kind(v) === 'object' ? Object.keys(v).filter(function (k) { return k.charAt(0) !== '_'; }) : []; };
+    /* A key the file names is read as its own, never an inherited name (constructor, toString). */
+    var ownAt = function (x, k) { return Object.prototype.hasOwnProperty.call(x, k) ? x[k] : undefined; };
     var walk = function (a, b, path) {
       if (first) return;
       if (a === undefined) { if (b !== undefined && !bare(b) && !allowed(added, path)) first = path; return; }
@@ -2587,8 +2589,8 @@ PF.run = (function () {
       /* A documented drop the cleaner writes as null (a pause left on an ended run). */
       if (b === null && a !== null && allowed(dropped, path)) return;
       if (kind(a) !== kind(b)) { first = path; return; }
-      if (Array.isArray(a)) { for (var i = 0; i < Math.max(a.length, b.length) && !first; i++) walk(a[i], b[i], path + '[' + i + ']'); return; }
-      if (kind(a) === 'object') { Object.keys(a).concat(plain(b).filter(function (k) { return !Object.prototype.hasOwnProperty.call(a, k); })).forEach(function (k) { walk(a[k], b[k], path ? path + '.' + k : k); }); return; }
+      if (Array.isArray(a)) { for (var i = 0; i < Math.max(a.length, b.length) && !first; i++) walk(ownAt(a, i), ownAt(b, i), path + '[' + i + ']'); return; }
+      if (kind(a) === 'object') { Object.keys(a).concat(plain(b).filter(function (k) { return !Object.prototype.hasOwnProperty.call(a, k); })).forEach(function (k) { walk(ownAt(a, k), ownAt(b, k), path ? path + '.' + k : k); }); return; }
       if (a !== b) first = path;
     };
     var str = function (v, path) { if (!first && v != null && typeof v !== 'string') first = path; };

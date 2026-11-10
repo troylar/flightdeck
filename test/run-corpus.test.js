@@ -273,5 +273,19 @@ rule('coverage: every place of a run file the app\'s cleaner reads, the pack rea
   const list = [...off].sort();
   assert.strictEqual(list.length, 0, list.length + ' places the app reads and Python doesn\'t:\n  ' + list.slice(0, 80).join('\n  ') + (list.length > 80 ? '\n  …' : ''));
 });
-
+/* A key named like Object.prototype's own (toString, constructor) is read as the file's own in the canonical check, never an
+   inherited value: the app and Python give the same verdict and first place. */
+rule('A key named like an inherited one is judged as its own in the canonical check, in the app and Python alike', () => {
+  const PF = require('./harness').load(), base = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'folders', 'v1.10.0', 'runs', 'backup', 'run-a', 'run.json'), 'utf8'));
+  const cases = [];
+  for (const k of ['toString', 'constructor', 'hasOwnProperty', 'valueOf', '__defineGetter__']) for (const v of [null, 1, '', {}]) {
+    const o = JSON.parse(JSON.stringify(base)); o[k] = v; cases.push([k + '=' + JSON.stringify(v), o]);
+    const p = JSON.parse(JSON.stringify(base)), s = Object.keys(p.steps)[0]; p.steps[s][k] = v; cases.push(['steps.' + s + '.' + k + '=' + JSON.stringify(v), p]);
+  }
+  if (!PY) return;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fd-inh-')), file = path.join(dir, 'runs.json');
+  let py; try { fs.writeFileSync(file, JSON.stringify(cases.map((c) => c[1]))); py = JSON.parse(cp.execFileSync(PY, ['-I', path.join(__dirname, 'check_pack.py'), '--canonical', file], { encoding: 'utf8' })); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  const off = cases.map(([n, o], i) => [n, PF.run.canonical(JSON.parse(JSON.stringify(o))), py[i]]).filter((x) => x[1] !== x[2]);
+  assert.deepStrictEqual(off, []);
+});
 run();
