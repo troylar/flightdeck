@@ -23045,7 +23045,7 @@ PF.repo = (function () {
       var again = function () { if (typeof opts.still === 'function' && !opts.still()) { var d = new Error('dropped'); d.dropped = true; d.kept = cand; throw d; } };
       return fs.write(cand, text)
         .then(function () { again(); return archiveOverflow(fs, run, writer); })
-        .then(function () { again(); return recheck().then(null, function (d) { d.kept = cand; throw d; }); })
+        .then(function () { return recheck().then(null, function (d) { d.kept = cand; throw d; }); })
         .then(function () { again(); return fs.write(path, text); })
         .then(function () {
           forgetRun(fs, run);

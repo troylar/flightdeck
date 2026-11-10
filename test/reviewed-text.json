@@ -405,8 +405,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "c08d10c44612f1ee570ff4f3b516b218cacf088fab60e8ac1e09b3125da95c13",
-      "reviewed": "BB: approval writes reread their loops' runs"
+      "sha256": "b082da0c1e35d1add20fa840b3768fc2fe63114e1388cf8db0084280c901ae3a",
+      "reviewed": "BB: one still per write"
     },
     "src/ui/app.js": {
       "sha256": "b267511c033e3e9899f609d1762c844db1202b4f09c39a5cffc2ca561382c07c",
