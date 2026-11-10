@@ -226,4 +226,38 @@ rule('A child run that can\'t be read, or its version, right after the receipt i
   }
 });
 
+rule('An ended living run shows the receipt\'s frozen progress lines, the counts now apart; Copy for Jira carries the frozen summary and arrivals', async () => {
+  const app = await loopSetup();
+  app.click('end', 'Cancelled'); await app.tick(400);
+  const r = pRun(app), rec = JSON.parse(app.fs.files['proposals/' + r.living.receipt + '.json'].t);
+  const frozen = app.PF.receipts.words(rec.counts, rec.coverage).lines;
+  /* Copy for Jira, from the receipt page the end opens. */
+  const pre = app.el('receipt-text'); try { app.click('copy-receipt'); } catch (e) { /* no createRange in the harness */ }
+  const text = (app.el('receipt-text') || pre || {}).textContent || '';
+  assert.ok(/Plan versus now/.test(text), text.slice(0, 1500));
+  frozen.forEach((l) => assert.ok(text.indexOf(l) >= 0, 'copied: ' + l + '\n' + text.slice(0, 1500)));
+  /* A request after the end: an arrival in the copied text. */
+  const T = app.PF.todos, f = T.buildProposal({ run: { process: r.process, id: r.id }, producer: { name: 'notes-bot', version: '1.0' }, key: 'k-late1', seen: [], at: new Date().toISOString(), body: { op: 'add', text: 'After the end', target: { phase: 'ship' }, placement: T.placementFor(app.PF.run.mapOf(app.PF.run.sanitize(r)), { phase: 'ship' }) } });
+  await app.fs.write('proposals/' + f.id + '.json', T.text(f));
+  await refresh(app, 400);
+  const pre2 = app.el('receipt-text'); try { app.click('copy-receipt'); } catch (e) { /* as above */ }
+  const text2 = pre2.textContent || '';
+  assert.ok(/After it ended/.test(text2) && /1 request arrived after the run ended/.test(text2), text2.slice(0, 2000));
+  /* The run screen: the frozen lines in its progress, and the counts now labeled apart. */
+  app.click('open-run', r.process + '/' + r.id); await app.tick(120);
+  const h = app.html(), prog = (h.match(/<ul class="rw-counts[^"]*"[^>]*>([\s\S]*?)<\/ul>/) || [])[1] || '';
+  frozen.forEach((l) => assert.ok(txt(prog).indexOf(l) >= 0, 'progress: ' + l + ' in ' + txt(prog)));
+  assert.ok(/Counted now, after the end/.test(txt(h)), 'the counts now, labeled apart');
+});
+
+rule('Copy for Jira of a run without to-dos is exactly as in 3.0: no plan versus now', async () => {
+  const app = await setup();
+  await end(app);
+  app.click('receipt'); await app.tick(60);
+  const pre = app.el('receipt-text'); try { app.click('copy-receipt'); } catch (e) { /* as above */ }
+  const text = pre.textContent || '';
+  const r = app.PF.run.sanitize(theRun(app));
+  assert.ok(text.length > 0 && !/Plan versus now|After it ended/.test(text), text.slice(0, 800));
+});
+
 run();

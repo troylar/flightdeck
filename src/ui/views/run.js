@@ -1340,7 +1340,11 @@
     }
     var TV = prOf(ctx) ? null : tdView(ctx, r);
     if (TV && TV.todos.length) out.push('To-dos: ' + TV.todos.filter(function (x) { return x.state !== 'open'; }).length + ' of ' + TV.todos.length);
-    return '<ul class="rw-counts small" aria-label="Progress">' + out.map(function (o) { return '<li>' + esc(o) + '</li>'; }).join('') + '</ul>' + (prOf(ctx) ? '' : planVsNow(ctx, r));
+    /* An ended living run's progress is what its receipt froze; the counts now (anything that arrived after the end
+       included) are said apart, never mixed into it. */
+    var pv = !prOf(ctx) && r.ended && r.living && ctx.planVsNow ? ctx.planVsNow(r) : null, now = '';
+    if (pv && pv.ended && pv.lines && pv.lines.length) { now = '<p class="small rw-now">' + esc('Counted now, after the end: ' + out.join(' · ')) + '</p>'; out = pv.lines; }
+    return '<ul class="rw-counts small" aria-label="Progress">' + out.map(function (o) { return '<li>' + esc(o) + '</li>'; }).join('') + '</ul>' + now + (prOf(ctx) ? '' : planVsNow(ctx, r));
   }
   /* Plan versus now (4.0 slice 6): for a living run, what was asked and what landed, each with its own denominator (chips:
      additions, resolutions, coverage, changes). Running, it is worked out now; ended, it is the receipt's frozen words, and

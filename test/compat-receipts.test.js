@@ -84,13 +84,17 @@ rule('This version: the loader, run, next and the checker read the receipt and t
 
 rule('This version: run, next, runs and todo list name the same receipt problem (path, kind and why), missing or mismatched', async () => {
   const { files, receipt } = await folder();
+  const edit = (dir, rel, fn) => { const f = path.join(dir, rel), o = JSON.parse(fs.readFileSync(f, 'utf8')); fn(o); fs.writeFileSync(f, JSON.stringify(o, null, 2)); };
   const cases = [['missing', (dir) => fs.unlinkSync(path.join(dir, 'proposals', receipt)), 'nofile'],
-    ['mismatch', (dir) => { const f = path.join(dir, 'runs/release-notes/run-l/run.json'), r = JSON.parse(fs.readFileSync(f, 'utf8')); r.ended.outcome = 'Stopped early'; r.state = 'stopped'; fs.writeFileSync(f, JSON.stringify(r, null, 2)); }, 'malformed']];
+    ['mismatch', (dir) => edit(dir, 'runs/release-notes/run-l/run.json', (r) => { r.ended.outcome = 'Stopped early'; r.state = 'stopped'; }), 'malformed'],
+    ['head', (dir) => edit(dir, 'proposals/' + receipt, (o) => { o.head = 'req-flightdeck-' + 'e'.repeat(24); }), 'malformed'],
+    ['another run', (dir) => edit(dir, 'proposals/' + receipt, (o) => { o.run.id = 'run-q'; }), 'malformed']];
+  if (process.getuid && process.getuid() !== 0) cases.push(['unreadable', (dir) => fs.chmodSync(path.join(dir, 'proposals', receipt), 0), 'unreadable']);
   for (const [state, damage, kind] of cases) {
     const { root, dir } = tree(files);
     try {
       damage(dir);
-      const before = JSON.stringify(H.readTree(dir));
+      const before = state === 'unreadable' ? '' : JSON.stringify(H.readTree(dir));
       const outs = {
         run: cli(MINE, 'run', dir, 'release-notes/run-l', '--contract', '2', '--json'),
         next: cli(MINE, 'next', dir, 'release-notes/run-l', '--as', 'person-avery', '--contract', '2', '--json'),
@@ -102,7 +106,23 @@ rule('This version: run, next, runs and todo list name the same receipt problem 
       assert.strictEqual(want.length, 1, state + ': run names it once: ' + JSON.stringify(outs.run.json.problems));
       assert.strictEqual(want[0][0], kind, state);
       same(seen, Object.keys(outs).map((k) => [k, 4, want]), state + ': ' + JSON.stringify(seen));
-      assert.strictEqual(JSON.stringify(H.readTree(dir)), before, 'reading wrote nothing');
+      /* The checker gives the same verdict: the run, its state, the path, the kind and (but for an OS error) the why. */
+      if (PY) {
+        const res = JSON.parse(cp.execFileSync(PY, ['-I', path.join(ROOT, 'example-folder', '.flightdeck', 'skills', '_flightdeck', 'check_folder.py'), dir], { encoding: 'utf8' }));
+        const mine = (res.runReceipts || []).filter((x) => x.run === 'release-notes/run-l');
+        assert.strictEqual(mine.length, 1, state + ': ' + JSON.stringify(res.runReceipts));
+        same([mine[0].path, mine[0].kind], ['proposals/' + receipt, kind], state + ' checker: ' + JSON.stringify(mine[0]));
+        if (state !== 'unreadable') assert.strictEqual(mine[0].why, want[0][1], state + ' checker why');
+      }
+      if (state !== 'unreadable') assert.strictEqual(JSON.stringify(H.readTree(dir)), before, 'reading wrote nothing');
+    } finally { try { fs.chmodSync(path.join(dir, 'proposals', receipt), 0o644); } catch (e) { /* gone */ } fs.rmSync(root, { recursive: true, force: true }); }
+  }
+  /* Confirmed: the checker says so too, and names no problem. */
+  if (PY) {
+    const { root, dir } = tree(files);
+    try {
+      const res = JSON.parse(cp.execFileSync(PY, ['-I', path.join(ROOT, 'example-folder', '.flightdeck', 'skills', '_flightdeck', 'check_folder.py'), dir], { encoding: 'utf8' }));
+      same((res.runReceipts || []).map((x) => [x.run, x.state, x.path]), [['release-notes/run-l', 'confirmed', 'proposals/' + receipt]]);
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   }
 });

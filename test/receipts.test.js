@@ -154,7 +154,7 @@ rule('A receipt is named only by an ended run, and a living field with anything 
   assert.ok(/hasn't ended/.test(R.sanitize(raw)._unrunnable), 'a receipt on a run that has not ended is refused');
   raw.ended = { outcome: 'Stopped early', by: 'person-morgan', byName: 'Morgan', at: LATER }; raw.state = 'stopped';
   assert.ok(!R.sanitize(plain(raw))._unrunnable);
-  [{ head: raw.living.head, receipt: 'x' }, { receipt: raw.living.receipt, head: raw.living.head }, { head: raw.living.head, receipt: raw.living.receipt, more: 1 }].forEach((lv) => {
+  [{ head: raw.living.head, receipt: 'x' }, { receipt: raw.living.receipt }, { head: raw.living.head, receipt: raw.living.receipt, more: 1 }].forEach((lv) => {
     const x = plain(raw); x.living = lv;
     assert.ok(R.sanitize(x)._unrunnable, JSON.stringify(lv));
   });
@@ -274,6 +274,36 @@ rule('After the end, coverage now uses the current denominator, obligations that
   same(RC.since(W.r, rec, W.recs, cov(3, 2)).coverage, [], 'nothing changed: nothing said');
   assert.strictEqual(JSON.stringify(rec.coverage), frozen, 'the receipt keeps the ended numbers');
   same(RC.words(P1.counts, rec.coverage).lines, RC.words(P1.counts, JSON.parse(frozen)).lines);
+});
+
+rule('A run\'s living field is read by its keys, never their order: {receipt, head} reads as {head, receipt}', () => {
+  const W = world();
+  W.todo('Post the notes', { phase: 'ship' });
+  const P1 = W.end('Stopped early');
+  const a = plain(W.r), b = plain(W.r);
+  b.living = { receipt: P1.id, head: a.living.head };
+  const ra = R.sanitize(a), rb = R.sanitize(b);
+  assert.strictEqual(rb._unrunnable, undefined, String(rb._unrunnable));
+  same(rb.living, ra.living);
+  same(T.cleanLiving({ receipt: P1.id, head: a.living.head }), { head: a.living.head, receipt: P1.id });
+  assert.strictEqual(T.cleanLiving({ receipt: P1.id, head: a.living.head, more: 1 }), null);
+  assert.strictEqual(T.cleanLiving({ receipt: P1.id }), null);
+});
+
+rule('One receipt verdict: unread, another run\'s and missing receipts are problems with path, kind and why; confirmed and none aren\'t', () => {
+  const W = world();
+  W.todo('Post the notes', { phase: 'ship' });
+  const P1 = W.end('Stopped early'), path = 'proposals/' + P1.id + '.json', without = W.recs.filter((x) => x.kind !== 'receipt');
+  const v = (recs, un, r) => RC.verdict(r || W.r, recs, un || []);
+  same(v(W.recs).problem, null, 'confirmed');
+  same([v(without).state, v(without).problem], ['missing', { path, kind: 'nofile', why: v(without).why }]);
+  const un = v(without, [{ file: P1.name, why: 'EIO: i/o error', kind: 'unreadable', run: null }]);
+  same([un.state, un.problem.kind, un.problem.path], ['unread', 'unreadable', path]);
+  const other = v(without, [{ file: P1.name, why: 'is a receipt that isn\'t in its format: Its id isn\'t the one its run and what it says give.', kind: 'malformed', run: { process: 'release-readiness', id: 'elsewhere' } }]);
+  same([other.state, other.problem.kind], ['unread', 'malformed']);
+  const none = v([], [], Object.assign(plain(W.r), { living: { head: W.r.living.head } }));
+  same([none.state, none.problem], ['none', null]);
+  assert.strictEqual(v(W.recs, [], world().r), null, 'a run that isn\'t an ended living run has no verdict');
 });
 
 run();

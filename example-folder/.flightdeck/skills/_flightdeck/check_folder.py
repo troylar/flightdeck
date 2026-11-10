@@ -4299,6 +4299,51 @@ def draft_main(args):
     return 0
 
 
+def clean_living(v):
+    """PF.todos.cleanLiving: head alone, or head and receipt, whatever order the keys were written in."""
+    if not isinstance(v, dict) or not _tstr(v.get("head")) or not (v["head"] == "" or T_REQ.match(v["head"]) or R_STATUS.match(v["head"])):
+        return None
+    ks = sorted(v.keys())
+    if ks == ["head"]:
+        return {"head": v["head"]}
+    if ks == ["head", "receipt"] and _tstr(v.get("receipt")) and T_REQ.match(v["receipt"]):
+        return {"head": v["head"], "receipt": v["receipt"]}
+    return None
+
+
+def receipt_verdict(text, read, unread):
+    """PF.receipts.verdict for an ended living run.json: its state, the receipt's path, the problem's kind and why (same order
+    and words), or None for a run that isn't an ended living run."""
+    try:
+        r = json.loads(text, parse_constant=_no_constant) if text else None
+    except ValueError:
+        r = None
+    if not isinstance(r, dict) or not isinstance(r.get("ended"), dict):
+        return None
+    lv = clean_living(r.get("living"))
+    if not lv:
+        return None
+    rid = lv.get("receipt")
+    if not rid:
+        return {"state": "none", "path": "", "kind": "", "why": "It ended without a receipt record."}
+    path = "proposals/" + rid + ".json"
+    for name, kind, why in unread:
+        if todo_request_file(name, rid):
+            return {"state": "unread", "path": path, "kind": kind, "why": "Its receipt (" + rid + ") can't be read: " + why}
+    mine = read.get(rid) or []
+    if not mine:
+        return {"state": "missing", "path": path, "kind": "nofile", "why": "Its receipt (" + rid + ") isn't in the folder, so what it ended with can't be confirmed."}
+    rec = mine[0]
+    body = lambda x: js_json({k: x.get(k) for k in ("head", "outcome", "seen", "counts", "coverage", "evidence", "keeps")})
+    if any(body(x) != body(rec) for x in mine):
+        return {"state": "mismatch", "path": path, "kind": "malformed", "why": "Its receipt (" + rid + ") has two different copies in the folder."}
+    if rec.get("run") != {"process": r.get("process"), "id": r.get("id")}:
+        return {"state": "mismatch", "path": path, "kind": "malformed", "why": "Its receipt (" + rid + ") is another run's."}
+    if rec.get("head") != lv["head"] or rec.get("outcome") != r["ended"].get("outcome"):
+        return {"state": "mismatch", "path": path, "kind": "malformed", "why": "Its receipt (" + rid + ") doesn't say what the run ended with (its work head or outcome differs)."}
+    return {"state": "confirmed", "path": path, "kind": "", "why": ""}
+
+
 def main():
     if "--draft" in sys.argv[1:]:
         sys.exit(draft_main(sys.argv[1:]))
@@ -4331,10 +4376,13 @@ def main():
     plans, decisions, torn, refused_decisions = {}, {}, [], []
     out["scopes"] = []
     todo_unchecked = []
+    rcpt_read, rcpt_unread = {}, []
     for name in sorted(os.listdir(prop_dir)) if os.path.isdir(prop_dir) else []:
         if not name.lower().endswith(".json") or not os.path.isfile(os.path.join(prop_dir, name)):
             continue
         text = read_text(os.path.join(prop_dir, name))
+        if text is None and name.startswith("req-"):
+            rcpt_unread.append((name, "unreadable", "couldn't be read"))
         # PF.util.jsonTooDeep: nested past the bound, refused by name before anything parses it, as the app refuses it.
         if text and json_too_deep(text):
             out["refused"].append({"file": "proposals/" + name, "why": DEEP_WHY})
@@ -4349,6 +4397,8 @@ def main():
         if not parsed:
             # Not complete JSON (it may still be arriving): named, and whether its name says which plan it's for.
             torn.append(name)
+            if text and name.startswith("req-"):
+                rcpt_unread.append((name, "malformed", "It isn't complete JSON."))
         if not isinstance(obj, dict):
             continue
         # A to-do record (4.0, PF.todos.claims): read by its own reader first, as the app does, and never a plan or a decision.
@@ -4356,6 +4406,10 @@ def main():
         if todo_claims(obj):
             un = []
             bad = todo_why(obj, name, os.path.getsize(os.path.join(prop_dir, name)), un)
+            if not bad and obj.get("kind") == "receipt":
+                rcpt_read.setdefault(obj.get("id"), []).append(obj)
+            elif bad:
+                rcpt_unread.append((name, "newer" if " newer Flightdeck" in bad else "malformed", bad))
             note = (un[0] + ": an international domain name; Flightdeck decides whether it reads") if un else ""
             if bad:
                 out["refused"].append(dict({"file": "proposals/" + name, "why": bad}, **({"linkUnchecked": note} if note else {})))
@@ -4484,6 +4538,9 @@ def main():
                     if m and (m.group(1) + "." + m.group(2)) not in lineage and time.time() - os.path.getmtime(os.path.join(rdir, n)) >= 60:
                         copies.append(n)
                 receipts = [n for n in names if n.startswith("candidate-")]
+                v = receipt_verdict(read_text(os.path.join(rdir, "run.json")), rcpt_read, rcpt_unread)
+                if v:
+                    out.setdefault("runReceipts", []).append(dict({"run": proc + "/" + rid}, **v))
                 if copies:
                     out["conflicts"].append({"run": proc + "/" + rid, "copies": copies})
                 if len(receipts) > 1:

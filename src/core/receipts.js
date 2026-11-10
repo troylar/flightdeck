@@ -266,6 +266,15 @@ PF.receipts = (function () {
     return { state: 'confirmed', why: '', path: path, kind: '', record: rec };
   }
 
+  /* The one receipt verdict every reader, view, copied text and the checker share: stateOf's { state, why, path, kind, record }
+     with problem, { path, kind, why } for a receipt that is missing, can't be read (newer, unreadable or malformed: another
+     run's or a damaged one is malformed) or says something else, else null. null for a run that isn't an ended living run. */
+  function verdict(r, records, unread) {
+    var s = stateOf(r, records, unread);
+    if (!s) return null;
+    s.problem = s.state === 'missing' || s.state === 'unread' || s.state === 'mismatch' ? { path: s.path, kind: s.kind, why: s.why } : null;
+    return s;
+  }
   /* What arrived after a receipt, shown apart and never counted in its outcome: the run's to-do records it didn't see (requests
      filed after the end, decisions on them; they stay notices), and each spread's coverage now. A spread's obligations owed
      and resolved are both compared with the ended numbers: what arrived (more owed, or a spread asked after the end) is said
@@ -380,5 +389,5 @@ PF.receipts = (function () {
   }
 
   return { LIMITS: LIMITS, COUNTS: COUNTS, deps: deps, OUTCOMES: OUTCOMES, loopsOf: loopsOf, tally: tally, words: words, compare: compare, coverageOf: coverageOf, evidenceOf: evidenceOf, keepsOf: keepsOf,
-    idFor: idFor, build: build, cleanFile: cleanFile, prepare: prepare, stateOf: stateOf, since: since };
+    idFor: idFor, build: build, cleanFile: cleanFile, prepare: prepare, stateOf: stateOf, verdict: verdict, since: since };
 })();

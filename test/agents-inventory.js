@@ -776,7 +776,7 @@ const DIRECT_WRITES = {
   ],
   [SKD + "flightdeck-status/SKILL.md"]: [
     { at: "", lead: "", n: 1,
-      text: "It prints, as JSON and exactly as Flightdeck judges them: every published version's status, the current version and any clash per process (`publications`), each plan's status (`plans`: pending, decided or ambiguous; `refused` and `unreadablePlans`), runs with conflict copies (`conflicts`) or many leftover save receipts (`receipts`), problems in the team's `step-types/` and `jira/workflows.json` files (`teamFiles`), and every registered skill as Flightdeck matches it (`skills`).",
+      text: "It prints, as JSON and exactly as Flightdeck judges them: every published version's status, the current version and any clash per process (`publications`), each plan's status (`plans`: pending, decided or ambiguous; `refused` and `unreadablePlans`), runs with conflict copies (`conflicts`) or many leftover save receipts (`receipts`), each ended run with to-dos and how its receipt stands (`runReceipts`: `state`, and for `missing`, `unread` or `mismatch` the receipt's `path`, `kind` and `why`, as `flightdeck run` names it), problems in the team's `step-types/` and `jira/workflows.json` files (`teamFiles`), and every registered skill as Flightdeck matches it (`skills`).",
       why: "allowed: lists what the read-only status command prints; \"save receipts\" is a noun" },
     { at: "Report, in this order", lead: "", n: 1,
       text: "conflict copies: any `runs/*/*/run*.json` other than `run.json` (two versions of one run)",

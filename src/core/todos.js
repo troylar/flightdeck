@@ -974,7 +974,8 @@ PF.todos = (function () {
   /* living: { head } and, once the run has ended with one (4.0 slice 6), { head, receipt }: the receipt record it ended with. */
   function cleanLiving(v) {
     if (!isMap(v) || typeof v.head !== 'string' || !HEAD.test(v.head)) return null;
-    var ks = Object.keys(v);
+    /* The keys allowed, whatever order they were written in: head alone, or head and receipt. */
+    var ks = Object.keys(v).sort();
     if (ks.length === 1) return { head: v.head };
     if (ks.length === 2 && ks[0] === 'head' && ks[1] === 'receipt' && typeof v.receipt === 'string' && REQ.test(v.receipt)) return { head: v.head, receipt: v.receipt };
     return null;

@@ -94,7 +94,18 @@
     var r = ctx.run(); if (!r) return '';
     var map = R.mapOf(r), x = receiptParts(ctx, r, map);
     x.reportOf.lines = PF.reports.lines(x.reps, x.rb ? x.rb.cur : null, r, map, x.who);
-    return R.receipt(r, map, x.who, new Date(ctx.now()).toISOString(), r._notes, x.statusOf, x.fuStatusOf, x.reportOf);
+    return R.receipt(r, map, x.who, new Date(ctx.now()).toISOString(), r._notes, x.statusOf, x.fuStatusOf, x.reportOf) + livingText(ctx, r);
+  }
+  /* An ended living run's plan versus now as the receipt froze it, its verdict when it can't be confirmed, and what arrived
+     after the end, apart (4.0 slice 6). '' for every other run, so its copied text is exactly as before. */
+  function livingText(ctx, r) {
+    var v = r && r.living && r.ended && ctx.planVsNow ? ctx.planVsNow(r) : null;
+    if (!v) return '';
+    var out = ['', '', 'Plan versus now (as the receipt froze it when the run ended):'];
+    if (v.state && v.state.state !== 'confirmed') out.push(v.state.state === 'none' ? 'It ended without a receipt record, so what it ended with is only what the run says.' : v.state.why + (v.state.path ? ' (' + v.state.path + ')' : ''));
+    v.lines.concat(v.chips.map(function (c) { return c.words; })).forEach(function (l) { out.push('- ' + l); });
+    if (v.since && v.since.lines && v.since.lines.length) { out.push('', 'After it ended:'); v.since.lines.forEach(function (l) { out.push('- ' + l); }); }
+    return out.join('\n');
   }
   function receipt(ctx) {
     var r = ctx.run(); if (!r) return V.run(ctx);
