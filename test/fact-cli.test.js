@@ -391,7 +391,7 @@ rule('A suggestion filed meanwhile under its name is already only for the same r
   assert.deepStrictEqual([mine.code, mine.data && mine.data.status], [0, 'already'], JSON.stringify(mine).slice(0, 600));
 });
 
-rule('A name found taken is read back through the folder reader: a link raced in or a file over the size limit is a problem (exit 4, its path), never already', async () => {
+rule('A name found taken is read back through the folder reader: a link raced in, a file over the size limit, one that isn\'t JSON or one the reader refuses is a problem (exit 4, its path and why), never already', async () => {
   const FD = require('../bin/flightdeck.js');
   /* Between preparing and creating, the destination becomes a link to a matching record outside, or an oversized file. */
   const race = async (re, how, argv) => {
@@ -401,7 +401,9 @@ rule('A name found taken is read back through the folder reader: a link raced in
       if (!raced && re.test(path.basename(String(to)))) {
         raced = path.basename(String(to));
         if (how === 'link') { const away = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-fact-away-')), raced); fs.copyFileSync(from, away); fs.symlinkSync(away, to); }
-        else fs.writeFileSync(to, fs.readFileSync(from, 'utf8').replace(/\n$/, '') + ' '.repeat(T.LIMITS.bytes + 10) + '\n');
+        else if (how === 'big') fs.writeFileSync(to, fs.readFileSync(from, 'utf8').replace(/\n$/, '') + ' '.repeat(T.LIMITS.bytes + 10) + '\n');
+        else if (how === 'malformed') fs.writeFileSync(to, '{"format":"flightdeck-plan/4",');
+        else { const o = JSON.parse(fs.readFileSync(from, 'utf8')); o.at = 'not a date'; fs.writeFileSync(to, JSON.stringify(o)); }
       }
       return orig.apply(fs, arguments);
     };
@@ -412,10 +414,10 @@ rule('A name found taken is read back through the folder reader: a link raced in
     const st = r.data && (r.data.status === 'already' || (r.data.facts || []).some((f) => f.status === 'already'));
     assert.ok(!st, what + ': never already: ' + JSON.stringify(r).slice(0, 500));
     assert.deepStrictEqual([r.code, r.complete], [4, false], what + ': ' + JSON.stringify(r).slice(0, 500));
-    assert.ok(r.problems.some((p) => p.path === 'proposals/' + r.raced), what + ' names it: ' + JSON.stringify(r.problems));
+    assert.ok(r.problems.some((p) => p.path === 'proposals/' + r.raced && p.why), what + ' names it, with why: ' + JSON.stringify(r.problems));
     fs.rmSync(path.join(r.root, 'proposals', r.raced));
   };
-  for (const how of ['link', 'big']) {
+  for (const how of ['link', 'big', 'malformed', 'refused']) {
     const F0 = await folder(), x = await todo(F0);
     check(await race(/^req-git-bot-/, how, ['fact', 'sync', F0.root, PR, '--from', input({ facts: [prs()] }), '--json', ...TOOL]), how + ' · fact sync');
     assert.strictEqual(json('fact', 'sync', F0.root, PR, '--from', input({ facts: [prs()] }), '--json', ...TOOL).code, 0);

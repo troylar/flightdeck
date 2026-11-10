@@ -13,16 +13,16 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "748b2154215a38b40a05bac356eda6885dfaf7686eccf5dcdaf0edfa4c9a2c53",
-      "reviewed": "takenAt: every collision read-back goes through the read adapter, bounded; checked for direct writes and unconditional deletes"
+      "sha256": "5298884193a0aedac9f5bd3e73db320c2387cdfa41d7e64c515749c3f11a5f75",
+      "reviewed": "takenAt: not-JSON and refused records under a taken name are problems with path and reason; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "cf0a7c0289f08fc6d138b4feaddbdc118b45af451a7732e5ee68c9480c752b38",
       "reviewed": "slice 4 commit 3: facts core (facts.js: records, reduction, freshness, support, de-duplication), todos hooks (fact dispatch, done support, now), Python checker parity; pure code, no direct writes or unconditional deletes"
     },
     "docs/apps.md": {
-      "sha256": "2d80a16557c4125d666d7c12f8ead458e54d07f0d469e389b8c36820d3a81b82",
-      "reviewed": "apps: taken-name read-back row; checked for direct writes and unconditional deletes"
+      "sha256": "3a290a56ea9d448ba18f1bd79a29309071bd95ba04a988e9b533855e9573622e",
+      "reviewed": "takenAt: not-JSON and refused records under a taken name are problems with path and reason; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
       "sha256": "5ff0c6d4f6787c6a8e0760fc7af59160e677c157a5d66a9135421d21e9281013",
@@ -513,8 +513,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. A maintainer tool, not shipped. Not read line by line."
     },
     "tools/readers.js": {
-      "sha256": "841d02de99e991d9d2ea9a9b68aface80f64f1440359f9c2b24b68accf200fc8",
-      "reviewed": "takenAt: every collision read-back goes through the read adapter, bounded; checked for direct writes and unconditional deletes"
+      "sha256": "6f6ca24d330c69354dc19406fdc285d30f3edcd0ed7d093aa1597d8beb4c1c2b",
+      "reviewed": "takenAt: not-JSON and refused records under a taken name are problems with path and reason; checked for direct writes and unconditional deletes"
     },
     "tools/scale-limits.js": {
       "sha256": "23e06ee46d6b4ff44216f92c530578f714aa05bcecd7a2b0458515287d554ec1",

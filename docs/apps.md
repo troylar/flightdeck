@@ -646,7 +646,7 @@ With the stories below it. The JSON carries the same: `added`, `proposed` (with 
 | The same key, another request | `key-taken`: "This key already names a different request. Changed fields: …. Read that request before choosing a new key." |
 | A story's child is missing an input | The preview names it: "1 needs environment". Its scope change is valid; its assessment can't start yet. |
 | The write can't be confirmed | `failed`: "Could not confirm whether the request was saved. Retry with the same key." Never a new key: that could ask twice. |
-| Its name was taken while it was written, and what is there can't be read back (a link, which is never read through, a file over the record limit, or one gone again) | exit 4 (`held`; a loop review, `failed`), the file named in `problems`: whether it is this request isn't known, so it is never `already`. Every command that files into `proposals/` (loop, todo, spread, fact) reads a taken name back the same way. |
+| Its name was taken while it was written, and what is there can't be read back (a link, which is never read through, a file over the record limit, one gone again, one that isn't complete JSON or one its reader refuses, with that reason) | exit 4 (`held`; a loop review, `failed`), the file named in `problems`: whether it is this request isn't known, so it is never `already`. Every command that files into `proposals/` (loop, todo, spread, fact) reads a taken name back the same way. |
 
 ## To-dos on a living run
 
@@ -694,7 +694,7 @@ The rules are the app's own (`PF.todos.prepare`, the run screen's buttons use th
 | The same key, another change | `key-taken`: "This key already names a different request. Changed fields: …." |
 | A change the run doesn't allow | `invalid`, with why: an ended run, a to-do already done, won't do without a reason, a move to this run, an unknown phase |
 | The write can't be confirmed | `failed`: "Could not confirm whether the request was saved. Retry with the same key." Never a new key: that could ask twice. |
-| Its name was taken while it was written, and what is there can't be read back (a link, which is never read through, a file over the record limit, or one gone again) | exit 4 (`held`; a loop review, `failed`), the file named in `problems`: whether it is this request isn't known, so it is never `already`. Every command that files into `proposals/` (loop, todo, spread, fact) reads a taken name back the same way. |
+| Its name was taken while it was written, and what is there can't be read back (a link, which is never read through, a file over the record limit, one gone again, one that isn't complete JSON or one its reader refuses, with that reason) | exit 4 (`held`; a loop review, `failed`), the file named in `problems`: whether it is this request isn't known, so it is never `already`. Every command that files into `proposals/` (loop, todo, spread, fact) reads a taken name back the same way. |
 
 Every copy before 4.0 calls a to-do record, and a run that has to-dos, newer: it shows the run by name only and can't save it.
 
