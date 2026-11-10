@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "2425c759ca643f841f170c1e9172e13a9bece9e1401d7ad47cfe57d44cb8f6c8",
-      "reviewed": "one JSON depth bound at every loading boundary, mirrored in the checker; checked for direct writes and unconditional deletes"
+      "sha256": "bb7bec1de804c9a237b0bdcdc96c5ed47d8e32c984edf1aeedc44e5f40d6135d",
+      "reviewed": "MB: a record's read error is named by path in the proposals read; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "cf0a7c0289f08fc6d138b4feaddbdc118b45af451a7732e5ee68c9480c752b38",
@@ -25,8 +25,8 @@
       "reviewed": "takenAt: not-JSON and refused records under a taken name are problems with path and reason; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "6ba4f892cab796b85e13dd6d618e41c220ccd3756ce064ed8330b17911511b7e",
-      "reviewed": "MA: a failed copy keep holding living work is put back (redo); checked for direct writes and unconditional deletes"
+      "sha256": "11e7640ac33d287d24d80feca5569ad5b46291aeffb6088c16fe9630e6fd1a28",
+      "reviewed": "MB: a record's read error is named by path in the proposals read; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -409,8 +409,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "359ad92536cf896c23fb39743e8610221bfc849ab0947cd1a9dfb5f5e6c3e385",
-      "reviewed": "KA: the to-do guard reads the folder again before every write of the run save (saveRun opts.fresh); checked for direct writes and unconditional deletes"
+      "sha256": "533de388353364f7634bfc34155e98cba532eda7fdef03b2e567561a71c5bdba",
+      "reviewed": "MB: a record's read error is named by path in the proposals read; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "47e444786d6382d422ef02b1d3ec56a0d11e9f0dc00ad9ea065742010cf04b85",

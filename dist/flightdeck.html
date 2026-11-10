@@ -22610,7 +22610,7 @@ PF.repo = (function () {
           /* parsed: it's JSON, just not this folder's kind of file (ignored, only named); else it may still be arriving. */
           if (torn) torn.push({ path: path, _file: i.name, parsed: o !== undefined, why: o === undefined ? 'isn\'t complete JSON' : 'isn\'t a file Flightdeck reads here, so it\'s ignored' });
           return null;
-        }, function (e) { if (!torn || !perFile) throw e; torn.push({ path: path, _file: i.name, parsed: false, why: 'couldn\'t be read (' + why(e) + ')' }); return null; });
+        }, function (e) { if (!torn || !perFile || (typeof perFile === 'function' && !perFile(i.name))) throw e; torn.push({ path: path, _file: i.name, parsed: false, kind: errKind(e), why: 'couldn\'t be read (' + why(e) + ')' }); return null; });
         /* Reading for other apps names each of these in bad; with torn too (plans), they're also kept as the app keeps them,
            so a decision that can't be read holds its plan there as in the app. */
         return fs.read(path).then(function (f) {
@@ -24589,7 +24589,9 @@ PF.repo = (function () {
   }
   function readPlans(fs, bad, only, two) {
     var refused = [], torn = [];
-    return loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status' || typeof o.format === 'string'; }, bad, only, torn).then(function (props) {
+    /* A to-do, fact or scope record that fails to read is named by its path (torn, with its kind), never the whole folder
+       refused: run and next name proposals/<id>.json. Any other file failing still refuses the read, as in 3.0. */
+    return loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status' || typeof o.format === 'string'; }, bad, only, torn, PF.todos.recordName).then(function (props) {
       var plans = [], statuses = [], scopes = [], scopesUnread = [], todos = [], todosUnread = [];
       /* Copies of one id that differ are compared over every file read here, before any family reads its own (PF.loop.splitIds):
          one that is a to-do or fact record while another copy is a plan or a scope record would escape every reducer, so each
@@ -24642,7 +24644,7 @@ PF.repo = (function () {
       (torn || []).forEach(function (t) {
         /* Nested past the bound: refused by name (Folder health), as every reader refuses it, before anything parses it. */
         if (t.deep) refused.push(PF.envelope.refusal(t.path, 'flightdeck-plan', { kind: 'malformed', why: t.why }));
-        if (PF.todos.recordName(t._file)) todosUnread.push({ file: t._file, why: t.why, run: null });
+        if (PF.todos.recordName(t._file)) todosUnread.push(t.kind ? { file: t._file, why: t.why, kind: t.kind, run: null } : { file: t._file, why: t.why, run: null });
         if (!t.link && /^req-/.test(String(t._file || ''))) scopesUnread.push({ file: t._file, why: t.why, loop: null });
       });
       return { plans: plans, statuses: statuses, scopes: scopes, scopesUnread: scopesUnread, todos: todos, todosUnread: todosUnread, refused: refused, torn: torn || [] };

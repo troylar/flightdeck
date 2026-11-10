@@ -981,7 +981,7 @@ async function readData(eng, adapter, req) {
         if (pr.why) L.note('proposals', 'unreadable', pr.why);
         if (gp) {
           const un = markTodos(PF, [r], gp, one.people, !!(one.peopleWhy || pw), loopIn), was = relevant, mine = {};
-          un.filter((u) => u.run ? u.run.process === m[1] && u.run.id === m[2] : !!r.living).concat(evidenceUnread(PF, r, r._tdv, un)).forEach((u) => { if (u.file !== 'people.json' && !mine['proposals/' + u.file]) { mine['proposals/' + u.file] = true; L.note('proposals/' + u.file, u.kind === 'newer' ? 'newer' : 'malformed', u.kind === 'newer' ? u.why : fileWhy(u.why)); } });
+          un.filter((u) => u.run ? u.run.process === m[1] && u.run.id === m[2] : !!r.living).concat(evidenceUnread(PF, r, r._tdv, un)).forEach((u) => { if (u.file !== 'people.json' && !mine['proposals/' + u.file]) { mine['proposals/' + u.file] = true; L.note('proposals/' + u.file, u.kind === 'newer' || u.kind === 'unreadable' ? u.kind : 'malformed', u.kind === 'newer' ? u.why : fileWhy(u.why)); } });
           relevant = (p) => was(p) || !!mine[p];
         } else if (r.living) { const was = relevant; relevant = (p) => was(p) || p === 'proposals'; }
       }
