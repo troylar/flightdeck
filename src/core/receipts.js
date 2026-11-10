@@ -175,7 +175,8 @@ PF.receipts = (function () {
     if (typeof o.by !== 'string' || !PERSON.test(o.by)) errors.push('"by" is the ID from people.json of the person who ended the run.'); else rec.by = { person: o.by };
     if (typeof o.at !== 'string' || !ISO.test(o.at)) errors.push('"at" is a date and time.'); else rec.at = o.at;
     if (OUTCOMES.indexOf(o.outcome) < 0) errors.push('"outcome" is Completed, Stopped early or Cancelled.'); else rec.outcome = o.outcome;
-    if (typeof o.head !== 'string' || !PF.todos.cleanLiving({ head: o.head })) errors.push('"head" is the run\'s last application.'); else rec.head = o.head;
+    /* '' is a living run that ended with nothing landed yet, as every reader of living reads it. */
+    if (typeof o.head !== 'string' || (o.head !== '' && !PF.todos.cleanLiving({ head: o.head }))) errors.push('"head" is the run\'s last application.'); else rec.head = o.head;
     var c = o.counts;
     if (!isMap(c)) errors.push('"counts" is {' + COUNTS.map(function (k) { return '"' + k + '"'; }).join(', ') + '}.');
     else {

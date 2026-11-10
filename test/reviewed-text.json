@@ -13,16 +13,16 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "7e0183a5731a5b3779b352623a41441b27365ef39759962f0886949d1953e24d",
-      "reviewed": "slice 6 CC: one receipt check for run, next, runs and todo list"
+      "sha256": "6e137f21c431579540a9b50ed09c6c8d7565fe42bb01e9a3969e19bf95943d10",
+      "reviewed": "slice 6: pending and unreadable records shown before living; receipt head ''"
     },
     "build.py": {
       "sha256": "4930aee232c7766241927d231c2eb0729443450de507161a3f0e85b7e7f5fb8e",
       "reviewed": "4.0 slice 6 commit 7, plan versus now and receipts: PF.receipts (compare, the receipt record, prepare, stateOf, since, deps), cleanLiving's receipt, PF.run.end's receipt, the app's end flow with its receipt guard and plan-versus-now chips, the evidence pack's living section and check_pack.py's replay, design 45.5 and docs/evidence.md; checked for direct writes and unconditional deletes: the receipt is written create-once through repo.saveScope with a fresh read before the write under the run and to-do guards, the run through the checked save chain, export only reads, nothing deleted"
     },
     "docs/apps.md": {
-      "sha256": "a7b8755a0ee49409be1d0ce1309df5c3282047b024be3317c238a2ec15c3eb3e",
-      "reviewed": "slice 6 CC: one receipt check for run, next, runs and todo list"
+      "sha256": "28d77f946a1697840e55a9ae67998f19a891e2b5504aa5d2823e2d4a9e63de85",
+      "reviewed": "slice 6: pending and unreadable records shown before living; receipt head ''"
     },
     "docs/design.md": {
       "sha256": "0e1bbb813389c33d14052ffddd16def8ad89a6b5e8019eca96d6d85dda67af42",
@@ -53,8 +53,8 @@
       "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "92d6aac369ee8ff9b209a9b79f3075320f74f7bbb2a63ba559755721f2152b00",
-      "reviewed": "4.0 slice 6 commit 8, readers, checker and release: appjson and bin/flightdeck.js read pending to-do requests before a run gains living and an ended run's receipt (missing or mismatch named, exit 4), check_folder.py's receipt_why port, the living-run, status and learn-from-runs skills, the command guide, file formats, docs/apps.md, the 4.0.0 release entries and the rehearsal waiver; checked for direct writes and unconditional deletes: the readers only read, the skills tell an assistant never to write a receipt or end a run, nothing deleted"
+      "sha256": "88a509741a5f91be7ca579ee8ce2d43e7a9f21dd5c6a27f0eb45257d7012d29d",
+      "reviewed": "slice 6: pending and unreadable records shown before living; receipt head ''"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
       "sha256": "197779e5fb047d6137527db0211659a2db320470f3086d61b5126d6e868b0cf8",
@@ -197,8 +197,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "02618bd9e78a2c3e01749a325b9c524d6e9a7887d70cc34f2aea60f00e2728f2",
-      "reviewed": "slice 6 CC: one receipt check for run, next, runs and todo list"
+      "sha256": "a443f64d98c6b3d45d5e6106638c71e0f97fc614a12c60b196c85c8cb87d7157",
+      "reviewed": "slice 6: baselines for the checker's receipt head ''"
     },
     "src/core/appjson.js": {
       "sha256": "744bdb09afa1a0dda2fe006e5b3a963ebe88bef69aaab5a41ae88515ce09cd03",
@@ -309,8 +309,8 @@
       "reviewed": "loops: items: item kind, feed binding, completeness fix, nouns, unknown-kind refusal in loop.js/map.js/publish.js/types.js and check_folder.py parity; pure checks only, checked for direct writes and unconditional deletes"
     },
     "src/core/receipts.js": {
-      "sha256": "052e5540ef259fef7354f9312d51fdf0d2d592868638a18c6ae679af615d0f9e",
-      "reviewed": "slice 6 CA: receipts prepared and asked again on one fresh dependency read"
+      "sha256": "88b6ca8608958a375055f9360da872ea6f4481f32d7d1073ce1a4c4d2ccc0623",
+      "reviewed": "slice 6: pending and unreadable records shown before living; receipt head ''"
     },
     "src/core/refs.js": {
       "sha256": "24b7d2b52fcd99673fcc427db286a7224af83342da19efcd561ac850d6baa441",

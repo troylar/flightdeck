@@ -2467,7 +2467,7 @@ def receipt_why(o, name):
     else:
         rec["outcome"] = o["outcome"]
     h = o.get("head")
-    if not _tstr(h) or not (T_REQ.match(h) or R_STATUS.match(h)):
+    if not _tstr(h) or not (h == "" or T_REQ.match(h) or R_STATUS.match(h)):
         err('"head" is the run\'s last application.')
     else:
         rec["head"] = h

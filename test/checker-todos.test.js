@@ -68,12 +68,14 @@ function valid() {
     coverage: [{ spread: sp.spread, owed: 3, resolved: 2 }], evidence: [{ todo: T.todoIdFor(tool.id), fact: fct.id, content: '0123456789abcdef' }, Object.assign({ todo: ltd }, evd)], keeps: [kpa.id] });
   const zero = {}; RC.COUNTS.forEach((k) => { zero[k] = 0; });
   const rcb = RC.build({ run: RUN, by: 'person-blake', at: AT, head: cid, outcome: 'Stopped early', seen: [], counts: zero, coverage: [], evidence: [], keeps: [] });
+  /* A living run that ended with nothing landed (head ''), as the app reads one. */
+  const rcc = RC.build({ run: RUN, by: 'person-blake', at: AT, head: '', outcome: 'Cancelled', seen: [], counts: zero, coverage: [], evidence: [], keeps: [] });
   return [[tool.id + '.json', tool], [asked.id + '.json', asked], [person.id + '.json', person], [mv.id + '.json', mv], [cid + '.json', comp], [g.id + '.json', g], [rv.id + '.json', rv], [dec.name, dec.file], [app.name, app.file],
     [sp.id + '.json', sp], [inc.id + '.json', inc], [bnd.id + '.json', bnd], [stp.id + '.json', stp], [fil.id + '.json', fil], [sap.name, sap.file], [fap.name, fap.file],
     [fct.id + '.json', fct], [fbk.id + '.json', fbk], [fst.id + '.json', fst], [fcm.id + '.json', fcm], [sug.id + '.json', sug], [sga.name, sga.file],
     [kpa.id + '.json', kpa], [kpe.id + '.json', kpe], [kna.id + '.json', kna], [knb.id + '.json', knb],
     [lnk.id + '.json', lnk], [evt.id + '.json', evt], [eva.name, eva.file], [evc.id + '.json', evc],
-    [rca.id + '.json', rca], [rcb.id + '.json', rcb]];
+    [rca.id + '.json', rca], [rcb.id + '.json', rcb], [rcc.id + '.json', rcc]];
 }
 /* Each record damaged one way at a time: every field dropped, retyped and nulled, an extra field, a newer or unmarked format,
    over-long text, a prototype key, another file name. */
@@ -159,7 +161,7 @@ rule('The checker refuses exactly the to-do records the app refuses, over every 
   assert.ok(cs.some((c) => c.label === 'valid' && JSON.parse(c.text).support), 'the corpus has a done on evidence');
   assert.ok(cs.filter((c) => c.label === 'valid' && JSON.parse(c.text).kind === 'keep').length === 4, 'the corpus has four keeps');
   assert.ok(cs.some((c) => c.label === 'valid' && JSON.parse(c.text).checklist), 'the corpus has a checklist-linked addition');
-  assert.strictEqual(cs.filter((c) => c.label === 'valid' && JSON.parse(c.text).kind === 'receipt').length, 2, 'the corpus has two receipts');
+  assert.strictEqual(cs.filter((c) => c.label === 'valid' && JSON.parse(c.text).kind === 'receipt').length, 3, 'the corpus has three receipts, one with head \'\'');
   assert.strictEqual(cs.filter((c) => c.label === 'valid' && JSON.parse(c.text).kind !== 'receipt' && (JSON.parse(c.text).evidence || ((JSON.parse(c.text).effect || {}).evidence))).length, 3, 'the corpus has a tool\'s and a person\'s done on a run, and an application of one');
   const pyOut = JSON.parse(cp.execFileSync(py, ['-I', '-B', '-c', DRIVER, DIR], { input: JSON.stringify(cs), encoding: 'utf8', maxBuffer: 256 * 1048576 }));
   const off = [];
@@ -240,7 +242,7 @@ rule('A receipt with more than one damaged field, or at a limit, is refused by t
   const py = python();
   if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
   const all = valid().filter(([n, f]) => f.kind === 'receipt'), RC = PF.receipts;
-  assert.strictEqual(all.length, 2, 'two receipts');
+  assert.strictEqual(all.length, 3, 'three receipts');
   const cases = [];
   all.forEach(([name, f]) => {
     const o = JSON.parse(T.text(f));

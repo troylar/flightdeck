@@ -145,7 +145,7 @@ rule('run, next and runs (contract 2) list a living run\'s to-dos and say what h
   const { root: r2 } = await folder(), plain = json('run', r2, 'release-notes/r-1', '--contract', '2', '--json').data.run;
   assert.deepStrictEqual(['todos', 'todoCounts', 'todoHolds'].filter(k => k in plain), []);
 });
-rule('A run/2 with no to-dos yet is still held by a to-do record of it that can\'t be read, as every window holds it', async () => {
+rule('A run/2 with no to-dos yet is still held by a to-do record of it that can\'t be read, as every window holds it, and shows it; with no record naming it, nothing', async () => {
   const { root, d } = await folder(MD.replace('context: kind:choice(minor|major)\n', ''));
   const r = JSON.parse(fs.readFileSync(path.join(root, 'runs/release-notes/r-1/run.json'), 'utf8')), map = R.mapOf(R.sanitize(r));
   assert.strictEqual(r.format, R.FORMAT, 'set-up: a run/2');
@@ -159,10 +159,18 @@ rule('A run/2 with no to-dos yet is still held by a to-do record of it that can\
   assert.ok(one.problems.some(p => p.path === 'proposals/' + bad && p.kind === 'malformed'), 'named: ' + JSON.stringify(one.problems));
   assert.strictEqual(one.complete, false);
   assert.notStrictEqual(one.code, 0);
-  assert.deepStrictEqual(['todos', 'todoCounts', 'todoHolds'].filter(k => k in one.data.run), [], 'not living: no to-do fields');
+  /* Pending records stay visible before a run gains living (4.0 slice 6): one naming the run, even unreadable, shows its to-do
+     fields, held; a run with no to-do records naming it prints exactly as 3.0 did. */
+  assert.deepStrictEqual(['todos', 'todoCounts', 'todoHolds'].filter(k => k in one.data.run), ['todos', 'todoCounts', 'todoHolds'], 'a record naming it: its to-do fields');
+  assert.strictEqual(one.data.run.todoCounts.held, true, 'held');
   const n = json('next', root, 'release-notes/r-1', '--as', 'person-avery', '--contract', '2', '--json');
   assert.ok(n.problems.some(p => p.path === 'proposals/' + bad), 'next names it too');
-  assert.ok(!('todos' in n.data), 'and prints no to-do fields');
+  assert.ok('todos' in n.data, 'and its to-do fields');
+  assert.strictEqual(n.code, 4);
+  await d.remove('proposals/' + bad);
+  const none = json('run', root, 'release-notes/r-1', '--contract', '2', '--json');
+  assert.deepStrictEqual(['todos', 'todoCounts', 'todoHolds', 'todoRequests'].filter(k => k in none.data.run), [], 'no record naming it: no to-do fields');
+  assert.strictEqual(none.code, 0);
 });
 rule('A to-do record from a newer Flightdeck is named newer, not malformed, by run and next', async () => {
   const { root, d } = await folder();

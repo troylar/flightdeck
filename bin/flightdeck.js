@@ -907,13 +907,13 @@ function markTodos(PF, runs, got, people, peopleBad, loopIn, ev) {
   const others = loopIn ? loopIn.runs.filter((c) => runs.indexOf(c) < 0) : [];
   const now = Date.now();
   T.markHolds(runs, { records: got.todos || [], unread, people, loops: loopIn ? loopIn.loops : undefined, also: others, now, evidence: ev || null });
-  /* A run with to-dos landed, or with to-do requests not landed yet (pending requests are visible before it gains living), is
-     read as every window reads it; one with neither (facts alone, or only a record that can't be read, which still holds it)
-     prints exactly as before. An ended living run's receipt: PF.receipts.stateOf. */
+  /* A run with to-dos landed, or with to-do records naming it not landed yet (pending requests, and records that can't be
+     read, are visible before it gains living), is read as every window reads it; one with none prints exactly as 3.0 did.
+     Facts alone never add to-do fields: they change nothing. An ended living run's receipt: PF.receipts.stateOf. */
   runs.forEach((r) => {
     if (!r || r._unrunnable) return;
     const mineR = T.recordsFor(got.todos || [], r), un = unread.filter((u) => (u.run ? u.run.process === r.process && u.run.id === r.id : true));
-    if (!r.living && !mineR.some((x) => x && T.notFact(x))) return;
+    if (!r.living && !mineR.some((x) => x && T.notFact(x)) && !unread.some((u) => u.run && u.run.process === r.process && u.run.id === r.id)) return;
     r._tdv = T.view(r, { records: mineR, unread: un, people, deps: { records: got.todos || [], unread, evidence: ev || null }, now });
     if (r.living && r.ended) r._rcpt = PF.receipts.stateOf(r, got.todos || [], unread);
   });
