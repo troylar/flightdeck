@@ -3015,37 +3015,16 @@
      (markLoops), and nothing sent back since. h: { phase: index } or { step: loop step id }. */
   function holdsNow(r, h) {
     markLoops([r].concat((data.runs || []).filter(function (x) { return x !== r && x.id !== r.id; })));
+    return heldOn(r, h);
+  }
+  /* What holds the phases h names on r, from the marks already on it (markLoops). */
+  function heldOn(r, h) {
     var map; try { map = R.mapOf(r); } catch (e) { return true; }
     return holdPhases(map, h).some(function (pi) {
       var p = map.phases[pi]; if (!p) return true;
       if (R.phaseHeld(r, map, pi)) return true;
       return p.steps.some(function (x) { return x.type === 'for.each' && ((r._loopStale && Object.prototype.hasOwnProperty.call(r._loopStale, x.id)) || (r._loopUnread && Object.prototype.hasOwnProperty.call(r._loopUnread, x.id))); });
     });
-  }
-  /* Rounds 12 and 13 (FB, GA): proposals/ listed and read again through the folder's own reader (PF.repo.readPlans), every
-     file in it: the scope records of each loop (loops) and the to-do records of each run (runs) must be exactly the ones read
-     before, file for file and word for word, with none new (a record that arrived, a conflicting copy) and none unread or
-     refused now. The holds worked out from the records read before are then the holds of this fresh read. Resolves true or
-     false; never throws. */
-  function freshRecords(fs, loops, runs) {
-    var strip = function (x) { var o = {}; Object.keys(x).sort().forEach(function (k) { if (k.charAt(0) !== '_') o[k] = x[k]; }); return JSON.stringify(o); };
-    var sameLoop = function (l, m) { return !!l && !!m && l.process === m.process && l.run === m.run && l.step === m.step; };
-    var sameRun = function (x, c) { return x && x.run && x.run.process === c.process && x.run.id === c.id; };
-    var pick = function (scopes, todos) {
-      var out = Object.create(null);
-      (scopes || []).forEach(function (x) { if (loops.some(function (l) { return sameLoop(x.loop, l); })) out['s:' + x._file] = strip(x); });
-      (todos || []).forEach(function (x) { if (runs.some(function (c) { return sameRun(x, c); })) out['t:' + x._file] = strip(x); });
-      return out;
-    };
-    var was = pick(data.scopes, data.todos);
-    return PF.repo.readPlans(fs, null, null).then(function (res) {
-      if ((res.scopesUnread || []).some(function (u) { return !u.loop || loops.some(function (l) { return sameLoop(u.loop, l); }); })) return false;
-      if ((res.todosUnread || []).some(function (u) { return !u.run || runs.some(function (c) { return u.run.process === c.process && u.run.id === c.id; }); })) return false;
-      /* A file that couldn't be read whole (gone when read, not complete JSON) may be one of them still arriving. */
-      if ((res.torn || []).some(function (t) { return !t.parsed; })) return false;
-      var now = pick(res.scopes, res.todos), a = Object.keys(was).sort(), b = Object.keys(now).sort();
-      return JSON.stringify(a) === JSON.stringify(b) && a.every(function (k) { return was[k] === now[k]; });
-    }, function () { return false; });
   }
   /* Round 10 (BB): the phases a run (a conflict or browser copy) approves: its gate passed or waived, or a loop in it done. */
   function approvedPhases(c) {
@@ -3066,59 +3045,103 @@
     if (h.step) map.phases.forEach(function (p, i) { if (p.steps.some(function (x) { return x.id === h.step; })) pi = i; });
     return [pi];
   }
-  /* Round 10 (BB): before every approval write (candidate, final, a retry, and each write of a recovery), each run of the
-     loops in the phase is read again from the folder as the command line reads it (readRunOnly, with its version's verdict).
-     It must be there, read cleanly, run on a version that checks out, and be exactly the copy the holds were worked out from
-     (its fingerprint); then the holds are asked again (guardOk, holdsNow) on that same snapshot. Anything else holds it.
-     Resolves true or false; never throws. */
-  function freshHolds(cx, fs) {
+  /* Round 14 (HA): a run's version as read now: there, read whole, and verified. */
+  function pubFits(run, pub) { return !!run && !!pub && !pub._readFailed && !!pub.ok; }
+  /* Round 14 (HA): the one approval snapshot, taken before every approval write (the candidate, the final write, a
+     retry's, and each write of keeping a copy: its backup, the run, removing the copy). It reads, one after another, never
+     side by side:
+       1. the run and its version (readRunOnly), which must verify (pubFits);
+       2. each run of the phase's loops the holds were worked out from, with its version: each must read cleanly, be the
+          same copy, and run on a version that verifies;
+       3. last, proposals/ listed fresh and read (readPlans): every scope record of those loops and every to-do record of
+          those runs, new files and copies included, must be exactly those read before, none unread, refused or part-read.
+     Then, with no read in between, it judges from that snapshot only: the window's guard (guardOk), and the holds of the
+     phases (to-dos, coverage, staleness) worked out again from the snapshot's runs and records, never from cached data.
+     The caller writes next, with nothing awaited between. Resolves true or false; never throws. */
+  function approvalSnapshot(cx, fs) {
     var rk = cx && (cx.run || cx.holdRun), r = rk ? findRun(rk) : null, h = cx && cx.holds;
     if (!h) return Promise.resolve(true);
     if (!r) return Promise.resolve(false);
     var map; try { map = R.mapOf(r); } catch (e) { return Promise.resolve(false); }
-    var kids = [], bad = false;
+    var src = fs || cx.fs, steps = [], bad = false;
     holdPhases(map, h).forEach(function (pi) {
       var p = map.phases[pi]; if (!p) { bad = true; return; }
-      p.steps.forEach(function (x) {
-        if (x.type !== 'for.each') return;
-        (data.runs || []).forEach(function (c) { if (c && c.parent && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === x.id) kids.push(c); });
+      p.steps.forEach(function (x) { if (x.type === 'for.each') steps.push(x); });
+    });
+    if (bad) return Promise.resolve(false);
+    var isKid = function (c, x) { return !!c && !!c.parent && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === x.id; };
+    var known = [];
+    steps.forEach(function (x) { (data.runs || []).forEach(function (c) { if (isKid(c, x)) known.push(c); }); });
+    var loops = steps.map(function (x) { return { process: r.process, run: r.id, step: x.id }; });
+    var clean = function (one) { return !!one && one.found && !one.nofile && !!one.run && !(one.bad && one.bad.length) && !one.run._unrunnable; };
+    var snap = { parent: null, kids: [] };
+    var no = function () { return false; };
+    /* 1. The run and its version. */
+    return PF.repo.readRunOnly(src, r.process, r.id).then(function (one) {
+      if (!clean(one) || !pubFits(r, one.pub) || !pubFits(one.run, one.pub)) return false;
+      snap.parent = one.run;
+      /* 2. Each of the loops' runs the holds were worked out from, with its version, one after another. */
+      var chain = Promise.resolve(true);
+      known.forEach(function (c) {
+        chain = chain.then(function (ok) {
+          if (!ok) return false;
+          return PF.repo.readRunOnly(src, c.process, c.id).then(function (k) {
+            if (!clean(k) || !pubFits(k.run, k.pub)) return false;
+            snap.kids.push(k.run);
+            return true;
+          }, no);
+        });
       });
-    });
-    if (bad) return Promise.resolve(false);
-    var src = fs || cx.fs;
-    /* Rounds 12 and 13 (FB, GA): what coverage reads besides the runs, from a fresh listing of proposals/: the loops' scope
-       records and the to-do records of the run and of each story's run (their applications, the one living.head names among
-       them, and the requests that fulfil a spread), new files and conflicting copies included. */
-    var loops = [];
-    holdPhases(map, h).forEach(function (pi) {
-      (map.phases[pi] ? map.phases[pi].steps : []).forEach(function (x) { if (x.type === 'for.each') loops.push({ process: r.process, run: r.id, step: x.id }); });
-    });
-    [r].concat(kids).forEach(function (c) {
-      if (c.living && c.living.head && !PF.todos.recordsFor(data.todos || [], c).some(function (x) { return x.id === c.living.head; })) bad = true;
-    });
-    if (bad) return Promise.resolve(false);
-    /* Round 13 (GB): the run's own version, checked as its reader checks it, every time too. */
-    var ownPub = PF.repo.readRunOnly(src, r.process, r.id).then(function (one) { return !!(one && one.found && one.pub && one.pub.ok && !one.pub._readFailed); }, function () { return false; });
-    var depsOk = Promise.all([freshRecords(src, loops, [r].concat(kids)), ownPub]).then(function (v) { return v[0] && v[1]; });
-    return depsOk.then(function (ok) { if (!ok) return [false]; return Promise.all(kids.map(function (c) {
-      return PF.repo.readRunOnly(src, c.process, c.id).then(function (one) {
-        if (!one || !one.found || one.nofile || !one.run || (one.bad && one.bad.length) || one.run._unrunnable) return false;
-        if (!one.pub || !one.pub.ok || one.pub._readFailed) return false;
-        return !!c._fileHash && one.run._fileHash === c._fileHash;
-      }, function () { return false; });
-    })); }).then(function (oks) {
-      if (!oks.every(Boolean) || !guardOk(cx)) return false;
-      /* A recovery's guard names no run (the copy may take it over): its holds are asked of the run as it is now. */
-      if (cx.run) return true;
-      var now = findRun(rk); return !!now && !holdsNow(now, h);
-    }, function () { return false; });
+      return chain;
+    }, no).then(function (ok) {
+      if (!ok) return false;
+      var key = function (c) { return c.process + '/' + c.id; };
+      if (snap.kids.length !== known.length) return false;
+      if (!known.every(function (c) { return snap.kids.some(function (k) { return key(k) === key(c) && !!c._fileHash && k._fileHash === c._fileHash; }); })) return false;
+      /* 3. Last, proposals/ listed fresh. */
+      return PF.repo.readPlans(src, null, null).then(function (res) { snap.plans = res; return true; }, no);
+    }).then(function (ok) {
+      if (!ok) return false;
+      /* From here to the answer nothing is awaited: the judgment is the snapshot's. */
+      return judgeSnapshot(cx, rk, h, loops, snap);
+    }, no);
+  }
+  function judgeSnapshot(cx, rk, h, loops, snap) {
+    var res = snap.plans, runs = [snap.parent].concat(snap.kids);
+    var sameLoop = function (l, m) { return !!l && !!m && l.process === m.process && l.run === m.run && l.step === m.step; };
+    var mineRun = function (x) { return !!x && !!x.run && runs.some(function (c) { return x.run.process === c.process && x.run.id === c.id; }); };
+    var mineLoop = function (x) { return !!x && loops.some(function (l) { return sameLoop(x, l); }); };
+    if ((res.scopesUnread || []).some(function (u) { return !u.loop || mineLoop(u.loop); })) return false;
+    if ((res.todosUnread || []).some(function (u) { return !u.run || mineRun(u); })) return false;
+    /* A file that couldn't be read whole (gone when read, not complete JSON) may be one of them still arriving. */
+    if ((res.torn || []).some(function (t) { return !t.parsed; })) return false;
+    /* Every record of theirs is exactly one read before: none new (a record that arrived, a copy), none gone or changed. */
+    var strip = function (x) { var o = {}; Object.keys(x).sort().forEach(function (k) { if (k.charAt(0) !== '_') o[k] = x[k]; }); return JSON.stringify(o); };
+    var pick = function (scopes, todos) {
+      var out = Object.create(null);
+      (scopes || []).forEach(function (x) { if (mineLoop(x.loop)) out['s:' + x._file] = strip(x); });
+      (todos || []).forEach(function (x) { if (mineRun(x)) out['t:' + x._file] = strip(x); });
+      return out;
+    };
+    var was = pick(data.scopes, data.todos), now = pick(res.scopes, res.todos), a = Object.keys(was).sort(), b = Object.keys(now).sort();
+    if (JSON.stringify(a) !== JSON.stringify(b) || !a.every(function (k) { return was[k] === now[k]; })) return false;
+    if (!guardOk(cx)) return false;
+    /* The holds, worked out again from the snapshot alone: the run as this write would leave it (its own copy, with the
+       snapshot's marks), the loops' runs as read, and the records as read. */
+    var cur = findRun(rk); if (!cur) return false;
+    var mine; try { mine = JSON.parse(JSON.stringify(cur)); } catch (e) { return false; }
+    var d = Object.assign({}, data, { runs: [mine].concat(snap.kids), scopes: res.scopes || [], scopesUnread: res.scopesUnread || [], todos: res.todos || [], todosUnread: res.todosUnread || [] });
+    if ([mine].concat(snap.kids).some(function (c) { return c.living && c.living.head && !PF.todos.recordsFor(d.todos, c).some(function (x) { return x.id === c.living.head; }); })) return false;
+    markLoops([mine].concat(snap.kids), d);
+    return !heldOn(mine, h);
   }
   /* A loop write (round 6, XA) stops while the run or any run of that loop isn't read fresh, by the same inputs coverage reads
      (PF.spreads.inputs): a result that reads as none only because its run or version couldn't be read is never a change. */
-  function loopUnread(r, step) {
-    var L = spInputs().loops, un = L.unreadRun;
+  function loopUnread(r, step, d) {
+    d = d || data;
+    var L = spInputsOf(d).loops, un = L.unreadRun;
     if (r._unrunnable || un(r)) return true;
-    if ((data.runs || []).some(function (c) { return c && c.parent && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === step && (c._unrunnable || un(c)); })) return true;
+    if ((d.runs || []).some(function (c) { return c && c.parent && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === step && (c._unrunnable || un(c)); })) return true;
     /* A run of its loop not read at all (newer, damaged) isn't in data.runs: any failed read under its process's runs counts. */
     var x; try { x = M.findStep(R.mapOf(r), step); } catch (e) { return true; }
     var kp = x ? String(PF.run.fieldsOf(r, x.step).process || '') : '';
@@ -3182,7 +3205,7 @@
        the next read derives it again, with its authority asked again on the run as it is then. */
     var extra = { still: function () { if (guardOk(cx)) return true; undo(); return false; }, dropUndone: function () { return undone; } };
     /* Round 10 (BB): an approval write reads its loops' runs again before each write, and is put back by identity when held. */
-    if (cx && cx.holds) extra.recheck = function (fs) { return freshHolds(cx, fs).then(function (ok) { if (!ok) undo(); return ok; }); };
+    if (cx && cx.holds) extra.recheck = function (fs) { return approvalSnapshot(cx, fs).then(function (ok) { if (!ok) undo(); return ok; }); };
     if (opts && opts.redo) extra.undoFailed = function () { undo(); return undone; };
     return { fn: wrapped, opts: Object.assign({}, opts || {}, extra) };
   }
@@ -3378,7 +3401,7 @@
     if (q.ops[0] === 'approve') {
       if (!V.rollup.ok) return Promise.resolve({ ok: false, why: 'It can\'t be approved yet: ' + V.rollup.summary + '.' });
       var no = 'The run couldn\'t be changed here; ask again.', tool = typeof q.by === 'string' ? q.by : (q.by && (q.by.tool || q.by.name)) || '';
-      /* Round 11 (EB): the same holds and fresh rereads as the button (loopEdit installs freshHolds for holds). */
+      /* Round 11 (EB): the same holds and fresh rereads as the button (loopEdit installs approvalSnapshot for holds). */
       var ea = loopEdit(loopGuard({ q: q, run: key, step: id, view: true, holds: { step: id } }), key, function (rr, m, me, now) {
         var V2 = loopView(rr, id); if (!V2 || !V2.rollup.ok) { no = 'It can\'t be approved yet: ' + (V2 ? V2.rollup.summary : 'the loop isn\'t readable') + '.'; throw new Error(no); }
         R.done(rr, m, id, me, now, { _loop: { ok: true, snapshot: PF.loop.approval(V2.ledger, V2.rollup, { by: q.as, at: now, onBehalf: tool, request: q.id }) } });
@@ -3424,12 +3447,14 @@
   /* Coverage's inputs from this window's loaded folder, built by the one builder the CLI uses too (PF.spreads.inputs): a run
      whose last read failed, or whose version wasn't read fresh (missing, damaged, or publications/ not read this time), is
      unknown, never the copy kept on screen. */
-  function spInputs() {
-    var failed = [].concat(data.unreadable || [], data.nofile || [], data.malformed || [], data.refused || []).map(function (u) { return u && u.path; }).filter(Boolean);
+  function spInputs() { return spInputsOf(data); }
+  /* Round 14 (HA): the same inputs from any copy of the folder's data: this window's (data), or an approval's snapshot. */
+  function spInputsOf(d) {
+    var failed = [].concat(d.unreadable || [], d.nofile || [], d.malformed || [], d.refused || []).map(function (u) { return u && u.path; }).filter(Boolean);
     /* A run this copy can only name (made with a newer Flightdeck) says nothing of whose it is: refused, by its path. */
-    (data.runs || []).forEach(function (c) { if (c && c._unrunnable && (c._needs != null || c.snapshot === '') && typeof c.process === 'string' && typeof c.id === 'string') failed.push('runs/' + c.process + '/' + c.id + '/run.json'); });
-    return PF.spreads.inputs({ runs: data.runs || [], records: data.todos || [], unread: data.todosUnread || [], scopes: data.scopes || [], scopesUnread: data.scopesUnread || [], people: data.people, procOf: ctx.procOf,
-      processes: data.processes || [], procsRead: function () { return !('publications' in (data.failed || {})); }, partsFailed: data.failed || {}, failed: failed, runFailed: runUnread });
+    (d.runs || []).forEach(function (c) { if (c && c._unrunnable && (c._needs != null || c.snapshot === '') && typeof c.process === 'string' && typeof c.id === 'string') failed.push('runs/' + c.process + '/' + c.id + '/run.json'); });
+    return PF.spreads.inputs({ runs: d.runs || [], records: d.todos || [], unread: d.todosUnread || [], scopes: d.scopes || [], scopesUnread: d.scopesUnread || [], people: d.people, procOf: ctx.procOf,
+      processes: d.processes || [], procsRead: function () { return !('publications' in (d.failed || {})); }, partsFailed: d.failed || {}, failed: failed, runFailed: runUnread });
   }
   function spLoops() { return spInputs().loops; }
   /* The screen's copy (ctx.todoView): the same view, kept while the records, unread files, people and the run are the ones it
@@ -6528,17 +6553,18 @@
   }
   /* Loops (3.0): which approvals the folder no longer matches, read-only, on every draw and on the fresh copy every change
      starts from, so a held gate can't be passed before the send-back is saved. */
-  function markLoops(runs) {
+  function markLoops(runs, d) {
     if (!data) return;
-    PF.loop.markStale(runs || [], { records: data.scopes, unread: data.scopesUnread || [], procOf: ctx.procOf });
+    d = d || data;
+    PF.loop.markStale(runs || [], { records: d.scopes, unread: d.scopesUnread || [], procOf: ctx.procOf });
     /* Living runs (4.0): what open or disputed to-dos hold, read-only, on every read (r._todos). */
-    PF.todos.markHolds(runs || [], { records: data.todos || [], unread: data.todosUnread || [], people: data.people, loops: spLoops() });
+    PF.todos.markHolds(runs || [], { records: d.todos || [], unread: d.todosUnread || [], people: d.people, loops: spInputsOf(d).loops });
     /* Round 8 (ZB): a loop whose run or version can't be read fresh holds its phase's gate (r._loopUnread, never saved), so
        Pass and Waive wait while its approval stays as recorded. */
     (runs || []).forEach(function (r) {
       if (!r || r.ended || r._unrunnable || !r.steps) { if (r) delete r._loopUnread; return; }
       var out = null;
-      Object.keys(r.steps).forEach(function (id) { var a = r.steps[id]; if (a && a.s === 'done' && a.loop && loopUnread(r, id)) { out = out || Object.create(null); out[id] = ['A run of this loop or the version it runs on can\'t be read here, so the gate waits until it reads again.']; } });
+      Object.keys(r.steps).forEach(function (id) { var a = r.steps[id]; if (a && a.s === 'done' && a.loop && loopUnread(r, id, d)) { out = out || Object.create(null); out[id] = ['A run of this loop or the version it runs on can\'t be read here, so the gate waits until it reads again.']; } });
       if (out) r._loopUnread = out; else delete r._loopUnread;
     });
   }
@@ -8523,7 +8549,7 @@
     /* Keep a conflict copy. Pending saves finish first, then the run is locked: the exact current contents are backed up, the
        copy replaces them only if nothing changed since, and other changes are refused until it's done. The save is checked
        against the backed-up version's fingerprint, so a change on disk becomes a conflict copy rather than being overwritten. */
-    'use-copy': function (name) { if (runBusy(ctx.run())) return; loopRecoverCx(); recover(function (fs, cur) { return repo.readCopy(fs, cur, name); }, 'The version it replaced is kept as ', function (fs, cur) { return repo.removeCopy(fs, Object.assign({}, cur, { _conflicts: null }), name); }); },
+    'use-copy': function (name) { if (runBusy(ctx.run())) return; loopRecoverCx(); recover(function (fs, cur) { return repo.readCopy(fs, cur, name); }, 'The version it replaced is kept as ', function (fs, cur, check) { return repo.removeCopy(fs, Object.assign({}, cur, { _conflicts: null }), name, check); }); },
     'delete-copy': function (name) {
       var r = ctx.run(); if (!r) return;
       if (!(state.pick && state.pick.kind === 'delete-copy' && state.pick.id === name)) { state.pick = { kind: 'delete-copy', id: name }; render(); return; }
@@ -8533,7 +8559,7 @@
     'restore-local': function () {
       var r = ctx.run(); if (!r || runBusy(r)) return;
       var lkey = localKey(r.id), local = lsGet(lkey, null); if (!local) return;
-      loopRecoverCx(); recover(function () { var own = {}; Object.keys(local).forEach(function (k) { if (k[0] !== '_') own[k] = local[k]; }); var c = R.sanitize(R.testLast(own)); if (c) c._overflow = R.mergeOverflow(local._overflow, c._overflow); return Promise.resolve(c); }, 'Restored the copy kept in this browser; the version it replaced is kept as ', function () { lsSet(lkey, null); return Promise.resolve(); });
+      loopRecoverCx(); recover(function () { var own = {}; Object.keys(local).forEach(function (k) { if (k[0] !== '_') own[k] = local[k]; }); var c = R.sanitize(R.testLast(own)); if (c) c._overflow = R.mergeOverflow(local._overflow, c._overflow); return Promise.resolve(c); }, 'Restored the copy kept in this browser; the version it replaced is kept as ', function (fs, cur, check) { return check().then(function (ok) { if (ok === false) return false; lsSet(lkey, null); }); });
     },
     'discard-local': function () { var r = ctx.run(); if (r) { lsSet(localKey(r.id), null); say('The copy kept in this browser was discarded.'); render(); } },
     'load-history': function () {
@@ -9403,7 +9429,7 @@
       var ph = approvedPhases(c);
       if (ph.length) { rcx.holds = { phases: ph }; rcx.holdRun = key; if (rc && rc.key === key) rc.cx.holds = rcx.holds, rc.cx.holdRun = key; }
       var held = function () { say('The copy wasn\'t kept: a run of a loop it approves, or its version, can\'t be read here now, or holds its stage. The copy is still there; choose Refresh, then try again.', 'warn'); return false; };
-      return freshHolds(rcx, fs).then(function (ok) { return ok ? repo.keepDisplaced(fs, cur, WRITER) : null; }).then(function (where) {
+      return approvalSnapshot(rcx, fs).then(function (ok) { return ok ? repo.keepDisplaced(fs, cur, WRITER) : null; }).then(function (where) {
         if (where === null) return held();
         if (g !== gen) return false;
         var ed = loopEdit(rcx, key, function (run, map, me, now) {
@@ -9430,7 +9456,7 @@
       }).then(function (ok) {
         if (!ok || g !== gen) return;
         state.copyView = null;
-        return freshHolds(rcx, fs).then(function (fine) { if (!fine) { held(); return Promise.reject(Object.assign(new Error('held'), { held: true })); } return cleanup(fs, cur); }).then(function () { if (g === gen) return refreshRun(); }, function (e) { if (g === gen && !(e && e.held)) say('Kept the copy, but couldn\'t remove it: ' + e.message, 'warn'); });
+        return cleanup(fs, cur, function () { return approvalSnapshot(rcx, fs); }).then(function (fine) { if (fine === false) { held(); return Promise.reject(Object.assign(new Error('held'), { held: true })); } }).then(function () { if (g === gen) return refreshRun(); }, function (e) { if (g === gen && !(e && e.held)) say('Kept the copy, but couldn\'t remove it: ' + e.message, 'warn'); });
       });
     }).catch(function (e) { if (g === gen) say('Couldn\'t keep that copy: ' + e.message, 'bad'); }).then(done);
   }

@@ -1391,19 +1391,20 @@ PF.repo = (function () {
     return fs.write(path, JSON.stringify(stripMeta(run), null, 2)).then(function () { return path; });
   }
   /* Removing a copy also removes any lost-save candidate with exactly the same contents, so one decision covers one version. */
-  function removeCopy(fs, run, name) {
+  /* check() (round 14, HA): asked after the copy's read and right before it is removed; false removes nothing (resolves false). */
+  function removeCopy(fs, run, name, check) {
     if (!isCopy(run, name)) return Promise.reject(new Error('Not a run copy.'));
     var dir = 'runs/' + run.process + '/' + run.id + '/', lineage = run.lineage || [];
     return fs.read(dir + name).then(function (f) {
       var h = f ? f.text : null;
-      return fs.remove(dir + name).then(function () {
+      return Promise.resolve(typeof check === 'function' ? check() : true).then(function (ok) { if (ok === false) return false; return fs.remove(dir + name).then(function () {
         forgetRun(fs, run);
         if (!h) return;
         return fs.list(dir.slice(0, -1)).then(function (items) {
           var twins = items.filter(function (it) { var t = candidateTag(it.name); return t && it.name !== name && lineage.indexOf(t) < 0; });
           return Promise.all(twins.map(function (it) { return fs.read(dir + it.name).then(function (g) { if (g && g.text === h) return fs.remove(dir + it.name).catch(function () {}); }, function () {}); }));
         });
-      });
+      }); });
     });
   }
 
