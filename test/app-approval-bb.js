@@ -3,7 +3,7 @@
 // conflict copy) asks the same. A story's run gone, or it or its version unreadable, while the write waits, with no Refresh
 // in between, writes nothing and puts the tentative change back.
 'use strict';
-const { gate } = require('./app-harness');
+const { gate, boot, locks } = require('./app-harness');
 
 const PARENT_RE = /^runs\/release-readiness\/[^/]*\/run\.json$/;
 const CAND_RE = /^runs\/release-readiness\/[^/]*\/candidate-/;
@@ -67,15 +67,15 @@ const WRITES = {
   Waive: async (app) => { app.click('pick', gid(app), { kind: 'waive' }); await app.tick(); app.set('pick-input', 'Agreed with the team'); app.click('waive', '0'); },
   'loop approve': async (app) => { app.click('loop-approve', 'each'); },
   /* Round 11 (EB): a loop approval asked from the command line, carried out by the recorder's window on its next read. */
-  'loop approve request': async (app) => {
+  'loop approve request': async (app) => { await requestApprove(app); app.click('refresh'); await app.tick(300); }
+};
+async function requestApprove(app) {
     const PF = app.PF, LP = PF.loop, r = parentRun(app);
     const c = LP.cleanIntent({ loop: { process: 'release-readiness', run: r.id, step: 'each' }, changes: [{ op: 'approve', as: 'person-avery' }] }, 'eb-' + Math.random().toString(36).slice(2, 10), { name: 'release-helper', version: '1.0' });
     const d = await PF.repo.loadAll(app.fs, {}), V = LP.view(r, 'each', { records: d.scopes, runs: d.runs });
     const f = LP.buildRequest(c.intent, { seen: V.ledger.heads, children: [], now: new Date().toISOString(), app: '4.0.0', head: LP.headFor(r) });
     await app.fs.write('proposals/' + f.id + '.json', LP.text(f));
-    app.click('refresh'); await app.tick(300);
-  }
-};
+}
 const approved = (app) => { const s = parentRun(app).steps.each; return !!s && s.s === 'done'; };
 
 /* o.prep(): an app on the parent's screen with the loop's stories cleared (and fulfilled) and the loop not yet approved.
@@ -151,4 +151,200 @@ async function retryAfter(o, brk) {
   undo();
   return out;
 }
-module.exports = { matrix, useCopyAfterEio, retryAfter, WRITES, DEPS, GA_GB: Object.keys(GA_GB) };
+module.exports = { matrix, useCopyAfterEio, retryAfter, requestApprove, WRITES, DEPS, GA_GB: Object.keys(GA_GB) };
+
+/* Review round 14 (HA, HB, HC): a generic suspension harness. Every approval-writing path (PATHS) is first run once,
+   recording each read and listing inside its approval guard (from its read of the run to its proposals listing). Then,
+   for every such read point and every input change (CHANGES), a fresh app is run again with that read paused, the input
+   changed while it waits, and the read let go. Where the guard reads that input again at or after the paused point before
+   its last write (so the change is one it can see), the cell must write nothing more, put the change back and keep any
+   recovery source. Returns { cells, applicable, points, todo, off }: cells, every read point x change; todo, those where the guard can see
+   the change; applicable, those run (HA_STRIDE). */
+const KID_RE = /^runs\/validate-story\/[^/]*\/run\.json$/;
+const scopeFiles = (app) => app.files('proposals/').filter(p => /\/req-[^/]*\.json$/.test(p));
+const identicalCopy = (app) => {
+  const f = scopeFile(app); if (!f) return null;
+  const path = f.replace(/\.json$/, ' (1).json');
+  app.fs.files[path] = { t: app.fs.files[f].t, m: Date.now() };
+  return () => { delete app.fs.files[path]; };
+};
+const changeTodo = (app, kid) => {
+  const f = headFile(app, kid); if (!f || !app.fs.files[f]) return null;
+  const j = JSON.parse(app.fs.files[f].t); j.note = 'changed while the approval waited';
+  const kept = app.fs.files[f]; app.fs.files[f] = { t: JSON.stringify(j, null, 2), m: Date.now() };
+  return () => { app.fs.files[f] = kept; };
+};
+const secondRun = (app, kid) => {
+  const k = JSON.parse(app.fs.files[kid].t), id = 'run-hb' + Math.random().toString(36).slice(2, 8);
+  k.id = id; const path = 'runs/validate-story/' + id + '/run.json';
+  app.fs.files[path] = { t: JSON.stringify(k), m: Date.now() };
+  return () => { delete app.fs.files[path]; };
+};
+/* HC: the run's version rebuilt in place, consistently, with one more mandatory step: it verifies, but it isn't the version
+   the run is pinned to. */
+const rebuiltPub = (app) => {
+  const r = parentRun(app), base = 'publications/release-readiness/' + r.folder + '/', PF = app.PF;
+  const md = app.fs.files[base + 'map.md'].t.replace(/\n$/, '') + '\n- [!] {confirm} Tell support {#ship2}\n';
+  const people = JSON.parse(app.fs.files['people.json'].t);
+  const b = PF.publish.build(md, { people, ...require('./harness').exampleSetup(PF), by: 'person-avery', changes: 'First', existing: [], now: new Date().toISOString(), rand: r.folder.replace(/^v\d+-/, ''), app: '3.0.0' });
+  if (b.blockers || b.folder !== r.folder) return null;
+  const kept = {}; Object.keys(b.files).forEach(k => { kept[k] = app.fs.files[base + k]; app.fs.files[base + k] = { t: b.files[k], m: Date.now() }; });
+  return () => { Object.keys(kept).forEach(k => { if (kept[k]) app.fs.files[base + k] = kept[k]; else delete app.fs.files[base + k]; }); };
+};
+const isList = (op, p, dir) => op === 'list' && p.replace(/\/$/, '') === dir;
+/* A read point by its role, the same in every app: the run, the story's run, the first scope record, the story's application. */
+function namer(app, kid) {
+  const rid = parentRun(app).id, kidDir = kid.replace(/\/run\.json$/, ''), first = scopeFile(app), head = headFile(app, kid);
+  return (p) => {
+    if (p === first) return 'proposals/<scope 1>';
+    if (head && p === head) return 'proposals/<application>';
+    if (/^proposals\/[^/]+$/.test(p)) return 'proposals/<' + (/\/req-/.test(p) ? 'scope' : 'record') + '>';
+    return p.split(kidDir).join('runs/validate-story/<story>').split('/' + rid).join('/<run>').replace(/^runs\/validate-story\/(?!<story>)[^/]+/, 'runs/validate-story/<other>');
+  };
+}
+const CHANGES = {
+  'a new scope record': { make: (app) => newScope(app), sees: (op, p) => isList(op, p, 'proposals') },
+  'a conflicting copy of a scope record': { make: (app) => copyScope(app), sees: (op, p) => isList(op, p, 'proposals') },
+  'an identical copy of a scope record': { make: identicalCopy, sees: (op, p) => isList(op, p, 'proposals') },
+  'a scope record absent': { make: (app) => gone(app, scopeFile(app)), sees: (op, p) => isList(op, p, 'proposals') || p === 'proposals/<scope 1>' },
+  'a scope record EIO': { make: (app) => eio(app, scopeFile(app)), sees: (op, p) => op === 'read' && p === 'proposals/<scope 1>' },
+  'the story\'s to-do changed': { make: changeTodo, sees: (op, p) => op === 'read' && p === 'proposals/<application>' },
+  'the story\'s run absent': { make: (app, kid) => BREAKS['the story\'s run absent'](app, kid), sees: (op, p) => p === 'runs/validate-story/<story>/run.json' || isList(op, p, 'runs/validate-story/<story>') },
+  'the story\'s run EIO': { make: (app, kid) => BREAKS['the story\'s run EIO'](app, kid), sees: (op, p) => op === 'read' && p === 'runs/validate-story/<story>/run.json' },
+  'the story\'s version EIO': { make: (app) => BREAKS['its publication EIO'](app), sees: (op, p) => op === 'read' && /^publications\/validate-story\//.test(p) },
+  'a second run for the story\'s attempt': { make: secondRun, sees: (op, p) => isList(op, p, 'runs/validate-story') },
+  'the run\'s version absent': { make: (app) => gone(app, parentPub(app)), sees: (op, p) => op === 'read' && /^publications\/release-readiness\/[^/]+\/publication\.json$/.test(p) },
+  'the run\'s version EIO': { make: (app) => eio(app, parentPub(app)), sees: (op, p) => op === 'read' && /^publications\/release-readiness\/[^/]+\/publication\.json$/.test(p) },
+  'the run\'s version rebuilt with another step': { make: rebuiltPub, sees: (op, p) => op === 'read' && /^publications\/release-readiness\//.test(p) }
+};
+const localKeyOf = (app, id) => 'preflight:unsaved:' + app.fs.kind + ':' + (app.fs.id || app.fs.name) + ':' + id;
+const failCand = (app) => { const write = app.fs.write; let n = 0; app.fs.write = (q, t, x) => CAND_RE.test(q) && ++n === 1 ? Promise.reject(new Error('EIO')) : write.call(app.fs, q, t, x); return { n: () => n, off: () => { app.fs.write = write; } }; };
+/* Each path: disk(app, o) brings the prepared fixture to the click as far as the folder and browser storage go (it is done
+   once, in the template), live(app) does what only the open window holds (Try again's failed save), and offered(app) says
+   why the click isn't there, or ''. kept(app) is whether the recovery source is still there (true for the others). */
+const READY = (app) => approved(app) && /data-act="pass"/.test(app.html()) ? '' : 'not Ready';
+const approveLoop = async (app) => { app.click('loop-approve', 'each'); await app.tick(250); };
+const passedCopy = async (app, o, local) => {
+  await approveLoop(app);
+  const p = parentPath(app), approvedText = app.fs.files[p].t;
+  app.click('pass', '0'); await app.tick(250);
+  const passed = parentRun(app);
+  if (!passed.gates || !passed.gates[gid(app)] || passed.gates[gid(app)].s !== 'passed') return;
+  await app.fs.write(p, approvedText);
+  if (local) { await o.reread(app); app.store[localKeyOf(app, passed.id)] = JSON.stringify(passed); }
+  else await app.fs.write(p.replace('run.json', 'run-OTHER.json'), JSON.stringify(passed));
+  await o.reread(app);
+};
+const PATHS = {
+  Pass: { disk: approveLoop, offered: READY, go: WRITES.Pass },
+  Waive: { disk: approveLoop, offered: READY, go: WRITES.Waive },
+  'loop approve': { offered: (app) => approved(app) ? 'already approved' : '', go: WRITES['loop approve'] },
+  /* The request is written before the watch starts (its own folder read isn't the guard's); the click is the Refresh that
+     makes the recorder carry it out. */
+  'loop approve request': { offered: (app) => approved(app) ? 'already approved' : '', pre: (app) => requestApprove(app), go: async (app) => { app.click('refresh'); await app.tick(300); } },
+  'Try again': {
+    disk: approveLoop,
+    live: async (app) => { const f = failCand(app); app.click('pass', '0'); await app.tick(300); f.off(); return f.n(); },
+    offered: (app) => /data-act="retry-save"/.test(app.html()) ? '' : 'Try again not offered',
+    go: async (app) => { app.click('retry-save'); }
+  },
+  'Use copy': {
+    disk: (app, o) => passedCopy(app, o, false),
+    offered: (app) => /data-act="use-copy"/.test(app.html()) ? '' : 'the copy isn\'t offered',
+    go: async (app) => { app.click('use-copy', 'run-OTHER.json'); },
+    kept: (app) => !!app.fs.files[parentPath(app).replace('run.json', 'run-OTHER.json')]
+  },
+  'Restore browser copy': {
+    disk: (app, o) => passedCopy(app, o, true),
+    offered: (app) => /data-act="restore-local"/.test(app.html()) ? '' : 'the browser copy isn\'t offered',
+    go: async (app) => { app.click('restore-local'); },
+    kept: (app) => !!app.store[localKeyOf(app, parentRun(app).id)]
+  }
+};
+/* Inside the guard: from its read of the run (readRunOnly on the parent's process) until the next write or removal. */
+function guardWatch(app, name) {
+  const R = app.PF.repo, ro = R.readRunOnly, fs0 = app.fs, read = fs0.read, list = fs0.list, write = fs0.write, remove = fs0.remove;
+  const st = { on: false, seen: Object.create(null), log: [], hook: null, ops: 0 };
+  R.readRunOnly = function (fs, proc, id) { if (proc === 'release-readiness') st.on = true; return ro.apply(this, arguments); };
+  const wrap = (op, real) => function (p) {
+    const args = arguments;
+    st.ops++;
+    if (!st.on) return real.apply(fs0, args);
+    const np = name(p), k = op + ' ' + np, n = st.seen[k] = (st.seen[k] || 0) + 1, at = { op, p: np, n, i: st.log.length };
+    st.log.push(at);
+    const h = st.hook && st.hook(at);
+    return h ? h.then(() => real.apply(fs0, args)) : real.apply(fs0, args);
+  };
+  fs0.read = wrap('read', read); fs0.list = wrap('list', list);
+  fs0.write = function () { st.ops++; st.on = false; return write.apply(fs0, arguments); };
+  fs0.remove = function () { st.ops++; st.on = false; return remove.apply(fs0, arguments); };
+  return { st, off: () => { R.readRunOnly = ro; fs0.read = read; fs0.list = list; fs0.write = write; fs0.remove = remove; } };
+}
+/* Until the folder has been quiet for a while (no read, listing or write), at most about 1,500 turns. */
+async function quiet(app, w) { let calm = 0; for (let i = 0; i < 60 && calm < 4; i++) { const n = w.st.ops; await app.tick(25); calm = w.st.ops === n ? calm + 1 : 0; } }
+const allFiles = (app) => JSON.stringify(Object.keys(app.fs.files).filter(f => /^(runs|proposals|publications)\//.test(f)).sort().map(f => [f, app.fs.files[f].t]));
+/* The fixture is prepared once, in a window with Web Locks (so its session is its own, kept in session storage); each cell
+   then opens a copy of that window, as a reload does: the same files (copied), session, browser storage and page. */
+async function template(o, P) {
+  const files = {}, session = {}, app = await o.prep({ sharedFiles: files, locks: locks(), sessionStore: session });
+  if (P.disk) await P.disk(app, o);
+  await app.tick(100);
+  return { files: JSON.stringify(files), session: JSON.stringify(session), store: JSON.stringify(app.store), hash: app.hash() };
+}
+async function opened(t, P) {
+  const app = boot({ sharedFiles: JSON.parse(t.files), locks: locks(), sessionStore: JSON.parse(t.session), localStore: JSON.parse(t.store), hash: t.hash });
+  await app.tick(150);
+  if (P.live && !(await P.live(app))) return { app, why: 'its first save didn\'t fail' };
+  return { app, why: P.offered(app) };
+}
+async function suspension(o, how, changes, shard) {
+  const P = PATHS[how], off = [];
+  let cells = 0, applicable = 0;
+  const tpl = await template(o, P);
+  /* The dry run: the read points, and that the write happens when nothing changes. */
+  const { app: app0, why: why0 } = await opened(tpl, P);
+  if (why0) return { cells, applicable, off: [how + ': set-up: ' + why0] };
+  if (P.pre) await P.pre(app0);
+  const p0 = parentPath(app0), before0 = app0.fs.files[p0].t, w0 = guardWatch(app0, namer(app0, o.kid(app0)));
+  await P.go(app0); await quiet(app0, w0); w0.off();
+  const points = w0.st.log.slice(), hasHead = !!headFile(app0, o.kid(app0));
+  if (!points.length) return { cells, applicable, off: [how + ': set-up: no read inside the guard'] };
+  if (app0.fs.files[p0].t === before0) off.push(how + ': with nothing changed, the approval wasn\'t written');
+  const todo = [];
+  for (const ch of changes || Object.keys(CHANGES)) {
+    if (ch === 'the story\'s to-do changed' && !hasHead) continue;
+    for (let k = 0; k < points.length; k++) { cells++; if (points.slice(k).some(q => CHANGES[ch].sees(q.op, q.p))) todo.push([ch, points[k]]); }
+  }
+  /* HA_STRIDE=n runs every n-th applicable cell (10 in the full run, for its time; HA_STRIDE=1 runs every one). */
+  const [si, sn] = shard || [0, 1], stride = Math.max(1, +(process.env.HA_STRIDE || 10)), picked = todo.filter((x, c) => c % stride === 0);
+  for (let c = 0; c < picked.length; c++) {
+    if (c % sn !== si) continue;
+    const [ch, pt] = picked[c], C = CHANGES[ch];
+    applicable++;
+    const tag = [how, ch, 'at ' + pt.op + ' ' + pt.p + ' #' + pt.n].join(' · ');
+    const { app, why } = await opened(tpl, P);
+    if (why) { off.push(tag + ': set-up: ' + why); continue; }
+    if (P.pre) await P.pre(app);
+    const kid = o.kid(app), w = guardWatch(app, namer(app, kid)), hold = gate();
+    let hit = false;
+    w.st.hook = (at) => (at.op === pt.op && at.p === pt.p && at.n === pt.n && !hit ? (hit = true, hold.p) : null);
+    await P.go(app); await app.tick(80);
+    for (let t = 0; t < 40 && !hit; t++) await app.tick(50);
+    if (!hit) { off.push(tag + ': set-up: never reached that read'); hold.open(); w.off(); continue; }
+    const undo = C.make(app, kid);
+    if (!undo) { off.push(tag + ': set-up: the change couldn\'t be made'); hold.open(); w.off(); continue; }
+    const mid = allFiles(app);
+    hold.open(); await quiet(app, w);
+    /* A request the recorder couldn't carry out is answered (its decision, op 'refused'): that is its outcome, not a write. */
+    const refusal = (x) => /^proposals\//.test(x[0]) && (() => { try { return JSON.parse(x[1]).op === 'refused'; } catch (e) { return false; } })();
+    const was = JSON.parse(mid), cur = JSON.parse(allFiles(app));
+    const wrote = cur.filter(x => !refusal(x) && !was.some(y => y[0] === x[0] && y[1] === x[1])).map(x => x[0]).concat(was.filter(y => !cur.some(x => x[0] === y[0])).map(y => '-' + y[0]));
+    if (wrote.length) off.push(tag + ': written: ' + JSON.stringify(wrote));
+    else if (P.kept && !P.kept(app)) off.push(tag + ': the recovery source was removed');
+    w.off(); undo();
+  }
+  return { cells, applicable, points: points.length, todo: todo.length, off };
+}
+module.exports.suspension = suspension;
+module.exports.HOLD_PATHS = Object.keys(PATHS);
+module.exports.HOLD_CHANGES = Object.keys(CHANGES);

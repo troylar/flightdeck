@@ -258,7 +258,7 @@ rule('AB: Pass on a fulfilled spread\'s loop, held at its write while a story\'s
 /* Review round 10 (BB): the same on a fulfilled spread's loop. */
 const BB = require('./app-approval-bb');
 const bbSpread = {
-  prep: async () => { const app = await setup(); await landedSpread(app); await fulfilled(app, ['ABC-102', 'ABC-103']); backToParent(app); await app.tick(80); return app; },
+  prep: async (bo) => { const app = await setup({ boot: bo }); await landedSpread(app); await fulfilled(app, ['ABC-102', 'ABC-103']); backToParent(app); await app.tick(80); return app; },
   kid: (app) => kidOf(app, 'ABC-102'),
   reread: async (app) => { for (let i = 0; i < 3; i++) await refresh(app, 300); backToParent(app); await app.tick(80); }
 };

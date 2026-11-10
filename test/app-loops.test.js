@@ -1129,7 +1129,7 @@ rule('AB: Pass or Waive held at its write while a story\'s run or its version st
    candidate}. Nothing is written and the tentative change is put back. Use copy after Refresh detected an EIO keeps nothing. */
 const BB = require('./app-approval-bb');
 const bbLoop = {
-  prep: async () => { const app = await setup(); await cleared(app); app.click('refresh'); await app.tick(200); return app; },
+  prep: async (bo) => { const app = await setup(bo); await cleared(app); app.click('refresh'); await app.tick(200); return app; },
   kid: (app) => kidPaths(app)[0],
   reread: async (app) => { for (let i = 0; i < 2; i++) { app.click('refresh'); await app.tick(400); } }
 };
