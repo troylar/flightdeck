@@ -224,15 +224,17 @@
       /* What is known about each item (4.0 slice 4: facts), by source, with completeness and freshness. A domain no tool has
          checked says so, never "none"; facts are shown, never acted on here (flightdeck fact sync files them). */
       var FV = ctx.factView ? ctx.factView(r) : null, fNow = ctx.factNow ? ctx.factNow() : Date.now();
-      /* Contrary lines first, then any not to be trusted as they stand, then the rest, then what wasn't checked; past 12, the
-         count left out and Show all, so every line is reachable and the contrary ones are never the part cut. */
+      /* Contrary lines first, then any not to be trusted as they stand, then the rest, then what wasn't checked. Every
+         contrary line shows at once, however many; past 12 of the rest, the count left out and Show all, so every line is
+         reachable and a contrary one is never the part cut. */
       var fMem = (ctx.loopMem ? ctx.loopMem() : {}).facts || Object.create(null), FACT_PAGE = 12;
       var rank = function (f) { return f.contrary || f.state === 'held' || f.state === 'disputed' ? 0 : f.state === 'failed' || f.state === 'future' || f.state === 'stale' ? 1 : f.state === 'unknown' ? 3 : 2; };
       var factLines = function (i) {
         var L = FV && FV.count ? PF.facts.itemFacts(FV, s.id, i.uid, i.attempt || 1, fNow) : [];
         if (!L.length) return '';
         L = L.map(function (f, n) { return { f: f, n: n }; }).sort(function (a, b) { return rank(a.f) - rank(b.f) || a.n - b.n; }).map(function (x) { return x.f; });
-        var all = !!fMem[s.id + '\n' + i.uid], cut = all ? L.length : Math.min(L.length, FACT_PAGE);
+        var nC = L.filter(function (f) { return rank(f) === 0; }).length;
+        var all = !!fMem[s.id + '\n' + i.uid], cut = all ? L.length : nC + Math.min(L.length - nC, FACT_PAGE);
         return '<ul class="fact-lines small">' + L.slice(0, cut).map(function (f) { return '<li class="fact-' + esc(f.state) + (f.contrary ? ' fact-contrary' : '') + '">' + esc(f.words) + '</li>'; }).join('') + '</ul>' +
           (cut < L.length ? '<p class="small">' + (L.length - cut) + ' more <button class="mini" data-act="fact-more" data-id="' + sid + '" data-item="' + esc(i.uid) + '">Show all ' + L.length + ' facts</button></p>' : '');
       };

@@ -137,6 +137,16 @@ rule('The loop says each item\'s facts by source, with completeness and freshnes
   assert.ok(!/data-act="fact-(?!more")/.test(app.html()), 'syncing facts goes through flightdeck fact, not buttons here');
 });
 
+rule('More than 12 contrary lines all show on first display; the limit applies only to the rest', async () => {
+  const app = await setup();
+  for (let i = 0; i < 14; i++) await fact(app, 'blk-' + i, { source: { feed: 'trk' + String(i).padStart(2, '0') }, domain: 'blockers', complete: true, reported: 1, entries: [{ id: 'B-' + i, text: 'Waiting ' + i, state: 'open' }] });
+  for (let i = 0; i < 13; i++) await fact(app, 'prs-' + i, { source: { feed: 'git' + String(i).padStart(2, '0') } });
+  await refresh(app, 300);
+  const m = /<ul class="fact-lines[^"]*">([\s\S]*?)<\/ul>/.exec(app.html()), shown = m ? (m[1].match(/<li[^>]*>[\s\S]*?<\/li>/g) || []).map(txt) : [];
+  assert.strictEqual(shown.filter(l => /^Blockers \(trk\d\d\): 1 open/.test(l)).length, 14, 'every contrary line: ' + shown.join(' | '));
+  assert.strictEqual(shown.length - 14, 12, 'twelve of the rest');
+  assert.ok(/data-act="fact-more"/.test(app.html()), 'the rest past twelve behind Show all');
+});
 rule('Every fact line is reachable: past the first lines a count and Show all; contrary evidence (an open blocker, a dispute) is never the part hidden', async () => {
   const app = await setup(), W = await now(app);
   for (let i = 0; i < 13; i++) await fact(app, 'prs-' + i, { source: { feed: 'git' + String(i).padStart(2, '0') } });
