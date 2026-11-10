@@ -25,8 +25,8 @@
       "reviewed": "slice 6: pending and unreadable records shown before living; receipt head ''"
     },
     "docs/design.md": {
-      "sha256": "fe3054fbae9c8935f87efcab59a6620f085c2c0b052cf76f332054cd1405043d",
-      "reviewed": "LG: declined requests count in the Changes total"
+      "sha256": "3b59806ff205713dc3a113bafb4efc97543f4b96709e835b304c7c382a8d7fe6",
+      "reviewed": "LB: evidence plans held to their checked hashes"
     },
     "docs/evidence.md": {
       "sha256": "2e1e42409ed1e8c6f1604fef8bcce02c45fe5b7858c37e8c4d65fc0bb6fe3560",
@@ -421,8 +421,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "8326c16b893ca5ac5b814c5dea733152c5873408c79c24e8434f7b488456a744",
-      "reviewed": "LD: a failed proposals read is named before living"
+      "sha256": "5116bebcf5d24bcc88d7e72184a8f3f650af28d52b2b3d35a4549f7b3c7d39eb",
+      "reviewed": "LB: evidence plans held to their checked hashes"
     },
     "src/ui/app.js": {
       "sha256": "813c5c73f708fe91a6f093f148b9d7bda601318f5c12d120a018b6b6a4a123d3",

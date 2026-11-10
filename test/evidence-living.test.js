@@ -552,4 +552,32 @@ rule('proposals/ that can\'t be read is named and the pack partial, for a run wi
   if (PY) { const c = checkPack(zip); assert.ok(c.ok, c.out); }
 });
 
+/* LB: an evidence plan packed is the bytes the checked read judged (its SHA-256), and Python reads the packed plan as a plan. */
+rule('An evidence plan changed between the checked read and the bytes packed, at the same length, leaves the pack partial; Python refuses a plan that isn\'t one', async () => {
+  const X = (await roleWorlds()).filter(w => w.role === 'evidence')[0], PF = X.PF;
+  const [proc, id] = X.key.split('/'), one = await PF.repo.readRunOnly(new BytesFS(X.files), proc, id);
+  const planId = 'plan-ev-' + 'a'.repeat(24), path = 'proposals/' + planId + '.json';
+  const plan = PF.plans.make(one.pub, { id: planId, process: proc, title: 'Evidence plan', from: X.key, by: 'person-avery', created: new Date().toISOString() }, true, '4.0.0');
+  const files = Object.assign({}, X.files, { [path]: JSON.stringify(plan, null, 2) + '\n' });
+  const full = await pack(PF, new BytesFS(files), X.key);
+  assert.ok(manifestOf(full.zip).files.some(f => f.path === path), 'set-up: the evidence plan is packed: ' + JSON.stringify(full.res.col.unresolved));
+  const t = files[path];
+  const misses = [];
+  for (const [what, a, b] of [['the app version', '"app": "4.0.0"', '"app": "4.0.1"'], ['the title', 'Evidence plan', 'Evidence slam'], ['the pinned version', '"version": 1', '"version": 0']]) {
+    if (t.indexOf(a) < 0) { misses.push(what + ': set-up: not in the plan: ' + t.slice(0, 400)); continue; }
+    const c = t.replace(a, b);
+    let n = 0;
+    const fsx = new BytesFS(files, { hooks: { blob: (p, x) => { if (p === path && !n++) x.files.set(p, Buffer.from(c)); } } });
+    const { res } = await pack(PF, fsx, X.key);
+    if (!(n >= 1 && res.col.unresolved.some(u => u.indexOf(path) >= 0 && /changed/.test(u)))) misses.push(what + ': the export doesn\'t name it: ' + JSON.stringify(res.col.unresolved).slice(0, 300));
+  }
+  if (PY) {
+    const bad = checkPack(await repacked(PF, full.zip, (e, man, f) => { const x = f(path), o = JSON.parse(e[x.pack]); o.pin.version = 0; e[x.pack] = Buffer.from(JSON.stringify(o, null, 2) + '\n'); forced(man); }));
+    if (bad.ok || bad.out.indexOf(path) < 0) misses.push('Python accepts a packed plan that isn\'t one: ' + bad.out.trim());
+    const ok = checkPack(await repacked(PF, full.zip, (e, man) => forced(man)));
+    if (!ok.ok) misses.push('Python refuses the plan as made: ' + ok.out.trim());
+  }
+  assert.strictEqual(misses.length, 0, misses.join('\n'));
+});
+
 run();

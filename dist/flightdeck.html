@@ -26313,7 +26313,7 @@ PF.repo = (function () {
           Pr.todos.concat(Pr.scopes).forEach(function (x) { if (x && x._file) byFile[x._file] = x; });
           D.files.forEach(function (f) { var path = 'proposals/' + f.file; L.recs[path] = byFile[f.file] || null; L.recTexts[path] = recHashes[f.file] || ''; add(path, { role: 'living', label: f.label }); });
           var planFiles = Object.create(null); (Pr.plans || []).forEach(function (pl) { if (pl && pl._file) planFiles[pl.id] = pl._file; });
-          D.plans.forEach(function (id) { if (planFiles[id]) add('proposals/' + planFiles[id], { role: 'evidence plan', label: 'The evidence plan a to-do was done on' }); else L.missing.push('proposals/' + id + '.json: a to-do was done on this evidence plan, but it isn\'t in the folder as read.'); });
+          D.plans.forEach(function (id) { if (planFiles[id]) { L.runTexts['proposals/' + planFiles[id]] = recHashes[planFiles[id]] || ''; add('proposals/' + planFiles[id], { role: 'evidence plan', label: 'The evidence plan a to-do was done on' }); } else L.missing.push('proposals/' + id + '.json: a to-do was done on this evidence plan, but it isn\'t in the folder as read.'); });
           var LBL = { evidence: { role: 'evidence run', label: 'The run a to-do was done on (its result is the evidence)' }, child: { role: 'child run', label: 'A child run of the run\'s loops' }, fulfills: { role: 'fulfilled run', label: 'A run whose spread a request on this run fulfills' } };
           D.runs.forEach(function (x) {
             var k = x.process + '/' + x.id, path = 'runs/' + k + '/run.json';
@@ -26461,7 +26461,7 @@ PF.repo = (function () {
           var h = (L.recTexts || {})[path];
           if (!was || !h || fileHash(x.text) !== h) lm.push(path + ' changed while the pack was made.');
         });
-        /* Each run the work depends on, read into the pack as it was read for the closure. */
+        /* Each run the work depends on and each evidence plan, read into the pack as it was read for the closure. */
         Object.keys(L.runTexts || {}).sort().forEach(function (path) {
           var x = done[path];
           if (!x || x.gone) { lm.push(path + ' was removed while the pack was made.'); return; }

@@ -283,6 +283,18 @@ def check_living(z, man):
                     out.update(hit or ["?/" + ch["run"]])
         return out
 
+    # Each evidence plan packed reads as a plan, by the shipped checker's rules (PF.plans.planWhy), under its own name.
+    plans_bad = []
+    for f in man["files"]:
+        if f.get("role") == "evidence plan":
+            try:
+                o = load(f["path"])
+            except ValueError:
+                o = None
+            name = f["path"][len("proposals/"):-len(".json")] if f["path"].startswith("proposals/") and f["path"].endswith(".json") else ""
+            if not isinstance(o, dict) or o.get("id") != name or CF.plan_why(o):
+                plans_bad.append(f["path"])
+
     n = 0
     for r in man["runs"]:
         lv = r.get("living")
@@ -310,6 +322,8 @@ def check_living(z, man):
             sys.exit("living: " + r["key"] + " says its work is complete, but an application's request, its authority or a record it saw isn't in the pack")
         if not good_receipt:
             sys.exit("living: " + r["key"] + " says its work is complete, but its receipt isn't in the pack, doesn't say what it ended with, or a record it saw isn't in the pack")
+        if plans_bad:
+            sys.exit("living: " + r["key"] + " says its work is complete, but " + plans_bad[0] + ", an evidence plan it rests on, isn't a plan the app reads")
         # Every run its work depends on, the manifest's and the ones found here, walked the same way, bounded.
         named = {d["key"]: d for d in lv.get("deps") or []}
         todo, done = [r["key"]], set()
