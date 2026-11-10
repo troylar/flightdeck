@@ -3048,9 +3048,9 @@
      drops the save, what only this change touched is put back in this window, so a change made meanwhile (a pause) saves
      alone and never carries it. Returns { fn, opts } for mutateRun. */
   function loopEdit(cx, key, fn, opts) {
-    var before = null, after = null, undone = false, target = null, g0 = gen, fs0 = state.fs;
+    var before = null, after = null, undone = false, target = null, g0 = gen, fs0 = state.fs, ov0 = 0;
     var copy = function (r) { var c = Object.create(null); Object.keys(r).forEach(function (k) { if (k[0] !== '_') c[k] = r[k]; }); return JSON.parse(JSON.stringify(c)); };
-    var wrapped = function (r, m, me, now) { target = r; before = copy(r); var out = fn(r, m, me, now); after = copy(r); return out; };
+    var wrapped = function (r, m, me, now) { target = r; before = copy(r); ov0 = (r._overflow || []).length; var out = fn(r, m, me, now); after = copy(r); return out; };
     var back = function (cur, b, a, deep) {
       var keys = Object.create(null); Object.keys(b).concat(Object.keys(a)).forEach(function (k) { keys[k] = true; });
       Object.keys(keys).forEach(function (k) {
@@ -3067,7 +3067,7 @@
     };
     /* Bound to the very run object it changed, in the folder and generation it changed it in (round 11): never a run found by
        key, which in another folder can be another run of the same name. */
-    var undo = function () { if (undone || !after || !target) return; undone = true; if (gen !== g0 || state.fs !== fs0 || findRun(key) !== target) return; back(target, before, after, false); bump(target.id); };
+    var undo = function () { if (undone || !after || !target) return; undone = true; if (gen !== g0 || state.fs !== fs0 || findRun(key) !== target) return; back(target, before, after, false); if (target._overflow && target._overflow.length > ov0) target._overflow.length = ov0; bump(target.id); };
     /* opts.redo: a change derived from the folder (a to-do's landing) whose save fails is put back, never kept for Try again:
        the next read derives it again, with its authority asked again on the run as it is then. */
     var extra = { still: function () { if (guardOk(cx)) return true; undo(); return false; }, dropUndone: function () { return undone; } };
@@ -3634,9 +3634,10 @@
         var ae = (a.kind === 'compound' ? a.application : a).effect, x = ae.todo ? V2.byTodo[ae.todo] || null : null;
         R.todoLand(rr, m, a, { who: me, now: now, typesHash: types, app: APP_VERSION, todo: x, spread: ae.spread ? V2.bySpread[ae.spread] || null : null });
       }, { background: true, redo: true });
-      /* The run's write asks the guard on the folder read again after its last read (tdFresh): no records, nothing lands. */
-      /* Dropped there, the landing is put back like one the guard drops (opts.redo): never kept for Try again. */
-      ed.opts.prewrite = function () { return tdFresh(lcx).then(function (x) { if (!x || !lcx.todo) { ed.opts.undoFailed(); return false; } lcx.todo.snap = x; return true; }); };
+      /* Every write of the run's save (the candidate, the history, run.json) asks the guard on the folder read again right
+         there (tdFresh, repo.saveRun opts.fresh): no records, nothing more is written. Dropped, the landing is put back like
+         one the guard drops (opts.redo): never kept for Try again; the candidate already written stays for recovery. */
+      ed.opts.fresh = function () { return tdFresh(lcx).then(function (x) { if (!x || !lcx.todo) { ed.opts.undoFailed(); return false; } lcx.todo.snap = x; return true; }); };
       return mutateRun(key, cx.g, ed.fn, ed.opts).then(function (ok) { return ok !== false; });
     });
   }

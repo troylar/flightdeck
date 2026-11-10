@@ -287,4 +287,60 @@ rule('A blocker filed, the evidence made unreadable, or the delegation revoked (
   }
 });
 
+/* KA: a pause at each write of the landing's save chain (held right after the step before it), then a change with no Refresh. */
+function holdAt(app, at) {
+  const fs = app.fs, hold = gate(); let n = 0, on = true;
+  const after = (p) => p.then((r) => hold.p.then(() => r));
+  if (at === 'before candidate') {
+    const read = fs.read.bind(fs);
+    fs.read = (p, o) => on && n === 0 && /runs\/release-readiness\/.*run\.json$/.test(p) && apps(app, '').length ? (n++, hold.p.then(() => read(p, o))) : read(p, o);
+  } else if (at === 'after archive') {
+    const ap = fs.append.bind(fs);
+    fs.append = (p, t) => on && n === 0 && /runs\/release-readiness\/.*history-[^/]*\.jsonl$/.test(p) ? (n++, after(ap(p, t))) : ap(p, t);
+  } else {
+    const w = fs.write.bind(fs);
+    fs.write = (p, t) => on && n === 0 && /runs\/release-readiness\/.*\/candidate-[^/]*\.json$/.test(p) ? (n++, after(w(p, t))) : w(p, t);
+  }
+  return { hold, seen: () => n, off: () => { on = false; } };
+}
+/* The parent's log filled to its limit on disk, so the landing's own log line moves the oldest one to the history file. */
+async function fullLog(app) {
+  const p = parentPath(app), r = JSON.parse(app.fs.files[p].t), at = new Date().toISOString();
+  while (r.log.length < 300) r.log.unshift({ at, by: 'person-avery', what: 'Padding ' + r.log.length });
+  app.fs.files[p] = { t: JSON.stringify(r, null, 2), m: Date.now() };
+  await refresh(app, 300);
+}
+const historyOf = (app) => app.files('runs/release-readiness/').filter((p) => /history-[^/]*\.jsonl$/.test(p)).map((p) => app.fs.files[p].t).join('');
+rule('A blocker, unreadable evidence, the evidence replaced by an open PR, or the delegation revoked, at any write of the landing (before the candidate, after it, after the history, before run.json) lands nothing, with no Refresh in between; with nothing changed it lands', async () => {
+  for (const at of ['before candidate', 'after candidate', 'after archive', 'before final']) {
+    for (const how of ['none', 'blocker', 'malformed', 'replaced', 'revoked']) {
+      const app = await setup(), x = await todo(app), f = await fact(app, 'prs-1', { observedAt: ago(30000), maxAgeSeconds: 120 }), g = await grant(app), tag = at + '/' + how;
+      if (at !== 'before final') await fullLog(app);
+      const S = await suggest(app, x, f.id);
+      const h = holdAt(app, at), hist0 = historyOf(app);
+      await app.fs.write('proposals/' + S.name, app.PF.todos.text(S.file));
+      await refresh(app, 300);
+      assert.strictEqual(h.seen(), 1, tag + ' set-up: held at that write');
+      h.off();
+      const run0 = app.fs.files[parentPath(app)].t;
+      if (how === 'blocker') await fact(app, 'blk-1', { observedAt: ago(10000), source: JIRA, domain: 'blockers', complete: true, reported: 1, entries: [{ id: 'B-1', text: 'Waiting on legal', state: 'open' }] });
+      if (how === 'malformed') app.fs.files['proposals/' + f.name] = { t: '{"kind": "fact", ', m: Date.now() };
+      if (how === 'replaced') await fact(app, 'prs-2', { observedAt: ago(10000), maxAgeSeconds: 120, entries: [{ id: '17', text: 'Fix the login', state: 'open' }] });
+      if (how === 'revoked') {
+        const W = await now(app), rv = app.PF.todos.revokeOf(W.parent, { grant: g.id, by: 'person-avery', key: 'rv-' + hex(6), records: W.d.todos, unread: W.d.todosUnread, people: W.people, at: new Date().toISOString(), app: '4.0.0', now: Date.now() });
+        assert.ok(!rv.why, rv.why);
+        await app.fs.write('proposals/' + rv.name, app.PF.todos.text(rv.file));
+      }
+      h.hold.open(); await app.tick(500);
+      const r = parentRun(app), landed = !!r.living && apps(app, S.id).some((p) => p === 'proposals/' + r.living.head + '.json');
+      assert.strictEqual(landed, how === 'none', tag + ': ' + JSON.stringify(r.living));
+      if (how !== 'none') {
+        assert.strictEqual(app.fs.files[parentPath(app)].t, run0, tag + ': run.json is as it was');
+        assert.ok(!/data-act="retry-save"/.test(app.html()), tag + ': the landing is put back, never kept for Try again');
+        if (at === 'after candidate') assert.strictEqual(historyOf(app), hist0, tag + ': nothing archived');
+      } else if (at !== 'before final') assert.ok(historyOf(app).length > hist0.length, tag + ' set-up: the landing archived its oldest line');
+    }
+  }
+});
+
 run();
