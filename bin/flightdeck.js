@@ -3151,6 +3151,11 @@ async function keepMain(argv, noun) {
     const r = one.run;
     if (!r) return failOut('failed', 'The run ' + proc + '/' + runId + ' couldn\'t be read, so nothing can be kept from it.' + nothing, problems());
     if (newerRun(PF, r)) return failOut('failed', 'The run ' + proc + '/' + runId + ' was made with a newer Flightdeck: ' + r._unrunnable + nothing, problems());
+    /* The source run and its version, judged as runs judges them (PF.appjson.judgeRun, one verdict): any problem is kept and
+       holds the keep before any preview or write. A version that couldn't be read at all is one too. */
+    judgeRun(PF, r, one.pub).forEach((q) => extra.push(q));
+    if (one.pub && one.pub._readFailed) extra.push({ path: R.pubDir(r), kind: 'unreadable', why: 'The version this run was made from couldn\'t be read (' + String(one.pub.why || 'it couldn\'t be read') + '), so what it would keep can\'t be checked.' });
+    if (extra.length) return held('The run this keeps from, or its version, can\'t be trusted as it is.');
     let map; try { map = R.mapOf(r); } catch (e) { return failOut('failed', 'The run\'s checklist can\'t be read here.' + nothing, problems()); }
     if (one.peopleWhy) LG.note('people.json', one.peopleKind || 'unreadable', fileWhy(one.peopleWhy));
     const pw = peopleWhy(one.people);

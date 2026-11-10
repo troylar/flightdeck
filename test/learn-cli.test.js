@@ -165,4 +165,21 @@ rule('What a keep rests on that can\'t be read holds it (exit 4) with the path n
   assert.ok(g.problems.some(x => x.path === 'publications/validate-story' && x.kind === 'nofile'), JSON.stringify(g.problems));
 });
 
+rule('A keep\'s source run is judged as runs judges it: its version unreadable, or a malformed run, holds every keep command with the path named', async () => {
+  for (const how of ['pubread', 'details']) {
+    const F = await folder(), n = ls(F.root).length, rf = path.join(F.root, 'runs', 'release-readiness', 'r-41', 'run.json');
+    if (how === 'pubread') fs.chmodSync(path.join(F.root, 'publications', 'release-readiness', F.parent.info.folder, 'publication.json'), 0);
+    else { const o = JSON.parse(fs.readFileSync(rf, 'utf8')); o.details = []; fs.writeFileSync(rf, JSON.stringify(o, null, 2)); }
+    const runs = json('runs', F.root, '--contract', '2', '--json');
+    assert.strictEqual(runs.code, 4, how + ': set-up: runs names it: ' + JSON.stringify(runs.problems));
+    const where = how === 'pubread' ? 'publications/release-readiness/' : 'runs/release-readiness/r-41/';
+    for (const args of [['todo', 'keep', F.root, PR, '--todo', F.phaseTodo, '--dry-run'], ['todo', 'keep', F.root, PR, '--todo', F.phaseTodo], ['spread', 'keep', F.root, PR, '--spread', F.spread]]) {
+      const x = json(...args, '--json', ...TOOL);
+      assert.deepStrictEqual([how, args[1], x.code, x.complete, ls(F.root).length], [how, args[1], 4, false, n], JSON.stringify([x.data, x.problems]));
+      assert.ok((x.problems || []).some(q => q.path.indexOf(where) === 0), how + ': named: ' + JSON.stringify(x.problems));
+    }
+    if (how === 'pubread') fs.chmodSync(path.join(F.root, 'publications', 'release-readiness', F.parent.info.folder, 'publication.json'), 0o644);
+  }
+});
+
 run();

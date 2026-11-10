@@ -13,16 +13,16 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "fad50349f9f0ee9b3451de7ac320122194071bddfebceb631ad2f7562102de7d",
-      "reviewed": "JC: evidence verdict validates start proof, holds torn plans beside copies, runs reuses one proposals read, view memo keyed on read failures; checked for direct writes and unconditional deletes"
+      "sha256": "f893dc847f32e9d5da00c229efa23ad4d66792b5acb590914c7e33849c1cafce",
+      "reviewed": "MD: keep commands judge the source run and its version; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "e641a0f9f4655b4634b9d2661fe4e4b97222f23ece79f5917e6c99f174218087",
       "reviewed": "4.0 slice 5 commit 6, checklist-linked to-dos: PF.detours (pins, the evidence plan, evidence, provenance), the checklist and evidence fields in to-do records, repo.readEvidence, the app's Run this checklist, Accept and the way back, the living-run skill and command guide sections, the 4.0.0 release entry; checked for direct writes and unconditional deletes: the plan is written create-once through repo.savePlan under the run guard, a done on a run through saveScope with a fresh read before the write, nothing deleted"
     },
     "docs/apps.md": {
-      "sha256": "3d991fa235f0570cd2d3ef33bfaadb02d4d701afe25ce04f2e6a84167d93936f",
-      "reviewed": "JC: evidence verdict validates start proof, holds torn plans beside copies, runs reuses one proposals read, view memo keyed on read failures; checked for direct writes and unconditional deletes"
+      "sha256": "aaf065463f91479d12b6068a47fa585981d10724cf70eeb6fee4cd54d0f30172",
+      "reviewed": "MD: keep commands judge the source run and its version; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
       "sha256": "36023a452bc58849ce25eca93550078d237716bc92bdbd57ac5d011bf4520441",
