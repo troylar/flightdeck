@@ -409,8 +409,8 @@
       "reviewed": "BB: one still per write"
     },
     "src/ui/app.js": {
-      "sha256": "b267511c033e3e9899f609d1762c844db1202b4f09c39a5cffc2ca561382c07c",
-      "reviewed": "BB: approval writes reread their loops' runs"
+      "sha256": "89124c0b8dac5a3efaae27f6e4e733b9e2e47b4d44919216d326ff7b41481c50",
+      "reviewed": "EB: the recorder's loop approval gets the fresh holds"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

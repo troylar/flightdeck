@@ -36205,7 +36205,8 @@ PF.examples = (function () {
     if (q.ops[0] === 'approve') {
       if (!V.rollup.ok) return Promise.resolve({ ok: false, why: 'It can\'t be approved yet: ' + V.rollup.summary + '.' });
       var no = 'The run couldn\'t be changed here; ask again.', tool = typeof q.by === 'string' ? q.by : (q.by && (q.by.tool || q.by.name)) || '';
-      var ea = loopEdit(loopGuard({ q: q, run: key, step: id, view: true }), key, function (rr, m, me, now) {
+      /* Round 11 (EB): the same holds and fresh rereads as the button (loopEdit installs freshHolds for holds). */
+      var ea = loopEdit(loopGuard({ q: q, run: key, step: id, view: true, holds: { step: id } }), key, function (rr, m, me, now) {
         var V2 = loopView(rr, id); if (!V2 || !V2.rollup.ok) { no = 'It can\'t be approved yet: ' + (V2 ? V2.rollup.summary : 'the loop isn\'t readable') + '.'; throw new Error(no); }
         R.done(rr, m, id, me, now, { _loop: { ok: true, snapshot: PF.loop.approval(V2.ledger, V2.rollup, { by: q.as, at: now, onBehalf: tool, request: q.id }) } });
       }, { background: true });

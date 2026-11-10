@@ -160,8 +160,10 @@ test/app-loops.test.js 1/2
 test/app-todos.test.js -
 test/app-todos-ui.test.js -
 test/app-todos-inbox.test.js -
-test/app-spreads.test.js 0/2
-test/app-spreads.test.js 1/2
+test/app-spreads.test.js 0/4
+test/app-spreads.test.js 1/4
+test/app-spreads.test.js 2/4
+test/app-spreads.test.js 3/4
 test/app-spread-deps.test.js 0/4
 test/app-spread-deps.test.js 1/4
 test/app-spread-deps.test.js 2/4

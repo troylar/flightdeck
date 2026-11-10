@@ -25,7 +25,16 @@ const gid = (app) => app.PF.run.mapOf(app.PF.run.sanitize(parentRun(app))).phase
 const WRITES = {
   Pass: async (app) => { app.click('pass', '0'); },
   Waive: async (app) => { app.click('pick', gid(app), { kind: 'waive' }); await app.tick(); app.set('pick-input', 'Agreed with the team'); app.click('waive', '0'); },
-  'loop approve': async (app) => { app.click('loop-approve', 'each'); }
+  'loop approve': async (app) => { app.click('loop-approve', 'each'); },
+  /* Round 11 (EB): a loop approval asked from the command line, carried out by the recorder's window on its next read. */
+  'loop approve request': async (app) => {
+    const PF = app.PF, LP = PF.loop, r = parentRun(app);
+    const c = LP.cleanIntent({ loop: { process: 'release-readiness', run: r.id, step: 'each' }, changes: [{ op: 'approve', as: 'person-avery' }] }, 'eb-' + Math.random().toString(36).slice(2, 10), { name: 'release-helper', version: '1.0' });
+    const d = await PF.repo.loadAll(app.fs, {}), V = LP.view(r, 'each', { records: d.scopes, runs: d.runs });
+    const f = LP.buildRequest(c.intent, { seen: V.ledger.heads, children: [], now: new Date().toISOString(), app: '4.0.0', head: LP.headFor(r) });
+    await app.fs.write('proposals/' + f.id + '.json', LP.text(f));
+    app.click('refresh'); await app.tick(300);
+  }
 };
 const approved = (app) => { const s = parentRun(app).steps.each; return !!s && s.s === 'done'; };
 
@@ -38,8 +47,8 @@ async function matrix(o, only) {
     const tag = how + ', ' + brk + ', ' + wait;
     cases++;
     const app = await o.prep();
-    if (how !== 'loop approve') { app.click('loop-approve', 'each'); await app.tick(250); }
-    if (how === 'loop approve' ? approved(app) : !approved(app) || !/data-act="pass"/.test(app.html())) { off.push(tag + ': set-up: not Ready ' + JSON.stringify([approved(app), /data-act="loop-approve"/.test(app.html()), /data-act="pass"/.test(app.html())])); continue; }
+    if (!/^loop approve/.test(how)) { app.click('loop-approve', 'each'); await app.tick(250); }
+    if (/^loop approve/.test(how) ? approved(app) : !approved(app) || !/data-act="pass"/.test(app.html())) { off.push(tag + ': set-up: not Ready ' + JSON.stringify([approved(app), /data-act="loop-approve"/.test(app.html()), /data-act="pass"/.test(app.html())])); continue; }
     const p = parentPath(app), before = app.fs.files[p].t;
     const w = WAITS[wait](app.fs);
     await WRITES[how](app); await app.tick(80);
@@ -53,7 +62,7 @@ async function matrix(o, only) {
     await o.reread(app);
     if (/id="pick-input"/.test(app.html())) { app.click('unpick'); await app.tick(); }
     let back = /data-act="pass"/.test(app.html());
-    if (how === 'loop approve') { back = !approved(app); app.click('loop-approve', 'each'); await app.tick(250); back = back && approved(app); }
+    if (/^loop approve/.test(how)) { back = !approved(app); app.click('loop-approve', 'each'); await app.tick(250); back = back && approved(app); }
     if (!back) off.push(tag + ': read again, it isn\'t Ready (the tentative change wasn\'t put back)');
   }
   return { cases, off };
