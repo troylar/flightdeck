@@ -3234,7 +3234,8 @@ PF.repo = (function () {
     function childrenOf(self, got) {
       var map = null; try { map = R.mapOf(self); } catch (e) { map = null; }
       var procs = [], out = { runs: [], bad: [] };
-      (map ? map.phases : []).forEach(function (ph) { ph.steps.forEach(function (st) { if (st.type === 'for.each' && st.fields && typeof st.fields.process === 'string' && EV_PROC.test(st.fields.process) && procs.indexOf(st.fields.process) < 0) procs.push(st.fields.process); }); });
+      /* Where the run's own checklist sends them, Fill in included (R.fieldsOf), as the ending guard finds them. */
+      (map ? map.phases : []).forEach(function (ph) { ph.steps.forEach(function (st) { var cp = st.type === 'for.each' ? String(R.fieldsOf(self, st).process || '') : ''; if (cp && EV_PROC.test(cp) && procs.indexOf(cp) < 0) procs.push(cp); }); });
       return procs.reduce(function (q, cp) { return q.then(function () {
         return ro.list('runs/' + cp).then(function (items) {
           return limited(items.filter(function (i) { return i.kind === 'dir' && /^[a-z0-9-]{1,40}$/i.test(i.name); }).map(function (i) { return i.name; }).sort(), 4, function (cid) {

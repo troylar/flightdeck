@@ -455,6 +455,18 @@ rule('A dependency\'s version is packed with the bytes its verdict read: a publi
 
 /* LF: Python holds the closure to the same one bound as the export: every original reached and every dependency run, together,
    at most 5,000. A chain of records seen in turn that no single queue takes past the bound still crosses it in total. */
+/* NE: a loop's children are found where the run's own checklist sends them, its Fill in included (R.fieldsOf), as the
+   ending guard finds them: a child folder under the process Fill in set that can't be read is named, and the pack is partial. */
+rule('Export finds a loop\'s children through the run\'s effective checklist: after Fill in changes the loop\'s process, a child there that can\'t be read is named', async () => {
+  const W = await loopMade(), files = Object.assign({}, W.files), pPath = 'runs/' + W.key + '/run.json', P = JSON.parse(files[pPath]);
+  P.fields = Object.assign({}, P.fields, { each: { process: 'check-story' } });
+  files[pPath] = JSON.stringify(P, null, 2);
+  files['runs/check-story/cs-1/run.json'] = '{ "format": "preflight-run/3", ';
+  const { res } = await pack(W.PF, new BytesFS(files), W.key);
+  assert.strictEqual(res.status, 'partial', JSON.stringify(res.col.unresolved));
+  assert.ok(res.col.unresolved.some((u) => u.indexOf('runs/check-story/cs-1/run.json') >= 0), JSON.stringify(res.col.unresolved));
+});
+
 rule('Python counts every record reached and every dependency run together against the one 5,000 bound', async () => {
   if (!PY) return;
   const W = await made({ todos: 1, pending: true }), PF = W.PF, id = W.pendingId;

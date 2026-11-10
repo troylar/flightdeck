@@ -25,8 +25,8 @@
       "reviewed": "slice 6: pending and unreadable records shown before living; receipt head ''"
     },
     "docs/design.md": {
-      "sha256": "9df7386f9987d2a003b7f3c38d89439e113fcae907e043b82b3c2ee5191d2b40",
-      "reviewed": "NB: one strict run time form (toISOString's, within the date range) in R.sanitize and the pack reader; design.md says so. Checked for direct writes and unconditional deletes"
+      "sha256": "ed74ad9f66176328f1c97d240ac84f56cbcd7b2914f531754c905f6432328fdb",
+      "reviewed": "NE: export finds loop children through R.fieldsOf (Fill in included); design.md 45.5 says so. Checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "8828d4ade3981b60bb45d9f25431de63af40dd49e2385a68bcb06d34ddf5e56c",
@@ -421,8 +421,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "a48f4dfc38cc4977bcf3b09d23c0cb0c79dab87cf9db2998001272d274129ace",
-      "reviewed": "LE: the ending guard judges evidence and fulfilled runs"
+      "sha256": "e794c0d333265e0ba92e04df747f4f238bad4be1f94d6676bcdd7085614b0d7b",
+      "reviewed": "NE: export finds loop children through R.fieldsOf (Fill in included); design.md 45.5 says so. Checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "dec06bb6a11661bd0c9972e8f72a648cd952a2682c51e89ecda809c617bf0d12",
