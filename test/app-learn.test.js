@@ -79,6 +79,22 @@ rule('The to-do opens its correction, which shows its source; only the checklist
   assert.ok(/Kept for next time in release-notes · Applied to draft\./.test(txt(app.html())), 'the to-do says it, linked both ways');
 });
 
+rule('An owner marked inactive in people.json decides nothing kept for next time', async () => {
+  const app = await setup(), id = await added(app, 'Post the release notes');
+  app.click('keep', id, { kind: 'todo' }); await app.tick(120); await refresh(app, 300);
+  const gid = groupId(app);
+  app.click('keep-open', gid, { process: 'release-notes' }); await app.tick(120);
+  app.choose('person-morgan'); await app.tick(80);
+  const ppl = JSON.parse(app.fs.files['people.json'].t);
+  (Array.isArray(ppl) ? ppl : ppl.people).forEach(p => { if (p.id === 'person-morgan') p.inactive = true; });
+  app.fs.files['people.json'] = { t: JSON.stringify(ppl), m: Date.now() };
+  await refresh(app, 300);
+  const n = app.files('corrections/').length;
+  app.click('corr-applied', gid); await app.tick(160);
+  assert.strictEqual(app.files('corrections/').length, n, 'nothing is decided');
+  assert.ok(!new RegExp('data-act="corr-review" data-id="' + gid + '"').test(app.html()), 'no Review for an inactive owner');
+});
+
 rule('Two to-dos kept for the same place in different words join one correction with both wordings, never guessing one', async () => {
   const app = await setup();
   const a = await added(app, 'Post the release notes'), b = await added(app, 'Publish the notes to the wiki');

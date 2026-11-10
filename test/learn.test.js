@@ -175,7 +175,11 @@ rule('Only the checklist\'s active owner decides kept steps; its backup only whi
   const g = W.groups('release-readiness')[0], proc = W.procs['release-readiness'];
   assert.strictEqual(L.ownerWhy(g, proc, PEOPLE, 'person-morgan', false), '');
   assert.ok(/Only the checklist.s owner, Morgan,/.test(L.ownerWhy(g, proc, PEOPLE, 'person-avery', false)));
-  assert.ok(L.ownerWhy(g, proc, PEOPLE, 'person-morgan', true) === '', 'the owner is the owner even while people.json is unread');
+  assert.ok(/people\.json/.test(L.ownerWhy(g, proc, PEOPLE, 'person-morgan', true)), 'not even the owner while people.json can\'t be read');
+  assert.ok(/people\.json/.test(L.ownerWhy(g, proc, [], 'person-morgan', false)), 'nor while it lists nobody');
+  const gone = PEOPLE.map(p => p.id === 'person-morgan' ? Object.assign({}, p, { inactive: true }) : p);
+  assert.ok(/inactive|active/.test(L.ownerWhy(g, proc, gone, 'person-morgan', false)), 'an inactive owner can\'t decide: ' + L.ownerWhy(g, proc, gone, 'person-morgan', false));
+  assert.ok(L.ownerWhy(g, proc, PEOPLE.filter(p => p.id !== 'person-morgan'), 'person-morgan', false), 'nor one people.json no longer lists');
   const kid = world(), ktd = kid.todo('Check the screenshots', { item: { loopStep: 'each', uid: uid(101), attempt: 1 } });
   kid.kept({ todo: ktd }, { place: { after: 'read' } });
   const kg = kid.groups('validate-story')[0], kproc = kid.procs['validate-story'];

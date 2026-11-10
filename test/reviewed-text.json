@@ -25,8 +25,8 @@
       "reviewed": "keeps named by their wording too: another wording is another alternative; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "e26bb21db1cb038379641629f2d27c5eebd19df39702a051767767c449d2313c",
-      "reviewed": "keeps named by their wording too: another wording is another alternative; checked for direct writes and unconditional deletes"
+      "sha256": "a7a72b2a99b59b452d2a25f0b467e81caa8684fae4a5ed750bb6419b42002f7a",
+      "reviewed": "keeps decided only by a listed, active owner read in people.json; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -257,8 +257,8 @@
       "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/learn.js": {
-      "sha256": "ceb8b9d16e4ef9f12a3d89964d47203c0ab75fddafab0eac268033e6c236da2b",
-      "reviewed": "keeps named by their wording too: another wording is another alternative; checked for direct writes and unconditional deletes"
+      "sha256": "84f6dd9c778e2f4f775bb4177defea97918e977f63173f49dfc5773452973ea8",
+      "reviewed": "keeps decided only by a listed, active owner read in people.json; checked for direct writes and unconditional deletes"
     },
     "src/core/library.js": {
       "sha256": "5c8555ff9b8bc67aa90ea4f556bddebbe47d17ae37e296d44b815187d776bd44",

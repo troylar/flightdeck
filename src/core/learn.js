@@ -286,13 +286,18 @@ PF.learn = (function () {
   }
   /* Why this person can't decide a group of keeps ('' when they can, and for every other correction: nothing changes for
      those). Only the checklist's active owner reviews and publishes what was kept for next time: its owner, or its backup
-     while the owner is inactive or gone (PF.skills.signer, on the latest version). */
+     while the owner is inactive or gone (PF.skills.signer, on the latest version). Whoever decides is read in people.json,
+     listed and active, never assumed: while it can't be read or lists nobody, nobody decides. */
   function ownerWhy(g, proc, people, me, peopleUnread) {
     if (!g || !g.keep) return '';
     var pub = proc && proc.latest;
     if (!pub || !pub.map) return 'Its checklist isn\'t published here, so its owner can\'t be told.';
     if (!me) return 'Choose who you are first.';
-    if (PF.skills.signer(pub, people, me, peopleUnread)) return '';
+    if (peopleUnread || !(people || []).length) return 'people.json can\'t be read here, so whether you are this checklist\'s active owner can\'t be told. Nothing kept for next time is decided until it can.';
+    var mine = (people || []).filter(function (p) { return p && p.id === me; })[0];
+    if (!mine) return 'You aren\'t listed in people.json, so you can\'t decide what was kept for next time.';
+    if (mine.inactive) return 'You are marked inactive in people.json, so you can\'t decide what was kept for next time' + (pub.map.meta.backup && pub.map.meta.owner === me ? '; its backup owner can' : '') + '.';
+    if (PF.skills.signer(pub, people, me, false)) return '';
     var o = pub.map.meta.owner, who = ((people || []).filter(function (p) { return p.id === o; })[0] || {}).name || o;
     return 'Only the checklist\'s owner' + (who ? ', ' + who + ',' : '') + ' reviews what was kept for next time' + (pub.map.meta.backup ? ' (or its backup owner while the owner is inactive)' : '') + '.';
   }
