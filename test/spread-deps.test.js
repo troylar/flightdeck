@@ -4,11 +4,12 @@
 // decision and application, the run's own version) broken every way a reader meets (absent, unreadable, malformed, newer, a
 // link), read by every command that depends on it (run, next, todo list, spread list, and sync, include and stop, previewed and
 // asked; a story's own readers for what it fulfils). Every cell: exit 4, the path named, nothing written, and exit 4, an
-// incomplete envelope and a named path always together (the app's cells: test/app-spread-deps.test.js).
+// incomplete envelope and a named path always together (the app's cells: test/app-spread-deps.test.js). Slice 4 adds what a
+// done on evidence depends on to the same table (ID, JC, JD, below).
 'use strict';
 const assert = require('assert'), fs = require('fs'), os = require('os'), path = require('path');
 const { rule, run } = require('./harness');
-const { PF, json, PR, TOOL, spread, decideAll, land } = require('./spread-fixture');
+const { PF, json, PR, TOOL, AT, PEOPLE, spread, decideAll, land } = require('./spread-fixture');
 const T = PF.todos;
 
 const rel = (root, p) => path.relative(root, p).split(path.sep).join('/');
@@ -107,6 +108,101 @@ for (const [kind, mode] of CELLS) {
       if (JSON.stringify(before) !== JSON.stringify(after)) off.push(rd + ' · wrote ' + Object.keys(after).filter(k => before[k] !== after[k]).join(', '));
     }
     if (undo) undo();
+    assert.deepStrictEqual(off, [], kind + ', ' + mode);
+  });
+}
+/* ---- 4.0 slice 4 (ID, JC, JD): what a done on evidence depends on, in the same table. A story's two to-dos rest on one
+   fact its parent's run has about it (ABC-102's PRs, observed twice: the second saw the first): one suggestion accepted and
+   not yet applied, one still waiting for a decision. Every kind of thing they depend on, broken every way, is every reader's
+   problem (the story's run, next, todo list and suggest-done; the facts' run's fact list and sync), and the guards hold:
+   the waiting one can't be decided and the accepted one isn't applied. ---- */
+const FX = PF.facts, BB = { feed: 'bitbucket', site: 'git.example.com' };
+const ago = (ms) => new Date(Date.now() - ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
+const factIn = (root, o) => { const p = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-fin-')), 'in.json'); fs.writeFileSync(p, JSON.stringify({ facts: [o] })); return p; };
+const prsObs = (key, state, hours) => ({ key, loopStep: 'each', item: 'ABC-102', source: BB, domain: 'prs', observedAt: ago(hours * 3600000), complete: true, reported: 1, entries: [{ id: '17', text: 'Fix the login', state }] });
+const FTOOL = ['--tool', 'git-bot@1.0.0'];
+/* What a window reads, for the guards: every run, record and version, through the input builder the app uses. */
+async function windowOf(d) {
+  const all = await PF.repo.loadAll(d, {}), procOf = (id) => { const e = (all.processes || []).filter(p => p.process === id)[0], i = e && e.index; return i ? { latest: i.latest, all: i.all || [], clashes: i.clashes || [], broken: i.broken || [] } : null; };
+  const failed = [].concat(all.unreadable || [], all.nofile || [], all.malformed || [], all.refused || []).map(u => u && u.path).filter(Boolean);
+  return PF.spreads.inputs({ runs: all.runs || [], records: all.todos || [], unread: all.todosUnread || [], scopes: all.scopes || [], scopesUnread: all.scopesUnread || [], people: PEOPLE, procOf, processes: all.processes || [], procsRead: () => true, failed });
+}
+async function factWorld() {
+  const F = await world();
+  const kidTodo = json('todo', 'list', F.root, KID, '--json').data.todos.filter(x => x.state === 'open')[0];
+  assert.ok(kidTodo, 'set-up: the story has its open to-do');
+  const a = json('todo', 'add', F.root, KID, '--phase', 'assess', '--text', 'Merge the fix', '--key', 'id-td', '--json', ...TOOL);
+  assert.strictEqual(a.code, 0, 'set-up: a second to-do ' + JSON.stringify(a).slice(0, 300));
+  await decideAll(F.d, KID, 'person-avery'); await land(F.d, KID);
+  const todos = json('todo', 'list', F.root, KID, '--json').data.todos.filter(x => x.state === 'open').map(x => x.id);
+  assert.strictEqual(todos.length, 2, 'set-up: two open to-dos');
+  assert.strictEqual(json('fact', 'sync', F.root, PR, '--from', factIn(F.root, prsObs('id-prs-1', 'open', 5)), '--json', ...FTOOL).code, 0, 'set-up: the first observation');
+  assert.strictEqual(json('fact', 'sync', F.root, PR, '--from', factIn(F.root, prsObs('id-prs-2', 'merged', 1)), '--json', ...FTOOL).code, 0, 'set-up: the second, which saw the first');
+  const f1 = FX.idFor('git-bot', 'id-prs-1'), f2 = FX.idFor('git-bot', 'id-prs-2');
+  assert.deepStrictEqual(jsonOf(F.root, 'proposals/' + f2 + '.json').seen, [f1], 'set-up: the second saw the first');
+  for (const t of todos) { const s = json('todo', 'suggest-done', F.root, KID, '--todo', t, '--fact', f2, '--json', ...FTOOL); assert.deepStrictEqual([s.code, s.data && s.data.status], [0, 'requested'], 'set-up: suggested ' + JSON.stringify(s).slice(0, 400)); }
+  /* The first suggestion is accepted, and not applied yet. */
+  const W = await windowOf(F.d), kid = W.runs.find(y => y.process + '/' + y.id === KID), its = T.inbox([kid], Object.assign({}, W, { me: 'person-avery', now: Date.now() })).filter(it => it.op === 'done');
+  assert.strictEqual(its.length, 2, 'set-up: both wait for a decision ' + JSON.stringify(its.map(i => i.id)));
+  const first = its.find(it => it.todo === todos[0]), second = its.find(it => it.todo === todos[1]);
+  const dd = T.decide(kid, Object.assign({}, W, { request: first.id, op: 'accept', by: 'person-avery', shown: first.consequence.fingerprint, at: AT, writer: 'w00000a01', rev: '00000a01', app: '4.0.0', now: Date.now() }));
+  assert.ok(!dd.why, 'set-up: accepted: ' + dd.why);
+  await F.d.write('proposals/' + dd.name, T.text(dd.file));
+  return Object.assign(F, { todos, f1, f2, accepted: first.id, waiting: second.id, waitingFp: second.consequence.fingerprint });
+}
+/* The guards as a window asks them, on the folder as it is: the waiting one can't be decided, the accepted one isn't applied. */
+async function guards(F) {
+  const off = [], W = await windowOf(F.d), kid = W.runs.find(y => y.process + '/' + y.id === KID);
+  if (!kid) return off;
+  const o = Object.assign({}, W, { people: PEOPLE, now: Date.now() });
+  const dd = T.decide(kid, Object.assign({}, o, { request: F.waiting, op: 'accept', by: 'person-avery', shown: F.waitingFp, at: AT, writer: 'w00000a02', rev: '00000a02', app: '4.0.0' }));
+  if (!dd.why) off.push('decide · the waiting suggestion could be accepted');
+  const V = T.view(kid, Object.assign({}, o, { records: T.recordsFor(o.records, kid), deps: { records: o.records, unread: o.unread } })), q = V.requests[F.accepted];
+  const plan = q ? T.applyPlan(kid, V, q, o) : { skip: 'gone' };
+  if (plan.write || plan.adopt) off.push('apply · the accepted suggestion would be applied');
+  return off;
+}
+const FACT_KINDS = {
+  'the version its facts\' run runs on': [(F) => files(F.root).find(f => /^publications\/release-readiness\/[^/]+\/publication\.json$/.test(f)), 'both']
+};
+const STORY_READERS = (root, F) => ({
+  'story run': ['run', root, KID, '--contract', '2', '--json'],
+  'story next': ['next', root, KID, '--contract', '2', '--json'],
+  'story todo list': ['todo', 'list', root, KID, '--json'],
+  'story suggest-done --dry-run': ['todo', 'suggest-done', root, KID, '--todo', F.todos[1], '--fact', F.f2, '--dry-run', '--json', ...FTOOL],
+  'story suggest-done': ['todo', 'suggest-done', root, KID, '--todo', F.todos[1], '--fact', F.f2, '--json', ...FTOOL],
+  runs: ['runs', root, '--contract', '2', '--json']
+});
+const FACT_READERS = (root) => ({
+  'fact list': ['fact', 'list', root, PR, '--json'],
+  'fact sync --dry-run': ['fact', 'sync', root, PR, '--from', factIn(root, prsObs('id-prs-3', 'merged', 1)), '--dry-run', '--json', ...FTOOL],
+  'fact sync': ['fact', 'sync', root, PR, '--from', factIn(root, prsObs('id-prs-3', 'merged', 1)), '--json', ...FTOOL]
+});
+/* refused (JC): a fact in a later format with its features gone, still a fact by its kind. */
+const FACT_MODES = Object.assign({}, MODES);
+for (const kind of Object.keys(FACT_KINDS)) for (const mode of Object.keys(FACT_MODES)) {
+  rule('JD: ' + kind + ', ' + mode + ': fact list and sync exit 4 naming it, sync is held, and nothing is written', async () => {
+    if (mode === 'unreadable' && process.getuid && process.getuid() === 0) return;
+    const F = await factWorld(), root = F.root;
+    const [where, whose] = FACT_KINDS[kind], f = where(F);
+    assert.ok(f && fs.existsSync(path.join(root, f)), kind + ': set-up, its file (' + f + ')');
+    const R0 = Object.assign({}, whose === 'both' ? FACT_READERS(root) : {});
+    /* What reads alone, without writing, reads whole before anything is broken. */
+    for (const rd of Object.keys(R0).filter(k => !/^(story suggest-done|fact sync)$/.test(k))) { const r = json(...R0[rd]); assert.ok(r.code === 0 && r.complete !== false, 'set-up: ' + rd + ' reads before it is broken: ' + JSON.stringify(r).slice(0, 400)); }
+    const undo = FACT_MODES[mode](root, f);
+    if (undo === 'n/a') return;
+    const off = [];
+    for (const rd of Object.keys(R0)) {
+      const before = state(root), r = json(...R0[rd]), after = state(root);
+      const named = (r.problems || []).some(p => names(p, f));
+      if (r.code !== 4 || !named) off.push(rd + ' · exit ' + r.code + (named ? '' : ' · not named: ' + JSON.stringify((r.problems || []).map(p => p.path))) + (r.error ? ' · ' + r.error.kind + ': ' + String(r.error.why).slice(0, 100) : ''));
+      const four = r.code === 4, incomplete = r.complete === false, paths = (r.problems || []).length > 0 && (r.problems || []).every(p => p.path);
+      if (four !== incomplete || incomplete !== paths) off.push(rd + ' · exit ' + r.code + ', complete ' + r.complete + ', ' + (r.problems || []).length + ' problems');
+      if (/suggest-done|fact sync/.test(rd) && r.code === 4 && !(r.data && r.data.status === 'held')) off.push(rd + ' · status ' + (r.data && r.data.status));
+      if (rd === 'story todo list' && r.data) { const q = (r.data.requests || []).filter(x => x.op === 'done' && x.status !== 'held'); if (q.length) off.push('todo list · ' + q.map(x => x.status).join(', ')); }
+      if (JSON.stringify(before) !== JSON.stringify(after)) off.push(rd + ' · wrote ' + Object.keys(after).filter(k => before[k] !== after[k]).join(', '));
+    }
+    if (typeof undo === 'function') undo();
     assert.deepStrictEqual(off, [], kind + ', ' + mode);
   });
 }

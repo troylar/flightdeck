@@ -3162,8 +3162,8 @@ async function factMain(argv) {
     if (batch.facts.length > FX.LIMITS.batch) return failOut('invalid', 'One sync takes at most ' + FX.LIMITS.batch + ' facts (this has ' + batch.facts.length + '). Nothing was cut and nothing was written; sync them in parts.');
   }
   const ra = readAdapter(dir, { maxBytes: READ_MAX }), L = repo.ledger(repo.readOnly(ra, 'Reading facts'));
-  let kidProcs = [];
-  const relevant = (p) => p === '' || p === 'people.json' || /^proposals(\/|$)/.test(p) || p.indexOf('runs/' + proc + '/' + runId) === 0 || p === 'runs' || p === 'runs/' + proc || kidProcs.some((k) => p.indexOf('runs/' + k) === 0 || p.indexOf('publications/' + k) === 0);
+  let kidProcs = [], ownPub = '';
+  const relevant = (p) => p === '' || p === 'people.json' || /^proposals(\/|$)/.test(p) || p.indexOf('runs/' + proc + '/' + runId) === 0 || p === 'runs' || p === 'runs/' + proc || (!!ownPub && (p === ownPub || p.indexOf(ownPub + '/') === 0 || ownPub.indexOf(p + '/') === 0)) || kidProcs.some((k) => p.indexOf('runs/' + k) === 0 || p.indexOf('publications/' + k) === 0);
   const more = [];
   const problems = () => { const all = L.problems(), seen = {}; all.forEach((x) => { seen[x.path + '\u0000' + x.kind] = true; }); adapterProblems(ra).forEach((x) => { if (!seen[x.path + '\u0000' + x.kind]) all.push(x); }); return all.filter((x) => relevant(x.path)).concat(more); };
   const done = (data, code) => { const e = A.envelope(eng.version, new Date().toISOString(), problems(), data, C2); return out(e, code != null ? code : e.complete ? 0 : EXIT.partial); };
@@ -3175,6 +3175,12 @@ async function factMain(argv) {
     if (!r) return failOut('failed', 'The run ' + proc + '/' + runId + ' couldn\'t be read, so its facts can\'t be.' + nothing, problems());
     if (newerRun(PF, r)) return failOut('failed', 'The run ' + proc + '/' + runId + ' was made with a newer Flightdeck: ' + r._unrunnable + nothing, problems());
     let map; try { map = R.mapOf(r); } catch (e) { return failOut('failed', 'The run\'s checklist can\'t be read here.' + nothing, problems()); }
+    /* The run's own version, judged as run and next judge it (JD): missing, damaged, newer or unreadable is this command's
+       problem, so a list is incomplete and a sync is held. */
+    if (typeof r.folder === 'string') ownPub = (r.test === true ? 'staged/' : 'publications/') + r.process + '/' + r.folder;
+    const mine = (x) => { if (!more.some((y) => y.path === x.path)) more.push(x); };
+    (one.bad || []).forEach((b) => mine({ path: b.path, kind: b.kind || 'unreadable', why: fileWhy(b.why) }));
+    judgeRun(PF, r, one.pub).forEach(mine);
     /* proposals/ is read once, checked: the loops' scope records and every to-do and fact record alike. */
     const bad = [], got = await repo.readPlans(L.fs, bad, null, true);
     bad.forEach((b) => L.note(b.path, b.kind || 'malformed', fileWhy(b.why)));

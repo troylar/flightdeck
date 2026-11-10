@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "07496c08d576ea33dcc6ee108c97ad166511936e5870e323e1015c3b7810cad0",
-      "reviewed": "Merge of feat/4.0 (slice 3 round 7) into feat/4.0-facts: both sides' texts kept, spread inputs and fact clocks combined; checked for direct writes and unconditional deletes"
+      "sha256": "7a29c308149a4c15f4ffdec1b8c0facb7efb863bd0f23ba6bd52f918ccf2388e",
+      "reviewed": "JD: fact list and sync judge the run's own version; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "cf0a7c0289f08fc6d138b4feaddbdc118b45af451a7732e5ee68c9480c752b38",
@@ -25,8 +25,8 @@
       "reviewed": "Merge of feat/4.0 (slice 3 round 7) into feat/4.0-facts: both sides' texts kept, spread inputs and fact clocks combined; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "46e9195964f0a3e28328c36c4146bafec5fc75933d439dabf8b8d5c8eb916730",
-      "reviewed": "Merge of feat/4.0 (slice 3 round 7) into feat/4.0-facts: both sides' texts kept, spread inputs and fact clocks combined; checked for direct writes and unconditional deletes"
+      "sha256": "b4617e421daaa8142b9cd818cdb40f350945022fb07add2589cf4ea9a61d7b23",
+      "reviewed": "JD: fact list and sync judge the run's own version; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
