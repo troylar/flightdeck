@@ -1,8 +1,8 @@
 {
   "texts": {
     "CHANGELOG.md": {
-      "sha256": "33bc1a4bd33903539727fb311bbef8ea57f9b7a8869e63cb99cebe4bc98e24f7",
-      "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
+      "sha256": "04de130ac82a78155e8e4ab427350889364591df0be624497b8c971764d6719b",
+      "reviewed": "4.0.0 notes name spreads; the living-run skill names no facts; section 45 says slices 1 to 3 are built"
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
@@ -25,8 +25,8 @@
       "reviewed": "readers expect and name every dependency of a spread; a failed dependency holds before a spread is called absent; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "84dbf8c659e3e0fe3ecd2b2dda07cd1fe11e5bff60bd1511251285ac0359ce62",
-      "reviewed": "spread coverage expects what it depends on and one collector names each missing record; checked for direct writes and unconditional deletes"
+      "sha256": "334d686ab6d43360ecccec2cd33b03a5229184ae929b16f04998056b8b282f65",
+      "reviewed": "4.0.0 notes name spreads; the living-run skill names no facts; section 45 says slices 1 to 3 are built"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -85,8 +85,8 @@
       "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
     },
     "example-folder/.flightdeck/skills/flightdeck-living-run/SKILL.md": {
-      "sha256": "bbc890efd2e86a63f468184fb7cfe3867367e2b890e0845928f905a9054990b0",
-      "reviewed": "sync previews name each addition that would send an approval back; the living-run skill asks first"
+      "sha256": "028c5fd3af15367be2b414da02b439dd02b8abe16773e35cdca2f208c90c9ba9",
+      "reviewed": "4.0.0 notes name spreads; the living-run skill names no facts; section 45 says slices 1 to 3 are built"
     },
     "example-folder/.flightdeck/skills/flightdeck-new-checklist/SKILL.md": {
       "sha256": "3a6eb58e264583f36fb072835912f61bbb9a3fcf619f5932b2f0bdea2cfa6099",
@@ -197,8 +197,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "778958a248e342607b13a5b372555b63109ba5e2635444c58f74f20e41342336",
-      "reviewed": "spread coverage expects what it depends on and one collector names each missing record; checked for direct writes and unconditional deletes"
+      "sha256": "a4380933ad3c8386e26464e5df958b5a432b06e570c0bae629d80e45e0d25aa4",
+      "reviewed": "4.0.0 notes name spreads; the living-run skill names no facts; section 45 says slices 1 to 3 are built"
     },
     "src/core/appjson.js": {
       "sha256": "d3bcd6c56e778c6eba888b38b74415cf61bc96905589d51ce8c67b319f63c676",
@@ -397,8 +397,8 @@
       "reviewed": "slice 3 commit 2: flightdeck spread (list/add/sync/include/stop), CLI run/next read loop inputs for spreads, the spread row and Accept N additions in the app, docs, command guide, AGENTS.md row and the living-run skill; sync writes each request once through writeOnce; no direct writes or unconditional deletes"
     },
     "src/releases.json": {
-      "sha256": "67905267b4be119d9ec93343894ef2133d51e84d6d1792b73cba19b81f6c17d8",
-      "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
+      "sha256": "b9832516e1f633ba4e847329f3245685d4ffddd77ea57f2808b6aaa15711e2b1",
+      "reviewed": "4.0.0 notes name spreads; the living-run skill names no facts; section 45 says slices 1 to 3 are built"
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",

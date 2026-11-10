@@ -21,7 +21,7 @@ How the commands work is in *Asking for a run* in the command guide, under To-do
    - move or defer: `todo move ... --todo <to-do id> --to <ticket like ABC-123 | https link | <process>/<run id>>`.
    - `--as <person id>` names the person you ask for. It is who asked, never their approval.
 3. **Say what the preview says** (`data.preview`): where it goes (`gate`), who must approve it (`authority.needs`: a person, or a delegation that covers it), what it would send back for review (`consequence.reopens`) or release (`consequence.releases`), and that the recorder applies it (`queue`).
-   - An addition the person asked for or you found while doing the task they gave you, or a fact (this is done), goes on without asking when the preview neither sends an approval back nor releases work: it is still only a request, and someone who may decide accepts it in Flightdeck.
+   - An addition the person asked for or you found while doing the task they gave you goes on without asking when the preview neither sends an approval back nor releases work: it is still only a request, and someone who may decide accepts it in Flightdeck.
    - Ask the person first before anything that drops or moves work (`consequence.releases`), stops a spread, or sends an approval back for review (`consequence.reopens` isn't empty), and write it only once they agree.
 4. **Write it** with the same command, without `--dry-run`. `requested` means one file was written; `already` means that key's request is already there, and nothing was written. Tell the person it is waiting for approval or queued for the recorder, never that it is done.
 

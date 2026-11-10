@@ -31,6 +31,20 @@
         "title": "Read and ask for to-dos from the command line",
         "now": "flightdeck todo list shows a run's to-dos and the requests on them. flightdeck todo add, done, wont, move and reopen preview with --dry-run, then file one request for a person to decide; the recorder's window applies it. flightdeck run, next and runs show a run's to-dos and what holds its gates. The new living-run skill does this for an assistant.",
         "where": "flightdeck todo, the assistants' skills"
+      },
+      {
+        "kind": "new",
+        "area": "Loops",
+        "title": "Require something of every story in a loop",
+        "now": "A spread asks for one requirement, such as a security sign-off, on every open story of a loop, and on every story or attempt that joins later. Each story's own run decides its part. The loop shows one row per spread with a chip per story, and holds its approval until every story's part is resolved. Accept a spread's plain additions together from the inbox.",
+        "where": "A run's loop, Home's inbox"
+      },
+      {
+        "kind": "new",
+        "area": "Command line",
+        "title": "Add, sync and stop spreads from the command line",
+        "now": "flightdeck spread list shows a run's spreads and each story's state. flightdeck spread add, include and stop preview with --dry-run, then file one request for a person to decide. flightdeck spread sync asks each story's run for its part, one request per story, and names any addition that would send an approval back.",
+        "where": "flightdeck spread, the living-run skill"
       }
     ]
   },

@@ -353,4 +353,17 @@ rule('SJ: the living-run skill lets the assistant add work and facts within its 
   assert.ok(/you found while doing the task/.test(t), 'an addition the assistant found within its task proceeds');
   assert.ok(/Ask the person first[^\n]*drop[^\n]*move[^\n]*stop[^\n]*approval/.test(t), 'consent kept for dropping, moving, stopping and reopening');
 });
+/* Review round 5 (R1–R3): the release text says what this branch ships: spreads in 4.0.0's notes, no facts in the living-run
+   skill (slice 4 adds them), and design section 45 describing slices 1 to 3 as built. */
+rule('R1–R3: 4.0.0\'s notes name spreads, the living-run skill names no facts, and section 45 says slices 1 to 3 are built', () => {
+  const root = path.join(__dirname, '..');
+  const rel = JSON.parse(fs.readFileSync(path.join(root, 'src', 'releases.json'), 'utf8')).filter(x => x.version === '4.0.0')[0];
+  assert.ok(rel && rel.changes.some(c => /spread/i.test(c.title + ' ' + c.now)), 'R1: 4.0.0 names spreads');
+  assert.ok(/spread/i.test(fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8').split('## 3.0.1')[0]), 'R1: and so does CHANGELOG.md');
+  const skill = fs.readFileSync(path.join(root, 'example-folder', '.flightdeck', 'skills', 'flightdeck-living-run', 'SKILL.md'), 'utf8');
+  assert.ok(!/\bfacts?\b/i.test(skill), 'R2: ' + (skill.match(/[^\n]*\bfacts?\b[^\n]*/i) || [])[0]);
+  const d = fs.readFileSync(path.join(root, 'docs', 'design.md'), 'utf8'), s45 = d.slice(d.indexOf('## 45. Living runs'), d.indexOf('### 45.1'));
+  const status = (s45.match(/Status: [^\n]*/) || [''])[0];
+  assert.ok(!/Partly built|Slice 2 adds/.test(status) && /slices? 1[^\n]*3/i.test(status), 'R3: ' + status);
+});
 run();

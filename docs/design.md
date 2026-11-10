@@ -1348,7 +1348,7 @@ Every scope record is checked as a reader will read it before it is filed (`PF.l
 
 ## 45. Living runs: to-dos that change a run while it runs (4.0 slice 1)
 
-Status: **Partly built.** Slice 1 is built: the records, their reduction, authority, holds and the recorder's application. Slice 2 adds the run screen's easy actions, the inbox, `flightdeck todo`, the readers and the checker (below). The design is `flightdeck-living-runs-design` (the plan of record, kept with the project's notes).
+Status: **Built for slices 1 to 3.** Slice 1: the records, their reduction, authority, holds and the recorder's application. Slice 2: the run screen's easy actions, the inbox, `flightdeck todo`, the readers and the checker (below). Slice 3: spreads (45.1). The design is `flightdeck-living-runs-design` (the plan of record, kept with the project's notes).
 
 A living run gains to-dos while it runs: work added to a phase, a step or an item's loop row, then done, declined (Won't do), moved elsewhere (a ticket, a link or another run: a request, compound or application naming its own run as the destination is refused, since that would release the work while it went nowhere) or reopened. A to-do is never stored in `run.json`. Like a loop's scope (§44), it is the reduction of immutable records in `proposals/`:
 
