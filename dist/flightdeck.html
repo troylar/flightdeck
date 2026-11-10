@@ -35994,7 +35994,8 @@ PF.examples = (function () {
   /* Round 14 (HA, HB, HC): the one approval snapshot, taken before every approval write (the candidate, the final write, a
      retry's, and each write of keeping a copy: its backup, the run, removing the copy). It reads, one after another, never
      side by side:
-       1. the run and its version (readRunOnly), which must fit the run's pin (pubFits);
+       1. the run and its version (readRunOnly): the run must be exactly the one this window read or last wrote (its
+          fingerprint and revision), and its version must fit the run's pin (pubFits);
        2. the loops' runs, listed fresh (runs/<child process>/), each with its version: every run there must read cleanly,
           and the loops' runs must be exactly those the holds were worked out from (none new, none gone, each the same
           copy), each on a version that fits its pin; the folder is listed again once they're read, and must list the same runs;
@@ -36032,6 +36033,10 @@ PF.examples = (function () {
     /* 1. The run and its version. */
     return PF.repo.readRunOnly(src, r.process, r.id).then(function (one) {
       if (!clean(one) || !pubFits(r, one.pub) || !pubFits(one.run, one.pub)) return false;
+      /* Round 15 (SA): the run in the folder is exactly the one this window read or last wrote (its fingerprint and its
+         revision): a run handed to another session, or saved by anyone, since then is never written over or judged from
+         this window's copy. */
+      if (!r._fileHash || one.run._fileHash !== r._fileHash || (one.run.rev || 0) !== (r.rev || 0)) return false;
       snap.parent = one.run;
       /* 2. The loops' runs, listed fresh, one process after another. */
       var chain = Promise.resolve(true);
