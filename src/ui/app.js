@@ -3416,7 +3416,18 @@
        stop once any of them changed. Never continued as someone else. */
     var me = state.me, fk = fsKey(), g0 = gen, stopped = 0, here = function () { return fsKey() === fk && gen === g0; }, same = function () { return state.me === me && here(); };
     var list = String(triples || '').split(' ').filter(Boolean).map(function (t) { var p = t.split('|'); return { run: p[0], id: p[1], fp: p[2] }; });
-    var ok = 0, changed = [], failed = [], unsure = [], n = list.length;
+    var ok = 0, changed = [], failed = [], unsure = [], alone = [], n = list.length;
+    /* Still a plain addition, as the batch showed it: not decided two ways meanwhile, nothing else changed in what it does.
+       Asked before each decision and again right before its write; one that isn't is left for its own decision. */
+    var plainNow = function (x) {
+      var r1 = findRun(x.run);
+      if (!r1) return 'its run isn\'t in this folder';
+      var it = PF.todos.inbox([r1], Object.assign(spInputs(), { me: me })).filter(function (y) { return y.id === x.id; })[0];
+      if (!it) return 'it no longer waits for your decision';
+      if (it.dispute) return 'it was decided two ways meanwhile';
+      if (!it.fulfills || it.op !== 'add' || it.landed || it.consequence.reopens.length || it.consequence.releases || it.consequence.fingerprint !== x.fp) return 'it changed since you saw it';
+      return '';
+    };
     /* A decision written whose read-back failed is unconfirmed, not unsaved: read again before saying anything; still unknown,
        it is named, and its retry seed is kept, so accepting again is the same record. */
     var settle = function () {
@@ -3436,10 +3447,11 @@
       if (!here()) return;
       var t = ok === n && !left.length ? 'Accepted ' + n + ' addition' + (n === 1 ? '' : 's') + '. Each run\'s recorder applies its own.' : 'Accepted ' + ok + ' of ' + n + ' additions.';
       if (failed.length) t += ' ' + failed.length + ' couldn\'t be saved (' + failed.slice(0, 5).map(function (f) { return f.why; }).join(' ') + '); they still need you.';
+      if (alone.length) t += ' ' + alone.length + ' need' + (alone.length === 1 ? 's' : '') + ' your decision on ' + (alone.length === 1 ? 'its' : 'their') + ' own: ' + alone.slice(0, 5).map(function (a) { return a.x.run + ' (' + a.x.id + '): ' + a.why; }).join('; ') + (alone.length > 5 ? ' and ' + (alone.length - 5) + ' more' : '') + '.';
       if (changed.length) t += ' ' + changed.length + ' changed since you saw ' + (changed.length === 1 ? 'it and is' : 'them and are') + ' shown again for your decision.';
       if (left.length) t += ' Couldn\'t confirm whether ' + (left.length === 1 ? 'this acceptance was' : 'these acceptances were') + ' saved: ' + left.slice(0, 5).map(function (u) { return u.x.run + ' (' + u.x.id + ')'; }).join(', ') + (left.length > 5 ? ' and ' + (left.length - 5) + ' more' : '') + '. Accepting again is the same record, never a second one.';
       if (stopped) t += ' Stopped: the person, the folder or what was read changed after you clicked, so ' + stopped + ' weren\'t decided.';
-      if (tok === tdTok('dec') && !stopped) mem.tdSaid = t; else say(t, failed.length || changed.length || stopped ? 'warn' : 'good');
+      if (tok === tdTok('dec') && !stopped) mem.tdSaid = t; else say(t, failed.length || changed.length || alone.length || stopped ? 'warn' : 'good');
       render();
     };
     var step = function (i) {
@@ -3447,12 +3459,15 @@
       if (!same()) { stopped = list.length - i; settle(); return; }
       var x = list[i], r = findRun(x.run);
       if (!r || runUnread(r)) { failed.push({ why: (r ? runUnread(r) : 'The run ' + x.run + ' isn\'t in this folder.') }); step(i + 1); return; }
-      var slot = 'dec-all:' + x.run + '|' + x.id, sig = JSON.stringify([x.run, x.id, 'accept', x.fp, me]);
+      var pw = plainNow(x);
+      if (pw) { alone.push({ x: x, why: pw }); step(i + 1); return; }
+      var slot = 'dec-all:' + x.run + '|' + x.id, sig = JSON.stringify([x.run, x.id, 'accept', x.fp, me]), late = '';
       var made = tdKept(slot, sig, function (seed) { return PF.todos.decide(r, Object.assign(spInputs(), { request: x.id, op: 'accept', by: me, shown: x.fp, at: new Date().toISOString(), app: APP_VERSION, writer: seed.writer, rev: seed.rev })); });
       if (made.why) { if (made.renewed) changed.push(x); else failed.push({ why: made.why }); step(i + 1); return; }
       var cx = loopGuard({ run: r.process + '/' + r.id, readable: true }), endBusy = busyStart(), sg = gen;
-      repo.saveScope(cx.fs, made.name, made.file, { still: function () { return same() && guardOk(cx); } }).then(function (res) {
+      repo.saveScope(cx.fs, made.name, made.file, { still: function () { if (!(same() && guardOk(cx))) return false; late = plainNow(x); return !late; } }).then(function (res) {
         endBusy(); if (sg !== gen || !here()) return;
+        if (res && res.dropped && late) { tdSettled(slot, mem); alone.push({ x: x, why: late }); step(i + 1); return; }
         if (res && res.dropped) { failed.push({ why: 'The folder, the person or the run changed before it was written.' }); step(i + 1); return; }
         tdSettled(slot, mem);
         if (res && res.conflict && res.theirs !== PF.todos.text(made.file)) { failed.push({ why: 'A different record is already saved under its name.' }); step(i + 1); return; }

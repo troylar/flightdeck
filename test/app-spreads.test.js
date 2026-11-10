@@ -262,4 +262,30 @@ rule('TF: a batch decision\'s reread that finishes after the folder changed neve
   const shown = txt(app.html() + ov(app) + app.live());
   assert.ok(!/Accepted \d|Couldn't confirm/i.test(shown), 'nothing said here about the old folder\'s batch: ' + shown.slice(0, 400));
 });
+/* Review round 4 (VC): a batch accepts only what is still a plain addition when it decides and when it writes; one decided
+   two ways meanwhile is left for its own decision and named. */
+rule('VC: a dispute that arrives on a batch\'s request mid-batch is never settled by it; it is named and left for its own decision', async () => {
+  const app = await setup();
+  await landedSpread(app);
+  const ps = await sync(app, ['ABC-102', 'ABC-103']);
+  await refresh(app, 300);
+  app.click('td-inbox', ''); await app.tick(20);
+  const bt = /<button[^>]*data-act="td-accept-all"[^>]*>/.exec(ov(app)), d = {};
+  bt[0].replace(/data-(ids)="([^"]*)"/g, (x, k, v) => { d[k] = v.replace(/&quot;/g, '"').replace(/&amp;/g, '&'); });
+  const triples = d.ids.split(' ').map(t => t.split('|')), second = triples[1];
+  const fs = app.fs, write = fs.write.bind(fs); let release = null, paused = false;
+  const held = new Promise((res) => { release = res; });
+  fs.write = (p, t, o) => { if (!paused && /^proposals\/req-.*status-/.test(p)) { paused = true; return held.then(() => write(p, t, o)); } return write(p, t, o); };
+  app.click('td-accept-all', /data-id="([^"]*)"/.exec(bt[0])[1], d); await app.tick(100);
+  assert.ok(paused, 'set-up: the first save waits');
+  /* Two people decide the second request at once, elsewhere. */
+  const T = app.PF.todos, [rk, id, fp] = second, run = { process: rk.split('/')[0], id: rk.split('/')[1] };
+  for (const [op, w] of [['accept', 'wx1'], ['decline', 'wx2']]) { const st = T.buildStatus({ kind: 'decision', proposal: id, run, seen: [id], by: 'person-avery', at: new Date().toISOString(), op, consequence: fp, writer: w, rev: hex(8), app: '4.0.0' }); await write('proposals/' + st.name, T.text(st.file)); }
+  await refresh(app, 300);
+  release(); await app.tick(400);
+  assert.strictEqual(decisions(app).filter(x => x.proposal === id).length, 2, 'no decision of the batch settles it');
+  const said = txt(app.html() + ov(app) + app.live());
+  assert.ok(/Accepted 1 of 2/.test(said) && said.indexOf(id) >= 0, 'named, left for its own decision: ' + said.slice(0, 600));
+  assert.ok(ps.length === 2, 'set-up');
+});
 run();
