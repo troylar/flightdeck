@@ -13,16 +13,16 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "f893dc847f32e9d5da00c229efa23ad4d66792b5acb590914c7e33849c1cafce",
-      "reviewed": "MD: keep commands judge the source run and its version; checked for direct writes and unconditional deletes"
+      "sha256": "51ae3180df5b5c5952e14b37b01dabc3f6730d64c505ac9333bb678977df1d5b",
+      "reviewed": "OD: keep commands name source diagnostics and judge the source again before writing; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "e641a0f9f4655b4634b9d2661fe4e4b97222f23ece79f5917e6c99f174218087",
       "reviewed": "4.0 slice 5 commit 6, checklist-linked to-dos: PF.detours (pins, the evidence plan, evidence, provenance), the checklist and evidence fields in to-do records, repo.readEvidence, the app's Run this checklist, Accept and the way back, the living-run skill and command guide sections, the 4.0.0 release entry; checked for direct writes and unconditional deletes: the plan is written create-once through repo.savePlan under the run guard, a done on a run through saveScope with a fresh read before the write, nothing deleted"
     },
     "docs/apps.md": {
-      "sha256": "aaf065463f91479d12b6068a47fa585981d10724cf70eeb6fee4cd54d0f30172",
-      "reviewed": "MD: keep commands judge the source run and its version; checked for direct writes and unconditional deletes"
+      "sha256": "faf70c2778294c3e3f13982dc9f122428210344e255ba307366feb258d6a7fe2",
+      "reviewed": "OD: keep commands name source diagnostics and judge the source again before writing; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
       "sha256": "7078f2d21ca4b6f8aa6a7f9af462491be13542830a5c1adb8fdddfda98066103",

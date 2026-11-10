@@ -3145,16 +3145,26 @@ async function keepMain(argv, noun) {
   const run0 = { run: { process: proc, id: runId } };
   const held = (why) => done(Object.assign(run0, { status: 'held', preview: why + ' Nothing was written. Check folder availability, then try again.' }), EXIT.partial);
   const nothing = ' Nothing was written.';
+  /* The source run's checked read and its version, judged as runs judges them (PF.appjson.judgeRun, one verdict): every
+     problem by path and kind, from the read's own diagnostics (a run.json missing, malformed, with an unknown field, from a
+     newer Flightdeck, or with a damaged snapshot) to a version that couldn't be read at all. [] when it can be kept from. */
+  const runFile = 'runs/' + proc + '/' + runId + '/run.json';
+  const sourceProblems = (one) => {
+    const out = [], add = (q) => { if (!out.some((x) => x.path === q.path && x.kind === q.kind)) out.push(q); };
+    (one.bad || []).filter((b) => b && typeof b.path === 'string' && b.path.indexOf('runs/' + proc + '/' + runId + '/') === 0).forEach((b) => add({ path: b.path, kind: b.kind || 'unreadable', why: String(b.why || 'It couldn\'t be read.') }));
+    if (one.nofile) add({ path: runFile, kind: 'nofile', why: 'The run this keeps from has no run.json in the team folder, so nothing can be kept from it.' });
+    const r = one.run;
+    if (!r) { if (!out.length) add({ path: runFile, kind: 'unreadable', why: 'The run this keeps from couldn\'t be read, so nothing can be kept from it.' }); return out; }
+    if (newerRun(PF, r)) add({ path: runFile, kind: 'newer', why: 'This run was made with a newer Flightdeck: ' + r._unrunnable });
+    judgeRun(PF, r, one.pub).forEach(add);
+    if (one.pub && one.pub._readFailed) add({ path: R.pubDir(r), kind: 'unreadable', why: 'The version this run was made from couldn\'t be read (' + String(one.pub.why || 'it couldn\'t be read') + '), so what it would keep can\'t be checked.' });
+    return out;
+  };
   try {
     const one = await repo.readRunOnly(LG.fs, proc, runId);
     if (!one.found) return failOut('not-found', 'There\'s no run ' + proc + '/' + runId + ' in the team folder.' + nothing, problems());
     const r = one.run;
-    if (!r) return failOut('failed', 'The run ' + proc + '/' + runId + ' couldn\'t be read, so nothing can be kept from it.' + nothing, problems());
-    if (newerRun(PF, r)) return failOut('failed', 'The run ' + proc + '/' + runId + ' was made with a newer Flightdeck: ' + r._unrunnable + nothing, problems());
-    /* The source run and its version, judged as runs judges them (PF.appjson.judgeRun, one verdict): any problem is kept and
-       holds the keep before any preview or write. A version that couldn't be read at all is one too. */
-    judgeRun(PF, r, one.pub).forEach((q) => extra.push(q));
-    if (one.pub && one.pub._readFailed) extra.push({ path: R.pubDir(r), kind: 'unreadable', why: 'The version this run was made from couldn\'t be read (' + String(one.pub.why || 'it couldn\'t be read') + '), so what it would keep can\'t be checked.' });
+    sourceProblems(one).forEach((q) => extra.push(q));
     if (extra.length) return held('The run this keeps from, or its version, can\'t be trusted as it is.');
     let map; try { map = R.mapOf(r); } catch (e) { return failOut('failed', 'The run\'s checklist can\'t be read here.' + nothing, problems()); }
     if (one.peopleWhy) LG.note('people.json', one.peopleKind || 'unreadable', fileWhy(one.peopleWhy));
@@ -3188,6 +3198,16 @@ async function keepMain(argv, noun) {
       preview: status === 'already' ? 'Already kept for next time. Nothing written.\n\n' + pv.words : title + (status === 'would-keep' ? ' — preview only; no files written.' : ' — kept for next time.') + '\n\n' + pv.words });
     if (K.status === 'already') return done(data('already'));
     if (dryRun) return done(data('would-keep'));
+    /* Right before the write the source run and its version are read and judged again, and the keep is made again from that
+       read: a source broken, replaced or unreadable since the first read writes nothing, and a keep that would now differ is
+       refused, never written from the earlier copy. */
+    const ra2 = readAdapter(dir, { maxBytes: READ_MAX }), LG2 = repo.ledger(repo.readOnly(ra2, 'Reading what to keep')), now1 = await repo.readRunOnly(LG2.fs, proc, runId);
+    const late = now1.found ? sourceProblems(now1) : [{ path: runFile, kind: 'nofile', why: 'The run this keeps from isn\'t in the team folder now.' }];
+    LG2.problems().concat(adapterProblems(ra2)).filter((x) => relevant(x.path)).forEach((q) => { if (!late.some((x) => x.path === q.path && x.kind === q.kind)) late.push(q); });
+    if (late.length) { late.forEach((q) => { if (!extra.some((x) => x.path === q.path && x.kind === q.kind)) extra.push(q); }); return held('The run this keeps from, or its version, changed or can\'t be read now.'); }
+    const K2 = L.prepare(now1.run, { source: noun === 'todo' ? { todo: val['--todo'] } : { spread: val['--spread'] }, text: val['--text'], reason: val['--reason'], place, by: { tool: tm[1], version: tm[2] },
+      records, unread, people, procOf: procOfFrom(d), at: K.record.at, app: eng.version, now: NOW });
+    if (K2.why || K2.status !== K.status || K2.id !== K.id || T.text(K2.file) !== T.text(K.file)) return failOut('failed', 'The run this keeps from changed while it was being read, so this keep isn\'t the one checked.' + nothing + ' Run it again.', problems());
     let res;
     try { res = writeOnce(dir, ['proposals'], K.name, T.text(K.file)); } catch (e) { return failOut('failed', 'Could not confirm whether the keep was saved. Try again: the same keep is never filed twice. (' + (e && e.message || String(e)) + ')', problems()); }
     if (res !== 'written') {

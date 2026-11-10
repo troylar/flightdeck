@@ -182,4 +182,42 @@ rule('A keep\'s source run is judged as runs judges it: its version unreadable, 
   }
 });
 
+/* OD: every way the source run fails its checked read is named (path and kind) with exit 4, in preview and write; and the
+   source is read and judged again right before the write, so one broken while proposals/ is read writes nothing. */
+rule('A keep names every problem of its source run with exit 4, and judges the source again right before writing', async () => {
+  const runsKind = (F) => json('runs', F.root, '--contract', '2', '--json');
+  for (const how of ['malformed', 'unknown', 'newer', 'norun', 'snapshot']) {
+    const F = await folder(), n = ls(F.root).length, rf = path.join(F.root, 'runs', 'release-readiness', 'r-41', 'run.json');
+    const o = JSON.parse(fs.readFileSync(rf, 'utf8'));
+    if (how === 'malformed') fs.writeFileSync(rf, '{ "format": ');
+    if (how === 'unknown') { o.zzzUnknown = 1; fs.writeFileSync(rf, JSON.stringify(o, null, 2)); }
+    if (how === 'newer') { o.format = 'preflight-run/99'; fs.writeFileSync(rf, JSON.stringify(o, null, 2)); }
+    if (how === 'norun') { fs.writeFileSync(path.join(path.dirname(rf), 'notes.txt'), 'x'); fs.unlinkSync(rf); }
+    if (how === 'snapshot') { o.snapshot = 42; fs.writeFileSync(rf, JSON.stringify(o, null, 2)); }
+    const runs = runsKind(F), want = (runs.problems || []).filter(q => q.path.indexOf('runs/release-readiness/r-41/') === 0).map(q => q.kind);
+    assert.ok(runs.code === 4 && want.length, how + ': set-up: runs names it: ' + JSON.stringify([runs.code, runs.problems]));
+    const after = ls(F.root).length;
+    for (const args of [['todo', 'keep', F.root, PR, '--todo', F.phaseTodo, '--dry-run'], ['todo', 'keep', F.root, PR, '--todo', F.phaseTodo], ['spread', 'keep', F.root, PR, '--spread', F.spread]]) {
+      const x = json(...args, '--json', ...TOOL);
+      assert.deepStrictEqual([how, args[1], x.code, x.complete, ls(F.root).length], [how, args[1], 4, false, after], JSON.stringify([x.error, x.problems]));
+      assert.ok((x.problems || []).some(q => q.path.indexOf('runs/release-readiness/r-41/') === 0 && want.indexOf(q.kind) >= 0), how + ': named as runs names it: ' + JSON.stringify([x.problems, want]));
+    }
+    void n;
+  }
+  /* Broken while proposals/ is being read (after the first judgment): judged again at the write, nothing is written. */
+  for (const how of ['run', 'pub']) {
+    const F = await folder(), rf = path.join(F.root, 'runs', 'release-readiness', 'r-41', 'run.json'), pf = path.join(F.root, 'publications', 'release-readiness', F.parent.info.folder, 'publication.json');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-keep-hook-')), hook = path.join(dir, 'hook.js');
+    fs.writeFileSync(hook, "const fs = require('fs'), open = fs.openSync, rd = fs.readdirSync; let done = false; const hit = (p) => { if (done || String(p).indexOf('/proposals') < 0) return; done = true; if (process.env.KEEP_HOW === 'run') fs.writeFileSync(process.env.KEEP_RUN, '{ broken'); else fs.chmodSync(process.env.KEEP_PUB, 0); };" +
+      " fs.openSync = function (p) { hit(p); return open.apply(this, arguments); }; fs.readdirSync = function (p) { hit(p); return rd.apply(this, arguments); }; const pr = fs.promises, prd = pr.readdir, pop = pr.open, prf = pr.readFile; pr.readdir = function (p) { hit(p); return prd.apply(this, arguments); }; pr.open = function (p) { hit(p); return pop.apply(this, arguments); }; pr.readFile = function (p) { hit(p); return prf.apply(this, arguments); };");
+    const before = fs.readdirSync(path.join(F.root, 'proposals')).length;
+    let code = 0, text = '';
+    try { text = execFileSync(process.execPath, ['-r', hook, BIN, 'todo', 'keep', F.root, PR, '--todo', F.phaseTodo, '--json', ...TOOL], { encoding: 'utf8', stdio: 'pipe', env: Object.assign({}, process.env, { KEEP_HOW: how, KEEP_RUN: rf, KEEP_PUB: pf }) }); } catch (e) { code = e.status; text = String(e.stdout); }
+    if (how === 'pub') fs.chmodSync(pf, 0o644);
+    const x = JSON.parse(text);
+    assert.deepStrictEqual([how, code, x.complete, fs.readdirSync(path.join(F.root, 'proposals')).length], [how, 4, false, before], 'judged again at the write: ' + JSON.stringify([x.data && x.data.status, x.problems]));
+    assert.ok((x.problems || []).some(q => q.path.indexOf(how === 'run' ? 'runs/release-readiness/r-41/' : 'publications/release-readiness/') === 0), how + ': named: ' + JSON.stringify(x.problems));
+  }
+});
+
 run();

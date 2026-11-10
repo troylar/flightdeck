@@ -802,7 +802,8 @@ Only the checklist's active owner (or its backup while the owner is inactive) re
 
 | Situation | What it says |
 |---|---|
-| A record, people.json or the items' checklist can't be read; the run kept from, or its version, isn't trusted as `runs` judges it (its version unreadable, a malformed run) | `held` (exit 4), each named in `problems`: nothing was written |
+| A record, people.json or the items' checklist can't be read; the run kept from, or its version, isn't trusted as `runs` judges it (its version unreadable, a malformed run, its `run.json` missing, not JSON, with an unknown field, from a newer Flightdeck or with a damaged snapshot), in the preview and the write alike | `held` (exit 4), each named in `problems` by path and kind, as `run` names it: nothing was written |
+| The run kept from, or its version, broke or became unreadable after the first read: right before the write both are read and judged again, and the keep is made again from that read | `held` (exit 4) with the path named, or `failed` (exit 1) when the keep it would make now differs: nothing was written |
 | The same place and words, kept with another reason | `key-taken` |
 | No such to-do or spread, a place not in that checklist, a step text a checklist can't hold; a place that already has 500 keeps (the most one correction holds: the owner reviews those first) | `invalid`, with why |
 | `--key`, both `--phase` and `--after` | `usage` |
