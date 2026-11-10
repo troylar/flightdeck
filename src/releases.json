@@ -45,6 +45,14 @@
         "title": "Add, sync and stop spreads from the command line",
         "now": "flightdeck spread list shows a run's spreads and each story's state. flightdeck spread add, include and stop preview with --dry-run, then file one request for a person to decide. flightdeck spread sync asks each story's run for its part, one request per story, and names any addition that would send an approval back.",
         "where": "flightdeck spread, the living-run skill"
+      },
+      {
+        "kind": "improved",
+        "area": "Loops",
+        "title": "A loop's approval stays put while a story's run can't be read",
+        "before": "In 3.0, when a story's run or the version it runs on couldn't be read, the loop read that story's result as none and sent its approval back for review.",
+        "now": "The approval stays as it is and the loop's gate waits until the run and its version read again. If nothing changed, it stays approved; if the result changed, it goes back for review then. This applies to every loop, with or without spreads or to-dos.",
+        "where": "A run's loop"
       }
     ]
   },

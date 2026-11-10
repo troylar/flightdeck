@@ -1,8 +1,8 @@
 {
   "texts": {
     "CHANGELOG.md": {
-      "sha256": "04de130ac82a78155e8e4ab427350889364591df0be624497b8c971764d6719b",
-      "reviewed": "YC: child readers judge the full parent read"
+      "sha256": "a05a9d0afb6491b4af2b7e56e4e69aa68c1b4ada644dfb6975f7c83c9dbbc145",
+      "reviewed": "4.0.0 notes: a loop's approval stays put while a run can't be read"
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
@@ -397,8 +397,8 @@
       "reviewed": "slice 3 commit 2: flightdeck spread (list/add/sync/include/stop), CLI run/next read loop inputs for spreads, the spread row and Accept N additions in the app, docs, command guide, AGENTS.md row and the living-run skill; sync writes each request once through writeOnce; no direct writes or unconditional deletes"
     },
     "src/releases.json": {
-      "sha256": "b9832516e1f633ba4e847329f3245685d4ffddd77ea57f2808b6aaa15711e2b1",
-      "reviewed": "YC: child readers judge the full parent read"
+      "sha256": "4ec3e36d7c89c098a784eba4d47e17e80b398b6142c4eb4850388bb7e7646d4d",
+      "reviewed": "4.0.0 notes: a loop's approval stays put while a run can't be read"
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",
