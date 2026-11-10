@@ -25,8 +25,8 @@
       "reviewed": "MD: keep commands judge the source run and its version; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "55899b4bd81e58ab8afa1838b86eaff13887d489af7ad763ebc41a774ced4104",
-      "reviewed": "OE: keep wordings paged 50 at a time with Show more, keyed by the keep that first suggested each; checked for direct writes and unconditional deletes"
+      "sha256": "7078f2d21ca4b6f8aa6a7f9af462491be13542830a5c1adb8fdddfda98066103",
+      "reviewed": "OC: whole-pin verdict and plan copy names via the loader's rule; read-only; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -225,8 +225,8 @@
       "reviewed": "OB: per-place keep queue and Web Lock; guarded keep withdrawal removes one record only under writeGuard after fresh reads; checked for direct writes and unconditional deletes"
     },
     "src/core/detours.js": {
-      "sha256": "3c1c680e8d52f3833c13e4149dffdf0ddb5f88c310f5a5ab7342520f98d9bdb6",
-      "reviewed": "MC: evidence compares the whole pin, keeps plan link refusals, holds on a proposals read failure; checked for direct writes and unconditional deletes"
+      "sha256": "3ee03b07b0b20d8a7e5014a9dd73b554c82c1f94beb5f0fcdd54a2ecaa05e865",
+      "reviewed": "OC: whole-pin verdict and plan copy names via the loader's rule; read-only; checked for direct writes and unconditional deletes"
     },
     "src/core/envelope.js": {
       "sha256": "55710b76ab73ab450583c0d6262a25ac9b05004dd8cce86cdf67c8810f46dbd2",
@@ -293,8 +293,8 @@
       "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "src/core/plans.js": {
-      "sha256": "48c802da256f30e94625af34e3f2b89135ba8984b40a666be1e43cce636e6de2",
-      "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
+      "sha256": "133e152a511a196f36c99673463f89da9679c1348e41ceb5d93727a082555efc",
+      "reviewed": "OC: whole-pin verdict and plan copy names via the loader's rule; read-only; checked for direct writes and unconditional deletes"
     },
     "src/core/practice.js": {
       "sha256": "1792de95518d3a1f8670fdec6514c4c1684ead06a62f0881bb7d9fb7500a9142",
@@ -417,12 +417,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "b3d974013c5da961124d309af210adaacdea34959d0acd9f3be798b9bfe3356d",
-      "reviewed": "OB: per-place keep queue and Web Lock; guarded keep withdrawal removes one record only under writeGuard after fresh reads; checked for direct writes and unconditional deletes"
+      "sha256": "517e8efdfdf6fc4b80eb3fae9c9a2a2bae508b766dccb86fa7fbe5f25f570dae",
+      "reviewed": "OC: whole-pin verdict and plan copy names via the loader's rule; read-only; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "6842932c11517cd2dec04c7c4cf6a086467fb7bfa71002d180fc748068b4bf07",
-      "reviewed": "OB: per-place keep queue and Web Lock; guarded keep withdrawal removes one record only under writeGuard after fresh reads; checked for direct writes and unconditional deletes"
+      "sha256": "405b353c3a7b4965924f989c8831d89408da6ae0a5cd179d68ceabd2fddc9323",
+      "reviewed": "OC: whole-pin verdict and plan copy names via the loader's rule; read-only; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

@@ -775,7 +775,7 @@ PF.repo = (function () {
       /* unnamed (2.1.1): a torn file whose name isn't a plan's or request's shape (PF.plans.namesPlan) and starts with no
          readable plan's ID could be a renamed decision on any plan. It holds none, and Folder health names it on its own. */
       var planIds = (r[6].plans || []).map(function (p) { return p.id; });
-      var named = function (n) { return PF.plans.namesPlan(String(n)) || planIds.some(function (id) { if (typeof id !== 'string' || !id || String(n).indexOf(id) !== 0) return false; var c = String(n).charAt(id.length); return c === '.' || c === ' ' || c === '-' || c === '('; }); };
+      var named = function (n) { return PF.plans.namesPlan(String(n)) || planIds.some(function (id) { return typeof id === 'string' && PF.plans.fileFor(n, id); }); };
       var planUnread = 'proposals' in failed ? [] : (r[6].torn || []).filter(function (u) { return !u.link && !u.deep; }).map(function (u) { var x = { _unread: true, path: u.path, _file: u._file, why: u.why, kind: u.parsed ? 'ignored' : 'unreadable' }; if (!u.parsed && !named(u._file)) x.unnamed = true; return x; });
       /* A file refused here (a newer Flightdeck's, not in its format, or a format that can't be read at all) holds its plan as
          one still arriving does, by its name alone (groupPlans: <plan>.status-…), whatever it says it is. A refused plan file
@@ -2729,10 +2729,10 @@ PF.repo = (function () {
     /* A link where a plan file would be is refused like one that can't be read (kind link), never left out (MC). */
     var holds = (got.torn || []).filter(function (u) { return !u.deep; }).map(function (u) { return { path: u.path, _file: u._file, kind: u.link ? 'link' : 'unreadable' }; })
       .concat((got.refused || []).map(function (x) { return { path: x.path, _file: String(x.path).slice('proposals/'.length), kind: x.kind, needs: x.needs || '' }; }));
-    var plans = groupPlans((got.plans || []).map(function (p) { return Object.assign({}, p); }), got.statuses || [], holds), keys = Object.keys(want).sort(), runs = [], unreadRuns = [];
+    var plans = groupPlans((got.plans || []).map(function (p) { return Object.assign({}, p); }), got.statuses || [], holds), keys = Object.keys(want).sort(), runs = [], unreadRuns = [], pubs = Object.create(null);
     /* A run asked for by name (also: --evidence-run, the run about to be written on) is named like one a record names once an
        evidence plan started it, or while an evidence plan's file or decision can't be read (which runs it started isn't known). */
-    var evHeld = holds.some(function (h) { return /^plan-ev-[0-9a-f]{24}\./.test(String(h._file || '')); });
+    var evHeld = holds.some(function (h) { return /^plan-ev-[0-9a-f]{24}(\.| \(|-[A-Z])/.test(String(h._file || '')); });
     (also || []).forEach(function (r) {
       if (!r || typeof r.process !== 'string' || typeof r.id !== 'string') return;
       if (evHeld || plans.some(function (p) { return p && p.process === r.process && /^plan-ev-/.test(String(p.id)) && ((p._starts || []).indexOf(r.id) >= 0 || (p._statusHeld || []).length || p._copiesDiffer); })) named[r.process + '/' + r.id] = true;
@@ -2748,6 +2748,8 @@ PF.repo = (function () {
             if (one.pub && one.pub._readFailed) jp.push({ path: PF.run.pubDir(one.run), kind: 'unreadable', why: 'The version the run a to-do\'s evidence names couldn\'t be read (' + String(one.pub.why || 'it couldn\'t be read') + '), so what rests on it can\'t be checked.' });
             /* The whole pin (MC): a version whose step types changed from the run's, even one that verifies, is never evidence. */
             var dq = PF.detours.versionDrift(one.run, one.pub); if (dq) jp.push(dq);
+            /* The version as read now, for the whole-pin verdict (PF.detours.pinWhy), whether or not the run carries every field. */
+            if (one.pub && one.pub.info) pubs[k] = { folder: one.pub.info.folder, version: one.pub.info.version, mapHash: one.pub.info.mapHash, typesHash: one.pub.info.typesHash };
             if (!jp.length) { runs.push(one.run); return; }
             unreadRuns.push(k); jp.forEach(function (q) { problemAt(k, q.path, q.kind, q.why); }); return;
           }
@@ -2759,7 +2761,7 @@ PF.repo = (function () {
         }, function (e) { unreadRuns.push(k); problem(k, errKind(e), why(e)); });
       });
     }, Promise.resolve()).then(function () {
-      var ev = { runs: runs, unreadRuns: unreadRuns, plans: plans, holds: holds, problems: problems, paths: keys.map(function (k) { return 'runs/' + k; }) };
+      var ev = { runs: runs, unreadRuns: unreadRuns, plans: plans, holds: holds, problems: problems, paths: keys.map(function (k) { return 'runs/' + k; }), pubs: pubs };
       planIds.sort().forEach(function (id) {
         var held = PF.detours.planHeld(ev, id);
         if (held.length) held.forEach(function (q) { problemAt(null, q.path, q.kind, q.why); });

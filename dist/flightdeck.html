@@ -16454,6 +16454,14 @@ PF.plans = (function () {
      through the plans that read. */
   var NAMED = /^(plan-[a-z0-9-]{1,100}|req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})(\.| \(|-[A-Z])/;
   function namesPlan(name) { return typeof name === 'string' && NAMED.test(name); }
+  /* Whether a file in proposals/ is this plan's, under every name the loader knows for it: the plan's own, a decision on it
+     (.status-…), or a OneDrive copy (" (1)", "-COMPUTER"), each followed by anything (the loader's rule, one function). */
+  function fileFor(name, id) {
+    name = String(name || ''); id = String(id || '');
+    if (!id || name.indexOf(id) !== 0) return false;
+    var c = name.charAt(id.length);
+    return c === '.' || c === ' ' || c === '-' || c === '(';
+  }
   /* A plan/2 or plan-status/2, by its dispatch field. */
   function isExact(o) { return isObj(o) && (o.format === FORMAT2 || o.format === STATUS2); }
   /* An exact version folder: { folder, version } and, in a plan's pin, its two fingerprints. */
@@ -16577,7 +16585,7 @@ PF.plans = (function () {
     var what = d.status === 'accepted' ? 'started' + (typeof d.run === 'string' && d.run ? ' (run ' + d.run + ')' : '') : d.status === 'declined' ? 'declined' : 'decided on';
     return 'Decided on an earlier version of this plan: ' + what + ' by ' + (who ? who.name : d.by ? String(d.by) : 'someone') + (d.at ? ', ' + PF.util.when(d.at) : '') + '.';
   }
-  return { FORMAT2: FORMAT2, STATUS2: STATUS2, namesPlan: namesPlan, heldWhy: planHeldWhy, earlierWords: earlierWords, clean: clean, planWhy: planWhy, statusWhy: statusWhy, familyOf: familyOf, isExact: isExact, make: make, decision: decision, pick: pick };
+  return { FORMAT2: FORMAT2, STATUS2: STATUS2, namesPlan: namesPlan, fileFor: fileFor, heldWhy: planHeldWhy, earlierWords: earlierWords, clean: clean, planWhy: planWhy, statusWhy: statusWhy, familyOf: familyOf, isExact: isExact, make: make, decision: decision, pick: pick };
 })();
 
 /* Requests from other apps (docs/apps.md, docs/design.md section 26): `flightdeck plan request` asks for a run by writing a
@@ -20420,7 +20428,8 @@ PF.detours = (function () {
   function planHeld(ev, id) {
     var out = [], seen = Object.create(null), push = function (path, kind, why) { if (!seen[path + '\u0000' + kind]) { seen[path + '\u0000' + kind] = true; out.push({ path: path, kind: kind, why: why }); } };
     var why = 'This file is part of a to-do\'s evidence plan (' + id + ') and can\'t be read, so which run it started isn\'t known.';
-    (ev && ev.holds || []).forEach(function (h) { var f = String(h._file || ''); if (f === id + '.json' || f.indexOf(id + '.') === 0) push(h.path, h.kind === 'newer' || h.kind === 'unreadable' || h.kind === 'link' ? h.kind : 'malformed', why); });
+    /* Every name the loader knows for the plan's files (PF.plans.fileFor): its own, its decisions and its OneDrive copies. */
+    (ev && ev.holds || []).forEach(function (h) { var f = String(h._file || ''); if (PF.plans.fileFor(f, id)) push(h.path, h.kind === 'newer' || h.kind === 'unreadable' || h.kind === 'link' ? h.kind : 'malformed', why); });
     var p = ev ? planIn(ev, id) : null;
     if (p) {
       (p._statusHeld || []).forEach(function (h) { push(h.path, h.kind === 'newer' ? 'newer' : h.kind === 'unreadable' ? 'unreadable' : 'malformed', why); });
@@ -20428,10 +20437,32 @@ PF.detours = (function () {
     }
     return out;
   }
+  /* The whole pin (OC), field by field: the to-do's (c) against its plan's and against each started run's version as read
+     now (ev.pubs, or the app's ev.pubOf), whether or not the run carries the field. A problem ({ path, kind, why }) or null.
+     A plan for another checklist or folder is said by startsOf, not here. */
+  var PIN = ['folder', 'version', 'mapHash', 'typesHash'];
+  function pinDiff(c, x) { if (!x) return 'pin'; for (var i = 0; i < PIN.length; i++) if (x[PIN[i]] !== c[PIN[i]]) return PIN[i]; return ''; }
+  function pubAt(ev, process, id) { return !ev ? null : typeof ev.pubOf === 'function' ? ev.pubOf(process, id) : ev.pubs ? ev.pubs[process + '/' + id] || null : null; }
+  function pinWhy(c, p, ev) {
+    if (!c || !p || p.process !== c.process || !p.pin || p.pin.folder !== c.folder) return null;
+    var d = pinDiff(c, p.pin);
+    if (d) return { path: 'proposals/' + p.id + '.json', kind: 'unusable', why: 'The evidence plan ' + p.id + ' is pinned to another version than its to-do (its ' + d + ' differs), so no run it started is evidence for it.' };
+    var starts = p._starts || [];
+    for (var i = 0; i < starts.length; i++) {
+      var pub = pubAt(ev, c.process, starts[i]), e = pub ? pinDiff(c, pub) : '';
+      if (e) return { path: 'publications/' + c.process + '/' + c.folder + '/publication.json', kind: 'unusable', why: 'The version ' + c.process + ' ' + c.folder + ' as read now isn\'t the one its to-do pinned (its ' + e + ' differs), so no run of it is evidence for it.' };
+    }
+    return null;
+  }
   /* The evidence-plan problems of a run's checklist-linked to-dos (a view's to-dos): what run, next and todo list name. */
   function planProblems(r, todos, ev) {
-    var out = [];
-    (todos || []).forEach(function (x) { if (x && x.checklist) planHeld(ev, planOf(r, x)).forEach(function (q) { if (!out.some(function (o) { return o.path === q.path && o.kind === q.kind; })) out.push(q); }); });
+    var out = [], add = function (q) { if (!out.some(function (o) { return o.path === q.path && o.kind === q.kind; })) out.push(q); };
+    (todos || []).forEach(function (x) {
+      if (!x || !x.checklist) return;
+      var id = planOf(r, x);
+      planHeld(ev, id).forEach(add);
+      var pw = ev ? pinWhy(x.checklist, planIn(ev, id), ev) : null; if (pw) add(pw);
+    });
     return out;
   }
   /* The runs a to-do's evidence plan started, or why that can't be known: { plan, starts } | { why, held? }. */
@@ -20445,6 +20476,8 @@ PF.detours = (function () {
     if (!p) return { why: 'No run of ' + c.process + ' was started for this to-do yet (Run this checklist).' };
     if ((p._statusHeld || []).length || p._copiesDiffer) return { why: 'Its plan (' + id + ') has a decision or a copy that can\'t be read, so which run it started isn\'t known.', held: true };
     if (p.process !== c.process || !p.pin || p.pin.folder !== c.folder) return { why: 'Its plan (' + id + ') isn\'t for ' + c.process + ' ' + c.folder + '.' };
+    var pw = pinWhy(c, p, ev);
+    if (pw) return { why: pw.why, held: true };
     return { plan: p, starts: (p._starts || []).filter(function (s) { return typeof s === 'string' && s; }) };
   }
   /* A done on one run's result for a to-do (todo suggest-done --evidence-run, Accept on the run screen): { evidence, run,
@@ -20503,7 +20536,7 @@ PF.detours = (function () {
   function evidenceWords(e) { return 'the run ' + e.run.process + '/' + e.run.id + (e.result ? ' (' + e.result + ')' : ''); }
 
   return { LIMITS: LIMITS, cleanChecklist: cleanChecklist, cleanEvidence: cleanEvidence, planId: planId, planOf: planOf, requestId: requestId, requestKey: requestKey, pinFor: pinFor, planFor: planFor,
-    planHeld: planHeld, versionDrift: versionDrift, planProblems: planProblems, startsOf: startsOf, evidenceFor: evidenceFor, evidenceWhy: evidenceWhy, provenance: provenance, returnOf: returnOf, evidenceWords: evidenceWords };
+    planHeld: planHeld, versionDrift: versionDrift, pinWhy: pinWhy, planProblems: planProblems, startsOf: startsOf, evidenceFor: evidenceFor, evidenceWhy: evidenceWhy, provenance: provenance, returnOf: returnOf, evidenceWords: evidenceWords };
 })();
 
 /* Reports from other apps (docs/apps.md, docs/design.md section 26): a tool that did a step's work says so in a report, a file
@@ -23528,7 +23561,7 @@ PF.repo = (function () {
       /* unnamed (2.1.1): a torn file whose name isn't a plan's or request's shape (PF.plans.namesPlan) and starts with no
          readable plan's ID could be a renamed decision on any plan. It holds none, and Folder health names it on its own. */
       var planIds = (r[6].plans || []).map(function (p) { return p.id; });
-      var named = function (n) { return PF.plans.namesPlan(String(n)) || planIds.some(function (id) { if (typeof id !== 'string' || !id || String(n).indexOf(id) !== 0) return false; var c = String(n).charAt(id.length); return c === '.' || c === ' ' || c === '-' || c === '('; }); };
+      var named = function (n) { return PF.plans.namesPlan(String(n)) || planIds.some(function (id) { return typeof id === 'string' && PF.plans.fileFor(n, id); }); };
       var planUnread = 'proposals' in failed ? [] : (r[6].torn || []).filter(function (u) { return !u.link && !u.deep; }).map(function (u) { var x = { _unread: true, path: u.path, _file: u._file, why: u.why, kind: u.parsed ? 'ignored' : 'unreadable' }; if (!u.parsed && !named(u._file)) x.unnamed = true; return x; });
       /* A file refused here (a newer Flightdeck's, not in its format, or a format that can't be read at all) holds its plan as
          one still arriving does, by its name alone (groupPlans: <plan>.status-…), whatever it says it is. A refused plan file
@@ -25482,10 +25515,10 @@ PF.repo = (function () {
     /* A link where a plan file would be is refused like one that can't be read (kind link), never left out (MC). */
     var holds = (got.torn || []).filter(function (u) { return !u.deep; }).map(function (u) { return { path: u.path, _file: u._file, kind: u.link ? 'link' : 'unreadable' }; })
       .concat((got.refused || []).map(function (x) { return { path: x.path, _file: String(x.path).slice('proposals/'.length), kind: x.kind, needs: x.needs || '' }; }));
-    var plans = groupPlans((got.plans || []).map(function (p) { return Object.assign({}, p); }), got.statuses || [], holds), keys = Object.keys(want).sort(), runs = [], unreadRuns = [];
+    var plans = groupPlans((got.plans || []).map(function (p) { return Object.assign({}, p); }), got.statuses || [], holds), keys = Object.keys(want).sort(), runs = [], unreadRuns = [], pubs = Object.create(null);
     /* A run asked for by name (also: --evidence-run, the run about to be written on) is named like one a record names once an
        evidence plan started it, or while an evidence plan's file or decision can't be read (which runs it started isn't known). */
-    var evHeld = holds.some(function (h) { return /^plan-ev-[0-9a-f]{24}\./.test(String(h._file || '')); });
+    var evHeld = holds.some(function (h) { return /^plan-ev-[0-9a-f]{24}(\.| \(|-[A-Z])/.test(String(h._file || '')); });
     (also || []).forEach(function (r) {
       if (!r || typeof r.process !== 'string' || typeof r.id !== 'string') return;
       if (evHeld || plans.some(function (p) { return p && p.process === r.process && /^plan-ev-/.test(String(p.id)) && ((p._starts || []).indexOf(r.id) >= 0 || (p._statusHeld || []).length || p._copiesDiffer); })) named[r.process + '/' + r.id] = true;
@@ -25501,6 +25534,8 @@ PF.repo = (function () {
             if (one.pub && one.pub._readFailed) jp.push({ path: PF.run.pubDir(one.run), kind: 'unreadable', why: 'The version the run a to-do\'s evidence names couldn\'t be read (' + String(one.pub.why || 'it couldn\'t be read') + '), so what rests on it can\'t be checked.' });
             /* The whole pin (MC): a version whose step types changed from the run's, even one that verifies, is never evidence. */
             var dq = PF.detours.versionDrift(one.run, one.pub); if (dq) jp.push(dq);
+            /* The version as read now, for the whole-pin verdict (PF.detours.pinWhy), whether or not the run carries every field. */
+            if (one.pub && one.pub.info) pubs[k] = { folder: one.pub.info.folder, version: one.pub.info.version, mapHash: one.pub.info.mapHash, typesHash: one.pub.info.typesHash };
             if (!jp.length) { runs.push(one.run); return; }
             unreadRuns.push(k); jp.forEach(function (q) { problemAt(k, q.path, q.kind, q.why); }); return;
           }
@@ -25512,7 +25547,7 @@ PF.repo = (function () {
         }, function (e) { unreadRuns.push(k); problem(k, errKind(e), why(e)); });
       });
     }, Promise.resolve()).then(function () {
-      var ev = { runs: runs, unreadRuns: unreadRuns, plans: plans, holds: holds, problems: problems, paths: keys.map(function (k) { return 'runs/' + k; }) };
+      var ev = { runs: runs, unreadRuns: unreadRuns, plans: plans, holds: holds, problems: problems, paths: keys.map(function (k) { return 'runs/' + k; }), pubs: pubs };
       planIds.sort().forEach(function (id) {
         var held = PF.detours.planHeld(ev, id);
         if (held.length) held.forEach(function (q) { problemAt(null, q.path, q.kind, q.why); });
@@ -37547,7 +37582,13 @@ PF.examples = (function () {
        every evidence judgment until a read succeeds (MC). */
     ((data.proposalsRead || {}).torn || []).forEach(function (t) { if (t && t.link) holds.push({ path: t.path, _file: t._file, kind: 'link' }); });
     var pf = (data.failed || {}).proposals;
-    return { runs: data.runs || [], plans: data.plans || [], unreadRuns: gone, judge: judge, holds: holds, failed: pf ? String(pf) : '' };
+    /* The version a started run was made on, as this window read it, for the whole-pin verdict (PF.detours.pinWhy, OC). */
+    var pubOf = function (process, id) {
+      var r = (data.runs || []).filter(function (x) { return x && x.process === process && x.id === id; })[0], p = r ? procFind(process) : null;
+      var pub = p ? (p.all || []).filter(function (x) { return x && x.info && x.info.folder === r.folder; })[0] : null;
+      return pub && pub.info ? { folder: pub.info.folder, version: pub.info.version, mapHash: pub.info.mapHash, typesHash: pub.info.typesHash } : null;
+    };
+    return { runs: data.runs || [], plans: data.plans || [], unreadRuns: gone, judge: judge, holds: holds, failed: pf ? String(pf) : '', pubOf: pubOf };
   }
   /* The time a to-do's evidence (4.0 slice 4: facts) is judged at: now, asked again at every view and before every write. */
   function tdNow() { return Date.now(); }

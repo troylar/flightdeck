@@ -180,6 +180,34 @@ rule('Evidence that can\'t be read holds: an unread run, an unread plan decision
   assert.ok(/can only be read here/.test(W.view().requests[A.id].why));
 });
 
+/* OC: the whole pin, field by field: the plan's pin and the version read fresh against the to-do's, whether or not the run
+   carries the field (a preflight-run/2 has no typesHash); and every OneDrive copy name the loader knows is its plan's. */
+rule('The evidence verdict compares the whole pin, plan and fresh version, for runs with or without typesHash, and holds every copy of the plan', () => {
+  for (const f of ['mapHash', 'typesHash', 'version']) {
+    const W = world(), x = W.linked('Smoke test the build'), plan = W.plan(x); W.finish(W.start(plan, 'k1'), 'pass');
+    assert.ok(D.evidenceFor(W.r, x, 'k1', W.ev()).evidence, 'set-up: evidence');
+    W.plans[0].pin[f] = f === 'version' ? 99 : '0badc0de';
+    const E = D.evidenceFor(W.r, x, 'k1', W.ev());
+    assert.ok(E.why && E.held, 'plan pin ' + f + ': ' + E.why);
+    assert.ok(D.planProblems(W.r, [x], W.ev()).some(q => q.kind === 'unusable'), 'plan pin ' + f + ': a problem for every reader');
+  }
+  for (const legacy of [false, true]) {
+    const W = world(), x = W.linked('Smoke test the build'), plan = W.plan(x), c = W.finish(W.start(plan, 'k1'), 'pass');
+    if (legacy) delete c.typesHash;
+    const ev = W.ev(); ev.pubs = { 'smoke-test/k1': { folder: W.kp.folder, version: W.kp.info.version, mapHash: W.kp.info.mapHash, typesHash: W.kp.info.typesHash } };
+    assert.ok(D.evidenceFor(W.r, x, 'k1', ev).evidence, (legacy ? 'legacy' : 'run/3') + ': set-up: evidence');
+    ev.pubs['smoke-test/k1'].typesHash = '0badc0de';
+    const E = D.evidenceFor(W.r, x, 'k1', ev);
+    assert.ok(E.why && E.held, (legacy ? 'legacy' : 'run/3') + ': the version read now has other step types: ' + E.why);
+  }
+  for (const name of [' (1).json', '-LAPTOP.json', ' (2).json']) {
+    const W = world(), x = W.linked('Smoke test the build'), plan = W.plan(x); W.finish(W.start(plan, 'k1'), 'pass');
+    const ev = W.ev(); ev.holds = [{ path: 'proposals/' + plan.id + name, _file: plan.id + name, kind: 'unreadable' }];
+    assert.ok(D.planHeld(ev, plan.id).length, name + ': a copy of the plan held');
+    assert.ok(D.evidenceFor(W.r, x, 'k1', ev).held, name + ': no evidence past it');
+  }
+});
+
 rule('A reopened to-do takes a new plan; evidence asked on its earlier opening holds; and a change to its run after it was checked off is said, never undone', () => {
   const W = world(), x = W.linked('Smoke test the build'), plan = W.plan(x), c = W.finish(W.start(plan, 'k1'), 'pass');
   const ev = D.evidenceFor(W.r, x, 'k1', W.ev()).evidence;

@@ -229,10 +229,18 @@ rule('Evidence that reads but isn\'t trusted, and an evidence plan or decision t
     planlink: (F, S) => { const f = path.join(F.root, 'proposals', S.plan.id + '.json'), c = path.join(F.root, 'proposals', S.plan.id + ' (1).json'); fs.copyFileSync(f, c); fs.rmSync(f); fs.symlinkSync(c, f); },
     /* A torn plan beside a readable OneDrive copy of it: still held. */
     copytorn: (F, S) => { const f = path.join(F.root, 'proposals', S.plan.id + '.json'); fs.copyFileSync(f, path.join(F.root, 'proposals', S.plan.id + ' (1).json')); fs.writeFileSync(f, '{ torn'); },
+    /* OC: the plan's pin, one fingerprint changed: not the version the to-do pinned, everywhere. */
+    pinmap: (F, S) => { const f = path.join(F.root, 'proposals', S.plan.id + '.json'), o = JSON.parse(fs.readFileSync(f, 'utf8')); o.pin.mapHash = '0badc0de'; fs.writeFileSync(f, JSON.stringify(o, null, 2)); },
+    pintypes: (F, S) => { const f = path.join(F.root, 'proposals', S.plan.id + '.json'), o = JSON.parse(fs.readFileSync(f, 'utf8')); o.pin.typesHash = '0badc0de'; fs.writeFileSync(f, JSON.stringify(o, null, 2)); },
+    /* OC: every OneDrive copy name the loader knows is tied to its plan: a torn (1) or -COMPUTER copy, or a linked (1) copy,
+       beside a readable plan, is held. */
+    copyone: (F, S) => { fs.writeFileSync(path.join(F.root, 'proposals', S.plan.id + ' (1).json'), '{ torn'); },
+    copycomputer: (F, S) => { fs.writeFileSync(path.join(F.root, 'proposals', S.plan.id + '-LAPTOP.json'), '{ torn'); },
+    copylink: (F, S) => { const t = path.join(F.root, 'elsewhere.json'); fs.copyFileSync(path.join(F.root, 'proposals', S.plan.id + '.json'), t); fs.symlinkSync(t, path.join(F.root, 'proposals', S.plan.id + ' (1).json')); },
     /* The evidence run's version can't be read at all (EACCES): never usable evidence. */
     pubread: (F, S) => { fs.chmodSync(path.join(F.root, 'publications', 'smoke-test', F.kp.info.folder, 'publication.json'), 0); }
   };
-  for (const how of Object.keys(cases)) {
+  for (const how of Object.keys(cases).filter(h => !process.env.CASES || process.env.CASES.split(",").indexOf(h) >= 0)) {
     const F = await folder(), L = await linked(F, 'pass'), S = await started(F, L, 'k1', 'pass');
     const s = json('todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--json', ...TOOL);
     assert.strictEqual(s.code, 0, JSON.stringify(s));
@@ -242,6 +250,10 @@ rule('Evidence that reads but isn\'t trusted, and an evidence plan or decision t
     const want = how === 'decision' ? { path: 'proposals/' + S.plan.id + '.status-sk1-d.json', kinds: ['unreadable', 'malformed'] }
       : how === 'plan' || how === 'copytorn' ? { path: 'proposals/' + S.plan.id + '.json', kinds: ['unreadable', 'malformed'] }
         : how === 'planlink' ? { path: 'proposals/' + S.plan.id + '.json', kinds: ['link'] }
+        : how === 'pinmap' || how === 'pintypes' ? { path: 'proposals/' + S.plan.id + '.json', kinds: ['unusable'] }
+        : how === 'copyone' ? { path: 'proposals/' + S.plan.id + ' (1).json', kinds: ['unreadable', 'malformed'] }
+        : how === 'copycomputer' ? { path: 'proposals/' + S.plan.id + '-LAPTOP.json', kinds: ['unreadable', 'malformed'] }
+        : how === 'copylink' ? { path: 'proposals/' + S.plan.id + ' (1).json', kinds: ['link'] }
         : how === 'absent' || how === 'planonly' || how === 'nostart' ? { path: 'proposals/' + S.plan.id + '.json', kinds: ['nofile'] }
           : how === 'pubread' ? { path: 'publications/smoke-test/' + F.kp.info.folder + '/publication.json', prefix: 'publications/smoke-test/' + F.kp.info.folder, kinds: ['unreadable'] }
           : { path: runPath, kinds: (runs.problems || []).filter(q => q.path === runPath).map(q => q.kind) };

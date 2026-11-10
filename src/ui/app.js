@@ -3387,7 +3387,13 @@
        every evidence judgment until a read succeeds (MC). */
     ((data.proposalsRead || {}).torn || []).forEach(function (t) { if (t && t.link) holds.push({ path: t.path, _file: t._file, kind: 'link' }); });
     var pf = (data.failed || {}).proposals;
-    return { runs: data.runs || [], plans: data.plans || [], unreadRuns: gone, judge: judge, holds: holds, failed: pf ? String(pf) : '' };
+    /* The version a started run was made on, as this window read it, for the whole-pin verdict (PF.detours.pinWhy, OC). */
+    var pubOf = function (process, id) {
+      var r = (data.runs || []).filter(function (x) { return x && x.process === process && x.id === id; })[0], p = r ? procFind(process) : null;
+      var pub = p ? (p.all || []).filter(function (x) { return x && x.info && x.info.folder === r.folder; })[0] : null;
+      return pub && pub.info ? { folder: pub.info.folder, version: pub.info.version, mapHash: pub.info.mapHash, typesHash: pub.info.typesHash } : null;
+    };
+    return { runs: data.runs || [], plans: data.plans || [], unreadRuns: gone, judge: judge, holds: holds, failed: pf ? String(pf) : '', pubOf: pubOf };
   }
   /* The time a to-do's evidence (4.0 slice 4: facts) is judged at: now, asked again at every view and before every write. */
   function tdNow() { return Date.now(); }
