@@ -191,6 +191,23 @@ rule('proposals/ that can\'t be listed (EIO) before a run is living: run, next, 
   const want = {}; Object.keys(got).forEach((k) => { want[k] = [4, false, true]; });
   assert.deepStrictEqual(got, want);
 });
+/* RD: a request file whose run can't be told (it isn't JSON at all) may be a request pending on any run: before a run is
+   living, run, next, runs and todo list all name it (exit 4), and the run's evidence pack is partial naming it. */
+rule('A request file that can\'t be read and names no run: run, next, runs and todo list all exit 4 naming it, and the pack is partial', async () => {
+  const { root, d } = await folder(), bad = 'proposals/' + T.idFor('notes-bot', 'unknown') + '.json';
+  await d.write(bad, '{ not JSON');
+  const FD = require(BIN), got = {};
+  for (const [name, args] of [['run', ['run', root, 'release-notes/r-1', '--contract', '2', '--json']], ['next', ['next', root, 'release-notes/r-1', '--as', 'person-avery', '--contract', '2', '--json']],
+    ['runs', ['runs', root, '--contract', '2', '--json']], ['todo list', ['todo', 'list', root, 'release-notes/r-1', '--json']]]) {
+    const r = await FD.main(args), j = JSON.parse(r.out);
+    got[name] = [r.code, j.complete === true, (j.problems || []).some((p) => p.path === bad)];
+  }
+  const want = {}; Object.keys(got).forEach((k) => { want[k] = [4, false, true]; });
+  assert.deepStrictEqual(got, want);
+  const res = await PF.repo.exportEvidence(d, { run: 'release-notes/r-1' }, { sink: () => {}, now: () => Date.now(), tz: 'UTC' });
+  assert.strictEqual(res.status, 'partial', JSON.stringify(res.col.unresolved));
+  assert.ok(res.col.unresolved.some((u) => u.indexOf(bad) >= 0), 'named: ' + JSON.stringify(res.col.unresolved));
+});
 rule('A to-do record from a newer Flightdeck is named newer, not malformed, by run and next', async () => {
   const { root, d } = await folder();
   const r = JSON.parse(fs.readFileSync(path.join(root, 'runs/release-notes/r-1/run.json'), 'utf8'));

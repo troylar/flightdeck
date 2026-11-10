@@ -956,10 +956,11 @@ async function readData(eng, adapter, req) {
         if (gp) {
           const ev = await evidenceRead(PF, L.fs, gp, PF.todos.recordsFor(gp.todos || [], r)), evp = ev.paths;
           const un = markTodos(PF, [r], gp, one.people, !!(one.peopleWhy || pw), loopIn, ev), was = relevant, mine = {};
-          /* A receipt the ended run names that is missing or says something else is this command's problem, by its path. */
+          /* A receipt the ended run names that is missing or says something else is this command's problem, by its path. A record
+             whose run can't be told may be a request pending on this run, living yet or not (4.0, RD): named too. */
           const rp = receiptProblem(PF, r, gp.todos, un);
           if (rp) { mine[rp.path] = true; owned[rp.path] = rp; }
-          un.filter((u) => u.run ? u.run.process === m[1] && u.run.id === m[2] : !!(r.living || r._tdv)).concat(evidenceUnread(PF, r, r._tdv, un)).forEach((u) => { if (u.file !== 'people.json' && !mine['proposals/' + u.file]) { mine['proposals/' + u.file] = true; L.note('proposals/' + u.file, u.kind === 'newer' || u.kind === 'unreadable' ? u.kind : 'malformed', u.kind === 'newer' ? u.why : fileWhy(u.why)); } });
+          un.filter((u) => u.run ? u.run.process === m[1] && u.run.id === m[2] : true).concat(evidenceUnread(PF, r, r._tdv, un)).forEach((u) => { if (u.file !== 'people.json' && !mine['proposals/' + u.file]) { mine['proposals/' + u.file] = true; L.note('proposals/' + u.file, u.kind === 'newer' || u.kind === 'unreadable' ? u.kind : 'malformed', u.kind === 'newer' ? u.why : fileWhy(u.why)); } });
           relevant = (p) => was(p) || !!mine[p] || evp.some((q) => p === q || String(p).indexOf(q + '/') === 0);
         }
       }
