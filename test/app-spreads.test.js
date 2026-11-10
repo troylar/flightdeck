@@ -288,4 +288,46 @@ rule('VC: a dispute that arrives on a batch\'s request mid-batch is never settle
   assert.ok(/Accepted 1 of 2/.test(said) && said.indexOf(id) >= 0, 'named, left for its own decision: ' + said.slice(0, 600));
   assert.ok(ps.length === 2, 'set-up');
 });
+/* Review round 5 (WA): a story's run whose last read failed is unknown, never the copy kept on screen: coverage, the loop's
+   approval and the parent's gate hold until a fresh good read, and Pass saves nothing. */
+async function fulfilled(app, keys) {
+  const PF = app.PF, T = PF.todos;
+  for (const key of keys) {
+    let W = await now(app);
+    const sp = T.view(W.parent, { records: W.d.todos, people: W.people }).spreads[0], kid = W.d.runs.find(x => x.process === 'validate-story' && x.parent && x.parent.item && x.parent.item.key === key);
+    const A = T.prepare(kid, { body: { op: 'add', text: sp.text, target: { phase: 'assess' }, fulfills: { run: { process: W.parent.process, id: W.parent.id }, spread: sp.id, uid: kid.parent.item.uid, attempt: kid.parent.item.attempt } }, by: { person: 'person-avery' }, key: 'wa-' + hex(6), records: W.d.todos, unread: W.d.todosUnread, people: W.people, at: new Date().toISOString(), app: '4.0.0' });
+    assert.ok(!A.why, A.why);
+    await app.fs.write('proposals/' + A.name, T.text(A.file));
+    for (let i = 0; i < 3; i++) await refresh(app, 300);
+    W = await now(app);
+    const k2 = W.d.runs.find(x => x.id === kid.id);
+    const D = T.prepare(k2, { body: { op: 'done', todo: A.preview.todo }, by: { person: 'person-avery' }, key: 'wa-' + hex(6), records: W.d.todos, unread: W.d.todosUnread, people: W.people, at: new Date().toISOString(), app: '4.0.0' });
+    assert.ok(!D.why, D.why);
+    await app.fs.write('proposals/' + D.name, T.text(D.file));
+    for (let i = 0; i < 3; i++) await refresh(app, 300);
+    await finish(app, kidOf(app, key), 'cleared', true);
+  }
+}
+rule('WA: a story\'s run that couldn\'t be read on the last check holds the loop and the gate; Pass saves nothing until it reads again', async () => {
+  const app = await setup();
+  await landedSpread(app);
+  await fulfilled(app, ['ABC-102', 'ABC-103']);
+  backToParent(app); await app.tick(80);
+  assert.ok(/Security sign-off · on 2 stories · 2 done/.test(txt(app.html())), 'set-up: fulfilled: ' + (txt(app.html()).match(/Security sign-off[^\n]{0,80}/) || [])[0]);
+  app.click('loop-approve', 'each'); await app.tick(200);
+  assert.strictEqual(parentRun(app).steps.each.s, 'done', 'set-up: the loop is approved');
+  const gateText = () => (txt(app.html()).replace(/\s+/g, ' ').match(/Confirm Stories · [A-Za-z ]{0,20}/) || [''])[0];
+  assert.ok(/· Ready/.test(gateText()), 'set-up: the gate is ready: ' + gateText());
+  const p102 = kidOf(app, 'ABC-102'), read = app.fs.read.bind(app.fs);
+  app.fs.read = (p, o) => p === p102 ? Promise.reject(new Error('EIO')) : read(p, o);
+  await refresh(app, 300); backToParent(app); await app.tick(80);
+  assert.ok(!/· Ready/.test(gateText()), 'the copy kept on screen isn\'t counted: ' + gateText());
+  app.click('pass', '0'); await app.tick(150);
+  const g = parentRun(app).gates || {};
+  assert.ok(!Object.keys(g).some(k => g[k] && g[k].s === 'passed'), 'Pass saved nothing: ' + JSON.stringify(g));
+  app.fs.read = read;
+  for (let i = 0; i < 3; i++) await refresh(app, 300);
+  backToParent(app); await app.tick(80);
+  assert.ok(/· Ready/.test(gateText()), 'a fresh good read counts it again: ' + gateText());
+});
 run();
