@@ -289,4 +289,13 @@ for (const brk of BB.GA_GB) {
   rule('GA/GB: Try again on a fulfilled spread\'s loop after ' + brk + ' writes nothing', async () => { assert.deepStrictEqual(await BB.retryAfter(bbSpread, brk), []); });
   rule('GA/GB: Use copy on a fulfilled spread\'s loop after ' + brk + ', no Refresh first, keeps nothing, and the copy stays', async () => { assert.deepStrictEqual(await BB.useCopyAfterEio(bbSpread, brk, true), []); });
 }
+/* Review round 14 (HA): the suspension harness (app-approval-bb.js): every approval-writing path x every read inside its
+   guard x every input change made while that read waits. Where the guard reads the changed input at or after that point,
+   nothing more is written and any recovery source stays. Each rule prints its cell count. */
+const HA_CHANGES = BB.HOLD_CHANGES.filter(ch => !/second run|rebuilt/.test(ch));
+for (const how of BB.HOLD_PATHS) for (const ch of HA_CHANGES) rule('HA: ' + how + ' on a fulfilled spread\'s loop, ' + ch + ' while a read of its guard waits, writes nothing', async () => {
+  const r = await BB.suspension(bbSpread, how, [ch]);
+  console.log('HA cells · a fulfilled spread\'s loop · ' + how + ' · ' + ch + ' · ran ' + r.applicable + ' of ' + r.todo + ' it can see (' + r.required + ' read the change), of ' + r.cells + ' cells');
+  assert.deepStrictEqual(r.off, []);
+});
 run();

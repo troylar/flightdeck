@@ -158,8 +158,9 @@ module.exports = { matrix, useCopyAfterEio, retryAfter, requestApprove, WRITES, 
    for every such read point and every input change (CHANGES), a fresh app is run again with that read paused, the input
    changed while it waits, and the read let go. Where the guard reads that input again at or after the paused point before
    its last write (so the change is one it can see), the cell must write nothing more, put the change back and keep any
-   recovery source. Returns { cells, applicable, points, todo, off }: cells, every read point x change; todo, those where the guard can see
-   the change; applicable, those run (HA_STRIDE). */
+   recovery source. Returns { cells, applicable, required, points, todo, off }: cells, every read point x change; todo, those where the
+   guard reads that input again after the point (in the dry run); applicable, those run (HA_STRIDE); required, those where
+   it did read the changed input after the change, which must write nothing more. */
 const KID_RE = /^runs\/validate-story\/[^/]*\/run\.json$/;
 const scopeFiles = (app) => app.files('proposals/').filter(p => /\/req-[^/]*\.json$/.test(p));
 const identicalCopy = (app) => {
@@ -261,45 +262,58 @@ const PATHS = {
     kept: (app) => !!app.store[localKeyOf(app, parentRun(app).id)]
   }
 };
-/* Inside the guard: from its read of the run (readRunOnly on the parent's process) until the next write or removal. */
+/* Inside the guard: from its read of the run (readRunOnly on the parent's process) until the next write or removal, or until
+   its proposals read is done with none of its reads still under way. */
+const GUARD = new (require('async_hooks').AsyncLocalStorage)();
 function guardWatch(app, name) {
-  const R = app.PF.repo, ro = R.readRunOnly, fs0 = app.fs, read = fs0.read, list = fs0.list, write = fs0.write, remove = fs0.remove;
-  const st = { on: false, seen: Object.create(null), log: [], hook: null, ops: 0 };
-  R.readRunOnly = function (fs, proc, id) { if (proc === 'release-readiness') st.on = true; return ro.apply(this, arguments); };
+  const R = app.PF.repo, ro = R.readRunOnly, rp = R.readPlans, fs0 = app.fs, read = fs0.read, list = fs0.list, write = fs0.write, remove = fs0.remove;
+  const st = { on: false, win: 0, seen: Object.create(null), log: [], hook: null, ops: 0, sawAfter: false, busy: 0, plans: false, pass: 0 };
+  const settle = () => { if (st.on && st.plans && !st.busy) st.on = false; };
+  R.readRunOnly = function (fs, proc, id) { if (proc === 'release-readiness' && !st.on) { st.on = true; st.win++; st.plans = false; } const a = arguments; return st.on ? GUARD.run(true, () => ro.apply(this, a)) : ro.apply(this, a); };
+  /* The window also closes once its proposals read is done and no read of it is still under way (a write-free last step). */
+  R.readPlans = function () { const mine = st.on, a = arguments; const done = (x) => { if (mine) { st.plans = true; settle(); } return x; }; return (mine ? GUARD.run(true, () => rp.apply(this, a)) : rp.apply(this, a)).then(done, (e) => { done(); throw e; }); };
   const wrap = (op, real) => function (p) {
     const args = arguments;
+    if (st.pass) return real.apply(fs0, args);
     st.ops++;
-    if (!st.on) return real.apply(fs0, args);
-    const np = name(p), k = op + ' ' + np, n = st.seen[k] = (st.seen[k] || 0) + 1, at = { op, p: np, n, i: st.log.length };
+    /* The guard's own reads: issued from within its reads of runs and of proposals/ (their async context), never another
+       read under way at the same time (a Refresh the recorder runs alongside). */
+    if (!st.on || GUARD.getStore() !== true) return real.apply(fs0, args);
+    const np = name(p), k = op + ' ' + np, n = st.seen[k] = (st.seen[k] || 0) + 1, at = { op, p: np, n, i: st.log.length, win: st.win };
     st.log.push(at);
     const h = st.hook && st.hook(at);
-    return h ? h.then(() => real.apply(fs0, args)) : real.apply(fs0, args);
+    st.busy++;
+    const end = (x) => { st.busy--; settle(); return x; };
+    /* A paused read resumes through the folder as it is then (a change made meanwhile may sit above this watch). */
+    const resume = () => { st.pass++; try { return fs0[op].apply(fs0, args); } finally { st.pass--; } };
+    return (h ? h.then(resume) : real.apply(fs0, args)).then(end, (e) => { end(); throw e; });
   };
   fs0.read = wrap('read', read); fs0.list = wrap('list', list);
   fs0.write = function () { st.ops++; st.on = false; return write.apply(fs0, arguments); };
   fs0.remove = function () { st.ops++; st.on = false; return remove.apply(fs0, arguments); };
-  return { st, off: () => { R.readRunOnly = ro; fs0.read = read; fs0.list = list; fs0.write = write; fs0.remove = remove; } };
+  return { st, off: () => { R.readRunOnly = ro; R.readPlans = rp; fs0.read = read; fs0.list = list; fs0.write = write; fs0.remove = remove; } };
 }
 /* Until the folder has been quiet for a while (no read, listing or write), at most about 1,500 turns. */
 async function quiet(app, w) { let calm = 0; for (let i = 0; i < 60 && calm < 4; i++) { const n = w.st.ops; await app.tick(25); calm = w.st.ops === n ? calm + 1 : 0; } }
-const allFiles = (app) => JSON.stringify(Object.keys(app.fs.files).filter(f => /^(runs|proposals|publications)\//.test(f)).sort().map(f => [f, app.fs.files[f].t]));
 /* The fixture is prepared once, in a window with Web Locks (so its session is its own, kept in session storage); each cell
    then opens a copy of that window, as a reload does: the same files (copied), session, browser storage and page. */
+/* APP_HTML=<file>: run the harness on another build (an earlier commit's dist/flightdeck.html), to show a change failing first. */
+const otherHtml = () => (process.env.APP_HTML ? { html: require('fs').readFileSync(process.env.APP_HTML, 'utf8') } : {});
 async function template(o, P) {
-  const files = {}, session = {}, app = await o.prep({ sharedFiles: files, locks: locks(), sessionStore: session });
+  const files = {}, session = {}, app = await o.prep(Object.assign({ sharedFiles: files, locks: locks(), sessionStore: session }, otherHtml()));
   if (P.disk) await P.disk(app, o);
   await app.tick(100);
   return { files: JSON.stringify(files), session: JSON.stringify(session), store: JSON.stringify(app.store), hash: app.hash() };
 }
 async function opened(t, P) {
-  const app = boot({ sharedFiles: JSON.parse(t.files), locks: locks(), sessionStore: JSON.parse(t.session), localStore: JSON.parse(t.store), hash: t.hash });
+  const app = boot(Object.assign({ sharedFiles: JSON.parse(t.files), locks: locks(), sessionStore: JSON.parse(t.session), localStore: JSON.parse(t.store), hash: t.hash }, otherHtml()));
   await app.tick(150);
   if (P.live && !(await P.live(app))) return { app, why: 'its first save didn\'t fail' };
   return { app, why: P.offered(app) };
 }
 async function suspension(o, how, changes, shard) {
   const P = PATHS[how], off = [];
-  let cells = 0, applicable = 0;
+  let cells = 0, applicable = 0, required = 0;
   const tpl = await template(o, P);
   /* The dry run: the read points, and that the write happens when nothing changes. */
   const { app: app0, why: why0 } = await opened(tpl, P);
@@ -310,6 +324,11 @@ async function suspension(o, how, changes, shard) {
   const points = w0.st.log.slice(), hasHead = !!headFile(app0, o.kid(app0));
   if (!points.length) return { cells, applicable, off: [how + ': set-up: no read inside the guard'] };
   if (app0.fs.files[p0].t === before0) off.push(how + ': with nothing changed, the approval wasn\'t written');
+  /* The order the guard reads in: within each snapshot, nothing but the records it lists is read after proposals/ is listed. */
+  for (let i = 0; i < points.length; i++) {
+    if (points[i].op !== 'list' || points[i].p !== 'proposals') continue;
+    for (let j = i + 1; j < points.length && points[j].win === points[i].win; j++) if (!/^proposals\//.test(points[j].p)) { off.push(how + ': read after the proposals listing: ' + points[j].op + ' ' + points[j].p + ' #' + points[j].n); break; }
+  }
   const todo = [];
   for (const ch of changes || Object.keys(CHANGES)) {
     if (ch === 'the story\'s to-do changed' && !hasHead) continue;
@@ -331,19 +350,30 @@ async function suspension(o, how, changes, shard) {
     await P.go(app); await app.tick(80);
     for (let t = 0; t < 40 && !hit; t++) await app.tick(50);
     if (!hit) { off.push(tag + ': set-up: never reached that read'); hold.open(); w.off(); continue; }
+    /* Names as the folder was before the change: once a record is gone, "the first scope record" would be another one. */
+    const nm = namer(app, kid);
     const undo = C.make(app, kid);
     if (!undo) { off.push(tag + ': set-up: the change couldn\'t be made'); hold.open(); w.off(); continue; }
-    const mid = allFiles(app);
+    /* Watched from outside the change (an EIO answers before any read under it): a read of the changed input, inside the
+       guard, from here on. */
+    const inner = { read: app.fs.read, list: app.fs.list, write: app.fs.write, remove: app.fs.remove }, late = [];
+    app.fs.read = function (q) { if (w.st.on && GUARD.getStore() === true && C.sees('read', nm(q))) w.st.sawAfter = true; return inner.read.apply(app.fs, arguments); };
+    app.fs.list = function (q) { if (w.st.on && GUARD.getStore() === true && C.sees('list', nm(q))) w.st.sawAfter = true; return inner.list.apply(app.fs, arguments); };
+    /* What is written or removed once the guard has read the change: none of it may be. A request the recorder couldn't
+       carry out is answered (its decision, op 'refused'): that is its outcome, not a write. */
+    app.fs.write = function (q, t) { if (w.st.sawAfter && !(/^proposals\//.test(q) && (() => { try { return JSON.parse(t).op === 'refused'; } catch (e) { return false; } })())) late.push(q); return inner.write.apply(app.fs, arguments); };
+    app.fs.remove = function (q) { if (w.st.sawAfter) late.push('-' + q); return inner.remove.apply(app.fs, arguments); };
     hold.open(); await quiet(app, w);
-    /* A request the recorder couldn't carry out is answered (its decision, op 'refused'): that is its outcome, not a write. */
-    const refusal = (x) => /^proposals\//.test(x[0]) && (() => { try { return JSON.parse(x[1]).op === 'refused'; } catch (e) { return false; } })();
-    const was = JSON.parse(mid), cur = JSON.parse(allFiles(app));
-    const wrote = cur.filter(x => !refusal(x) && !was.some(y => y[0] === x[0] && y[1] === x[1])).map(x => x[0]).concat(was.filter(y => !cur.some(x => x[0] === y[0])).map(y => '-' + y[0]));
-    if (wrote.length) off.push(tag + ': written: ' + JSON.stringify(wrote));
+    Object.assign(app.fs, inner);
+    /* Asked of the guard only when it read the changed input after the change: the paused read itself, or one it made
+       later. A read it made before (side by side with the paused one) is a read of the folder as it was. */
+    if (!C.sees(pt.op, pt.p) && !w.st.sawAfter) { w.off(); undo(); continue; }
+    required++;
+    if (late.length) off.push(tag + ': written after the guard read the change: ' + JSON.stringify(late));
     else if (P.kept && !P.kept(app)) off.push(tag + ': the recovery source was removed');
     w.off(); undo();
   }
-  return { cells, applicable, points: points.length, todo: todo.length, off };
+  return { cells, applicable, required, points: points.length, todo: todo.length, off };
 }
 module.exports.suspension = suspension;
 module.exports.HOLD_PATHS = Object.keys(PATHS);
