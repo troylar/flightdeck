@@ -409,5 +409,27 @@ def check_living(z, man):
     return n
 
 
+def batch(path):
+    """--verdicts FILE: each dependency run judged as this reader judged it before the port (its times and the fields it
+    checked on their own), one {id, path} line per case."""
+    out = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            x = json.loads(line) if line.strip() else None
+            if not x or "files" in x:
+                continue
+            try:
+                run = json.loads(x["text"])
+                bad = times_why(run) or schema_why(run)
+            except Exception as e:  # noqa: BLE001
+                bad = str(e)
+            out.append(json.dumps({"id": x["id"], "path": "runs/" + x["key"] + "/run.json" if bad else None, "why": bad}))
+    sys.stdout.write("\n".join(out) + "\n")
+
+
 if __name__ == "__main__":
-    main(sys.argv[1])
+    if len(sys.argv) == 3 and sys.argv[1] == "--verdicts":
+        batch(sys.argv[2])
+    else:
+        main(sys.argv[1])
+

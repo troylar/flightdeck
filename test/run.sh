@@ -200,6 +200,7 @@ test/old-bundles.test.js -
 test/clarity-compat.test.js -
 test/evidence.test.js -
 test/evidence-living.test.js -
+test/run-corpus.test.js -
 test/light.test.js -
 test/wrong-record.test.js -
 test/practice.test.js -
