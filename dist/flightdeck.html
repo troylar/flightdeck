@@ -35962,7 +35962,7 @@ PF.examples = (function () {
       /* A change derived from the folder (loopEdit's redo) is put back and read again, never saved later as it was. */
       if (opts && opts.undoFailed && opts.undoFailed()) {
         if (state.unsaved[r.id] === r && edits(r.id) === rev) { delete state.unsaved[r.id]; delete state.saveErr[r.id]; if (state.saveOpts) delete state.saveOpts[r.id]; }
-        say('A to-do wasn\'t applied: the run couldn\'t be saved (' + String(e && e.message || e).slice(0, 200) + '). It is checked again on the next read.', 'warn'); render(); return false;
+        say((opts.redoWhat || 'A to-do wasn\'t applied') + ': the run couldn\'t be saved (' + String(e && e.message || e).slice(0, 200) + '). ' + (opts.redoNext || 'It is checked again on the next read.'), 'warn'); render(); return false;
       }
       if (e.missing) runOutcome(r.process + '/' + r.id, 'missing');
       else if (e.unreadable) runOutcome(r.process + '/' + r.id, 'unread', 'isn\'t a run this copy can read');
@@ -36262,7 +36262,9 @@ PF.examples = (function () {
     /* opts.redo: a change derived from the folder (a to-do's landing) whose save fails is put back, never kept for Try again:
        the next read derives it again, with its authority asked again on the run as it is then. */
     var extra = { still: function () { if (guardOk(cx)) return true; undo(); return false; }, dropUndone: function () { return undone; }, putBack: function () { undo(); } };
-    if (opts && opts.redo) extra.undoFailed = function () { undo(); return undone; };
+    /* opts.redo may be a function, asked at the failure: only a change that keeps living work is put back (a copy kept of a
+       run without to-dos stays for Try again, as in 3.0). */
+    if (opts && opts.redo) extra.undoFailed = function () { if (typeof opts.redo === 'function' && !opts.redo()) return false; undo(); return undone; };
     return { fn: wrapped, opts: Object.assign({}, opts || {}, extra) };
   }
   /* Keeping a copy of a loop's parent or child (recover, unchanged) is guarded from its click: the backup and the run's save
@@ -42488,7 +42490,10 @@ PF.examples = (function () {
           if (!back || back._unrunnable) throw new Error('Keeping that copy would save a run this copy of Flightdeck can\'t read back' + (back && back._unrunnable ? ' (' + String(back._unrunnable).slice(0, 200) + ')' : '') + ', so nothing was replaced.');
           keep(run);
           if (extra.length) run._overflow = (run._overflow || []).concat(extra);
-        }, { recovery: true, expect: cur, expectText: text });
+          /* redo: a save that fails (not only one the guard drops) of a copy that keeps living work puts it back here by
+             identity (loopEdit), never left as an unsaved change a later save (a Pause) would write unguarded; the copy stays
+             in the folder. A copy without to-dos stays for Try again, as in 3.0. */
+        }, { recovery: true, expect: cur, expectText: text, redo: function () { return !!(rcx.todo && rcx.todo.living); }, redoWhat: 'The copy wasn\'t kept', redoNext: 'It is still there to keep again.' });
         todoSaveChain(rcx, ed);
         return mutateRun(key, g, ed.fn, ed.opts);
       }).then(function (ok) {

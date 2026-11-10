@@ -431,4 +431,48 @@ rule('Use copy of a copy holding a supported done: a blocker, unreadable evidenc
   }
 });
 
+/* MA: one write of the run's save fails (an I/O error, not a guard refusal). */
+function failAt(app, at) {
+  const fs = app.fs; let n = 0;
+  const err = () => Promise.reject(new Error('EIO: the folder answered an error'));
+  if (at === 'history') { const ap = fs.append.bind(fs); fs.append = (p, t) => n === 0 && /runs\/release-readiness\/.*history-[^/]*\.jsonl$/.test(p) ? (n++, err()) : ap(p, t); }
+  else { const w = fs.write.bind(fs), re = at === 'candidate' ? /runs\/release-readiness\/.*\/candidate-[^/]*\.json$/ : /runs\/release-readiness\/[^/]+\/run\.json$/; fs.write = (p, t) => n === 0 && re.test(p) ? (n++, err()) : w(p, t); }
+  return () => n;
+}
+rule('Use copy whose save fails at the candidate, the history or run.json keeps nothing in this window: a later Resume, after a blocker or a revoked delegation, lands nothing, and the copy stays', async () => {
+  for (const at of ['candidate', 'history', 'final']) {
+    for (const how of ['blocker', 'revoked']) {
+      const app = await setup(), x = await todo(app), f = await fact(app, 'prs-1', { observedAt: ago(30000), maxAgeSeconds: 120 }), g = await grant(app), tag = 'use copy fails/' + at + '/' + how;
+      await fullLog(app);
+      const pre = app.fs.files[parentPath(app)].t, S = await suggest(app, x, f.id);
+      await app.fs.write('proposals/' + S.name, app.PF.todos.text(S.file));
+      await refresh(app, 300); await refresh(app, 300);
+      assert.ok(landedFor(app, S.id), tag + ' set-up: landed');
+      const landed = app.fs.files[parentPath(app)].t, cp = parentPath(app).replace('run.json', 'run-OTHER.json');
+      await app.fs.write(cp, landed);
+      const r0 = JSON.parse(pre); r0.paused = { by: 'person-avery', at: new Date().toISOString(), reason: 'Lunch' }; r0.rev = (JSON.parse(landed).rev || 0) + 1;
+      await app.fs.write(parentPath(app), JSON.stringify(r0, null, 2));
+      await refresh(app, 300);
+      app.click('open-run', r0.process + '/' + r0.id); await app.tick(80);
+      assert.ok(/data-act="use-copy"/.test(app.html()), tag + ' set-up: the copy is offered');
+      const failed = failAt(app, at);
+      app.click('use-copy', 'run-OTHER.json'); await app.tick(400);
+      assert.strictEqual(failed(), 1, tag + ' set-up: that write failed');
+      assert.ok(!landedFor(app, S.id), tag + ' set-up: not kept');
+      if (how === 'blocker') await blocker(app);
+      if (how === 'revoked') {
+        const W = await now(app), rv = app.PF.todos.revokeOf(W.parent, { grant: g.id, by: 'person-avery', key: 'rv-' + hex(6), records: W.d.todos, unread: W.d.todosUnread, people: W.people, at: new Date().toISOString(), app: '4.0.0', now: Date.now() });
+        assert.ok(!rv.why, rv.why);
+        await app.fs.write('proposals/' + rv.name, app.PF.todos.text(rv.file));
+      }
+      app.click('resume', 'run'); await app.tick(400);
+      await refresh(app, 300);
+      const r = parentRun(app);
+      assert.ok(!r.paused, tag + ' set-up: resumed');
+      assert.strictEqual(landedFor(app, S.id), false, tag + ': ' + JSON.stringify(r.living));
+      assert.ok(app.fs.files[cp], tag + ': the copy stays');
+    }
+  }
+});
+
 run();
