@@ -2612,12 +2612,36 @@ PF.repo = (function () {
   /* The to-do records and people.json as they are now (4.0), for a to-do write guard asked at the write rather than on what
      the window read last: { records, unread, people }. people.json that won't read is an unread entry, as loadAll has it; a
      proposals/ that can't be listed rejects, and the write it guards is dropped. */
-  function readTodos(fs) {
-    return Promise.all([readPlans(fs, []), loadPeople(fs).then(null, function (e) { return { failed: why(e) }; })]).then(function (r) {
+  /* o.evidence (4.0 slice 5): also what a done on a run's result is checked against, read now (readEvidence). */
+  function readTodos(fs, o) {
+    /* With o.evidence the plans are read as the app reads them (no reading-for-other-apps list), from the same one read. */
+    return Promise.all([readPlans(fs, o && o.evidence ? null : []), loadPeople(fs).then(null, function (e) { return { failed: why(e) }; })]).then(function (r) {
       var unread = (r[0].todosUnread || []).slice(), people = r[1];
       if (people.failed) { unread.push({ file: 'people.json', why: 'people.json couldn\'t be read, so no one\'s authority over to-dos can be checked.', run: null }); people = null; }
-      return { records: r[0].todos || [], unread: unread, people: people };
+      var out = { records: r[0].todos || [], unread: unread, people: people };
+      if (!o || !o.evidence) return out;
+      return readEvidence(fs, r[0], out.records, o.also).then(function (ev) { out.evidence = ev; return out; });
     });
+  }
+  /* Checklist-linked to-dos (4.0 slice 5): what a done on a run's result is checked against, from one read of proposals/ (got,
+     as readPlans gave it): every plan grouped as the folder reader groups them (a decision that can't be read holds its plan),
+     and each run the records name as evidence (also: more { process, id }), read on its own; one that can't be read is in
+     unreadRuns, never left out quietly. paths: the runs read, for a caller's problems. */
+  function readEvidence(fs, got, records, also) {
+    var want = Object.create(null), PROC = /^[a-z0-9][a-z0-9-]{0,59}$/, RUN = /^[a-z0-9-]{1,40}$/i;
+    var add = function (e) { if (e && e.run && typeof e.run.process === 'string' && typeof e.run.id === 'string' && PROC.test(e.run.process) && RUN.test(e.run.id)) want[e.run.process + '/' + e.run.id] = e.run; };
+    (records || []).forEach(function (x) { if (!x) return; add(x.evidence); add(x.effect && x.effect.evidence); add(x.application && x.application.effect && x.application.effect.evidence); });
+    (also || []).forEach(function (r) { add({ run: r }); });
+    var holds = (got.torn || []).filter(function (u) { return !u.link && !u.deep; }).map(function (u) { return { path: u.path, _file: u._file, kind: 'unreadable' }; })
+      .concat((got.refused || []).map(function (x) { return { path: x.path, _file: String(x.path).slice('proposals/'.length), kind: x.kind, needs: x.needs || '' }; }));
+    var plans = groupPlans((got.plans || []).map(function (p) { return Object.assign({}, p); }), got.statuses || [], holds), keys = Object.keys(want).sort(), runs = [], unreadRuns = [];
+    return keys.reduce(function (pr, k) {
+      return pr.then(function () {
+        return readRunOnly(fs, want[k].process, want[k].id).then(function (one) {
+          if (one.found && one.run) runs.push(one.run); else if (one.found) unreadRuns.push(k);
+        }, function () { unreadRuns.push(k); });
+      });
+    }, Promise.resolve()).then(function () { return { runs: runs, unreadRuns: unreadRuns, plans: plans, paths: keys.map(function (k) { return 'runs/' + k; }) }; });
   }
   function readPlans(fs, bad, only, two) {
     var refused = [], torn = [];
@@ -3384,5 +3408,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readTodos: readTodos, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, saveScope: saveScope, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readTodos: readTodos, readEvidence: readEvidence, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, saveScope: saveScope, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

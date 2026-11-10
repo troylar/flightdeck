@@ -898,13 +898,16 @@ function evidenceUnread(PF, r, V, unread) {
   if (!Object.keys(runs).length) return [];
   return (unread || []).filter((u) => u && u.file !== 'people.json' && (!u.run || runs[u.run.process + '/' + u.run.id]));
 }
-function markTodos(PF, runs, got, people, peopleBad, loopIn) {
+/* Checklist-linked to-dos (4.0 slice 5): what a done on a run's result is checked against (PF.repo.readEvidence, read through
+   the ledger, so a run that can't be read is named and holds what rests on it). */
+async function evidenceRead(PF, fs, got, records, also) { return PF.repo.readEvidence(fs, got, records, also); }
+function markTodos(PF, runs, got, people, peopleBad, loopIn, ev) {
   const T = PF.todos, unread = (got.todosUnread || []).slice();
   if (peopleBad) unread.push({ file: 'people.json', why: 'people.json couldn\'t be read, so no one\'s authority over to-dos can be checked.', run: null });
   const others = loopIn ? loopIn.runs.filter((c) => runs.indexOf(c) < 0) : [];
   const now = Date.now();
-  T.markHolds(runs, { records: got.todos || [], unread, people, loops: loopIn ? loopIn.loops : undefined, also: others, now });
-  runs.forEach((r) => { if (r && r.living && !r._unrunnable) r._tdv = T.view(r, { records: T.recordsFor(got.todos || [], r), unread: unread.filter((u) => (u.run ? u.run.process === r.process && u.run.id === r.id : true)), people, deps: { records: got.todos || [], unread }, now }); });
+  T.markHolds(runs, { records: got.todos || [], unread, people, loops: loopIn ? loopIn.loops : undefined, also: others, now, evidence: ev || null });
+  runs.forEach((r) => { if (r && r.living && !r._unrunnable) r._tdv = T.view(r, { records: T.recordsFor(got.todos || [], r), unread: unread.filter((u) => (u.run ? u.run.process === r.process && u.run.id === r.id : true)), people, deps: { records: got.todos || [], unread, evidence: ev || null }, now }); });
   return unread;
 }
 /* The checked publication reader the screen gives a loop (procOf): a process's versions as loadAll indexed them. */
@@ -980,9 +983,10 @@ async function readData(eng, adapter, req) {
         const pr = await plansOnce(), gp = pr.got || null;
         if (pr.why) L.note('proposals', 'unreadable', pr.why);
         if (gp) {
-          const un = markTodos(PF, [r], gp, one.people, !!(one.peopleWhy || pw), loopIn), was = relevant, mine = {};
+          const ev = await evidenceRead(PF, L.fs, gp, PF.todos.recordsFor(gp.todos || [], r)), evp = ev.paths;
+          const un = markTodos(PF, [r], gp, one.people, !!(one.peopleWhy || pw), loopIn, ev), was = relevant, mine = {};
           un.filter((u) => u.run ? u.run.process === m[1] && u.run.id === m[2] : !!r.living).concat(evidenceUnread(PF, r, r._tdv, un)).forEach((u) => { if (u.file !== 'people.json' && !mine['proposals/' + u.file]) { mine['proposals/' + u.file] = true; L.note('proposals/' + u.file, u.kind === 'newer' || u.kind === 'unreadable' ? u.kind : 'malformed', u.kind === 'newer' ? u.why : fileWhy(u.why)); } });
-          relevant = (p) => was(p) || !!mine[p];
+          relevant = (p) => was(p) || !!mine[p] || evp.some((q) => p === q || String(p).indexOf(q + '/') === 0);
         } else if (r.living) { const was = relevant; relevant = (p) => was(p) || p === 'proposals'; }
       }
       /* run and next read only what they depend on (readRunOnly), so every problem met counts. */
@@ -1052,7 +1056,7 @@ async function readData(eng, adapter, req) {
     d.runs.forEach((r) => { if (req.cmd !== 'runs' || tested(r)) take(judgeRun(PF, r, req.cmd === 'runs' ? pubOf(r) : null)); });
     const nameOf = A.names(d.people), runs = d.runs.filter((r) => !newerRun(PF, r)), all = (list) => list;
     /* Living runs (4.0): what to-dos hold, as in every window. */
-    if (two && req.cmd === 'runs') markTodos(PF, runs, { todos: d.todos || [], todosUnread: d.todosUnread || [] }, d.people, !!(d.failed && 'people' in d.failed), { runs: [], loops: { records: d.scopes || [], unread: d.scopesUnread || [], procOf: procOfFrom(d) } });
+    if (two && req.cmd === 'runs') markTodos(PF, runs, { todos: d.todos || [], todosUnread: d.todosUnread || [] }, d.people, !!(d.failed && 'people' in d.failed), { runs: [], loops: { records: d.scopes || [], unread: d.scopesUnread || [], procOf: procOfFrom(d) } }, { runs: d.runs || runs, plans: d.plans || [] });
     const known = (p) => d.processes.some((x) => x.process === p) || d.runs.some((r) => r.process === p) || d.plans.some((x) => x.process === p);
     if (req.proc && !known(req.proc) && !req.stage) return notFound('There\'s no process ' + req.proc + ' in the team folder.');
     if (req.cmd === 'processes') return done(all, A.processes(d.processes), d.readAt);
@@ -2711,6 +2715,10 @@ const HELP = `flightdeck: team process checklists, in one HTML file
                                       todo keep --todo <id> (spread keep --spread <id>) --tool ... keeps it for next
                                       time: one suggestion its checklist's owner reviews, named by the to-do and the
                                       place (no --key; --phase or --after places item work); never changes the run
+                                      add --checklist <process>@<version folder> [--accepts a,b] links it to a checklist
+                                      whose run settles it; todo suggest-done --todo <id> --evidence-run <process>/<run>
+                                      asks for it done on a run its plan started, named by that run (no --key); a
+                                      person still decides, and applying it checks that run again
   flightdeck spread list <team folder> <process>/<run> --json
                                       for AI assistants: a run's spreads (a requirement every item of a loop must
                                       meet), each item's state, what joined since, and what holds the loop. Only reads
@@ -3229,7 +3237,7 @@ async function keepMain(argv, noun) {
   } catch (e) { return failOut('failed', (e && e.message || String(e)) + nothing, problems()); }
 }
 const TODO_SUBS = ['list', 'add', 'done', 'wont', 'move', 'reopen', 'suggest-done', 'keep'];
-const TODO_VAL = ['--tool', '--key', '--text', '--phase', '--step', '--item', '--attempt', '--todo', '--reason', '--to', '--owner', '--as', '--fact'];
+const TODO_VAL = ['--tool', '--key', '--text', '--phase', '--step', '--item', '--attempt', '--todo', '--reason', '--to', '--owner', '--as', '--fact', '--checklist', '--accepts', '--evidence-run'];
 function todoWords(json, sub) {
   if (json.error) return 'flightdeck: ' + json.error.why + json.problems.map((x) => '\n  ' + x.path + ': ' + x.why).join('');
   const d = json.data, lines = [];
@@ -3270,8 +3278,9 @@ async function todoMain(argv) {
     tool = { name: tm[1], version: tm[2] };
     if (sub === 'suggest-done') {
       if (val['--key'] != null) return usage('suggest-done is named by the evidence it rests on, so it takes no --key: the same evidence is always the same request.');
-      if (!val['--fact']) return usage('say which fact it rests on with --fact <fact id> (flightdeck fact list shows them).');
-    } else if (val['--fact'] != null) return usage('--fact goes with suggest-done.');
+      if (!val['--fact'] === !val['--evidence-run']) return usage('say what it rests on with one of --fact <fact id> (flightdeck fact list shows them) or --evidence-run <process>/<run id> (a run of the to-do\'s checklist).');
+      if (val['--evidence-run'] != null && !RUN_KEY.test(val['--evidence-run'])) return usage('--evidence-run is the run of its checklist as <process>/<run id>.');
+    } else if (val['--fact'] != null || val['--evidence-run'] != null) return usage((val['--fact'] != null ? '--fact' : '--evidence-run') + ' goes with suggest-done.');
     else if (!val['--key'] || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$/.test(val['--key'])) return usage('say which key with --key: letters, numbers, dots, colons, dashes or underscores, like import-42. The same key always means the same request.');
     if (val['--as'] != null && !/^[A-Za-z0-9_.-]{1,80}$/.test(val['--as'])) return usage('--as is the ID from people.json of the person the tool asks for.');
     const targets = ['--phase', '--step', '--item'].filter((f) => val[f] != null);
@@ -3283,13 +3292,18 @@ async function todoMain(argv) {
     if (sub === 'move' && !val['--to']) return usage('say where it moved with --to <ticket like ABC-123 | https link | process/run>.');
     if (val['--owner'] != null && sub !== 'add') return usage('--owner goes with add.');
     if (val['--attempt'] != null && val['--item'] == null) return usage('--attempt goes with --item.');
+    if (val['--checklist'] != null && sub !== 'add') return usage('--checklist goes with add: it names the checklist whose run settles a new to-do.');
+    if (val['--accepts'] != null && val['--checklist'] == null) return usage('--accepts goes with --checklist.');
+    if (val['--checklist'] != null && !/^[a-z0-9][a-z0-9-]{0,59}@v[1-9][0-9]{0,8}-[a-z0-9]{1,40}$/.test(val['--checklist'])) return usage('say the checklist as <process>@<version folder>, like smoke-test@v3-k3m9p2q8 (flightdeck versions shows them).');
   } else if (Object.keys(val).length) return usage('list takes only the team folder, the run and --json.');
   let dir;
   try { eng = loadEngine(); dir = folderArg(args[2], 'todo ' + sub); } catch (e) { return failOut('failed', e.message); }
   const PF = eng.PF, A = PF.appjson, T = PF.todos, R = PF.run, repo = PF.repo, proc = m[1], runId = m[2];
   const ra = readAdapter(dir, { maxBytes: READ_MAX }), L = repo.ledger(repo.readOnly(ra, 'Reading to-dos'));
   const mineRun = (u) => !u || !u.run || (u.run.process === proc && u.run.id === runId);
-  const relevant = (p) => p === '' || p === 'people.json' || p === 'proposals' || p === 'proposals/' || p.indexOf('runs/' + proc + '/' + runId) === 0 || p === 'runs' || p === 'runs/' + proc;
+  /* also: what a checklist-linked to-do depends on besides this run: the runs it rests on and the version it pins. */
+  const also = [], under = (p, q) => p === q || p.indexOf(q + '/') === 0;
+  const relevant = (p) => p === '' || p === 'people.json' || p === 'proposals' || p === 'proposals/' || p.indexOf('runs/' + proc + '/' + runId) === 0 || p === 'runs' || p === 'runs/' + proc || also.some((q) => under(p, q) || p === q.split('/').slice(0, -1).join('/'));
   const extra = [];
   const problems = () => { const all = L.problems(), seen = {}; all.forEach((x) => { seen[x.path + '\u0000' + x.kind] = true; }); adapterProblems(ra).forEach((x) => { if (!seen[x.path + '\u0000' + x.kind]) all.push(x); }); return all.filter((x) => relevant(x.path)).concat(extra); };
   const done = (data, code) => { const e = A.envelope(eng.version, new Date().toISOString(), problems(), data, C2); return out(e, code != null ? code : e.complete ? 0 : EXIT.partial); };
@@ -3311,20 +3325,26 @@ async function todoMain(argv) {
     if (one.peopleWhy || pw) unread.push({ file: 'people.json', why: 'people.json couldn\'t be read, so no one\'s authority over to-dos can be checked.', run: null });
     const records = T.recordsFor(got.todos || [], r), people = one.people, NOW = Date.now();
     /* Every record and unread file read, for what a request depends on elsewhere (a story's facts are on its parent run). */
-    const deps = { records: got.todos || [], unread: (got.todosUnread || []).concat(unread.filter((u) => u.file === 'people.json')) };
+    const ER = val['--evidence-run'] ? RUN_KEY.exec(val['--evidence-run']) : null;
+    const ev = await evidenceRead(PF, L.fs, got, records, ER ? [{ process: ER[1], id: ER[2] }] : []);
+    ev.paths.forEach((q) => also.push(q));
+    ev.unreadRuns.forEach((k) => { if (!problems().some((x) => under(x.path, 'runs/' + k))) extra.push({ path: 'runs/' + k + '/run.json', kind: 'unreadable', why: 'This run couldn\'t be read, so what rests on it can\'t be checked.' }); });
+    const deps = { records: got.todos || [], unread: (got.todosUnread || []).concat(unread.filter((u) => u.file === 'people.json')), evidence: ev };
     const V = T.view(r, { records, unread, people, deps, now: NOW }), nameOf = A.names(people), title = String(r.title || r.process);
     const gateOf = (pl) => (pl ? T.gateTitle(map, pl.beforeGate) : '');
     /* A record another run's evidence needs that can't be read is this command's problem too, named. */
     const noteUnread = (list) => list.forEach((u) => { const p = 'proposals/' + u.file; if (u.file !== 'people.json' && !extra.some((e) => e.path === p)) extra.push({ path: p, kind: u.kind === 'newer' ? 'newer' : 'malformed', why: u.kind === 'newer' ? u.why : fileWhy(u.why) }); });
     noteUnread(evidenceUnread(PF, r, V, deps.unread));
+    const runEvidenceOf = (x) => (x && x.evidence ? { plan: x.evidence.plan, run: x.evidence.run, answer: x.evidence.answer, result: x.evidence.result, words: PF.detours.evidenceWords(x.evidence) } : null);
     const evidenceOf = (x) => { if (!x || !x.support) return null; const s = x.support; return { fact: s.fact, domain: s.domain, source: s.source, words: PF.facts.TITLE[s.domain] + ' from ' + [s.source.feed, s.source.site, s.source.account].filter(Boolean).join(' · ') + ' (' + s.fact + ')' }; };
     if (sub === 'list') {
       const open = V.todos.filter((x) => x.state === 'open').length;
       return done({ run: { process: proc, id: runId }, title, living: !!r.living, ended: !!r.ended,
         summary: 'To-dos: ' + (V.todos.length - open) + ' of ' + V.todos.length + ' resolved' + (V.broken || V.unread.length || V.held.length ? ' · held' : ''),
         todos: V.todos.map((x) => ({ id: x.id, text: x.text, state: x.state, stateWords: T.STATE_WORDS[x.state], target: x.target || null, placement: x.placement || null, beforeGate: x.placement ? x.placement.beforeGate : null, gate: gateOf(x.placement) || null,
-          owner: x.owner ? nameOf(x.owner) : null, reason: x.why || null, addedReason: x.reason || null, to: x.to || null, evidence: evidenceOf(x) })),
-        requests: T.requestsOf(V).map((q) => ({ id: q.id, kind: q.kind, op: q.op, todo: q.todo || null, status: q.status, statusWords: T.WORDS[q.status] || q.status, why: q.why || null, by: q.by || null, requester: q.requester || null, at: q.at || null, evidence: q.support ? evidenceOf(q) : null })),
+          owner: x.owner ? nameOf(x.owner) : null, reason: x.why || null, addedReason: x.reason || null, to: x.to || null, evidence: evidenceOf(x) || runEvidenceOf(x),
+          checklist: x.checklist || null, provenance: PF.detours.provenance(r, x, ev) || null })),
+        requests: T.requestsOf(V).map((q) => ({ id: q.id, kind: q.kind, op: q.op, todo: q.todo || null, status: q.status, statusWords: T.WORDS[q.status] || q.status, why: q.why || null, by: q.by || null, requester: q.requester || null, at: q.at || null, evidence: q.support ? evidenceOf(q) : q.evidence ? runEvidenceOf(q) : null })),
         held: (V.broken ? [V.broken.why] : []).concat(V.unread.map((u) => String(u.file) + ': ' + u.why), V.held.map((h) => h.record + ': ' + h.why)) });
     }
     /* suggest-done (4.0 slice 4): a done on one fact's evidence, as PF.facts.supportFor checks it now. Its name comes from the
@@ -3377,7 +3397,45 @@ async function todoMain(argv) {
       }
       return done(data('requested'));
     };
-    if (sub === 'suggest-done') return suggestDone();
+    /* suggest-done --evidence-run (4.0 slice 5): a done on one run its evidence plan started, as PF.detours.evidenceFor
+       checks it now. Named by the to-do and that evidence (PF.detours.requestId), so asking again is already. */
+    const suggestOnRun = async () => {
+      const DT = PF.detours, x = V.byTodo[val['--todo']], sid0 = { run: { process: proc, id: runId } };
+      const ours = (y) => !!(y && y.run && y.run.process === proc && y.run.id === runId && y.op === 'done' && x && y.todo === x.id && y.evidence);
+      const held = (why) => done(Object.assign(sid0, { status: 'held', preview: why + ' Nothing was written. Check folder availability, then try again.' }), EXIT.partial);
+      if (!x) return (V.broken || V.unread.length || V.held.length) ? held('The to-do can\'t be read in order yet.') : failOut('invalid', 'That to-do isn\'t in this run.' + nothing, problems());
+      if (problems().length) return held('Part of the team folder this depends on couldn\'t be read.');
+      if (x.checklist && x.checklist.process !== ER[1]) return failOut('invalid', 'This to-do is settled by a run of ' + x.checklist.process + ', not ' + ER[1] + '.' + nothing, problems());
+      const E = DT.evidenceFor(r, x, ER[2], ev);
+      if (E.held) return held(E.why);
+      if (E.why) return failOut('invalid', E.why + nothing, problems());
+      const sid = DT.requestId(x.id, E.evidence), sfile = 'proposals/' + sid + '.json', taken = (got.todos || []).filter((y) => y.id === sid)[0];
+      if (taken && !ours(taken)) return failOut('key-taken', 'A different record is already filed under this request\'s name (' + sfile + ').' + nothing, problems());
+      if (taken) { const q0 = T.requestsOf(V).filter((q) => q.id === sid)[0]; return done(Object.assign(sid0, { status: 'already', request: { id: sid, file: sfile }, preview: 'Already asked on this run (' + (q0 ? T.WORDS[q0.status] || q0.status : 'not read in order yet') + '). Nothing written.' })); }
+      if ((got.todosUnread || []).some((u) => u.file === sid + '.json')) return held('A request on this run is in the folder but can\'t be read yet.');
+      const body = { op: 'done', todo: x.id, evidence: E.evidence };
+      if (val['--reason'] != null) body.reason = val['--reason'];
+      if (val['--as'] != null) body.requester = val['--as'];
+      const P = T.prepare(r, { body, by: { tool: tool.name, version: tool.version }, records, unread, people, deps, now: NOW, at: new Date().toISOString(), app: eng.version });
+      if (P.why) return failOut('invalid', P.why + nothing, problems());
+      const pv = P.preview, needs = pv.status === 'waiting' ? 'person' : pv.status === 'queued' ? 'delegation' : 'none', file = 'proposals/' + P.name;
+      const data = (status) => Object.assign(sid0, { status, request: { id: P.id, file }, op: 'done', todo: x.id, evidence: runEvidenceOf(body),
+        authority: { needs, why: pv.why || null, requester: body.requester || null, approvesNothing: true },
+        consequence: { reopens: pv.consequence.reopens, releases: pv.consequence.releases }, recorder: pv.recorder || null, queue: T.WORDS[pv.status] || pv.status,
+        preview: title + (status === 'would-request' ? ' — preview only; no files written.' : ' — requested.') + '\n\n' + pv.words + ' Evidence: ' + E.words + ' Applying it checks that run again.' + (body.requester ? ' Asked for ' + body.requester + '; that is not their approval.' : ''), appliedBy: 'the recorder' });
+      if (dryRun) return done(data('would-request'));
+      let res;
+      try { res = writeOnce(dir, ['proposals'], P.name, T.text(P.file)); } catch (e) { return failOut('failed', UNCERTAIN + ' (' + (e && e.message || String(e)) + ')', problems()); }
+      if (res !== 'written') {
+        const tk = await takenRecord(PF, dir, P.name), there = tk.record || null;
+        if (tk.problem) { extra.push(tk.problem); return held('Something is under this request\'s name (' + file + ') that can\'t be read back, so whether it is this request isn\'t known.'); }
+        if (!there) return failOut('failed', UNCERTAIN, problems());
+        if (!ours(there)) return failOut('key-taken', 'A different record is already filed under this request\'s name (' + file + '). Nothing was written.', problems());
+        return done(Object.assign(data('requested'), { status: 'already', preview: 'Already asked on this run. Nothing written.' }));
+      }
+      return done(data('requested'));
+    };
+    if (sub === 'suggest-done') return val['--evidence-run'] ? suggestOnRun() : suggestDone();
     const id = T.idFor(tool.name, val['--key']), file = 'proposals/' + id + '.json';
     if (unread.some((u) => u.file === id + '.json')) return done({ run: { process: proc, id: runId }, status: 'held', request: { id, file }, preview: 'A request under this key is in the folder but can\'t be read yet. Nothing written. Check folder availability, then retry with the same key.' });
     const body = { op: sub };
@@ -3391,6 +3449,19 @@ async function todoMain(argv) {
         body.target = { item: { loopStep: im[1], uid: im[2], attempt: at } };
       }
       if (val['--owner'] != null) body.owner = val['--owner'];
+      /* --checklist (4.0 slice 5): the exact version whose run settles it, read whole; a version that can't be read holds. */
+      if (val['--checklist'] != null) {
+        const cm = /^([^@]+)@(.+)$/.exec(val['--checklist']), cp = cm[1], cf = cm[2];
+        also.push('publications/' + cp + '/' + cf);
+        const dd = await repo.loadAll(dependsOn(L.fs, ['publications/' + cp]), { readOnly: true, explain: true, deep: true });
+        const e = (dd.processes || []).filter((y) => y.process === cp)[0], badPub = e ? (e.pubs || []).filter((y) => y && !y.ok && y.folder === cf)[0] : null;
+        if (badPub) extra.push({ path: 'publications/' + cp + '/' + cf + '/', kind: 'malformed', why: cf + ' can\'t be used: ' + String(badPub.why || 'it doesn\'t pass its check') });
+        if (problems().length) return done({ run: { process: proc, id: runId }, status: 'held', request: { id, file }, preview: 'The checklist it pins (' + val['--checklist'] + ') couldn\'t be read whole, so nothing was written. Check folder availability, then retry with the same key.' }, EXIT.partial);
+        const accepts = val['--accepts'] != null ? String(val['--accepts']).split(',').map((a) => a.trim()).filter(Boolean) : null;
+        const Q = PF.detours.pinFor(procOfFrom(dd)(cp), cp, cf, accepts);
+        if (Q.why) return failOut('invalid', Q.why + nothing, problems());
+        body.checklist = Q.checklist;
+      }
     } else body.todo = val['--todo'];
     if (val['--reason'] != null) body.reason = val['--reason'];
     if (val['--to'] != null) body.to = val['--to'];
@@ -3410,7 +3481,7 @@ async function todoMain(argv) {
     const P = T.prepare(r, { body, by: { tool: tool.name, version: tool.version, key: val['--key'] }, records, unread, people, deps, now: NOW, at: new Date().toISOString(), app: eng.version });
     if (P.why) return failOut('invalid', P.why + ' Nothing was written.', problems());
     const pv = P.preview, needs = pv.status === 'waiting' ? 'person' : pv.status === 'queued' ? 'delegation' : 'none';
-    const data = (status) => ({ run: { process: proc, id: runId }, status, request: { id, file }, op: pv.op, todo: pv.todo, placement: pv.placement, gate: pv.gate || null,
+    const data = (status) => ({ run: { process: proc, id: runId }, status, request: { id, file }, op: pv.op, todo: pv.todo, placement: pv.placement, gate: pv.gate || null, checklist: body.checklist || null,
       authority: { needs, why: pv.why || null, requester: body.requester || null, approvesNothing: true },
       consequence: { reopens: pv.consequence.reopens, releases: pv.consequence.releases }, recorder: pv.recorder || null, queue: T.WORDS[pv.status] || pv.status,
       preview: title + (status === 'would-request' ? ' — preview only; no files written.' : ' — requested.') + '\n\n' + pv.words + (body.requester ? ' Asked for ' + body.requester + '; that is not their approval.' : ''), appliedBy: 'the recorder' });

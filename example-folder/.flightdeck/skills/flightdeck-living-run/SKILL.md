@@ -50,12 +50,21 @@ When a to-do or a spread shows a step the checklist itself is missing, it can be
 2. **Place item work.** A to-do on one item of a loop belongs to the checklist the items run, and needs `--phase <phase id>` or `--after <step id>` in that checklist; read it first (`flightdeck read`) and ask the person if where it goes isn't plain. Without one it is kept as needing placement, and says so.
 3. **Say where it stands** as it is: Suggested, Applied to draft, or Published in vN. Only the checklist's owner decides it, in Flightdeck.
 
+## A to-do another checklist settles
+
+Some to-dos are settled by running a whole checklist ("run the smoke test").
+
+1. **Link one** only when the person asks: `flightdeck todo add ... --checklist <process>@<version folder> [--accepts <result>,...] --dry-run --json` first. Name the exact version folder from `flightdeck versions`; never guess the latest. The person starts it with Run this checklist.
+2. **Ask for it done** on a run that completed: `flightdeck todo suggest-done ... --todo <to-do id> --evidence-run <process>/<run id> --tool <name>@<version> --dry-run --json` first. Name the run its plan started; if more than one was started, ask the person which. If it is refused, say why (not completed, a result it doesn't accept, a run that changed) and don't work around it.
+3. **Say what changed.** If `todo list` shows `provenance` on a checked-off to-do, tell the person; nothing reopens on its own.
+
 ## Never
 
 - Never say a to-do is done, dropped or moved, or that an item has met a spread, until `todo list` or `spread list` shows it applied. A suggestion on evidence is a request like any other.
 - Never use a new key to retry. If the command can't confirm the save, retry with the same key: a new key could ask twice.
 - Never drop or move work, stop a spread or send an approval back without the person's agreement. Never ask for any of them to make a gate pass, and never pass a gate. A person decides that.
 - Never say a kept step is in the checklist until a published version has it.
+- Never say a to-do is settled by a checklist's run until `todo list` shows it done on that run.
 - Never put secrets, tokens or customer data in a to-do's or a spread's text, reason or destination, in a keep's text or reason, or in a fact's entries, errors or source.
 
 Remember that OneDrive may be up to a minute behind, so say what you read, not what is guaranteed.

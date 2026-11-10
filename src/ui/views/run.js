@@ -1236,6 +1236,28 @@
     if (K) return ' <span class="small td-keep">' + (K.group ? '<button type="button" class="linkish" data-act="keep-open" data-id="' + esc(K.group.id) + '" data-process="' + esc(K.process) + '">' + esc(K.words) + '</button>' : esc(K.words)) + '</span>';
     return ctx.keepCan && ctx.keepCan(r) ? ' <button type="button" class="mini" data-act="keep" data-kind="' + kind + '" data-id="' + esc(id) + '">Keep for next time</button>' : '';
   }
+  /* Checklist-linked to-dos (4.0 slice 5): what settles it, each run its plan started (Accept where the result is one it
+     accepts; more than one started, each its own, chosen by the person), and Run this checklist. Said once it is checked off:
+     the run it rests on, and whether that run changed since. */
+  function detourLine(ctx, r, x, can, busy) {
+    var d = x.checklist && ctx.detourOf ? ctx.detourOf(r, x) : null;
+    if (!d) return '';
+    var c = d.checklist, id = esc(x.id), h = '<div class="small td-detour">Settled by a run of <b>' + esc(d.title) + '</b> v' + esc(String(c.version)) + (c.accepts ? ' that returns ' + esc(c.accepts.join(' or ')) : '') + '.';
+    if (x.state === 'done' && x.evidence) h += ' <span class="td-ack">Checked off on ' + esc(PF.detours.evidenceWords(x.evidence)) + '.</span>';
+    if (d.provenance) h += ' <span class="warn" role="note">' + esc(d.provenance) + '</span>';
+    if (x.state === 'open') {
+      if (!d.usable) h += ' <span role="note">' + esc(d.why) + '</span>';
+      if (d.startsWhy) h += ' <span role="note">' + esc(d.startsWhy) + '</span>';
+      d.starts.forEach(function (st) {
+        h += ' <span class="row td-run"><button type="button" class="linkish" data-act="open-run" data-id="' + esc(st.key) + '">' + esc(st.title) + '</button>';
+        if (st.accept && can && !busy) h += ' <button type="button" class="mini" data-act="td-evidence" data-id="' + id + '" data-run="' + esc(st.id) + '">Accept: ' + esc(st.words) + '</button>';
+        else if (!st.accept) h += ' <span>' + esc(st.why) + '</span>';
+        h += '</span>';
+      });
+      if (d.usable && can && !busy) h += ' <button type="button" class="mini" data-act="td-detour" data-id="' + id + '">' + (d.starts.length ? 'Open its plan' : 'Run this checklist') + '</button>';
+    }
+    return h + '</div>';
+  }
   function tdRow(ctx, r, map, x, pend, can) {
     var s = ctx.state, id = esc(x.id), open = x.state === 'open', mine = (pend[x.id] || []).filter(function (q) { return q.op !== 'add'; }), busy = mine.length > 0;
     var where = x.target && x.target.item ? ' <span class="small">· ' + esc(x.target.item.loopStep) + ' item</span>' : x.target && x.target.step ? ' <span class="small">· step ' + esc(x.target.step) + '</span>' : '';
@@ -1249,12 +1271,14 @@
     /* Done on a fact's evidence (4.0 slice 4): said quietly, once it is applied, never before. */
     if (x.state === 'done' && x.support) h += ' <span class="small td-ack">Checked off on its evidence: ' + esc(PF.facts.supportWords(x.support)) + '.</span>';
     mine.forEach(function (q) { h += ' <span class="pill review" title="' + esc(q.why || '') + '">' + esc((q.op === 'done' ? 'Done' : q.op === 'wont' ? 'Won\'t do' : q.op === 'move' ? 'Move' : 'Reopen') + ': ' + (TD_REQ[q.status] || q.status)) + '</span>' + (q.why ? ' <span class="small">' + esc(q.why) + '</span>' : '') +
-      (q.support ? ' <span class="small td-evidence">On evidence: ' + esc(ctx.evidenceWords ? ctx.evidenceWords(r, x, q.support) : PF.facts.supportWords(q.support) + '.') + '</span>' : ''); });
+      (q.support ? ' <span class="small td-evidence">On evidence: ' + esc(ctx.evidenceWords ? ctx.evidenceWords(r, x, q.support) : PF.facts.supportWords(q.support) + '.') + '</span>' : '') +
+      (q.evidence ? ' <span class="small td-evidence">On ' + esc(PF.detours.evidenceWords(q.evidence)) + '.</span>' : ''); });
     if (can && !busy) {
       if (open) h += ' <span class="row td-acts"><button type="button" class="mini" data-act="td-pick" data-kind="wont" data-id="' + id + '">Won\'t do…</button><button type="button" class="mini" data-act="td-pick" data-kind="move" data-id="' + id + '">Move or defer…</button></span>';
       else h += ' <span class="row td-acts"><button type="button" class="mini" data-act="td-reopen" data-id="' + id + '">Reopen</button></span>';
     }
     h += keepLine(ctx, r, 'todo', x.id);
+    h += detourLine(ctx, r, x, can, busy);
     var pk = s.tdPick, rk = r.process + '/' + r.id, shown = '';
     if (can && !busy && open && pk && pk.id === x.id && pk.fs === ctx.fsKey && pk.run === rk) {
       var wont = pk.kind === 'wont', dk = tdKeyOf(ctx, rk, x.id, pk.kind);
@@ -1392,6 +1416,9 @@
     var h = '<div class="fpe rw" id="rw">' + V.workHead({ hid: 'run-h', h1attrs: ' tabindex="-1"', cls: 'rw-head', h1: esc(r.title), h1tail: K.testTag(r), back: V.backc('go-back', og.hash, og.place, og.view),
       status: sub, prog: V.progress(t.done, t.total), acts: slot.also + slot.primary, more: V.moreMenu(ctx, more) });
     h += strip(ctx, r);
+    /* A run started for a to-do (4.0 slice 5): the way back to it. */
+    var dtb = ctx.detourBack ? ctx.detourBack(r) : null;
+    if (dtb) h += '<p class="small td-from">' + I('nest') + ' Started for ' + (dtb.todo ? 'the to-do "' + esc(dtb.text) + '"' : 'a to-do') + ' on <b>' + esc(dtb.title) + '</b>. <button class="linkish" data-act="td-back" data-id="' + esc(dtb.from) + '"' + (dtb.todo ? ' data-todo="' + esc(dtb.todo) + '"' : '') + '>Back to the to-do</button></p>';
     /* Messages, a failed save, folder trouble, conflicts and Details stay in view, right under the strip. */
     var al = '';
     if (s.msg && !s.msg.quiet) al += '<div class="notice ' + (s.msg.kind || '') + '" role="status"><span>' + esc(s.msg.text) + '</span><span class="row">' + (s.msg.act ? '<button class="btn" data-act="' + esc(s.msg.act) + '">' + esc(s.msg.label) + '</button>' : '') + '<button class="mini" data-act="dismiss">Dismiss</button></span></div>';

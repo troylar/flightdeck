@@ -1830,7 +1830,7 @@ T_ISO = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(?::[0-9]{2}(?
 T_CONTROL = re.compile("[\u0000-\u001f\u007f  ]")
 T_RUNKEY = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}/[a-z0-9-]{1,40}\Z", re.I | re.A)
 T_COMMON = ["format", "features", "app", "kind", "id", "run", "seen", "producer", "key", "by", "at"]
-T_BODY = ["op", "todo", "target", "placement", "text", "owner", "reason", "origin", "to", "requester", "spread", "loopStep", "child", "scope", "item", "dest", "owed", "fulfills", "support"]
+T_BODY = ["op", "todo", "target", "placement", "text", "owner", "reason", "origin", "to", "requester", "spread", "loopStep", "child", "scope", "item", "dest", "owed", "fulfills", "support", "checklist", "evidence"]
 # Facts (4.0 slice 4, PF.facts): what a tool observed about a loop item, one record per item, source and domain.
 F_DOMAINS = {"prs": ("state", ["open", "draft", "merged", "closed"], 100), "commits": (None, None, 100),
              "status": ("category", ["todo", "doing", "done"], 1), "blockers": ("state", ["open", "resolved"], 100)}
@@ -1841,7 +1841,7 @@ F_ENTRY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:#/-]{0,119}\Z")
 F_MOMENT = re.compile(r"^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2})(?::([0-9]{2})(?:\.[0-9]{1,3})?)?(?:Z|[+-]([0-9]{2}):([0-9]{2}))\Z")
 F_FIELDS = ["loopStep", "uid", "attempt", "source", "domain", "observedAt", "maxAgeSeconds", "complete", "reported", "fetched", "errors", "entries"]
 F_COMMON = ["format", "features", "app", "kind", "id", "run", "seen", "producer", "key", "at"]
-T_EFIELDS = {"add": ["op", "todo", "text", "target", "placement", "owner", "reason", "origin", "fulfills"], "done": ["op", "todo", "reason", "support"],
+T_EFIELDS = {"add": ["op", "todo", "text", "target", "placement", "owner", "reason", "origin", "fulfills", "checklist"], "done": ["op", "todo", "reason", "support", "evidence"],
              "spread-add": ["op", "spread", "loopStep", "text", "child", "scope", "owner", "reason"], "spread-include": ["op", "spread", "item", "reason"],
              "spread-bind": ["op", "spread", "item", "dest", "reason"], "spread-stop": ["op", "spread", "reason", "owed"],
              "reopen": ["op", "todo", "reason"], "wont": ["op", "todo", "reason"], "move": ["op", "todo", "to", "reason"]}
@@ -1980,6 +1980,78 @@ def _suggest_hash(todo, inc, source, domain, content):
         return v if (v is not None and v is not False and v != "" and not (_tnum(v) and v == 0)) else ""
     src = [source.get("feed"), orv(source.get("site")), orv(source.get("account"))]
     return _thash(["suggest", todo, inc, src, domain, content], 24)
+
+
+D_PLAN = re.compile(r"^plan-ev-[0-9a-f]{24}\Z")
+D_LIMITS = {"accepts": 20, "accept": 60, "answer": 80, "result": 60}
+
+
+def detour_clean_checklist(v, err):
+    """PF.detours.cleanChecklist: an addition's pinned checklist, refused whole, never cut."""
+    if not isinstance(v, dict):
+        err("checklist")
+        return None
+    errs = []
+    for k in js_keys(v):
+        if k not in ("process", "folder", "version", "mapHash", "typesHash", "accepts"):
+            errs.append("checklist has " + k + ".")
+    if not _tstr(v.get("process")) or not T_PROC.match(v["process"]):
+        errs.append("checklist process")
+    m = K_FOLDER.match(v["folder"]) if _tstr(v.get("folder")) else None
+    if not m:
+        errs.append("checklist folder")
+    elif not _tnum(v.get("version")) or v["version"] != int(m.group(1)):
+        errs.append("checklist version")
+    if not _tstr(v.get("mapHash")) or not K_H8.match(v["mapHash"]) or not _tstr(v.get("typesHash")) or not K_H8.match(v["typesHash"]):
+        errs.append("checklist fingerprints")
+    acc = v.get("accepts")
+    if acc is not None:
+        if not isinstance(acc, list) or not acc or len(acc) > D_LIMITS["accepts"]:
+            errs.append("checklist accepts")
+        elif not all(_tstr(a) and js_trim(a) == a and 1 <= js_len(a) <= D_LIMITS["accept"] and not K_CONTROL.search(a) for a in acc):
+            errs.append("checklist accepts text")
+        elif len(set(acc)) != len(acc):
+            errs.append("checklist accepts twice")
+    for w in errs:
+        err(w)
+    if errs:
+        return None
+    out = {"process": v["process"], "folder": v["folder"], "version": v["version"], "mapHash": v["mapHash"], "typesHash": v["typesHash"]}
+    if acc is not None:
+        out["accepts"] = list(acc)
+    return out
+
+
+def detour_clean_evidence(v, err):
+    """PF.detours.cleanEvidence: a done's evidence plan, run, answer identity and result."""
+    if not isinstance(v, dict):
+        err("evidence")
+        return None
+    errs = []
+    for k in js_keys(v):
+        if k not in ("plan", "run", "answer", "result"):
+            errs.append("evidence has " + k + ".")
+    if not _tstr(v.get("plan")) or not D_PLAN.match(v["plan"]):
+        errs.append("evidence plan")
+    r = v.get("run")
+    if not isinstance(r, dict) or len(r) != 2 or not _tstr(r.get("process")) or not T_PROC.match(r["process"]) or not _tstr(r.get("id")) or not T_RUN.match(r["id"]):
+        errs.append("evidence run")
+    a = v.get("answer")
+    if not _tstr(a) or not js_trim(a) or js_len(a) > D_LIMITS["answer"] or K_CONTROL.search(a):
+        errs.append("evidence answer")
+    res = v.get("result")
+    if not _tstr(res) or js_len(res) > D_LIMITS["result"] or K_CONTROL.search(res):
+        errs.append("evidence result")
+    for w in errs:
+        err(w)
+    if errs:
+        return None
+    return {"plan": v["plan"], "run": {"process": r["process"], "id": r["id"]}, "answer": a, "result": res}
+
+
+def _evidence_hash(todo, ev):
+    """PF.detours.requestId/requestKey: a done named by its to-do and the run it rests on."""
+    return _thash(["evidence-done", todo, ev["plan"], ev["run"]["process"], ev["run"]["id"], ev["answer"], ev["result"]], 24)
 
 
 def fact_moment_ok(v):
@@ -2528,7 +2600,7 @@ def todo_why(o, name, nbytes=None, unchecked=None):
 
     def clean_spread_body(oo, rid):
         b = {"op": oo["op"]}
-        for k in ("todo", "target", "placement", "origin", "to", "fulfills", "support"):
+        for k in ("todo", "target", "placement", "origin", "to", "fulfills", "support", "checklist", "evidence"):
             if oo.get(k) is not None:
                 err("A spread request has no " + k)
         if oo["op"] == "spread-add":
@@ -2638,6 +2710,8 @@ def todo_why(o, name, nbytes=None, unchecked=None):
                 out["origin"] = clean_origin(e["origin"])
             if e.get("fulfills") is not None:
                 out["fulfills"] = clean_fulfills(e["fulfills"])
+            if e.get("checklist") is not None:
+                out["checklist"] = detour_clean_checklist(e["checklist"], err)
         if e.get("reason") is not None:
             rr = line(e["reason"], TODO_LIMITS["reason"], "effect reason")
             if rr:
@@ -2648,6 +2722,11 @@ def todo_why(o, name, nbytes=None, unchecked=None):
             out["to"] = clean_to(e.get("to"))
         if e.get("support") is not None:
             out["support"] = fact_clean_support(e["support"], err)
+        if e.get("evidence") is not None:
+            if e.get("support") is not None:
+                err("effect of a done rests on support or on evidence, never both")
+            else:
+                out["evidence"] = detour_clean_evidence(e["evidence"], err)
         return out
 
     def effect_of(p):
@@ -2671,7 +2750,7 @@ def todo_why(o, name, nbytes=None, unchecked=None):
             e["text"] = p.get("text")
             e["target"] = p.get("target")
             e["placement"] = p.get("placement")
-            for k in ("owner", "reason", "origin", "fulfills"):
+            for k in ("owner", "reason", "origin", "fulfills", "checklist"):
                 if p.get(k):
                     e[k] = p[k]
         if p["op"] == "wont" or (p["op"] in ("reopen", "done", "move") and p.get("reason")):
@@ -2680,6 +2759,8 @@ def todo_why(o, name, nbytes=None, unchecked=None):
             e["to"] = p.get("to")
         if p["op"] == "done" and p.get("support"):
             e["support"] = p["support"]
+        if p["op"] == "done" and p.get("evidence"):
+            e["evidence"] = p["evidence"]
         return e
 
     def clean_authority(a):
@@ -2784,6 +2865,14 @@ def todo_why(o, name, nbytes=None, unchecked=None):
             err("Its id isn't the one its to-do and support give")
         elif o.get("key") != "sg-" + _suggest_hash(o["todo"], sp["incarnation"], sp["source"], sp["domain"], sp["content"]):
             err("Its key isn't its suggestion's")
+    elif isinstance(o.get("evidence"), dict) and o.get("op") == "done" and o.get("support") is None:
+        ev = o["evidence"]
+        er = ev.get("run")
+        ok = _tstr(o.get("todo")) and _tstr(ev.get("plan")) and isinstance(er, dict) and _tstr(er.get("process")) and _tstr(er.get("id")) and _tstr(ev.get("answer")) and _tstr(ev.get("result"))
+        if not ok or o["id"] != "req-evidence-" + _evidence_hash(o["todo"], ev):
+            err("Its id isn't the one its to-do and evidence give")
+        elif by and by.get("tool") and o.get("key") != "ev-" + _evidence_hash(o["todo"], ev):
+            err("Its key isn't its evidence's")
     elif by and by.get("tool") and o["id"] != _todo_id(by["tool"], o.get("key")):
         err("Its id isn't the one its tool and key give")
     if kind in ("proposal", "compound"):
@@ -2832,6 +2921,19 @@ def todo_why(o, name, nbytes=None, unchecked=None):
                     err("Only a done request has support")
                 else:
                     b["support"] = fact_clean_support(o["support"], err)
+            # Checklist-linked to-dos (PF.todos.cleanBody, 4.0 slice 5): checklist on an addition, evidence on a done.
+            if o.get("checklist") is not None:
+                if op != "add":
+                    err("Only an addition has checklist")
+                else:
+                    b["checklist"] = detour_clean_checklist(o["checklist"], err)
+            if o.get("evidence") is not None:
+                if op != "done":
+                    err("Only a done request has evidence")
+                elif o.get("support") is not None:
+                    err("A done rests on support or on evidence, never both")
+                else:
+                    b["evidence"] = detour_clean_evidence(o["evidence"], err)
             if op == "add" and o.get("owner") is not None:
                 if not _tstr(o["owner"]) or not T_PERSON.match(o["owner"]):
                     err("owner")

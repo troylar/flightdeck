@@ -45,6 +45,13 @@
         "title": "Keep a to-do for next time, as a step its checklist's owner reviews",
         "now": "Keep for next time on a to-do or a spread suggests it as a missing step of its checklist; the run doesn't change. Item work goes to the checklist the items run. Keeps for one place join one correction with each wording shown, and only the checklist's owner decides it. The to-do says Suggested, Applied to draft or Published in vN. flightdeck todo keep does the same.",
         "where": "A run's screen, a checklist's Corrections, flightdeck todo keep, the living-run and learn-from-runs skills"
+      },
+      {
+        "kind": "new",
+        "area": "Runs",
+        "title": "Settle a to-do by running another checklist",
+        "now": "A to-do can name a checklist whose run settles it. Run this checklist on the to-do starts it from the to-do's own plan, and the run leads back to the to-do. When it completes with a result the to-do accepts, Accept asks for the to-do done on that run; a person still decides, and a later change to that run is said. flightdeck todo does the same.",
+        "where": "A run's screen, flightdeck todo add --checklist and suggest-done --evidence-run, the living-run skill"
       }
     ]
   },

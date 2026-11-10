@@ -808,6 +808,30 @@ Only the checklist's active owner (or its backup while the owner is inactive) re
 | `--key`, both `--phase` and `--after` | `usage` |
 | No such run | exit 5 |
 
+## Checklist-linked to-dos
+
+A to-do can be settled by a whole run of another checklist (4.0, docs/design.md section 45.4): "run the smoke test". The to-do pins that checklist's exact version and the results of it that count; a run of it is an ordinary run, started from the to-do's own plan through the usual start. Nothing resolves on its own: a done on that run's result is a request like any other.
+
+```
+flightdeck todo add <team folder> <process>/<run> --text "..." --phase <phase id> --checklist <process>@<version folder> [--accepts <result>,<result>] --tool <name>@<version> --key <key> [--dry-run] [--json]
+flightdeck todo suggest-done <team folder> <process>/<run> --todo <to-do id> --evidence-run <process>/<run id> --tool <name>@<version> [--reason <why>] [--as <person>] [--dry-run] [--json]
+```
+
+`--checklist` names an exact version folder (`flightdeck versions` lists them), never "the latest". Without `--accepts`, any run of it that completes counts. In Flightdeck, Run this checklist on the to-do makes its plan (one per to-do and opening: asking again opens the same plan) and opens the start; the plan's start names the run it started.
+
+`suggest-done --evidence-run` names one run that plan started, as `<process>/<run id>`; when more than one was started, it is the one you name, never a guess. There is no `--key`: the to-do and that run as it stands name the request, so asking again is `already`. It is checked again whenever it is read and before it is applied: a run reopened, corrected or ended again since is held, even if it ends with the same result; ask again on the run as it is then. A person decides it (or a delegation covers it), as any done.
+
+Once checked off, `todo list` shows the to-do's `checklist`, the run it rests on (`evidence`: `plan`, `run`, `answer`, `result`, `words`) and `provenance`: what became of that run since, or null. A change is said, never undone.
+
+### Errors
+
+| Situation | What it says |
+|---|---|
+| The pinned version, a run it rests on, a plan's decision or a record can't be read | `held` (exit 4), each named in `problems`: nothing was written |
+| No such checklist or version, a result it never returns, a run not started for the to-do, not completed, or a result it doesn't accept | `invalid`, with why |
+| `--key` with `suggest-done`, both `--fact` and `--evidence-run`, `--accepts` without `--checklist`, `--checklist` on anything but `add` | `usage` |
+| No such run | exit 5 |
+
 ## Writing step types (for AI assistants)
 
 Contract `flightdeck-write/1` (2.14) for `type save`; `type list` and `type read` print `flightdeck-read/2`. `type save` **changes the team folder**: it writes `step-types/<id>.json` and one history line, `history/step-types/<id>/agent-<operation>.jsonl`, and nothing else, never through a link and never outside the folder.

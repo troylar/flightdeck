@@ -52,10 +52,21 @@ function valid() {
   const kpe = L.build({ run: RUN, producer: bot, at: AT, source: { spread: sp.spread }, template: tpl, anchor: { phase: 'wrap' }, base: '89abcdef', change: { text: 'Security sign-off', where: 'end' } });
   const kna = L.build({ run: RUN, by: 'person-blake', at: AT, source: { todo: T.todoIdFor(cid) }, template: tpl, change: { text: 'Check the links', where: 'end' }, needs: 'The to-do says nothing about where in validate-story it goes.' });
   const knb = L.build({ run: RUN, producer: bot, at: AT, source: { todo: T.todoIdFor(tool.id) }, change: { text: 'Check the links', where: 'end' }, needs: 'The checklist its items run can\'t be read here.' });
+  /* Checklist-linked to-dos (4.0 slice 5): an addition that pins a checklist, a tool's done on a run of it with its
+     application, and a person's done on one in a single gesture. */
+  const D = PF.detours, ck = { process: 'smoke-test', folder: 'v2-k3m9p2q8', version: 2, mapHash: '0123abcd', typesHash: '4567ef01', accepts: ['pass', 'pass with notes'] };
+  const lnk = T.buildProposal({ run: RUN, producer: bot, key: 'k-3', seen: [], at: AT, body: Object.assign({ checklist: ck }, body) }), ltd = T.todoIdFor(lnk.id);
+  const evd = { plan: D.planId(RUN, ltd, app.name.replace(/\.json$/, '')), run: { process: 'smoke-test', id: 'k1' }, answer: '2026-11-09T09:00:00.000Z 2026-11-09T09:10:00.000Z', result: 'pass' };
+  const evt = T.buildProposal({ run: RUN, producer: bot, seen: [], at: AT, body: { op: 'done', todo: ltd, evidence: evd } });
+  const eve = T.effectOf(T.cleanFile(JSON.parse(T.text(evt)), evt.id + '.json').record);
+  const eva = T.buildStatus({ kind: 'application', proposal: evt.id, run: RUN, seen: [evt.id], by: 'person-avery', at: AT, authority: { decision: dec.name.replace(/\.json$/, '') }, previous: '', effect: eve, writer: 'w1', rev: '0a1b2c42' });
+  const evp = Object.assign({}, evd, { result: '', run: { process: 'smoke-test', id: 'k2' } }), epb = { op: 'done', todo: T.todoIdFor(cid), evidence: evp, reason: 'Ran it' }, epe = T.effectOf(epb);
+  const evc = T.buildProposal({ kind: 'compound', run: RUN, id: D.requestId(epb.todo, evp), by: 'person-avery', seen: [], at: AT, body: epb, decision: { by: 'person-avery', consequence: '0123456789abcdef' }, application: { previous: '', effect: epe, fingerprint: T.fingerprint(epe) } });
   return [[tool.id + '.json', tool], [asked.id + '.json', asked], [person.id + '.json', person], [mv.id + '.json', mv], [cid + '.json', comp], [g.id + '.json', g], [rv.id + '.json', rv], [dec.name, dec.file], [app.name, app.file],
     [sp.id + '.json', sp], [inc.id + '.json', inc], [bnd.id + '.json', bnd], [stp.id + '.json', stp], [fil.id + '.json', fil], [sap.name, sap.file], [fap.name, fap.file],
     [fct.id + '.json', fct], [fbk.id + '.json', fbk], [fst.id + '.json', fst], [fcm.id + '.json', fcm], [sug.id + '.json', sug], [sga.name, sga.file],
-    [kpa.id + '.json', kpa], [kpe.id + '.json', kpe], [kna.id + '.json', kna], [knb.id + '.json', knb]];
+    [kpa.id + '.json', kpa], [kpe.id + '.json', kpe], [kna.id + '.json', kna], [knb.id + '.json', knb],
+    [lnk.id + '.json', lnk], [evt.id + '.json', evt], [eva.name, eva.file], [evc.id + '.json', evc]];
 }
 /* Each record damaged one way at a time: every field dropped, retyped and nulled, an extra field, a newer or unmarked format,
    over-long text, a prototype key, another file name. */
@@ -140,6 +151,8 @@ rule('The checker refuses exactly the to-do records the app refuses, over every 
   ['prs', 'commits', 'status', 'blockers'].forEach((d) => assert.ok(cs.some((c) => c.label === 'valid' && JSON.parse(c.text).domain === d), 'the corpus has a fact on ' + d));
   assert.ok(cs.some((c) => c.label === 'valid' && JSON.parse(c.text).support), 'the corpus has a done on evidence');
   assert.ok(cs.filter((c) => c.label === 'valid' && JSON.parse(c.text).kind === 'keep').length === 4, 'the corpus has four keeps');
+  assert.ok(cs.some((c) => c.label === 'valid' && JSON.parse(c.text).checklist), 'the corpus has a checklist-linked addition');
+  assert.strictEqual(cs.filter((c) => c.label === 'valid' && (JSON.parse(c.text).evidence || ((JSON.parse(c.text).effect || {}).evidence))).length, 3, 'the corpus has a tool\'s and a person\'s done on a run, and an application of one');
   const pyOut = JSON.parse(cp.execFileSync(py, ['-I', '-B', '-c', DRIVER, DIR], { input: JSON.stringify(cs), encoding: 'utf8', maxBuffer: 256 * 1048576 }));
   const off = [];
   const idn = (c) => IDN.some((v) => c.label === 'link ' + v || c.label === 'origin link ' + v || c.label === 'entry link ' + v), un = [];
@@ -171,6 +184,41 @@ rule('A done on evidence with more than one damaged field is refused by the chec
   ].map(([label, fn]) => ({ name, text: JSON.stringify(edit(fn)), label }));
   const pyOut = JSON.parse(cp.execFileSync(py, ['-I', '-B', '-c', DRIVER, DIR], { input: JSON.stringify(cases), encoding: 'utf8', maxBuffer: 64 * 1048576 }));
   const field = (w) => /support/.test(w) ? 'support' : /requester/.test(w) ? 'requester' : /reason/.test(w) ? 'reason' : /todo/.test(w) ? 'todo' : w.replace(/\.$/, '');
+  const off = [];
+  cases.forEach((c, i) => {
+    const j = jsRefuses(c), x = pyOut[i], p = Array.isArray(x) ? x[0] : x;
+    assert.ok(j && p, c.label + ': both refuse it (app: ' + j + ' · checker: ' + p + ')');
+    if (field(j) !== field(p)) off.push(c.label + ' · app: ' + j + ' · checker: ' + p);
+  });
+  assert.deepStrictEqual(off, [], off.length + ' first reasons differ');
+});
+
+rule('A checklist-linked addition or a done on a run with more than one damaged field is refused by the checker for the same field first as the app', () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const all = valid(), pick = (fn) => { const e = all.filter(([n, f]) => fn(f))[0]; return [e[0], JSON.parse(T.text(e[1]))]; };
+  const [ln, lo] = pick((f) => f.checklist), [en, eo] = pick((f) => f.evidence && f.kind === 'proposal'), [cn, co] = pick((f) => f.evidence && f.kind === 'compound');
+  const cases = [];
+  const edit = (label, [name, o], fn) => { const c = JSON.parse(JSON.stringify(o)); fn(c); cases.push({ name, label, text: JSON.stringify(c) }); };
+  edit('checklist folder, owner bad', [ln, lo], (c) => { c.checklist.folder = 'v0-x'; c.owner = 'a b'; });
+  edit('checklist version, reason long', [ln, lo], (c) => { c.checklist.version = 3; c.reason = 'r'.repeat(301); });
+  edit('checklist accepts too many, requester bad', [ln, lo], (c) => { c.checklist.accepts = Array.from({ length: 21 }, (_, i) => 'r' + i); c.requester = 'a b'; });
+  edit('checklist accepts twice, owner bad', [ln, lo], (c) => { c.checklist.accepts = ['pass', 'pass']; c.owner = 'a b'; });
+  edit('checklist accepts padded', [ln, lo], (c) => { c.checklist.accepts = [' pass']; });
+  edit('checklist hash, text empty', [ln, lo], (c) => { c.checklist.mapHash = 'XYZ'; c.text = ''; });
+  edit('checklist on a done', [en, eo], (c) => { c.checklist = lo.checklist; });
+  edit('evidence on an add', [ln, lo], (c) => { c.evidence = eo.evidence; });
+  edit('evidence plan, reason empty', [en, eo], (c) => { c.evidence.plan = 'plan-x'; c.reason = ''; });
+  edit('evidence run extra, requester bad', [en, eo], (c) => { c.evidence.run.step = 'x'; c.requester = 'a b'; });
+  edit('evidence answer control', [en, eo], (c) => { c.evidence.answer = 'a\u2028b'; });
+  edit('evidence result long', [en, eo], (c) => { c.evidence.result = 'r'.repeat(61); });
+  edit('evidence and support', [en, eo], (c) => { c.support = { fact: 'x' }; });
+  edit('evidence moved under its id', [en, eo], (c) => { c.evidence.result = 'fail'; });
+  edit('evidence key moved', [en, eo], (c) => { c.key = 'ev-' + '0'.repeat(24); });
+  edit('compound evidence, effect differs', [cn, co], (c) => { c.application.effect.evidence = Object.assign({}, c.application.effect.evidence, { result: 'x' }); });
+  edit('compound evidence answer long', [cn, co], (c) => { c.evidence.answer = 'a'.repeat(81); });
+  const pyOut = JSON.parse(cp.execFileSync(py, ['-I', '-B', '-c', DRIVER, DIR], { input: JSON.stringify(cases), encoding: 'utf8', maxBuffer: 64 * 1048576 }));
+  const field = (w) => /checklist/.test(w) ? 'checklist' : /support/.test(w) ? 'support' : /evidence/.test(w) ? 'evidence' : /fingerprint/.test(w) ? 'fingerprint' : /effect/.test(w) ? 'effect' : /requester/.test(w) ? 'requester' : /owner/.test(w) ? 'owner' : /reason/.test(w) ? 'reason' : /text/.test(w) ? 'text' : /key/.test(w) ? 'key' : w.replace(/\.$/, '');
   const off = [];
   cases.forEach((c, i) => {
     const j = jsRefuses(c), x = pyOut[i], p = Array.isArray(x) ? x[0] : x;
@@ -233,6 +281,9 @@ rule('An unknown field is named first in the app\'s key order, numeric-like keys
   add('keep template', keep, (c) => { c.template = two(c.template); });
   add('keep anchor', keep, (c) => { c.anchor = two(c.anchor); });
   add('keep change', keep, (c) => { c.change = two(c.change); });
+  const lnk = pick((f) => f.checklist), evd = pick((f) => f.evidence && f.kind === 'proposal');
+  add('checklist', lnk, (c) => { c.checklist = two(c.checklist); });
+  add('evidence', evd, (c) => { c.evidence = two(c.evidence); });
   const pyOut = JSON.parse(cp.execFileSync(py, ['-I', '-B', '-c', DRIVER, DIR], { input: JSON.stringify(cases), encoding: 'utf8', maxBuffer: 64 * 1048576 }));
   const key = (w) => { const m = /has "?([^".\s]+)"?/.exec(w || ''); return m ? m[1] : 'no field named: ' + w; };
   const off = [];

@@ -200,6 +200,14 @@ To ask for a to-do done on a fact's evidence, run `flightdeck todo suggest-done 
 
 To suggest that a to-do or a spread become a step of its checklist next time, run `flightdeck todo keep <team folder> <process>/<run> --todo <to-do id> --tool <name>@<version> --dry-run --json` (or `flightdeck spread keep ... --spread <spread id>`) first, then again without `--dry-run`. No `--key`: the run, the to-do and the place name it, so asking again is `already`. Phase and step to-dos go to the run's own checklist (the end of the phase, or after the step); spreads go to the checklist the loop's items run, at the end of the phase with their gate. A to-do on one item needs `--phase <phase id>` or `--after <step id>` in the items' checklist; without one it is kept as needing placement. `--text` keeps it in other words and `--reason` says why. It changes nothing on the run. The checklist's owner reviews it with the other corrections in the app; never say it is in the checklist until a version is published with it. `held` (exit 4) names what couldn't be read: nothing was written.
 
+### A to-do another checklist settles
+
+To link a new to-do to a checklist whose run settles it, add `--checklist <process>@<version folder>` (and `--accepts <result>,<result>` for the results that count) to `flightdeck todo add`. It pins that exact version; a version that can't be read is `held` (exit 4). The person runs it with Run this checklist in Flightdeck.
+
+When a run of it completes, run `flightdeck todo suggest-done <team folder> <process>/<run> --todo <to-do id> --evidence-run <process>/<run id> --tool <name>@<version> --dry-run --json` first (no `--key`: the to-do and that run name it). Name the run its plan started; when more than one was, ask the person which.
+
+It is refused, with why, unless that run completed with a result the to-do accepts. A person decides it, and applying it checks that run again. `provenance` in `todo list` says when the run changed after the to-do was checked off.
+
 ## Evidence packs
 
 **Evidence packs:** when a person asks for a run's evidence, run `flightdeck export <team folder> --run <process>/<id> --out <a folder outside the team folder>` (or `--process <id> --from YYYY-MM-DD --through YYYY-MM-DD --tz Area/City` for the runs started on those days). It only reads. Exit code 0 is a complete pack, 4 a partial one (its top lists what changed or was missing), 1 no pack.

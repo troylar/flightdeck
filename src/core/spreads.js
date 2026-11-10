@@ -47,7 +47,7 @@ PF.spreads = (function () {
      obligations it decides unresolved, never resolved. Returns { spreads: [...], scope: [record ids an approval must count] }. */
   function coverage(r, T, o) {
     o = o || {};
-    var out = [], scope = Object.create(null), deps = { records: o.records || [], unread: o.unread || [] };
+    var out = [], scope = Object.create(null), deps = { records: o.records || [], unread: o.unread || [], evidence: o.evidence || null };
     var views = Object.create(null);
     var childView = function (c) {
       var k = c.process + '/' + c.id;

@@ -1,0 +1,175 @@
+// Checklist-linked to-dos (4.0, docs/design.md 45.4) in the app, slice 5. The run screen is a faithful view plus easy actions:
+// a to-do linked to a checklist says what settles it and offers Run this checklist, which makes (once) the to-do's own plan
+// and opens it in the standalone start; the run it starts leads back to the to-do. A completed run whose result the to-do
+// accepts offers Accept, which asks for the to-do done on that run, checked again against the folder right before it is
+// written. Linking a to-do and anything more complex goes through flightdeck todo.
+'use strict';
+const assert = require('assert');
+const { rule, run } = require('./harness');
+const { boot } = require('./app-harness');
+
+const PARENT = ['---', 'process: release-notes', 'title: Release notes', 'owner: person-morgan', '---', '',
+  '## Draft · DO-CONFIRM {#draft}', '- [!] {confirm} Write the notes {#write}', ''].join('\n');
+const SMOKE = ['---', 'process: smoke-test', 'title: Smoke test', 'owner: person-avery', 'context: verdict:choice(pass|fail)', 'result: verdict', '---', '',
+  '## Test · DO-CONFIRM {#test}', '- [!] {confirm} Run the smoke suite {#suite}', '- [!] {decide} Record the result {#call}', '  options: pass, fail', '  sets: verdict=decision', ''].join('\n');
+const txt = (h) => h.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&#39;/g, "'").replace(/&quot;/g, '"');
+const AT = () => new Date().toISOString();
+
+function publish(app, md, rand) {
+  const PF = app.PF, people = JSON.parse(app.fs.files['people.json'].t);
+  const b = PF.publish.build(md, { people, ...require('./harness').exampleSetup(PF), by: 'person-morgan', changes: 'First', existing: [], now: AT(), rand, app: '4.0.0' });
+  assert.ok(!b.blockers, JSON.stringify(b.blockers));
+  const proc = PF.map.parse(md).meta.process;
+  Object.keys(b.files).forEach(k => { app.fs.files['publications/' + proc + '/' + b.folder + '/' + k] = { t: b.files[k], m: Date.now() }; });
+  const exact = PF.publish.exactOf({ 'map.md': new Uint8Array(Buffer.from(b.files['map.md'], 'utf8')), 'types.json': new Uint8Array(Buffer.from(b.files['types.json'], 'utf8')) });
+  const v = PF.publish.verify(b.folder, b.files, exact); v.folder = b.folder;
+  return v;
+}
+const parentPath = (app) => app.files('runs/release-notes/').find(p => /run\.json$/.test(p));
+const parentRun = (app) => JSON.parse(app.fs.files[parentPath(app)].t);
+const kidPaths = (app) => app.files('runs/smoke-test/').filter(p => /run\.json$/.test(p)).sort();
+const plans = (app) => app.files('proposals/plan-ev-').filter(p => /^proposals\/plan-ev-[0-9a-f]{24}\.json$/.test(p));
+const evRecs = (app) => app.files('proposals/req-evidence-').filter(p => !/\.status-/.test(p));
+const refresh = async (app, ms) => { app.click('refresh'); await app.tick(ms || 250); };
+const toParent = async (app) => { const r = parentRun(app); app.click('open-run', r.process + '/' + r.id); await app.tick(120); };
+
+/* A release-notes run, started in the app by Avery; a smoke-test checklist; a to-do on the run linked to it, landed. */
+async function setup(accepts) {
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true }); await app.tick(80); app.choose('person-avery'); await app.tick();
+  publish(app, PARENT, 'rn000001'); const kp = publish(app, SMOKE, 'sm000001');
+  await refresh(app, 80);
+  app.click('start', 'release-notes'); await app.settle();
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
+  assert.ok(parentPath(app), 'set-up: a run was started');
+  const PF = app.PF, r = PF.run.sanitize(parentRun(app)), people = JSON.parse(app.fs.files['people.json'].t);
+  const Q = PF.detours.pinFor({ latest: kp, all: [kp], clashes: [], broken: [] }, 'smoke-test', kp.folder, accepts);
+  assert.ok(!Q.why, Q.why);
+  const d = await PF.repo.loadAll(app.fs, {});
+  const P = PF.todos.prepare(r, { body: { op: 'add', text: 'Smoke test the build', target: { phase: 'draft' }, checklist: Q.checklist }, by: { person: 'person-avery' }, key: 'ui-setup', records: d.todos, unread: d.todosUnread, people, at: AT(), app: '4.0.0' });
+  assert.ok(!P.why, P.why);
+  app.fs.files['proposals/' + P.name] = { t: PF.todos.text(P.file), m: Date.now() };
+  await refresh(app, 400); await toParent(app); await refresh(app, 300);
+  const V = PF.todos.view(PF.run.sanitize(parentRun(app)), { records: (await PF.repo.loadAll(app.fs, {})).todos, people });
+  const x = V.todos.filter(t => t.text === 'Smoke test the build')[0];
+  assert.ok(x && x.state === 'open' && x.checklist, 'set-up: the linked to-do landed');
+  return { app, kp, todo: x.id };
+}
+/* Run this checklist, then start the plan it opened; returns the new run's key. */
+async function runIt(app, todo) {
+  const before = kidPaths(app);
+  app.click('td-detour', todo); await app.tick(250);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(200);
+  const p = kidPaths(app).filter(x => before.indexOf(x) < 0)[0];
+  assert.ok(p, 'a run of smoke-test was started');
+  return p.split('/').slice(1, 3).join('/');
+}
+function finish(app, key, verdict, at) {
+  const PF = app.PF, p = 'runs/' + key + '/run.json', c = JSON.parse(app.fs.files[p].t), m = PF.run.mapOf(c), t = at || AT();
+  PF.run.done(c, m, 'suite', 'person-avery', t); PF.run.done(c, m, 'call', 'person-avery', t, { decision: verdict }); PF.run.pass(c, m, 0, 'person-avery', t); PF.run.end(c, m, 'Completed', 'person-avery', 'Avery', t);
+  app.fs.files[p] = { t: JSON.stringify(c, null, 2), m: Date.now() };
+}
+
+rule('A linked to-do says what settles it; Run this checklist makes its one plan and opens it in the standalone start; asked twice it is the same plan', async () => {
+  const { app, todo } = await setup(['pass']);
+  const t = txt(app.html());
+  assert.ok(/Settled by a run of Smoke test v1 that returns pass/.test(t), t.slice(0, 2000));
+  assert.ok(new RegExp('data-act="td-detour"[^>]*data-id="' + todo + '"|data-id="' + todo + '"[^>]*data-act="td-detour"').test(app.html()), 'the button');
+  app.click('td-detour', todo); await app.tick(250);
+  assert.strictEqual(plans(app).length, 1, 'one plan');
+  const plan = JSON.parse(app.fs.files[plans(app)[0]].t), r = parentRun(app);
+  assert.deepStrictEqual([plan.format, plan.process, plan.from], [app.PF.plans.FORMAT2, 'smoke-test', r.process + '/' + r.id]);
+  assert.ok(/id="start-form"/.test(app.html()), 'the standalone start, on its plan');
+  await toParent(app);
+  app.click('td-detour', todo); await app.tick(250);
+  assert.strictEqual(plans(app).length, 1, 'asked again, the same plan: nothing more written');
+  assert.ok(/id="start-form"/.test(app.html()));
+  assert.strictEqual(app.fs.files[parentPath(app)].t.indexOf('plan-ev-'), -1, 'the run itself doesn\'t change');
+});
+
+rule('The started run leads back to the to-do; Accept on its completed result asks for the to-do done on that run, and it is checked off', async () => {
+  const { app, todo } = await setup(['pass']);
+  const key = await runIt(app, todo);
+  const st = app.files('proposals/plan-ev-').filter(p => /\.status-/.test(p)).map(p => JSON.parse(app.fs.files[p].t));
+  assert.deepStrictEqual([st.length, st[0].status, st[0].run], [1, 'accepted', key.split('/')[1]], 'the started decision names the run');
+  app.click('open-run', key); await app.tick(150);
+  assert.ok(/Started for the to-do "Smoke test the build"/.test(txt(app.html())), txt(app.html()).slice(0, 1500));
+  const r = parentRun(app);
+  app.click('td-back', r.process + '/' + r.id); await app.tick(150);
+  assert.ok(/id="td-/.test(app.html()) && /Smoke test the build/.test(app.html()), 'on the run with the to-do');
+  assert.strictEqual(app.activeId(), 'td-' + todo, 'focused on the to-do it came from');
+  assert.ok(!/data-act="td-evidence"/.test(app.html()), 'nothing to accept before it completes');
+  assert.ok(/hasn't completed yet/.test(txt(app.html())));
+  finish(app, key, 'pass'); await refresh(app, 300);
+  assert.ok(/data-act="td-evidence"/.test(app.html()), 'Accept, once it completed with a result it accepts');
+  app.click('td-evidence', todo, { run: key.split('/')[1] }); await app.tick(250);
+  assert.strictEqual(evRecs(app).length, 1, 'one request on that run: ' + (/<div class="notice[^>]*><span>(.*?)<\/span>/.exec(app.html()) || [])[1]);
+  const rec = JSON.parse(app.fs.files[evRecs(app)[0]].t);
+  assert.deepStrictEqual([rec.op, rec.todo, rec.evidence.run, rec.evidence.result], ['done', todo, { process: 'smoke-test', id: key.split('/')[1] }, 'pass']);
+  await refresh(app, 400);
+  assert.ok(/Checked off on the run smoke-test\/[a-z0-9-]+ \(pass\)/.test(txt(app.html())), txt(app.html()).slice(0, 2500));
+  app.click('td-evidence', todo, { run: key.split('/')[1] }); await app.tick(200);
+  assert.strictEqual(evRecs(app).length, 1, 'nothing more once it is done');
+});
+
+rule('A result it doesn\'t accept offers nothing to accept and says why; competing starts each offer their own Accept', async () => {
+  const { app, todo } = await setup(['pass']);
+  const k1 = await runIt(app, todo);
+  finish(app, k1, 'fail'); await toParent(app); await refresh(app, 300);
+  assert.ok(!/data-act="td-evidence"/.test(app.html()));
+  assert.ok(/returned fail; this to-do accepts pass/.test(txt(app.html())), txt(app.html()).slice(0, 2500));
+  const PF = app.PF, plan = JSON.parse(app.fs.files[plans(app)[0]].t);
+  const g = PF.repo.groupPlans([Object.assign({}, plan, { _file: plan.id + '.json' })], [], [])[0];
+  const c = PF.run.create((await PF.repo.loadAll(app.fs, {})).processes.filter(p => p.process === 'smoke-test')[0].index.latest, { id: 'k2', by: 'person-avery', session: 'w9', now: AT(), app: '4.0.0' });
+  app.fs.files['runs/smoke-test/k2/run.json'] = { t: JSON.stringify(c, null, 2), m: Date.now() };
+  app.fs.files['proposals/' + plan.id + '.status-w9-d.json'] = { t: JSON.stringify(PF.plans.decision(g, 'accepted', 'k2', 'person-avery', AT(), null, '4.0.0')), m: Date.now() };
+  finish(app, 'smoke-test/k2', 'pass'); await refresh(app, 300);
+  const acc = (app.html().match(/data-act="td-evidence"/g) || []).length;
+  assert.strictEqual(acc, 1, 'only the run whose result it accepts');
+  assert.ok(/data-run="k2"/.test(app.html()));
+});
+
+rule('A run that changed since the screen was drawn is never accepted: checked against the folder right before the write', async () => {
+  const { app, todo } = await setup();
+  const key = await runIt(app, todo);
+  finish(app, key, 'pass'); await toParent(app); await refresh(app, 300);
+  assert.ok(/data-act="td-evidence"/.test(app.html()));
+  const p = 'runs/' + key + '/run.json', c = JSON.parse(app.fs.files[p].t);
+  c.ended.at = '2030-01-01T00:00:00.000Z';
+  app.fs.files[p] = { t: JSON.stringify(c, null, 2), m: Date.now() };
+  app.click('td-evidence', todo, { run: key.split('/')[1] }); await app.tick(250);
+  assert.strictEqual(evRecs(app).length, 0, 'nothing written');
+  assert.ok(/changed since this screen|Nothing was written/.test(txt(app.html())), txt(app.html()).slice(0, 2000));
+});
+
+rule('Run this checklist whose folder or person changes before the plan is written writes nothing; a pin that can\'t be used offers nothing', async () => {
+  const { app, todo } = await setup();
+  const fs = app.fs, read = fs.read.bind(fs); let release = null;
+  fs.read = (p, o) => /^proposals\/plan-ev-[0-9a-f]{24}\.json$/.test(p) && !release ? new Promise((res) => { release = () => res(read(p, o)); }) : read(p, o);
+  app.click('td-detour', todo); await app.tick(40);
+  assert.ok(release, 'the save is under way');
+  app.choose('person-blake'); await app.tick(40);
+  release(); await app.tick(150);
+  fs.read = read;
+  assert.strictEqual(plans(app).length, 0, 'nothing written');
+  app.choose('person-avery'); await app.tick(80);
+  const { app: app2, kp, todo: t2 } = await setup();
+  app2.files('publications/smoke-test/' + kp.folder + '/').forEach(p => { app2.fs.files[p] = { t: 'damaged', m: Date.now() }; });
+  await refresh(app2, 300);
+  assert.ok(!new RegExp('data-act="td-detour"[^>]*data-id="' + t2 + '"').test(app2.html()), 'no button on a pin that can\'t be used');
+  assert.ok(/can't be used here/.test(txt(app2.html())), txt(app2.html()).slice(0, 2000));
+  app2.click('td-detour', t2); await app2.tick(200);
+  assert.strictEqual(plans(app2).length, 0, 'clicked anyway, nothing written');
+});
+
+rule('An interrupted start finds its plan again: Run this checklist opens the plan already there, never a second', async () => {
+  const { app, todo } = await setup();
+  app.click('td-detour', todo); await app.tick(250);
+  assert.strictEqual(plans(app).length, 1);
+  const was = app.fs.files[plans(app)[0]].t;
+  await refresh(app, 200); await toParent(app);
+  app.click('td-detour', todo); await app.tick(250);
+  assert.deepStrictEqual([plans(app).length, app.fs.files[plans(app)[0]].t], [1, was], 'the same plan, the same bytes');
+  assert.ok(/id="start-form"/.test(app.html()));
+});
+
+run();
