@@ -1009,4 +1009,49 @@ rule('YB: an explicitly bound run that isn\'t here makes coverage incomplete and
   W.kids.push(k3);
   same(W.one().complete, true, 'back');
 });
+/* Review round 8 (ZA): every introduction of an item in its current incarnation counts. A stopped spread exempts an item only
+   when every one of them came after the stop; a repeat observation or a restore of an item already required never starts a new
+   incarnation. Each case is run in both id orders. */
+/* Two keys whose scope request ids sort as asked: a before b when first, else b before a. */
+const keysIn = (first, tag) => { for (let i = 0; i < 400; i++) { const a = tag + '-a' + i, b = tag + '-b' + i, ia = scope4(a, [101], [], '').id, ib = scope4(b, [101], [], '').id; if ((ia < ib) === first) return [a, b]; } throw new Error('no keys'); };
+function hiddenBeforeStop(tag, first) {
+  const W = world([101]); W.kid(101, { cleared: true });
+  W.spreadAdd(); W.land(W.r);
+  const [kp, kq] = keysIn(first, tag);
+  const pre = scope4(kp, [101, 104], [W.scopes[0].id], W.r.living.head);
+  W.ask(W.r, stopBody(W, []), { person: 'person-morgan' }); W.land(W.r);
+  same(spreadOf(W).state, 'stopped', 'set-up: stopped on nothing while the record that added ABC-104 was hidden');
+  return { W, pre, kq, stopApp: W.r.living.head };
+}
+const owedOf = (W) => { const C = W.one(); return [C.complete, C.items.filter(i => i.owed).map(i => i.key + '#' + i.attempt)]; };
+for (const first of [true, false]) {
+  const ord = first ? ' (the earlier introduction sorts first)' : ' (the later introduction sorts first)';
+  rule('ZA: a concurrent observation after the stop never replaces the hidden one before it' + ord, () => {
+    const { W, pre, kq, stopApp } = hiddenBeforeStop('za1', first);
+    W.scopes.push(pre, scope4(kq, [101, 104], [W.scopes[0].id], stopApp));
+    same(owedOf(W), [true, ['ABC-104#1']]);
+  });
+  rule('ZA: a repeat observation that saw the hidden one never makes it a later arrival' + ord, () => {
+    const { W, pre, kq, stopApp } = hiddenBeforeStop('za2', first);
+    W.scopes.push(pre);
+    same(owedOf(W), [true, ['ABC-104#1']], 'set-up: restored, owed');
+    W.scopes.push(scope4(kq, [101, 104], [pre.id], stopApp));
+    same(owedOf(W), [true, ['ABC-104#1']]);
+  });
+  rule('ZA: a restore of an item already required changes nothing, and never makes it a later arrival' + ord, () => {
+    const { W, pre, kq, stopApp } = hiddenBeforeStop('za3', first);
+    W.scopes.push(pre);
+    W.scopes.push(scope4(kq, null, [pre.id], stopApp, [{ op: 'restore', item: { key: 'ABC-104', id: '10104' }, reason: 'Back in' }]));
+    same(owedOf(W), [true, ['ABC-104#1']]);
+  });
+}
+rule('ZA: a removal and a restore after the stop start a new incarnation, which arrives after the stop and owes nothing', () => {
+  const { W, pre, kq, stopApp } = hiddenBeforeStop('za4', true);
+  W.scopes.push(pre);
+  const ex = scope4(kq + 'x', null, [pre.id], stopApp, [{ op: 'exclude', item: { key: 'ABC-104', id: '10104' }, reason: 'Out' }]);
+  W.scopes.push(ex);
+  same(owedOf(W), [true, []], 'a recorded removal still removes');
+  W.scopes.push(scope4(kq + 'r', null, [ex.id], stopApp, [{ op: 'restore', item: { key: 'ABC-104', id: '10104' }, reason: 'Back in' }]));
+  same(owedOf(W), [true, []], 'restored after the stop: a later arrival');
+});
 run();

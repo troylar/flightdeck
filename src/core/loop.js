@@ -152,11 +152,14 @@ PF.loop = (function () {
         if (it.key && it.key !== x.key) { if (byKey[x.key] === x) delete byKey[x.key]; x.key = it.key; byKey[x.key] = x; }
         return x;
       }
-      x = { uid: uidOf(source, it), id: it.id || '', key: it.key || '', title: String(it.title || ''), link: String(it.link || ''), state: 'in', since: rec.id, provenance: [], verdict: null,
+      x = { uid: uidOf(source, it), id: it.id || '', key: it.key || '', title: String(it.title || ''), link: String(it.link || ''), state: 'in', since: rec.id, intro: [rec.id], provenance: [], verdict: null,
         review: [], mismatch: false, kept: false, owner: '', exception: null, attempt: 0, planned: null, proposal: null, inSource: true, choice: null, choiceReview: [], exc: null, excReview: [], own: null, ownReview: [], plan: null, planReview: [], planOpts: Object.create(null), planFrom: Object.create(null) };
       items.push(x); byUid[x.uid] = x; if (x.key) byKey[x.key] = x;
       return x;
     }
+    /* Round 8 (ZA): every record that brought the item into scope in its current incarnation (since it was last removed): the
+       first, each repeat observation or add while it is in scope, never only the last by id. */
+    function introduce(x, rec) { if (x.intro.indexOf(rec.id) < 0) x.intro.push(rec.id); }
     function note(x, rec, op, extra) { var p = { record: rec.id, op: op, by: rec.by || null }; if (extra) Object.keys(extra).forEach(function (k) { p[k] = extra[k]; }); x.provenance.push(p); }
     /* A verdict (in or removed) on an item: contrary to a concurrent one, the item needs review and stays required, until a
        record that saw both decides it. */
@@ -165,11 +168,13 @@ PF.loop = (function () {
        both. Returns 'contrary', 'held' or 'settled'. same(prev, val): whether they agree. why: { both(prev, val), again }. */
     function settle(x, slot, rv, rec, val, same, why) { return settleIn(c, x, slot, rv, rec, val, same, why); }
     function verdict(x, rec, op, reason) {
-      var to = VERDICT[op];
+      var to = VERDICT[op], was = x.state;
       var s = settle(x, 'verdict', 'review', rec, { to: to, op: op }, function (p, v) { return p.to === v.to; },
         { both: function (p, v) { return 'Two people decided this item at once: ' + p.op + ' and ' + v.op + '.'; }, again: 'Decided again without seeing the earlier contrary decisions.' });
-      if (s === 'contrary') { x.state = 'in'; return; }
+      if (s === 'contrary') { if (was === 'removed') introduce(x, rec); x.state = 'in'; return; }
       if (s === 'held') return;
+      /* Only a settled return from removed starts a new incarnation; a restore of an item already in scope changes nothing. */
+      if (was === 'removed' && to !== 'removed') x.intro = [rec.id];
       x.state = to; x.proposal = null;
       if (to === 'removed') x.removed = { record: rec.id, reason: String(reason || ''), by: rec.by || null };
       else { delete x.removed; if (op === 'keep') x.kept = true; }
@@ -199,7 +204,7 @@ PF.loop = (function () {
             seenUids[x.uid] = true; x.inSource = true; x.kept = false;
             if (!was) { x.fed = true; note(x, rec, 'add', { observed: true }); }
             else if (x.state === 'removed') x.mismatch = true;
-            else if (x.state === 'proposed') { x.state = 'in'; x.proposal = null; note(x, rec, 'seen-again'); }
+            else { introduce(x, rec); if (x.state === 'proposed') { x.state = 'in'; x.proposal = null; note(x, rec, 'seen-again'); } }
           });
           /* Absence proposes a removal only from a complete observation, and only for items the feed enrolled: one added by
              hand is never proposed, even after the feed listed it too. */
@@ -214,7 +219,7 @@ PF.loop = (function () {
         (rec.changes || []).forEach(function (ch) {
           if (ACTIONS.indexOf(ch.op) >= 0) return;
           var it = ch.item || {}, x = find(it);
-          if (ch.op === 'add') { var nw = !x; x = ensure(it, rec, 'add'); if (nw) { x.manual = !obs; note(x, rec, 'add'); } else if (x.state === 'removed') note(x, rec, 'add-ignored'); return; }
+          if (ch.op === 'add') { var nw = !x; x = ensure(it, rec, 'add'); if (nw) { x.manual = !obs; note(x, rec, 'add'); } else if (x.state === 'removed') note(x, rec, 'add-ignored'); else introduce(x, rec); return; }
           if (!x) { duplicates.push({ record: rec.id, op: ch.op, item: it.key || it.id, why: 'names an item that isn\'t in this loop' }); return; }
           if (ch.op === 'exclude' || ch.op === 'restore') { verdict(x, rec, ch.op, ch.reason); note(x, rec, ch.op, { reason: String(ch.reason || '') }); if (ch.op === 'exclude' && x.inSource && x.state === 'removed') x.mismatch = true; if (ch.op === 'restore') x.mismatch = false; }
           else if (ch.op === 'owner') {

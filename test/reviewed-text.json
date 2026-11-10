@@ -25,8 +25,8 @@
       "reviewed": "Round 6 XD: sync dry-run partial status from preparation refusals"
     },
     "docs/design.md": {
-      "sha256": "10f6e968c55b9a266d9b744985b0eba3726b8ee4fea5c8b5880be600a9cb8e4b",
-      "reviewed": "Round 7 YA: stops are causal (cut, 4.0 scope head); checker mirrors; no direct writes or deletes added"
+      "sha256": "866937ab059d876474a8ff52ac63722d711ebf6eb8be271182f9e197f1ae7a8f",
+      "reviewed": "ZA: every introduction of an item counts"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -257,8 +257,8 @@
       "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
     },
     "src/core/loop.js": {
-      "sha256": "06ad1ea26503916b1e014c57e54f39b45c0e286a2e1127bffa8c27fad5967386",
-      "reviewed": "YA: scope writers record the parent head"
+      "sha256": "d6ec73d20cf7475d406a06a9f717413e9ccf09dc31c2be3e70fdfd09034f049f",
+      "reviewed": "ZA: every introduction of an item counts"
     },
     "src/core/map.js": {
       "sha256": "f9eae33f6635cd1b3983fc1c71eb7a3b3c8dc1c70ca3ef8ce8807d5228165d2f",
@@ -337,8 +337,8 @@
       "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
     },
     "src/core/spreads.js": {
-      "sha256": "24e0393454025958fe0d09db3f29136fd59b3f3ae17ec4a0422917794b2b5db7",
-      "reviewed": "YB: bound runs are expected"
+      "sha256": "d1fcebe58e98ee45fcae9dbe69f156500a1756b5f614fcf18cab6ac54ae6e5d0",
+      "reviewed": "ZA: every introduction of an item counts"
     },
     "src/core/staging.js": {
       "sha256": "d01a3204178bd0b055c05524916f55774c4404cca10f86fbb10a2ca675bd6b07",

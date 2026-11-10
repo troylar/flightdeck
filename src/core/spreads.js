@@ -102,25 +102,29 @@ PF.spreads = (function () {
   }
   /* What a spread's coverage expects to find (the expected-dependency manifest), checked against what was read: '' when all
      of it is here, else why not, with each missing file named in C.missing ({ path, kind: 'nofile', why }). */
-  /* Whether a stopped spread owes an item it didn't list (round 7, docs/design.md 45.1): the scope record that last brought the
-     item into scope (an add or a restore) is looked at. One in the past of the stop's scope cut was seen by the stop, which
-     listed what it owed then: nothing more. Otherwise it owes unless that record is a 4.0 scope record whose parent head is
-     the stop's application or later on this run's chain; a record with no head (a 3.0 writer), an empty head, or a head not on
-     the chain, owes, since the stop couldn't have seen it. */
+  /* Whether a stopped spread owes an item it didn't list (rounds 7 and 8, docs/design.md 45.1), judged on every record that
+     brought the item into scope in its current incarnation (x.intro). The stop saw the item when its scope cut saw any of
+     them, and listed what it owed then: nothing more. Otherwise it owes unless every one is a 4.0 scope record whose parent
+     head is the stop's application or later on this run's chain; a record with no head (a 3.0 writer), an empty head, or a
+     head not on the chain, owes, since the stop couldn't have seen it. */
   function stoppedOwes(s, V, T, o) {
     var cut = s.stop.cut || [], saw = V.ledger.saw || function () { return false; }, chain = T.chain || [];
     var at = chain.indexOf(s.stop.application), by = Object.create(null);
     ((o.loops && o.loops.records) || []).forEach(function (x) { if (x && x.id) by[x.id] = x; });
     var items = Object.create(null); (V.ledger.items || []).forEach(function (x) { items[x.uid] = x; });
+    var seen = function (rec) { return !!rec && cut.some(function (h) { return h === rec || saw(h, rec); }); };
+    var later = function (rec) {
+      var R0 = by[rec], h = R0 && typeof R0.head === 'string' ? R0.head : null;
+      if (h === null || h === '' || at < 0) return false;
+      var hi = chain.indexOf(h);
+      return hi >= 0 && hi >= at;
+    };
     return function (uid) {
       var x = items[uid]; if (!x) return true;
-      var rec = ''; (x.provenance || []).forEach(function (p) { if (p.op === 'add' || p.op === 'restore') rec = p.record; });
-      rec = rec || x.since || '';
-      if (rec && cut.some(function (h) { return h === rec || saw(h, rec); })) return false;
-      var R0 = by[rec], h = R0 && typeof R0.head === 'string' ? R0.head : null;
-      if (h === null || h === '' || at < 0) return true;
-      var hi = chain.indexOf(h);
-      return hi < 0 || hi < at;
+      var intro = (x.intro && x.intro.length ? x.intro : [x.since || '']).filter(Boolean);
+      if (!intro.length) return true;
+      if (intro.some(seen)) return false;
+      return !intro.every(later);
     };
   }
   function unreadAt(o, id) { return ((o.loops && o.loops.unread) || []).some(function (u) { return String(u.file || '').indexOf(id) === 0; }); }
