@@ -288,6 +288,34 @@ rule('Keeps are counted by the run they came from, process and id: two checklist
   } finally { PF.learn.groupKey = gk; }
 });
 
+rule('Kept content is worked out from the decisions that applied it, before any list cap: a reopened, deleted or unreadable keep still needs the owner', () => {
+  const L2 = require('./harness').load().learn, C2 = require('./harness').load().corrections;
+  const md = ['---', 'process: p1', 'title: P', 'owner: person-morgan', '---', '', '## A · READ-DO {#a}', '- [!] {confirm} One {#one}', ''].join('\n');
+  const withKept = md.replace('- [!] {confirm} One {#one}', '- [!] {confirm} One {#one}\n- [ ] {confirm} Kept words {#kept1}');
+  const sig = C2.stepSig(require('./harness').load().map.parse(withKept), 'kept1');
+  const dec = (status, extra) => Object.assign({ kind: 'correction-decision', process: 'p1', group: 'gaaaaaaaaaaaaaaaa', status, members: ['req-keep-aaaaaaaaaaaaaaaaaaaaaaaa'], result: { step: 'kept1', sig }, by: 'person-morgan', at: '2026-11-10T00:00:00.000Z', rev: 1 }, extra || {});
+  const keep = { kind: 'keep', id: 'req-keep-aaaaaaaaaaaaaaaaaaaaaaaa', template: { process: 'p1' } };
+  /* Applied, then reopened: still kept content, and the keep is there: the owner's. */
+  let K = L2.keptIn(withKept, md, { decisions: [dec('applied'), dec('open', { rev: 2, result: null })], keeps: [keep] }, 'p1');
+  assert.deepStrictEqual([K.owner, K.hold], [true, '']);
+  /* The keep deleted, or unreadable: held for everyone. */
+  assert.ok(/isn.t in the folder/.test(L2.keptIn(withKept, md, { decisions: [dec('applied')], keeps: [] }, 'p1').hold));
+  assert.ok(/can.t be read/.test(L2.keptIn(withKept, md, { decisions: [dec('applied')], keeps: [], keepUnread: [{ file: keep.id + '.json' }] }, 'p1').hold));
+  /* Already published (the previous version has it as applied): nothing new is kept. */
+  assert.strictEqual(L2.keptIn(withKept, withKept, { decisions: [dec('applied')], keeps: [keep] }, 'p1').owner, false);
+  /* No decision names a keep: as before, anyone. A listed correction with no decision at all can't be told apart: the owner's. */
+  assert.strictEqual(L2.keptIn(withKept, md, { decisions: [dec('applied', { members: [] })], keeps: [] }, 'p1').owner, false);
+  assert.strictEqual(L2.keptIn(withKept, md, { decisions: [], keeps: [], listed: [{ id: 'gbbbbbbbbbbbbbbbb' }] }, 'p1').owner, true);
+  /* A decision on p1 that can't be read while p1 has kept something: the owner's, never no one. */
+  assert.strictEqual(L2.keptIn(md, md, { decisions: [], keeps: [keep], decUnread: [{ process: 'p1', _file: 'x.json' }] }, 'p1').unclassified, true);
+  /* The cap (500 ordinary corrections listed first, the keep cut off): worked out before it, and refused naming the limit. */
+  const full = Array.from({ length: 500 }, (_, i) => ({ id: 'g' + i.toString(16).padStart(16, '0') }));
+  K = L2.keptIn(withKept, md, { decisions: [dec('applied')], keeps: [keep], listed: full }, 'p1');
+  assert.ok(K.owner && /500/.test(L2.keptCapWhy(K, full)), 'refused at the cap: ' + L2.keptCapWhy(K, full));
+  assert.strictEqual(L2.keptCapWhy(K, full.slice(0, 499).concat([{ id: 'gaaaaaaaaaaaaaaaa' }])), '', 'listed within the cap');
+  assert.strictEqual(L2.keptCapWhy(K, full.slice(0, 10)), '', 'under the cap');
+});
+
 rule('The 501st keep that would join a group is refused, naming the limit; a group at 500 is still decided and withdrawn', () => {
   const W = world(), t1 = W.todo('Post the release notes', { phase: 'ship' }), K = W.kept({ todo: t1 });
   for (let i = 1; i < 500; i++) W.push(Object.assign(JSON.parse(JSON.stringify(K.record)), { id: 'req-keep-' + i.toString(16).padStart(24, '0'), change: Object.assign({}, K.record.change, { text: 'Wording ' + i }) }));

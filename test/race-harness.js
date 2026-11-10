@@ -38,6 +38,7 @@ const snapshot = (fs) => { const o = {}; Object.keys(fs.files).forEach((p) => { 
 
 async function perturb(app, how, ctx, was) {
   if (how === 'owner') { await ctx.transfer(was); return; }
+  if (ctx.extra && ctx.extra[how]) { await ctx.extra[how](was); return; }
   if (how === 'person') { app.choose(ctx.other); return; }
   if (how === 'folder') { app.click('reset-examples'); return; }
   const f = was.files['people.json'];
@@ -62,15 +63,20 @@ async function race(name, make, o) {
   const all = ds.log.filter((x) => x.writes < lastW);
   const steps = o.near ? all.filter((x, i) => writeAt.some((w) => x.writes < w && all.slice(i + 1).filter((y) => y.writes < w).length < o.near)) : all;
   /* An ownership transfer (a valid newer version owned by someone else) is a fifth change where the path has an owner. */
-  const perts = dry.transfer ? PERTS.concat(['owner']) : PERTS;
+  /* ctx.extra: changes of the path's own to another file ({ name: (fs) => ... }), raced like a transfer. */
+  const extra = Object.keys(dry.extra || {});
+  const perts = (dry.transfer ? PERTS.concat(['owner']) : PERTS).concat(extra);
   const cases = [];
   /* One read is always last before a write, and a folder can't check and write in one step: a change to another file made
      while that last read is in flight is the one window no guard closes. So at the guard's last read (people.json) an
      ownership transfer (another file) isn't asked; a change to that read's own file, the person or the folder still is. */
   const lastRead = (s, i) => (steps[i + 1] ? steps[i + 1].writes > s.writes : true) && /^read:people\.json$/.test(s.sig);
+  /* A guard that depends on two files besides people.json reads one of them second to last: a change to the other (ctx.extra)
+     made while that read is in flight is the same window one step earlier. The owner transfer is still asked there. */
+  const nextIsLast = (i) => !!steps[i + 1] && steps[i + 1].writes === steps[i].writes && lastRead(steps[i + 1], i + 1);
   steps.forEach((s, i) => {
     const before = steps[i + 1] ? steps[i + 1].writes > s.writes : true;
-    (before ? perts : [perts[i % perts.length]]).filter((how) => !(how === 'owner' && lastRead(s, i))).forEach((how) => cases.push({ s, how }));
+    (before ? perts : [perts[i % perts.length]]).filter((how) => !((how === 'owner' || extra.indexOf(how) >= 0) && lastRead(s, i)) && !(extra.indexOf(how) >= 0 && nextIsLast(i))).forEach((how) => cases.push({ s, how }));
   });
   let ran = 0;
   for (const c of cases) {

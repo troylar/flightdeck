@@ -25,8 +25,8 @@
       "reviewed": "JC: evidence verdict validates start proof, holds torn plans beside copies, runs reuses one proposals read, view memo keyed on read failures; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "1c35ab606c41638baa478808223e450379f5124e8fbb1ccc1931438bfe881ab7",
-      "reviewed": "JC: evidence verdict validates start proof, holds torn plans beside copies, runs reuses one proposals read, view memo keyed on read failures; checked for direct writes and unconditional deletes"
+      "sha256": "3a24e6fc64d6b051f04c70bf4bec739f4e063117f7595a452278625481ad183d",
+      "reviewed": "MA: Publish and Promote share one kept-content rule read fresh inside the guard; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -257,8 +257,8 @@
       "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/learn.js": {
-      "sha256": "382cd46a5bfa9345f4497e54604e0fd34783e5a9d42e6865af7de70700641301",
-      "reviewed": "JD: the 501st keep at one place is refused in PF.learn.prepare; checked for direct writes and unconditional deletes"
+      "sha256": "f9e286d999bf814e584f5ac5cc345c503a903b3d6f93e15f24584e545e19eafc",
+      "reviewed": "MA: Publish and Promote share one kept-content rule read fresh inside the guard; checked for direct writes and unconditional deletes"
     },
     "src/core/library.js": {
       "sha256": "5c8555ff9b8bc67aa90ea4f556bddebbe47d17ae37e296d44b815187d776bd44",
@@ -417,12 +417,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "632e00295f8fcd54ae2f5bb92cb29461a5dbfedb4ebe1dabf0b8c89a777ab4e8",
-      "reviewed": "JC: evidence verdict validates start proof, holds torn plans beside copies, runs reuses one proposals read, view memo keyed on read failures; checked for direct writes and unconditional deletes"
+      "sha256": "faaabadc16a1440d867fd41da2d62fd7b28ca7cbdeb16f04542a16723627ea24",
+      "reviewed": "MA: Publish and Promote share one kept-content rule read fresh inside the guard; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "5e9c4e8de467069957bb15ddf0610d346ec3c6c736aeddc91d5add4d01224a49",
-      "reviewed": "Full-run fixes: missing evidence version named without P.verify; D10 exemptions for keep guard folder lists and missing keep names; checked for direct writes and unconditional deletes"
+      "sha256": "cd93480f0ca3155d4eb6cb46917208e97772d43db0d77c40ccac2a067ab22c60",
+      "reviewed": "MA: Publish and Promote share one kept-content rule read fresh inside the guard; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

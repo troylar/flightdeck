@@ -198,6 +198,39 @@ rule('A stage listing a keep whose record was deleted holds the promote; one who
   }
 });
 
+/* MA: whether a version includes what was kept comes from the decisions that applied it and the content they recorded, read
+   again inside the guard: an explicit Reopen, a deleted keep, or one deleted member of a group never takes the owner check
+   away, with or without a refresh, for Publish and Promote alike. */
+rule('Kept content needs its owner from durable proof read at the write: Reopen, a deleted keep and a deleted member, for Publish and Promote, refreshed or cached', async () => {
+  const stage = async (app) => {
+    await openPage(app); app.set('change-note', 'Post the notes'); app.click('stage-draft', 'release-notes'); await app.tick(300);
+    const st = app.files('staged/release-notes/').filter(f => /publication\.json$/.test(f));
+    assert.strictEqual(st.length, 1, 'set-up: staged'); return JSON.parse(app.fs.files[st[0]].t).folder;
+  };
+  const del = (app, f) => { assert.ok(app.fs.files[f], 'set-up: ' + f); delete app.fs.files[f]; };
+  for (const how of ['reopen', 'deleted', 'member']) for (const path of ['publish', 'promote']) for (const mode of ['refresh', 'cached']) {
+    const label = how + ' · ' + path + ' · ' + mode, { app, gid } = await appliedKeep(), k1 = app.files('proposals/req-keep-')[0];
+    if (how === 'reopen') { await openPage(app); app.click('corr-reopen', gid); await app.tick(300); await refresh(app, 300); assert.strictEqual((await groupNow(app, gid)).status, 'open', label + ': set-up: reopened'); }
+    if (how === 'member') {
+      app.choose('person-avery'); await app.tick(80); backToRun(app); await app.tick(80);
+      const b = await added(app, 'Publish the notes to the wiki'); app.click('keep', b, { kind: 'todo' }); await app.tick(120); await refresh(app, 300);
+      assert.strictEqual(app.files('proposals/req-keep-').length, 2, label + ': set-up: two keeps');
+    }
+    const folder = path === 'promote' ? await stage(app) : null, n = versions(app);
+    app.choose('person-avery'); await app.tick(80); await refresh(app, 300); await openPage(app);
+    if (how === 'deleted') del(app, k1);
+    if (how === 'member') del(app, k1);
+    if (mode === 'refresh') { await refresh(app, 300); await openPage(app); }
+    const go = async () => { if (path === 'publish') { app.set('change-note', 'Post the notes'); app.click('publish', 'release-notes'); } else app.click('promote-stage', folder); await app.tick(400); };
+    await go();
+    assert.strictEqual(versions(app), n, label + ': nothing published by someone else');
+    assert.ok(/kept for next time/.test(txt(app.html())), label + ': said why: ' + (txt(app.html()).match(/Nothing was published[^.]*\.[^.]*\./) || [])[0]);
+    app.choose('person-morgan'); await app.tick(80); await refresh(app, 300); await openPage(app);
+    await go();
+    assert.strictEqual(versions(app), how === 'reopen' ? n + 1 : n, label + (how === 'reopen' ? ': the owner publishes it' : ': a keep it rests on is gone: held for the owner too'));
+  }
+});
+
 rule('Promoting a staged version that includes a keep is the active owner\'s too', async () => {
   const { app } = await appliedKeep();
   await openPage(app);
@@ -351,6 +384,8 @@ rule('A spread\'s keep is held when its checklist\'s publication can\'t be read 
 rule('Every keep write path is guarded after every read and right before every write: a pause and a change of person, folder, activity or people.json writes nothing after it', async () => {
   const only = process.env.RACE ? process.env.RACE.split(',') : null, want = (n) => !only || only.indexOf(n) >= 0, out = {};
   const proposals = (p) => /^proposals\/req-/.test(p), corr = (p) => /^corrections\//.test(p);
+  /* MA: the keep a published or promoted version rests on is deleted mid-write: it holds for everyone, the owner too. */
+  const keepGone = { keepgone: (fs) => { Object.keys(fs.files).filter(p => /^proposals\/req-keep-/.test(p)).forEach(p => { delete fs.files[p]; }); } };
   const kept = async (who) => { const app = await setup(), id = await added(app, 'Post the release notes'); app.click('keep', id, { kind: 'todo' }); await app.tick(120); await refresh(app, 300); const gid = groupId(app); if (who) { app.choose(who); await app.tick(80); } return { app, gid }; };
   if (want('keep')) out.keep = await race('keep', async () => {
     const app = await setup(), id = await added(app, 'Post the release notes');
@@ -374,14 +409,14 @@ rule('Every keep write path is guarded after every read and right before every w
   if (want('publish')) out.publish = await race('publish', async () => {
     const { app } = await appliedKeep(); await openPage(app);
     app.set('change-note', 'Post the notes');
-    return { app, act: () => app.click('publish', 'release-notes'), mine: (p) => /^publications\//.test(p) && !/\/v\d+-ow/.test(p), who: 'person-morgan', other: 'person-avery', transfer: (fs) => transfer(app, fs) };
+    return { app, act: () => app.click('publish', 'release-notes'), mine: (p) => /^publications\//.test(p) && !/\/v\d+-ow/.test(p), who: 'person-morgan', other: 'person-avery', transfer: (fs) => transfer(app, fs), extra: keepGone };
   });
   if (want('promote')) out.promote = await race('promote', async () => {
     const { app } = await appliedKeep(); await openPage(app);
     app.set('change-note', 'Post the notes'); app.click('stage-draft', 'release-notes'); await app.tick(300);
     const st = app.files('staged/release-notes/').filter(f => /publication\.json$/.test(f)), folder = JSON.parse(app.fs.files[st[0]].t).folder;
     await refresh(app, 200); await openPage(app);
-    return { app, act: () => app.click('promote-stage', folder), mine: (p) => /^publications\//.test(p) && !/\/v\d+-ow/.test(p), who: 'person-morgan', other: 'person-avery', transfer: (fs) => transfer(app, fs) };
+    return { app, act: () => app.click('promote-stage', folder), mine: (p) => /^publications\//.test(p) && !/\/v\d+-ow/.test(p), who: 'person-morgan', other: 'person-avery', transfer: (fs) => transfer(app, fs), extra: keepGone };
   });
   if (process.env.RACE_SAY) console.log(JSON.stringify(out));
 });

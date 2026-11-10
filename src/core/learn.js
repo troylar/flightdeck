@@ -342,6 +342,60 @@ PF.learn = (function () {
     return out;
   }
 
+  /* ---- Kept content in a text about to be published or promoted (one rule for Publish and Promote, read fresh at every
+     write): worked out from durable proof, never from the keep records or groups that happen to be visible. A group is a keep
+     group when any decision on it names a keep (members, req-keep-*). Its content is in the text when a decision that applied
+     it (applied or included, any time, so an explicit Reopen or a later wording never erases it) recorded a result step the
+     text has and the version published before it (prev) doesn't, or has with other content that is now the applied one; an
+     applied decision without a checkable result can't be told apart, so it counts. R: { decisions, decUnread, keeps,
+     keepUnread, listed } read fresh, for pid (listed: the correction IDs the version names). Returns { owner, hold, groups, unclassified }: owner when the checklist's active owner
+     must write it; hold (why) when a keep that content rests on is missing or unreadable, for everyone; unclassified when a
+     decision on pid can't be read while pid has kept anything, which needs the owner, never no one. ---- */
+  var KEEP_ID = /^req-keep-/, GONE_SIG = PF.util.hash('gone');
+  /* A version whose correction list (ids: what it will name) is full without a kept group in it can't be shown to include it:
+     refused, naming the limit, never published with the keep's proof cut ('' or why). */
+  function keptCapWhy(K, ids) {
+    var max = PF.corrections.LISTED_MAX, list = (ids || []).map(function (x) { return typeof x === 'string' ? x : x && x.id; });
+    if (!K || !K.groups || list.length < max || K.groups.every(function (g) { return list.indexOf(g) >= 0; })) return '';
+    return 'this version would list ' + max + ' corrections, the most a version names, and what was kept for next time isn\'t among them, so it can\'t be shown to include it. Publish the other corrections first, then this.';
+  }
+  function keptIn(text, prev, R, pid) {
+    R = R || {};
+    var C = PF.corrections, map = null, pmap = null;
+    try { map = text == null ? null : PF.map.parse(String(text)); } catch (e) { map = null; }
+    try { pmap = prev ? PF.map.parse(String(prev)) : null; } catch (e) { pmap = null; }
+    var decs = (R.decisions || []).filter(function (d) { return d && d.process === pid && d.kind === 'correction-decision' && typeof d.group === 'string'; });
+    var by = Object.create(null), order = [];
+    decs.forEach(function (d) { if (!by[d.group]) { by[d.group] = []; order.push(d.group); } by[d.group].push(d); });
+    var keeps = keepsOf(R.keeps), have = Object.create(null); keeps.forEach(function (k) { have[k.id] = true; });
+    var unread = Object.create(null); (R.keepUnread || []).forEach(function (u) { var f = String(u && u.file || ''); if (KEEP_ID.test(f)) unread[f.replace(/\.json$/, '')] = true; });
+    var out = { owner: false, hold: '', groups: [], unclassified: false };
+    var shown = function (d) {
+      var r = d.result;
+      if (d.addressed || !r || !r.step || !map) return true;
+      if (r.sig === GONE_SIG) return false;
+      var now = C.stepSig(map, r.step);
+      if (!now) return false;
+      var before = pmap ? C.stepSig(pmap, r.step) : '';
+      return !before || (before !== now && now === r.sig);
+    };
+    order.forEach(function (gid) {
+      var ds = by[gid], named = [];
+      ds.forEach(function (d) { (d.members || []).forEach(function (m) { if (KEEP_ID.test(m) && named.indexOf(m) < 0) named.push(m); }); });
+      if (!named.length) return;
+      if (!ds.some(function (d) { return (d.status === 'applied' || d.status === 'included') && shown(d); })) return;
+      out.owner = true; out.groups.push(gid);
+      var bad = named.filter(function (m) { return unread[m]; }), gone = named.filter(function (m) { return !unread[m] && !have[m]; });
+      if (!out.hold && (bad.length || gone.length)) out.hold = 'this version includes what was kept for next time, and a keep it rests on ' + (bad.length ? 'can\'t be read' : 'isn\'t in the folder') + ' (' + bad.concat(gone).slice(0, 3).map(function (m) { return 'proposals/' + m + '.json'; }).join(', ') + '), so who may publish it can\'t be told. Check Folder health, then try again.';
+    });
+    var kept = order.some(function (gid) { return by[gid].some(function (d) { return (d.members || []).some(function (m) { return KEEP_ID.test(m); }); }); }) ||
+      keeps.some(function (k) { return k.template && k.template.process === pid; }) || Object.keys(unread).length > 0;
+    if (!out.owner && kept && (R.decUnread || []).some(function (u) { return u && u.process === pid; })) { out.owner = true; out.unclassified = true; }
+    /* A correction the version lists (R.listed) with no decision at all can't be told apart from a keep: the owner's. */
+    if (!out.owner && (R.listed || []).some(function (x) { var id = typeof x === 'string' ? x : x && x.id; return id && !by[id]; })) { out.owner = true; out.unclassified = true; }
+    return out;
+  }
+
   return { LIMITS: LIMITS, idFor: idFor, keyFor: keyFor, phaseSig: phaseSig, cleanFile: cleanFile, build: build, keepsOf: keepsOf, route: route, prepare: prepare, previewOf: previewOf, stepTextWhy: stepTextWhy,
-    members: members, groupKey: groupKey, alternatives: alternatives, ownerWhy: ownerWhy, label: label, forSource: forSource, sourceKey: sourceKey };
+    members: members, keptIn: keptIn, keptCapWhy: keptCapWhy, groupKey: groupKey, alternatives: alternatives, ownerWhy: ownerWhy, label: label, forSource: forSource, sourceKey: sourceKey };
 })();
