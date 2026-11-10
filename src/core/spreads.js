@@ -62,7 +62,11 @@ PF.spreads = (function () {
       if (!o.loops) { hold('Spread "' + s.text + '": its loop can\'t be read here, so its coverage can\'t be checked.'); return finish(C); }
       var V = null; try { V = PF.loop.view(r, s.loopStep, { records: o.loops.records, unread: o.loops.unread, runs: o.runs, procOf: o.loops.procOf }); } catch (e) { V = null; }
       if (!V) { hold('Spread "' + s.text + '": its loop ' + s.loopStep + ' can\'t be read here.'); return finish(C); }
-      if (V.ledger.held.length) { hold('Spread "' + s.text + '": a scope record of its loop can\'t be read yet, so who owes it isn\'t known.'); return finish(C); }
+      if (V.ledger.held.length) {
+        /* Each record a held one saw and that isn't here is named, before coverage stops. */
+        V.ledger.held.forEach(function (h) { (h.missing || []).forEach(function (id) { if (!unreadAt(o, id)) C.missing.push({ path: 'proposals/' + id + '.json', kind: 'nofile', why: 'The scope record ' + h.record + ' of spread "' + s.text + '"\'s loop saw this one, and it isn\'t in the folder.' }); }); });
+        hold('Spread "' + s.text + '": a scope record of its loop can\'t be read yet, so who owes it isn\'t known.'); return finish(C);
+      }
       /* What it depends on, expected from what it recorded and what refers to it, each present and checked here: the scope
          records its scope was reviewed against, every item it names in its loop's scope, the runs its items' requests were
          filed on, and no run of its loop whose last read failed. Anything expected and absent leaves coverage incomplete. */
@@ -74,7 +78,7 @@ PF.spreads = (function () {
       /* Who owes it: while it stands, every item in scope on its current attempt, apart from those cleared when it was added
          (unless included one by one); once stopped, the obligations it had then that are still required on the item's current
          attempt (a removed item or an earlier attempt owes nothing, a later attempt inherits nothing; the stop is unchanged). */
-      var mine = Object.create(null), owe = function (p) { C.items.push(itemOf(r, s, V, rows[p.uid], p, o, deps, childView, mine)); };
+      var mine = Object.create(null), owe = function (p) { C.items.push(itemOf(r, s, V, rows[p.uid], p, o, deps, childView, mine, C)); };
       if (s.state === 'stopped') (s.stop.owed || []).forEach(function (p) { var w = rows[p.uid]; if (w && w.required && (w.attempt || 1) === p.attempt) owe({ uid: p.uid, attempt: p.attempt }); });
       else V.rollup.items.forEach(function (i) {
         if (!i.required) return;
@@ -91,6 +95,7 @@ PF.spreads = (function () {
   }
   /* What a spread's coverage expects to find (the expected-dependency manifest), checked against what was read: '' when all
      of it is here, else why not, with each missing file named in C.missing ({ path, kind: 'nofile', why }). */
+  function unreadAt(o, id) { return ((o.loops && o.loops.unread) || []).some(function (u) { return String(u.file || '').indexOf(id) === 0; }); }
   function expected(r, s, V, o, deps, C) {
     var nm = 'Spread "' + s.text + '"', why = '';
     var present = Object.create(null); (V.records || []).forEach(function (x) { present[x.id] = true; });
@@ -177,7 +182,7 @@ PF.spreads = (function () {
   }
   /* One obligation's state: where it is fulfilled (a binding, else the one run the loop counts for that attempt) and how its
      request and to-do stand there. */
-  function itemOf(r, s, V, row, p, o, deps, childView, scope) {
+  function itemOf(r, s, V, row, p, o, deps, childView, scope, C) {
     var it = { uid: p.uid, key: row ? row.key : '', attempt: p.attempt, owed: true, arrival: !hasPair(s.scope.open, p.uid, p.attempt) && !hasPair(s.scope.cleared, p.uid, p.attempt), run: '', request: '', requested: false, todo: '', state: '', words: '', why: '', resolved: false };
     var set = function (st, why) { it.state = st; it.words = STATE[st]; it.why = why || ''; it.resolved = !!RESOLVED[st]; return it; };
     var name = nameOf(row, p.uid);
@@ -201,12 +206,19 @@ PF.spreads = (function () {
        recorded there and is never dropped; which run covers it is bound explicitly. */
     var elsewhere = deps.records.filter(function (x) { return (x.kind === 'proposal' || x.kind === 'compound') && x.fulfills && x.fulfills.spread === s.id && x.fulfills.uid === p.uid && x.fulfills.attempt === p.attempt && x.run && (x.run.process + '/' + x.run.id) !== it.run; });
     if (!bind && elsewhere.length) return set('rebind', 'It was requested on ' + elsewhere[0].run.process + '/' + elsewhere[0].run.id + ', but the loop now counts ' + it.run + '; bind which run covers it.');
-    if (dest._unrunnable) return set('unread', it.run + ' can only be read here.');
+    var at = function (path, kind, why) { if (C && !C.missing.some(function (m) { return m.path === path; })) C.missing.push({ path: path, kind: kind, why: why }); };
+    if (dest._unrunnable) { at('runs/' + it.run + '/run.json', 'unusable', dest._unrunnable); return set('unread', it.run + ' can only be read here.'); }
     var cm = null; try { cm = PF.run.mapOf(dest); } catch (e) { cm = null; }
-    if (!cm) return set('unread', it.run + '\'s checklist can\'t be read here.');
+    if (!cm) { at('runs/' + it.run + '/run.json', 'unusable', 'Its checklist can\'t be read here.'); return set('unread', it.run + '\'s checklist can\'t be read here.'); }
     if (!phaseOfGate(cm, s.child.beforeGate)) return set('placement', it.run + '\'s checklist has no gate ' + s.child.beforeGate + ' to put it before.');
     var CT = childView(dest);
-    if (!CT || CT.broken || CT.unread.length || CT.held.length) return set('unread', 'The to-dos of ' + it.run + ' can\'t all be read yet.');
+    if (!CT || CT.broken || CT.unread.length || CT.held.length) {
+      /* What the story's own records are missing (its addition, its application, a decision) is named here, and so is each one
+         that can't be read. */
+      if (CT) { PF.todos.missingOf(CT, null).forEach(function (m) { at(m.path, m.kind, m.why); }); CT.unread.forEach(function (u) { at('proposals/' + String(u.file || ''), u.kind === 'newer' ? 'newer' : 'unreadable', 'A to-do record of ' + it.run + ' can\'t be read here.'); }); }
+      if (!C || !C.missing.length) at('runs/' + it.run, 'unreadable', 'The to-dos of ' + it.run + ' can\'t all be read yet.');
+      return set('unread', 'The to-dos of ' + it.run + ' can\'t all be read yet.');
+    }
     var rid = childRequestId(s.id, p.uid, p.attempt, { process: dest.process, id: dest.id }), q = CT.requests[rid];
     it.request = rid; it.todo = PF.todos.todoIdFor(rid);
     if (!q) return set(dest.ended ? 'ended' : 'owed', dest.ended ? it.run + ' ended before it was requested.' : '');
@@ -218,7 +230,7 @@ PF.spreads = (function () {
       return set(q.status === 'queued' ? 'queued' : q.status === 'declined' ? 'declined' : q.status === 'disputed' ? 'disputed' : q.status === 'held' ? 'held' : 'waiting', q.why || '');
     }
     var x = CT.byTodo[it.todo];
-    if (!x) return set('unread', 'Its to-do on ' + it.run + ' can\'t be read.');
+    if (!x) { at('runs/' + it.run, 'unreadable', 'Its to-do on ' + it.run + ' can\'t be read.'); return set('unread', 'Its to-do on ' + it.run + ' can\'t be read.'); }
     x.history.forEach(function (h) { if (h.op === 'add' || h.op === 'reopen') scope[h.application] = true; });
     /* Every request on the covered to-do (Done, Won't do, Move, Reopen, not only its Add) that was decided or applied two ways
        keeps its participants in the parent's approval scope, so settling it never restores an approval made before it. */
@@ -227,6 +239,8 @@ PF.spreads = (function () {
     return set(x.state === 'open' ? 'open' : x.state, x.why || '');
   }
   function finish(C) {
+    /* Incomplete always names where: never a hold without a path. */
+    if (!C.complete && !C.missing.length) C.missing.push({ path: 'proposals', kind: 'unreadable', why: C.unresolved[0] || 'Spread "' + C.text + '": what it is owed on can\'t all be read yet.' });
     var n = { owed: 0, resolved: 0, exempt: 0, arrivals: 0, by: Object.create(null) };
     C.items.forEach(function (i) {
       n.by[i.state] = (n.by[i.state] || 0) + 1;

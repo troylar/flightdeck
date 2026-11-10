@@ -899,4 +899,25 @@ rule('XB: a recorded removal of a later item still removes it, with its run and 
   const C = W.one();
   same([C.complete, C.items.filter(i => i.owed).map(i => i.key)], [true, []]);
 });
+/* Review round 6 (XC): every identity coverage misses reaches the problem collector, so complete, exit 4 and a named path
+   always agree. */
+rule('XC: a held scope record\'s missing predecessor is named before coverage stops', () => {
+  const S0 = applied(), W = S0.W, ghost = 'req-release-helper-' + 'f'.repeat(24);
+  W.scopes.push(scope('s2', [101, 102, 103], [ghost]));
+  const cov = W.cov();
+  same(cov.spreads[0].complete, false);
+  assert.ok(T.missingOf(W.view(), cov).some(m => m.path === 'proposals/' + ghost + '.json'), JSON.stringify(T.missingOf(W.view(), cov)));
+});
+for (const which of ['add', 'application', 'decision']) {
+  rule('XC: a story\'s ' + which + ' record missing is named in the parent\'s coverage, not only held', () => {
+    const W = world([101, 102]); W.kid(101, { cleared: true }); const k2 = W.kid(102);
+    const add = W.spreadAdd('Security sign-off', { tool: 'release-helper', version: '1.0', key: 'xc-1' }); W.decide(W.r, add.id, 'person-morgan'); W.land(W.r);
+    const sp = spreadOf(W), P = W.request(k2, sp), d = W.decide(k2, P.id, 'person-avery'); W.land(k2);
+    const id = which === 'add' ? P.id : which === 'decision' ? d.id : k2.living.head;
+    dropRec(W, id);
+    const cov = W.cov();
+    same(cov.spreads[0].complete, false);
+    assert.ok(T.missingOf(W.view(), cov).some(m => m.path === 'proposals/' + id + '.json'), which + ': ' + JSON.stringify(T.missingOf(W.view(), cov)));
+  });
+}
 run();

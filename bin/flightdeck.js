@@ -915,6 +915,15 @@ async function readDeps(PF, L, r, o) {
   try { got = await repo.readPlans(L.fs, bad, null, true); } catch (e) { put({ path: 'proposals', kind: 'unreadable', why: fileWhy(e && e.message || String(e)) }); }
   const parents = {};
   ((got && got.todos) || []).forEach((x) => { if (x && self(x.run) && x.fulfills && x.fulfills.run) parents[key(x.fulfills.run)] = true; });
+  /* Each parent a request of this run fulfils: its run file, and every record its applied work names (living.head, its chain),
+     expected and named when missing. */
+  for (const pk of Object.keys(parents)) {
+    const ix = pk.indexOf('/'), pp = pk.slice(0, ix), pid = pk.slice(ix + 1);
+    let pr = null; try { pr = (await repo.readRunOnly(dependsOn(L.fs, ['runs/' + pk]), pp, pid)).run; } catch (e) { pr = null; }
+    if (!pr) { put({ path: 'runs/' + pk + '/run.json', kind: 'nofile', why: 'A request of this run fulfils a spread on ' + pk + ', which can\'t be read here.' }); continue; }
+    let PV = null; try { PV = T.view(pr, { records: T.recordsFor((got && got.todos) || [], pr), unread: [], people: o.people }); } catch (e) { PV = null; }
+    if (PV) T.missingOf(PV, null).forEach(put);
+  }
   const own = got ? T.recordsFor(got.todos || [], r) : [];
   let spreads = 0; try { spreads = got && r.living ? T.view(r, { records: own, unread: [], people: o.people }).spreads.length : 0; } catch (e) { spreads = 0; }
   const coverage = o.coverage === 'always' || (o.coverage !== false && spreads > 0);
@@ -2918,8 +2927,9 @@ async function spreadMain(argv) {
     if (sub !== 'add' && !C && unsure()) return held('Part of the team folder this depends on couldn\'t be read, so whether the spread is on this run isn\'t known.');
     if (sub === 'sync') {
       if (!C) return failOut('invalid', 'That spread isn\'t on ' + proc + '/' + runId + ' (flightdeck spread list shows them).' + nothing, problems());
-      if (problems().length) return held('Part of the team folder this depends on couldn\'t be read.');
+      /* Incomplete coverage says why first (its missing paths are among the problems). */
       if (!C.complete) return held(gapOf(C));
+      if (problems().length) return held('Part of the team folder this depends on couldn\'t be read.');
       /* One request per obligation not yet asked, on the run that covers it, named by the obligation and that run: a retry from
          any tool is the same request. Each is written once and on its own, so an interruption leaves the others standing and
          the next sync asks only what is still missing. */
@@ -2990,7 +3000,7 @@ async function spreadMain(argv) {
       const q0 = V.requests[id];
       return done({ run: { process: proc, id: runId }, status: 'already', request: { id, file }, preview: 'Already requested (' + (q0 ? T.WORDS[q0.status] || q0.status : 'not read in order yet') + '). Nothing written.' });
     }
-    if (problems().length) return held('Part of the team folder this depends on couldn\'t be read.');
+    if (problems().length) return held(C && !C.complete ? gapOf(C) : 'Part of the team folder this depends on couldn\'t be read.');
     const P = T.prepare(r, { body, by: { tool: tool.name, version: tool.version, key: val['--key'] }, records, unread, people, deps, childMap, loops: covIn.loops, runs, at: new Date().toISOString(), app: eng.version });
     if (P.why) return failOut('invalid', P.why + nothing, problems());
     const pv = P.preview, needs = pv.status === 'waiting' ? 'person' : pv.status === 'queued' ? 'delegation' : 'none';

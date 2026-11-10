@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "79b81dfc2fae1a4e3d86677628f2eeac173059a338ff63236c7d68e3b43859ff",
-      "reviewed": "Round 6 XA: one coverage input builder for the CLI and the app; the loop write guard asks it"
+      "sha256": "cdecc565b608002a0100b3493e6604aa5423c0b3ef346a87f5750bb36bb32b35",
+      "reviewed": "Round 6 XC: every missing identity reaches the problem collector"
     },
     "build.py": {
       "sha256": "1dce012e7269422f84c2c2aeb7b327b242a28e4990a5c5c95a22dc98228122dc",
@@ -25,8 +25,8 @@
       "reviewed": "readers expect and name every dependency of a spread; a failed dependency holds before a spread is called absent; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "e2ba020be00bce8d4d2443315d375db17527fcddc65f0a6d9eebfa8fbbf0173e",
-      "reviewed": "Round 6 XB: expected scope provenance from every reference to an item"
+      "sha256": "db85f798ab3be79824e78241e0689c98580ff04a90629a8cfb26ead2e0bd0a87",
+      "reviewed": "Round 6 XC: every missing identity reaches the problem collector"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -337,8 +337,8 @@
       "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
     },
     "src/core/spreads.js": {
-      "sha256": "07f450d9b86ef31557963275288c75ec646785e42d5ef55fe84e601ad3e8bc69",
-      "reviewed": "Round 6 XB: expected scope provenance from every reference to an item"
+      "sha256": "b46db37b409a4a0a06f432ffaed35c96575d268d44510570239eff81215621c3",
+      "reviewed": "Round 6 XC: every missing identity reaches the problem collector"
     },
     "src/core/staging.js": {
       "sha256": "d01a3204178bd0b055c05524916f55774c4404cca10f86fbb10a2ca675bd6b07",
