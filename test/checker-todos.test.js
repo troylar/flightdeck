@@ -26,10 +26,10 @@ function valid() {
   /* Spreads (4.0 slice 3): a spread-add, an include, a binding, a stop, a story's request that fulfils one, and an application. */
   const bot = { name: 'notes-bot', version: '1.2' }, pair = { uid: 'jira:10101', attempt: 1 };
   const sp = T.buildProposal({ run: RUN, producer: bot, key: 's-1', seen: [], at: AT, body: { op: 'spread-add', loopStep: 'each', text: 'Security sign-off', owner: 'person-blake', reason: 'Audit', child: { beforeGate: 'assess-confirm' },
-    scope: { open: [pair], cleared: [{ uid: 'jira:key:ABC-2', attempt: 2 }], fingerprint: '0123456789abcdef' } } });
+    scope: { open: [pair], cleared: [{ uid: 'jira:key:ABC-2', attempt: 2 }], fingerprint: '0123456789abcdef', seen: [] } } });
   const inc = T.buildProposal({ run: RUN, producer: bot, key: 's-2', seen: [sp.id], at: AT, body: { op: 'spread-include', spread: sp.spread, item: { uid: 'jira:key:ABC-2', attempt: 2 } } });
   const bnd = T.buildProposal({ run: RUN, id: T.idFor('flightdeck', 's-3'), by: 'person-avery', seen: [], at: AT, body: { op: 'spread-bind', spread: sp.spread, item: pair, dest: { process: 'validate-story', id: 'k101' } } });
-  const stp = T.buildProposal({ run: RUN, id: T.idFor('flightdeck', 's-4'), by: 'person-avery', seen: [], at: AT, body: { op: 'spread-stop', spread: sp.spread, reason: 'Covered elsewhere', owed: [pair] } });
+  const stp = T.buildProposal({ run: RUN, id: T.idFor('flightdeck', 's-4'), by: 'person-avery', seen: [], at: AT, body: { op: 'spread-stop', spread: sp.spread, reason: 'Covered elsewhere', owed: [pair], cut: [] } });
   const kidRun = { process: 'validate-story', id: 'k101' }, ful = { run: RUN, spread: sp.spread, uid: pair.uid, attempt: 1 };
   const fil = T.buildProposal({ run: kidRun, producer: bot, key: PF.spreads.obligationId(sp.spread, pair.uid, 1), seen: [], at: AT, body: { op: 'add', text: 'Security sign-off', target: { phase: 'assess' }, placement: { beforeGate: 'assess-confirm' }, fulfills: ful } });
   const spr = T.cleanFile(JSON.parse(T.text(sp)), sp.id + '.json').record, se = T.effectOf(spr);
@@ -146,6 +146,28 @@ rule('The checker refuses exactly the to-do records the app refuses, over every 
   assert.ok(cs.filter((c, i) => c.label === 'valid').every((c) => !jsRefuses(c)), 'every valid record reads');
   assert.ok(cs.filter((c) => c.label !== 'valid').some((c) => jsRefuses(c)), 'damage is refused');
 });
+/* Review round 3 (UE): the first reason a story's request is refused is the app's, in the app's order: its ids are compared
+   as given (so ids recomputed from a malformed attempt match), and the malformed field is what is named. */
+rule('UE: a story\'s request with a malformed attempt and ids recomputed from it is refused for its fields first, as the app refuses it, never for its id', () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const v = valid(), [, fil] = v.find(([, f]) => f.fulfills && f.op === 'add');
+  const cases = ['1', 0, 1000, 1.5].map((a) => {
+    const o = JSON.parse(T.text(fil)), kid = o.run;
+    o.fulfills.attempt = a;
+    o.id = PF.spreads.childRequestId(o.fulfills.spread, o.fulfills.uid, a, kid);
+    o.key = PF.spreads.obligationId(o.fulfills.spread, o.fulfills.uid, a);
+    o.todo = T.todoIdFor(o.id);
+    return { name: o.id + '.json', text: JSON.stringify(o), label: 'attempt ' + JSON.stringify(a) };
+  });
+  const pyOut = JSON.parse(cp.execFileSync(py, ['-I', '-B', '-c', DRIVER, DIR], { input: JSON.stringify(cases), encoding: 'utf8', maxBuffer: 16 * 1048576 }));
+  cases.forEach((c, i) => {
+    const j = jsRefuses(c), p = Array.isArray(pyOut[i]) ? pyOut[i][0] : pyOut[i];
+    assert.ok(j && !/Its id isn't|Its key isn't/.test(j), c.label + ': set-up, the app refuses it for its fields: ' + j);
+    assert.ok(p && !/Its id isn't|Its key isn't/.test(p) && /fulfills/.test(p), c.label + ': the checker names the same field first, never the id: ' + p);
+  });
+});
+
 rule('A done on evidence with more than one damaged field is refused by the checker for the same field first as the app', () => {
   const py = python();
   if (!py) { console.log('  (skipped: no Python on this computer)'); return; }

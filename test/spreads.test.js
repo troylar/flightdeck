@@ -56,6 +56,8 @@ function world(ns) {
   };
   W.clear = (c, value) => { const m = R.mapOf(c); R.done(c, m, 'read', 'person-avery', AT); R.done(c, m, 'verdict', 'person-avery', AT, { decision: value || 'cleared' }); W.mark(); R.pass(c, m, 0, 'person-avery', AT); R.end(c, m, 'Completed', 'person-avery', 'Avery', AT); return c; };
   W.loops = () => ({ records: W.scopes, unread: [], procOf });
+  /* What every reader of a spread passes: every record, the loop's scope records and every run. */
+  W.inputs = () => ({ records: W.recs, unread: W.unread, people: PEOPLE, loops: W.loops(), runs: W.runs() });
   W.view = (x) => T.view(x || W.r, { records: W.recs, unread: W.unread, people: PEOPLE });
   W.mark = () => { LP.markStale(W.runs(), { records: W.scopes, procOf }); T.markHolds(W.runs(), { records: W.recs, unread: W.unread, people: PEOPLE, loops: W.loops() }); return W.r._todos; };
   W.cov = () => S.coverage(W.r, W.view(), { runs: W.runs(), records: W.recs, unread: W.unread, people: PEOPLE, loops: W.loops() });
@@ -64,7 +66,7 @@ function world(ns) {
   W.push = (rec, name) => { rec._file = name || rec.id + '.json'; W.recs.push(rec); return rec; };
   /* Asks through the one rule (PF.todos.prepare) and files what it builds. */
   W.ask = (x, body, by, extra) => {
-    const Pp = T.prepare(x, Object.assign({ body, by, key: 'k-' + rev(), records: W.recs, unread: W.unread, people: PEOPLE, at: AT, app: '4.0.0' }, extra || {}));
+    const Pp = T.prepare(x, Object.assign({ body, by, key: 'k-' + rev(), records: W.recs, unread: W.unread, people: PEOPLE, at: AT, app: '4.0.0', loops: W.loops(), runs: W.runs() }, extra || {}));
     assert.ok(!Pp.why, Pp.why);
     W.push(Pp.record, Pp.name);
     return Pp;
@@ -73,9 +75,9 @@ function world(ns) {
   /* The recorder's window: land every queued request of a run, one at a time, as todoApply does. */
   W.land = (x) => {
     for (let i = 0; i < 100; i++) {
-      const V = W.view(x), q = T.nextQueued(V);
+      const V = W.view(x), q = T.nextQueued(V, x, W.inputs());
       if (!q) return;
-      const plan = T.applyPlan(x, V, q);
+      const plan = T.applyPlan(x, V, q, W.inputs());
       if (plan.adopt) { x.living = { head: plan.adopt.id }; continue; }
       assert.ok(plan.write, JSON.stringify(plan));
       const s = T.buildStatus(Object.assign({}, plan.write, { by: (x.recorder && x.recorder.person) || 'person-morgan', at: AT, writer: 'rec', rev: rev(), app: '4.0.0' }));
@@ -88,7 +90,7 @@ function world(ns) {
   W.decide = (x, id, by, op, reason) => {
     const it = T.inbox([x], { records: W.recs, unread: W.unread, people: PEOPLE, me: by }).filter(y => y.id === id)[0];
     assert.ok(it, 'in ' + by + '\'s inbox: ' + id);
-    const d = T.decide(x, { request: id, op: op || 'accept', by, shown: it.consequence.fingerprint, reason, records: W.recs, unread: W.unread, people: PEOPLE, at: AT, writer: 'w' + rev(), rev: rev(), app: '4.0.0' });
+    const d = T.decide(x, Object.assign({ request: id, op: op || 'accept', by, shown: it.consequence.fingerprint, reason, at: AT, writer: 'w' + rev(), rev: rev(), app: '4.0.0' }, W.inputs()));
     assert.ok(!d.why, d.why);
     return W.push(d.record, d.name);
   };
@@ -136,7 +138,7 @@ rule('Every spread record and limit is checked whole: never cut, never read past
   assert.ok(why(Object.assign({}, o, { todo: 'td-' + 'a'.repeat(24) })), 'a spread has no to-do');
   assert.ok(why(Object.assign({}, o, { loopStep: undefined })));
   const sp = o.spread;
-  const stop = T.buildProposal({ run: { process: 'release-readiness', id: 'r-41' }, producer: { name: 'release-helper', version: '1.0' }, key: 'stop-1', seen: [], at: AT, body: { op: 'spread-stop', spread: sp, reason: 'Done', owed: pairs(2) } });
+  const stop = T.buildProposal({ run: { process: 'release-readiness', id: 'r-41' }, producer: { name: 'release-helper', version: '1.0' }, key: 'stop-1', seen: [], at: AT, body: { op: 'spread-stop', spread: sp, reason: 'Done', owed: pairs(2), cut: [] } });
   same(why(stop), '');
   assert.ok(why(Object.assign({}, stop, { reason: undefined })), 'stopping says why');
   assert.ok(why(Object.assign({}, stop, { owed: pairs(501) })), 'at most 500 obligations kept');
@@ -255,7 +257,8 @@ rule('Stopping needs a person, ends future inheritance only, and keeps every obl
   same([st.preview.consequence.releases, st.preview.status], [true, 'waiting']);
   W.decide(W.r, st.id, 'person-morgan'); W.land(W.r);
   same(spreadOf(W).state, 'stopped');
-  W.scopes.push(scope('s2', [101, 102, 106], [W.scopes[0].id]));
+  /* A later arrival is one whose scope record saw the stop's application (round 7: a 4.0 scope record names the head). */
+  W.scopes.push(scope4('s2', [101, 102, 106], [W.scopes[0].id], W.r.living.head));
   same(W.one().items.map(i => i.key), ['ABC-101', 'ABC-102'], 'a story that joins after the stop owes nothing');
   has(W.mark().loops.each, /ABC-101/);
 });
@@ -419,5 +422,591 @@ rule('Exact inbox counts: each story\'s request once, on its own run, beside oth
   same(box('person-morgan').filter(x => x.run.id === 'r-41').map(x => x.op), ['spread-add']);
   W.decide(ks[1], qs[1].id, 'person-avery');
   same(box('person-avery').length, 3);
+});
+/* Review round 1 (SA): a stop keeps exactly what is owed when it lands, or it doesn't land. */
+const stopBody = (W, owed) => ({ op: 'spread-stop', spread: spreadOf(W).id, reason: 'Covered by the platform review', owed: owed.map(n => ({ uid: uid(n), attempt: 1 })) });
+rule('SA: a stop is never prepared while what it is owed on can\'t be read; incomplete never looks empty', () => {
+  const W = world([101]); W.kid(101);
+  W.spreadAdd(); W.land(W.r);
+  const P0 = T.prepare(W.r, { body: stopBody(W, [101]), by: { tool: 'release-helper', version: '1.0', key: 'st-0' }, records: W.recs, unread: W.unread, people: PEOPLE, at: AT, app: '4.0.0' });
+  assert.ok(P0.why && /can't be checked here/.test(P0.why), 'without the loop: ' + P0.why);
+  /* A scope record whose predecessor hasn't arrived: the loop's ledger is held. */
+  W.scopes.push(scope('s2', [101, 102], ['req-release-helper-' + 'f'.repeat(24)]));
+  same(W.one().complete, false);
+  same(W.one().items, [], 'nothing can be listed');
+  const P1 = T.prepare(W.r, { body: stopBody(W, []), by: { tool: 'release-helper', version: '1.0', key: 'st-1' }, records: W.recs, unread: W.unread, people: PEOPLE, at: AT, app: '4.0.0', loops: W.loops(), runs: W.runs() });
+  assert.ok(P1.why && /can't all be read/.test(P1.why), 'held scope: ' + P1.why);
+});
+rule('SA: a stop asked before an item joined is refused at the decision and at every application write; the item stays owed', () => {
+  const W = world([101]); W.kid(101);
+  W.spreadAdd(); W.land(W.r);
+  const st = W.ask(W.r, stopBody(W, [101]), { tool: 'release-helper', version: '1.0', key: 'st-2' });
+  /* Accepted while it was right... */
+  const it = T.inbox([W.r], Object.assign({ me: 'person-morgan' }, W.inputs())).filter(x => x.id === st.id)[0];
+  W.decide(W.r, st.id, 'person-morgan');
+  /* ...then ABC-102 joins before the recorder applies it. */
+  W.scopes.push(scope('s2', [101, 102], [W.scopes[0].id])); W.kid(102);
+  const V = W.view(), plan = T.applyPlan(W.r, V, V.requests[st.id], W.inputs());
+  assert.ok(plan.skip && plan.stale && /changed since this stop was asked/.test(plan.skip), JSON.stringify(plan));
+  const blind = T.applyPlan(W.r, V, V.requests[st.id], { records: W.recs, unread: W.unread, people: PEOPLE });
+  assert.ok(blind.skip && !blind.write && !blind.adopt, 'a recorder that can\'t read the loop applies nothing: ' + JSON.stringify(blind));
+  W.land(W.r);
+  same(spreadOf(W).state, 'active', 'the stale stop never lands');
+  same(W.one().items.filter(i => i.owed).map(i => i.key), ['ABC-101', 'ABC-102']);
+  /* A decision made on a stop that is stale already is refused too. */
+  const st2 = W.ask(W.r, Object.assign(stopBody(W, [101, 102]), { reason: 'Again' }), { tool: 'release-helper', version: '1.0', key: 'st-3' });
+  W.scopes.push(scope('s3', [101, 102, 103], [W.scopes[1].id])); W.kid(103);
+  const it2 = T.inbox([W.r], Object.assign({ me: 'person-morgan' }, W.inputs())).filter(x => x.id === st2.id)[0];
+  const d = T.decide(W.r, Object.assign({ request: st2.id, op: 'accept', by: 'person-morgan', shown: it2.consequence.fingerprint, at: AT, writer: 'wx', rev: rev(), app: '4.0.0' }, W.inputs()));
+  assert.ok(d.why && /Ask for the stop again/.test(d.why), d.why);
+  /* And a fresh stop naming everything owed now lands. */
+  W.ask(W.r, Object.assign(stopBody(W, [101, 102, 103]), { reason: 'Fresh' }), { person: 'person-morgan' }); W.land(W.r);
+  same(spreadOf(W).state, 'stopped');
+  same(W.one().items.map(i => i.key), ['ABC-101', 'ABC-102', 'ABC-103']);
+  assert.ok(it, 'set-up');
+});
+/* Review round 1 (SB): a spread's request decided two ways holds its loop, before and after it landed. */
+rule('SB: contrary decisions on an applied spread hold its loop and its phase\'s gate until a person settles them', () => {
+  const W = world([101]); const k = W.kid(101);
+  const P = W.spreadAdd('Security sign-off', { tool: 'release-helper', version: '1.0', key: 'sb-1' });
+  W.decide(W.r, P.id, 'person-morgan'); W.land(W.r);
+  W.fulfil(k, spreadOf(W)); W.clear(k);
+  same(W.mark().loops.each || [], [], 'set-up: covered');
+  const V = W.view(), C = T.consequenceOf(W.r, V.map, V.requests[P.id], V).fingerprint;
+  const st = T.buildStatus({ kind: 'decision', proposal: P.id, run: { process: 'release-readiness', id: 'r-41' }, seen: [P.id], by: 'person-morgan', at: AT, op: 'decline', consequence: C, writer: 'wz', rev: rev(), app: '4.0.0' });
+  W.push(T.filed(st.name, st.file).record, st.name);
+  assert.ok((W.view().requests[P.id].decOut || []).length > 0, 'set-up: decided two ways');
+  has(W.mark().loops.each, /two ways/);
+  const map = R.mapOf(W.r), V2 = W.loopView();
+  same(T.inbox([W.r], Object.assign({ me: 'person-morgan' }, W.inputs())).filter(x => x.id === P.id).map(x => x.dispute), [true]);
+  /* Settled by a decision that saw both: the loop is free again. */
+  W.decide(W.r, P.id, 'person-morgan');
+  same(W.mark().loops.each || [], []);
+  assert.ok(map && V2, 'set-up');
+});
+/* Review round 1 (SC): bindings made at once and the one that settled them stay in what an approval must count. */
+rule('SC: settling two bindings made at once never restores an approval made before them', () => {
+  const W = world([101]); const k = W.kid(101); W.kid(101, { id: 'k101b' });
+  W.spreadAdd(); W.land(W.r);
+  const s = spreadOf(W), item = { uid: uid(101), attempt: 1 };
+  W.ask(W.r, { op: 'spread-bind', spread: s.id, item, dest: { process: 'validate-story', id: 'k101' } }, { person: 'person-morgan' }); W.land(W.r);
+  W.fulfil(k, spreadOf(W)); W.clear(k);
+  /* The loop chooses k101 too, so the loop itself is satisfied. */
+  const LV = W.loopView(), ci = LP.cleanIntent(LP.changeOf(LV, 'choose', ['ABC-101'], { run: 'k101' }), 'choose-sc', { name: 'release-helper', version: '1.0' });
+  const cf = LP.buildRequest(ci.intent, { seen: LV.ledger.heads, children: [], now: AT, app: '3.0.0' });
+  W.scopes.push(LP.cleanRequest(JSON.parse(LP.text(cf)), cf.id + '.json').record);
+  same(W.mark().loops.each || [], [], 'set-up: covered');
+  const V0 = W.loopView();
+  R.done(W.r, R.mapOf(W.r), 'each', 'person-morgan', AT, { _loop: { ok: true, snapshot: LP.approval(V0.ledger, V0.rollup, { by: 'person-morgan', at: AT }) } });
+  W.mark();
+  assert.ok(!W.r._todos.stale.loop.each, 'set-up: approved and current');
+  const bind = (key, dest, seen) => { const f = T.buildProposal({ run: { process: 'release-readiness', id: 'r-41' }, producer: { name: 'release-helper', version: '1.0' }, key, seen: seen || [W.r.living.head], at: AT, body: { op: 'spread-bind', spread: s.id, item, dest: { process: 'validate-story', id: dest } } }); return W.push(T.cleanFile(JSON.parse(T.text(f)), f.id + '.json').record); };
+  const a = bind('sc-a', 'k101'), b = bind('sc-b', 'k101b');
+  W.mark();
+  assert.ok(W.r._todos.stale.loop.each, 'two bindings at once send it back');
+  bind('sc-c', 'k101', [a.id, b.id]);
+  W.mark();
+  assert.ok(W.r._todos.stale.loop.each, 'and settling them doesn\'t restore it');
+  same(R.answered(W.r, R.mapOf(W.r).phases[0].steps[0]), false);
+});
+/* Review round 1 (SE): an item approved without a run resolves its obligation, whether or not it has a run. */
+rule('SE: an exception settled for the current attempt resolves coverage even when the item already has a run', () => {
+  const W = world([101]); W.kid(101);
+  W.spreadAdd(); W.land(W.r);
+  same(W.one().items[0].state, 'owed');
+  const intent = { loop: LOOPT, observation: null, changes: [{ op: 'exception', item: { key: 'ABC-101' }, reason: 'Docs only', approver: 'person-morgan' }] };
+  const c = LP.cleanIntent(intent, 'ex-1', { name: 'release-helper', version: '1.0' });
+  same(c.errors, []);
+  const f = LP.buildRequest(c.intent, { seen: [W.scopes[0].id], children: [], now: AT, app: '3.0.0' });
+  W.scopes.push(LP.cleanRequest(JSON.parse(LP.text(f)), f.id + '.json').record);
+  same(W.loopView().rollup.items[0].status, 'exception', 'set-up: the loop says exception');
+  same([W.one().items[0].state, W.one().items[0].resolved], ['excepted', true]);
+  same(W.mark().loops.each || [], []);
+});
+/* Review round 2 (TA): a spread's request decided two ways holds whether or not any spread has landed yet. */
+rule('TA: contrary decisions on a first, unapplied spread-add hold an approved loop, and settling them keeps it in review', () => {
+  const W = world([101]); W.kid(101, { cleared: true });
+  W.mark();
+  assert.strictEqual(W.r.living, undefined, 'set-up: nothing has landed on the run');
+  const V0 = W.loopView(), map = R.mapOf(W.r);
+  R.done(W.r, map, 'each', 'person-morgan', AT, { _loop: { ok: true, snapshot: LP.approval(V0.ledger, V0.rollup, { by: 'person-morgan', at: AT }) } });
+  W.mark();
+  assert.ok(!(W.r._todos && W.r._todos.stale.loop.each) && R.answered(W.r, map.phases[0].steps[0]), 'set-up: approved');
+  const P = W.spreadAdd('Security sign-off', { tool: 'release-helper', version: '1.0', key: 'ta-1' });
+  const V = W.view(), C = T.consequenceOf(W.r, V.map, V.requests[P.id], V).fingerprint;
+  for (const [op, w] of [['accept', 'wa'], ['decline', 'wb']]) { const st = T.buildStatus({ kind: 'decision', proposal: P.id, run: { process: 'release-readiness', id: 'r-41' }, seen: [P.id], by: 'person-morgan', at: AT, op, consequence: C, writer: w, rev: rev(), app: '4.0.0' }); W.push(T.filed(st.name, st.file).record, st.name); }
+  same(W.view().requests[P.id].status, 'disputed', 'set-up: disputed');
+  same(W.view().spreads.length, 0, 'set-up: no spread landed');
+  has(W.mark().loops.each, /two ways/);
+  same(R.answered(W.r, map.phases[0].steps[0]), false);
+  W.decide(W.r, P.id, 'person-morgan', 'decline');
+  same(W.view().requests[P.id].status, 'declined');
+  W.mark();
+  assert.ok(W.r._todos.stale.loop.each, 'the approval made before the dispute stays in review');
+});
+/* Review round 2 (TB): a stop that can't progress (stale, or what it is owed on can't all be read) is passed over in every
+   path the recorder picks from, queued or settling, so the requests after it still land. */
+rule('TB: a stop held by incomplete coverage never blocks a queued request after it', () => {
+  const W = world([101]); W.kid(101);
+  W.spreadAdd(); W.land(W.r);
+  const st = W.ask(W.r, stopBody(W, [101]), { tool: 'release-helper', version: '1.0', key: 'tb-1' });
+  W.decide(W.r, st.id, 'person-morgan');
+  W.scopes.push(scope('s2', [101, 102], ['req-release-helper-' + 'f'.repeat(24)]));
+  same(W.one().complete, false, 'set-up: incomplete');
+  const add = W.ask(W.r, { op: 'add', text: 'Plain', target: { phase: 'ship' } }, { person: 'person-morgan' });
+  same((T.nextQueued(W.view(), W.r, W.inputs()) || {}).id, add.id, 'the addition is next, not the stop');
+  same((T.nextToCarry(W.view(), W.r, W.inputs()) || {}).id, add.id);
+  W.land(W.r);
+  same(W.view().requests[add.id].status, 'applied');
+  same(W.view().requests[st.id].status, 'queued', 'the stop waits, unapplied');
+});
+rule('TB: a stale stop whose applications disagree never blocks settling another request\'s applications', () => {
+  const W = world([101]); W.kid(101);
+  W.spreadAdd(); W.land(W.r);
+  const twoApps = (id) => {
+    const V = W.view(), plan = T.applyPlan(W.r, V, V.requests[id], W.inputs());
+    assert.ok(plan.write, JSON.stringify(plan));
+    for (const w of ['wa', 'wb']) { const s = T.buildStatus(Object.assign({}, plan.write, w === 'wb' ? { previous: T.idFor('x', 'elsewhere-' + id) } : {}, { by: 'person-morgan', at: AT, writer: w, rev: rev(), app: '4.0.0' })); const fd = T.filed(s.name, s.file); assert.ok(!fd.why, fd.why); W.push(fd.record, s.name); }
+  };
+  const st = W.ask(W.r, stopBody(W, [101]), { tool: 'release-helper', version: '1.0', key: 'tb-2' });
+  W.decide(W.r, st.id, 'person-morgan');
+  twoApps(st.id);
+  W.scopes.push(scope('s2', [101, 102], [W.scopes[0].id])); W.kid(102);
+  const vs = W.view().requests[st.id];
+  same([vs.status, !!vs.appOnly, (T.applyPlan(W.r, W.view(), vs, W.inputs()) || {}).stale], ['disputed', true, true], 'set-up: a stale stop prepared two ways');
+  const add = W.ask(W.r, { op: 'add', text: 'Plain', target: { phase: 'ship' } }, { tool: 'release-helper', version: '1.0', key: 'tb-3' });
+  W.decide(W.r, add.id, 'person-morgan');
+  twoApps(add.id);
+  same([W.view().requests[add.id].status, !!W.view().requests[add.id].appOnly], ['disputed', true], 'set-up: the addition prepared two ways');
+  const q = T.nextToCarry(W.view(), W.r, W.inputs());
+  same(q && q.id, add.id, 'the addition settles next, not the stale stop');
+  const plan = T.applyPlan(W.r, W.view(), q, W.inputs());
+  assert.ok(plan.write || plan.adopt, JSON.stringify(plan));
+});
+/* Review round 2 (TC): once stopped, a spread keeps exactly the obligations it had, but only while each is still required on
+   its current attempt: a removed item and an earlier attempt owe nothing, and a later attempt never inherits one. */
+const loopChange = (W, key, change) => {
+  const c = LP.cleanIntent({ loop: LOOPT, observation: null, changes: [change] }, key, { name: 'release-helper', version: '1.0' });
+  same(c.errors, []);
+  const f = LP.buildRequest(c.intent, { seen: [W.scopes[W.scopes.length - 1].id], children: [], now: AT, app: '3.0.0' });
+  return W.scopes.push(LP.cleanRequest(JSON.parse(LP.text(f)), f.id + '.json').record);
+};
+rule('TC: a stopped spread owes nothing on an item removed from scope after it stopped', () => {
+  const W = world([101, 102]); W.kid(101); W.kid(102);
+  W.spreadAdd(); W.land(W.r);
+  W.ask(W.r, stopBody(W, [101, 102]), { person: 'person-morgan' }); W.land(W.r);
+  same(spreadOf(W).state, 'stopped', 'set-up: stopped');
+  same(spreadOf(W).stop.owed.length, 2);
+  loopChange(W, 'ex-102', { op: 'exclude', item: { key: 'ABC-102' }, reason: 'Ships in 4.2' });
+  same(W.loopView().rollup.items.filter(i => i.key === 'ABC-102').map(i => [i.required, i.status]), [[false, 'removed']], 'set-up: removed');
+  same(W.one().items.filter(i => i.owed).map(i => i.key), ['ABC-101']);
+  assert.ok(!(W.mark().loops.each || []).some(x => /ABC-102/.test(x)), JSON.stringify(W.r._todos.loops.each));
+  same(spreadOf(W).stop.owed.length, 2, 'the stop record itself is unchanged');
+});
+rule('TC: a stopped spread owes nothing on an earlier attempt, and its new attempt inherits nothing', () => {
+  const W = world([101, 102]); W.kid(101, { cleared: false }); W.kid(102);
+  W.spreadAdd(); W.land(W.r);
+  W.ask(W.r, stopBody(W, [101, 102]), { person: 'person-morgan' }); W.land(W.r);
+  same(spreadOf(W).state, 'stopped', 'set-up: stopped');
+  W.kid(101, { attempt: 2 });
+  same(W.loopView().rollup.items.filter(i => i.key === 'ABC-101').map(i => i.attempt), [2], 'set-up: attempt 2');
+  same(W.one().items.filter(i => i.owed).map(i => i.key + '#' + i.attempt), ['ABC-102#1']);
+});
+/* Review round 2 (TD): a settled exception for the current attempt resolves coverage whatever the loop shows as its status. */
+rule('TD: an exception settled for the current attempt resolves coverage even when the item\'s run already cleared', () => {
+  const W = world([101]); const k = W.kid(101);
+  W.spreadAdd(); W.land(W.r);
+  same(W.one().items[0].state, 'owed');
+  W.clear(k);
+  loopChange(W, 'ex-td', { op: 'exception', item: { key: 'ABC-101' }, reason: 'Docs only', approver: 'person-morgan' });
+  const row = W.loopView().rollup.items[0];
+  same([row.status, !!row.exception], ['cleared', true], 'set-up: cleared, with a settled exception');
+  same([W.one().items[0].state, W.one().items[0].resolved], ['excepted', true]);
+  same(W.mark().loops.each || [], []);
+});
+rule('TD: an exception decided two ways never resolves coverage, whatever the item\'s run shows', () => {
+  const W = world([101]); const k = W.kid(101);
+  W.spreadAdd(); W.land(W.r);
+  W.clear(k);
+  const base = W.scopes[W.scopes.length - 1].id;
+  for (const [key, op] of [['ex-a', 'exception'], ['ex-b', 'withdraw']]) {
+    const c = LP.cleanIntent({ loop: LOOPT, observation: null, changes: [Object.assign({ op, item: { key: 'ABC-101' } }, op === 'exception' ? { reason: 'Docs only', approver: 'person-morgan' } : {})] }, key, { name: 'release-helper', version: '1.0' });
+    same(c.errors, []);
+    const f = LP.buildRequest(c.intent, { seen: [base], children: [], now: AT, app: '3.0.0' });
+    W.scopes.push(LP.cleanRequest(JSON.parse(LP.text(f)), f.id + '.json').record);
+  }
+  assert.ok(W.loopView().rollup.items[0].excReview, 'set-up: decided two ways');
+  assert.ok(W.one().items[0].state !== 'excepted' && !W.one().items[0].resolved, JSON.stringify(W.one().items[0]));
+});
+/* Review round 3 (UA): approvals are sticky before a run's first application too. A dispute on its first request, settled,
+   never restores a loop's approval or a gate passed or waived before it; approving again records what it counted. */
+const twoWays = (W, x, id, run) => {
+  const V = W.view(x), C = T.consequenceOf(x, V.map, V.requests[id], V).fingerprint;
+  for (const [op, w] of [['accept', 'wa'], ['decline', 'wb']]) { const st = T.buildStatus({ kind: 'decision', proposal: id, run, seen: [id], by: 'person-morgan', at: AT, op, consequence: C, writer: w, rev: rev(), app: '4.0.0' }); W.push(T.filed(st.name, st.file).record, st.name); }
+  same(W.view(x).requests[id].status, 'disputed', 'set-up: disputed');
+};
+for (const how of ['open', 'passed', 'waived']) {
+  rule('UA: before any application, a settled dispute on a first spread-add never restores the loop\'s approval or a gate ' + (how === 'open' ? 'not yet passed (it never becomes ready)' : how) + '; approving again records it', () => {
+    const W = world([101]); W.kid(101, { cleared: true });
+    W.mark();
+    const map = R.mapOf(W.r), step = map.phases[0].steps[0], gid = map.phases[0].gate.id;
+    const approve = () => { const V0 = W.loopView(); R.done(W.r, map, 'each', 'person-morgan', AT, { _loop: { ok: true, snapshot: LP.approval(V0.ledger, V0.rollup, { by: 'person-morgan', at: AT }) } }); W.mark(); };
+    approve();
+    if (how === 'passed') { R.pass(W.r, map, 0, 'person-morgan', AT); W.mark(); }
+    if (how === 'waived') { R.waive(W.r, map, 0, 'Covered elsewhere', 'person-morgan', AT); W.mark(); }
+    same([W.r.living, R.answered(W.r, step), R.gateStatus(W.r, map, 0)], [undefined, true, how === 'open' ? 'ready' : how], 'set-up: approved, nothing landed');
+    const P = W.spreadAdd('Security sign-off', { tool: 'release-helper', version: '1.0', key: 'ua-' + how });
+    twoWays(W, W.r, P.id, { process: 'release-readiness', id: 'r-41' });
+    W.mark();
+    same([R.answered(W.r, step), R.gateStatus(W.r, map, 0)], [false, how === 'open' ? 'open' : 'review'], 'held while disputed');
+    W.decide(W.r, P.id, 'person-morgan', 'decline');
+    same(W.view().requests[P.id].status, 'declined');
+    W.mark();
+    same([R.answered(W.r, step), R.gateStatus(W.r, map, 0)], [false, how === 'open' ? 'open' : 'review'], 'settling it restores nothing');
+    /* A person approves again: the approval records the dispute's records it counted, and the run reads back. */
+    approve();
+    assert.ok(R.answered(W.r, step), 'approved again');
+    same(W.r.steps.each.todos.cut.length > 0, true, 'the loop\'s approval records what it counted');
+    if (how !== 'open') {
+      if (how === 'passed') R.pass(W.r, map, 0, 'person-morgan', AT); else R.waive(W.r, map, 0, 'Covered elsewhere', 'person-morgan', AT);
+      W.mark();
+      same([R.gateStatus(W.r, map, 0), W.r.gates[gid].todos.cut.length > 0], [how, true], 'the gate\'s approval records what it counted');
+    } else same(R.gateStatus(W.r, map, 0), 'ready');
+    const back = R.sanitize(JSON.parse(JSON.stringify(W.r, (k, v) => k.charAt(0) === '_' ? undefined : v)));
+    same([back._unrunnable, back.living, back.features.indexOf('living-runs') >= 0], [undefined, { head: '' }, true], 'it reads back, marked as living with nothing landed');
+    T.markHolds([back].concat(W.kids), { records: W.recs, unread: W.unread, people: PEOPLE, loops: W.loops() });
+    same([R.answered(back, step), R.gateStatus(back, map, 0)], [true, how === 'open' ? 'ready' : how], 'and stays approved as read back');
+  });
+}
+rule('UA: before any application, a settled dispute on a plain addition never restores the gate passed before it', () => {
+  const W = world([101]); W.kid(101, { cleared: true });
+  W.mark();
+  const map = R.mapOf(W.r), V0 = W.loopView();
+  R.done(W.r, map, 'each', 'person-morgan', AT, { _loop: { ok: true, snapshot: LP.approval(V0.ledger, V0.rollup, { by: 'person-morgan', at: AT }) } }); W.mark();
+  R.pass(W.r, map, 0, 'person-morgan', AT); W.mark();
+  R.done(W.r, map, 'ship1', 'person-morgan', AT); W.mark();
+  R.pass(W.r, map, 1, 'person-morgan', AT); W.mark();
+  same([W.r.living, R.gateStatus(W.r, map, 1)], [undefined, 'passed'], 'set-up');
+  const P = W.ask(W.r, { op: 'add', text: 'Plain', target: { phase: 'ship' } }, { tool: 'release-helper', version: '1.0', key: 'ua-plain' });
+  twoWays(W, W.r, P.id, { process: 'release-readiness', id: 'r-41' });
+  W.mark();
+  same(R.gateStatus(W.r, map, 1), 'review', 'held while disputed');
+  W.decide(W.r, P.id, 'person-morgan', 'decline'); W.mark();
+  same(R.gateStatus(W.r, map, 1), 'review', 'settling it restores nothing');
+});
+/* Review round 3 (UB): a dispute on any request on a covered to-do (Done, Won't do, Move, Reopen), not only its Add, stays
+   in the parent's approval scope, so settling it never restores an approval made before it. */
+rule('UB: a delayed contrary decision on a story\'s Done holds the parent, and settling it keeps the parent\'s approval in review', () => {
+  const W = world([101]); const k = W.kid(101);
+  const P = W.spreadAdd('Security sign-off', { tool: 'release-helper', version: '1.0', key: 'ub-1' }); W.decide(W.r, P.id, 'person-morgan'); W.land(W.r);
+  const sp = spreadOf(W), A = W.fulfil(k, sp, false);
+  const D = W.ask(k, { op: 'done', todo: A.preview.todo }, { tool: 'release-helper', version: '1.0', key: 'ub-done' });
+  const acc = W.decide(k, D.id, 'person-avery'); W.land(k);
+  W.clear(k);
+  same(W.one().items[0].state, 'done', 'set-up: done');
+  const map = R.mapOf(W.r), step = map.phases[0].steps[0], V0 = W.loopView();
+  R.done(W.r, map, 'each', 'person-morgan', AT, { _loop: { ok: true, snapshot: LP.approval(V0.ledger, V0.rollup, { by: 'person-morgan', at: AT }) } }); W.mark();
+  assert.ok(R.answered(W.r, step), 'set-up: approved');
+  /* A decline made at the same time as the accept, arriving late: it saw the request, not the accept. */
+  const KV = W.view(k), C = T.consequenceOf(k, KV.map, KV.requests[D.id], KV).fingerprint, run = { process: k.process, id: k.id };
+  const late = T.buildStatus({ kind: 'decision', proposal: D.id, run, seen: [D.id], by: 'person-avery', at: AT, op: 'decline', consequence: C, writer: 'wlate', rev: rev(), app: '4.0.0' }); W.push(T.filed(late.name, late.file).record, late.name);
+  W.mark();
+  same(R.answered(W.r, step), false, 'held while the Done is disputed');
+  const fix = T.buildStatus({ kind: 'decision', proposal: D.id, run, seen: [D.id, acc.id, T.filed(late.name, late.file).record.id], by: 'person-avery', at: AT, op: 'accept', consequence: C, writer: 'wfix', rev: rev(), app: '4.0.0' }); W.push(T.filed(fix.name, fix.file).record, fix.name);
+  same(W.view(k).byTodo[A.preview.todo].disputed, false, 'set-up: settled');
+  W.mark();
+  same(R.answered(W.r, step), false, 'settling it restores nothing: a person approves again');
+});
+/* Review round 3 (UD): an arrival notice says "requested" only when a request is there, and an item included one by one
+   (cleared when the spread was added) never "joined". */
+rule('UD: an item that joined and ended before it was asked is announced as not requested; an included cleared item never joined', () => {
+  const W = world([101]); W.kid(101);
+  W.spreadAdd(); W.land(W.r);
+  W.scopes.push(scope('s2', [101, 104], [W.scopes[0].id])); W.kid(104, { cleared: true });
+  const C = W.one(), it = C.items.filter(i => i.key === 'ABC-104')[0];
+  same([it.state, it.arrival, it.requested], ['ended', true, false], 'set-up: joined, ended, never asked');
+  same(C.notices, ['ABC-104 joined. Security sign-off is owed; not requested yet.']);
+  const W2 = world([101, 102]); W2.kid(101, { cleared: true }); W2.kid(102);
+  W2.spreadAdd(); W2.land(W2.r);
+  W2.ask(W2.r, { op: 'spread-include', spread: spreadOf(W2).id, item: { uid: uid(101), attempt: 1 } }, { person: 'person-morgan' }); W2.land(W2.r);
+  const i1 = W2.one().items.filter(i => i.key === 'ABC-101')[0];
+  same([i1.owed, i1.arrival], [true, false], 'included, not an arrival');
+  same(W2.one().notices, []);
+});
+/* Review round 4 (VB): stopping a spread releases work and reopens nothing, on the next read too; a stop decided two ways
+   still stays in what the approvals count. */
+for (const how of ['open', 'passed', 'waived']) {
+  rule('VB: stopping a fully covered spread keeps the loop\'s approval and a gate ' + how + ' as they were, read again', () => {
+    const W = world([101]); const k = W.kid(101);
+    W.spreadAdd(); W.land(W.r);
+    W.fulfil(k, spreadOf(W)); W.clear(k);
+    same(W.one().items[0].state, 'done', 'set-up: covered');
+    const map = R.mapOf(W.r), step = map.phases[0].steps[0], V0 = W.loopView();
+    R.done(W.r, map, 'each', 'person-morgan', AT, { _loop: { ok: true, snapshot: LP.approval(V0.ledger, V0.rollup, { by: 'person-morgan', at: AT }) } }); W.mark();
+    if (how === 'passed') { R.pass(W.r, map, 0, 'person-morgan', AT); W.mark(); }
+    if (how === 'waived') { R.waive(W.r, map, 0, 'Covered elsewhere', 'person-morgan', AT); W.mark(); }
+    const was = [R.answered(W.r, step), R.gateStatus(W.r, map, 0)];
+    same(was, [true, how === 'open' ? 'ready' : how], 'set-up: approved');
+    const st = W.ask(W.r, stopBody(W, W.one().items.filter(i => i.owed).map(i => +i.uid.slice(-3))), { person: 'person-morgan' });
+    same(st.preview.consequence.reopens, [], 'set-up: the preview reopens nothing');
+    W.land(W.r);
+    same(spreadOf(W).state, 'stopped', 'set-up: stopped');
+    W.mark();
+    same([R.answered(W.r, step), R.gateStatus(W.r, map, 0)], was, 'read again, nothing reopened');
+  });
+}
+rule('VB: a stop decided two ways still sends the loop\'s approval back, and settling it restores nothing', () => {
+  const W = world([101]); const k = W.kid(101);
+  W.spreadAdd(); W.land(W.r);
+  W.fulfil(k, spreadOf(W)); W.clear(k);
+  const map = R.mapOf(W.r), step = map.phases[0].steps[0], V0 = W.loopView();
+  R.done(W.r, map, 'each', 'person-morgan', AT, { _loop: { ok: true, snapshot: LP.approval(V0.ledger, V0.rollup, { by: 'person-morgan', at: AT }) } }); W.mark();
+  assert.ok(R.answered(W.r, step), 'set-up: approved');
+  const st = W.ask(W.r, stopBody(W, [101]), { tool: 'release-helper', version: '1.0', key: 'vb-stop' });
+  twoWays(W, W.r, st.id, { process: 'release-readiness', id: 'r-41' });
+  W.mark();
+  same(R.answered(W.r, step), false, 'held while disputed');
+  W.decide(W.r, st.id, 'person-morgan', 'decline'); W.mark();
+  same(R.answered(W.r, step), false, 'settling it restores nothing');
+});
+/* Review round 5 (WA): coverage expects what it depends on, from what it recorded and what refers to it, and an expected
+   dependency that is absent, or present but not checked, is never "nothing there". Table-driven: every kind of dependency,
+   absent or unread, against every consumer the core gives (coverage, the holds every window marks, the problem collector,
+   asking, deciding and applying a stop). The readers' own failure modes (malformed, newer, unreadable, a link) are the CLI's
+   and the app's matrices (test/spread-cli.test.js, test/app-spreads.test.js). */
+function applied() {
+  const W = world([101, 102, 103]); W.kid(101, { cleared: true }); const k2 = W.kid(102); W.kid(103);
+  const add = W.spreadAdd('Security sign-off', { tool: 'release-helper', version: '1.0', key: 'wa-1' });
+  const dec = W.decide(W.r, add.id, 'person-morgan'); W.land(W.r);
+  const sp = spreadOf(W); assert.ok(sp && sp.state === 'active', 'set-up: applied');
+  const req = W.request(k2, sp);
+  same(W.one().items.filter(i => i.owed).map(i => i.key), ['ABC-102', 'ABC-103'], 'set-up: two owed');
+  return { W, add, dec, head: W.r.living.head, req, k2, sp, stop: (owed) => ({ op: 'spread-stop', spread: sp.id, reason: 'Covered by the platform review', owed: owed.map(n => ({ uid: uid(n), attempt: 1 })), cut: W.scopes.map(x => x.id).slice(-1) }) };
+}
+const dropRec = (W, id) => { const i = W.recs.findIndex(x => x.id === id); assert.ok(i >= 0, 'set-up: ' + id); return W.recs.splice(i, 1)[0]; };
+/* [kind, how it goes missing or unread, the path named (or null when its own reader names it), restore] */
+const WA_DEPS = [
+  ['a scope record, absent', (S0) => { const x = S0.W.scopes.splice(0, 1)[0]; return { path: 'proposals/' + x.id + '.json', back: () => S0.W.scopes.unshift(x) }; }],
+  ['a scope record, unread', (S0) => { const x = S0.W.scopes.splice(0, 1)[0], L0 = S0.W.loops; S0.W.loops = () => Object.assign(L0(), { unread: [{ file: x._file || x.id + '.json', why: 'is newer', loop: LOOPT }] }); return { path: null, back: () => { S0.W.scopes.unshift(x); S0.W.loops = L0; } }; }],
+  ['the spread-add proposal, absent', (S0) => { const x = dropRec(S0.W, S0.add.id); return { path: 'proposals/' + x.id + '.json', back: () => S0.W.recs.push(x) }; }],
+  ['the application living.head names, absent', (S0) => { const x = dropRec(S0.W, S0.head); return { path: 'proposals/' + x.id + '.json', back: () => S0.W.recs.push(x) }; }],
+  ['the decision the application saw, absent', (S0) => { const x = dropRec(S0.W, S0.dec.id); return { path: 'proposals/' + x.id + '.json', back: () => S0.W.recs.push(x) }; }],
+  ['an item\'s run its request was filed on, absent', (S0) => { const i = S0.W.kids.indexOf(S0.k2); S0.W.kids.splice(i, 1); return { path: 'runs/validate-story/' + S0.k2.id + '/run.json', back: () => S0.W.kids.splice(i, 0, S0.k2) }; }],
+  ['an item\'s run whose last read failed (the app keeps the old copy)', (S0) => { const L0 = S0.W.loops; S0.W.loops = () => Object.assign(L0(), { unreadRun: (c) => c === S0.k2 ? { path: 'runs/validate-story/' + c.id + '/run.json', kind: 'unreadable', why: 'EIO' } : null }); return { path: null, back: () => { S0.W.loops = L0; } }; }],
+  ['an item\'s run the reader couldn\'t read (the CLI has no copy)', (S0) => { const i = S0.W.kids.indexOf(S0.k2), L0 = S0.W.loops; S0.W.kids.splice(i, 1); S0.W.loops = () => Object.assign(L0(), { failed: ['runs/validate-story/' + S0.k2.id + '/run.json'] }); return { path: null, back: () => { S0.W.kids.splice(i, 0, S0.k2); S0.W.loops = L0; } }; }]
+];
+for (const [kind, lose] of WA_DEPS) {
+  rule('WA: ' + kind + ': coverage is incomplete, its loop is held, the collector names it, and no stop is asked, decided or applied', () => {
+    const S0 = applied(), W = S0.W, off = [];
+    /* A stop asked while everything could be read, to be decided and applied while it can't. */
+    const st = W.ask(W.r, S0.stop([102, 103]), { tool: 'release-helper', version: '1.0', key: 'wa-st' });
+    const shown = T.inbox([W.r], Object.assign({ me: 'person-morgan' }, W.inputs())).filter(x => x.id === st.id)[0];
+    assert.ok(shown, 'set-up: the stop waits for Morgan');
+    const lost = lose(S0);
+    const cov = W.cov(), C = cov.spreads[0];
+    if (C && C.complete !== false) off.push('coverage: complete');
+    const H = W.mark();
+    if (!H || !((H.loops.each || []).length || H.all.length)) off.push('holds: the loop isn\'t held');
+    if (lost.path && !T.missingOf(W.view(), cov).some(x => x.path === lost.path && x.kind === 'nofile')) off.push('collector: ' + lost.path + ' not named (' + JSON.stringify(T.missingOf(W.view(), cov)) + ')');
+    const P = T.prepare(W.r, { body: S0.stop([]), by: { tool: 'release-helper', version: '1.0', key: 'wa-st0' }, records: W.recs, unread: W.unread, people: PEOPLE, at: AT, app: '4.0.0', loops: W.loops(), runs: W.runs() });
+    if (!P.why) off.push('prepare: a stop with owed [] was asked');
+    const d = T.decide(W.r, Object.assign({ request: st.id, op: 'accept', by: 'person-morgan', shown: shown.consequence.fingerprint, at: AT, writer: 'wx', rev: rev(), app: '4.0.0' }, W.inputs()));
+    if (!d.why) off.push('decide: the stop was accepted');
+    const V = W.view(), q = V.requests[st.id], plan = q ? T.applyPlan(W.r, V, q, W.inputs()) : { skip: 'unread' };
+    if (!plan.skip) off.push('apply: ' + JSON.stringify(plan).slice(0, 120));
+    same(off, [], kind);
+    /* When it is back, every obligation still stands. */
+    lost.back();
+    same(W.one().complete, true, kind + ': back');
+    same(W.one().items.filter(i => i.owed).map(i => i.key), ['ABC-102', 'ABC-103'], kind + ': nothing was lost');
+  });
+}
+/* The reviewers' sequence: a stop filed while the loop's only scope record is missing, then the scope record returns. */
+rule('WA: a stop filed while the scope record is missing is never applied; once it returns, both obligations still stand', () => {
+  const S0 = applied(), W = S0.W, x = W.scopes.splice(0, 1)[0];
+  same(W.one().complete, false, 'incomplete, never empty');
+  const P = T.prepare(W.r, { body: S0.stop([]), by: { tool: 'release-helper', version: '1.0', key: 'wa-st1' }, records: W.recs, unread: W.unread, people: PEOPLE, at: AT, app: '4.0.0', loops: W.loops(), runs: W.runs() });
+  assert.ok(P.why, 'no stop is prepared');
+  /* One filed anyway (a tool that didn't check) is never decided or applied while it can't be checked. */
+  const bf = T.buildProposal({ run: { process: 'release-readiness', id: 'r-41' }, producer: { name: 'other-tool', version: '1.0' }, key: 'wa-st2', seen: W.view().heads, at: AT, body: S0.stop([]) }), fd = T.filed(T.idFor('other-tool', 'wa-st2') + '.json', bf);
+  assert.ok(!fd.why, fd.why);
+  const st = W.push(fd.record);
+  W.land(W.r);
+  same(spreadOf(W).state, 'active', 'not applied');
+  W.scopes.unshift(x);
+  W.land(W.r);
+  same(W.one().items.filter(i => i.owed).map(i => i.key), ['ABC-102', 'ABC-103'], 'obligations kept');
+  assert.ok(st, 'set-up');
+});
+rule('WA: an explicitly recorded removal still works: a removed item owes nothing, and coverage is complete', () => {
+  const S0 = applied(), W = S0.W;
+  loopChange(W, 'wa-ex', { op: 'exclude', item: { key: 'ABC-103' }, reason: 'Ships in 4.2' });
+  same(W.loopView().rollup.items.filter(i => i.key === 'ABC-103').map(i => [i.required, i.status]), [[false, 'removed']], 'set-up: removed');
+  const C = W.one();
+  same([C.complete, C.items.filter(i => i.owed).map(i => i.key)], [true, ['ABC-102']]);
+});
+/* Review round 5 (WB): an item approved without a run was never added; the summary counts additions apart from exceptions. */
+rule('WB: an exception before any addition reads "1 approved without a run", never "1 added"', () => {
+  const W = world([101, 102]); W.kid(101); W.kid(102);
+  W.spreadAdd(); W.land(W.r);
+  loopChange(W, 'ex-wb', { op: 'exception', item: { key: 'ABC-101' }, reason: 'Docs only', approver: 'person-morgan' });
+  const C = W.one();
+  same(C.items.map(i => i.state), ['excepted', 'owed'], 'set-up');
+  assert.ok(!/added/.test(C.summary), C.summary);
+  assert.ok(/1 approved without a run/.test(C.summary), C.summary);
+});
+rule('XA: one input builder: a run whose version is missing, unread or not checked this time is unknown, with its path', () => {
+  const S0 = applied(), W = S0.W, pd = 'publications/validate-story/' + S0.k2.folder + '/';
+  const base = { runs: W.runs(), records: W.recs, unread: W.unread, scopes: W.scopes, people: PEOPLE, procOf: W.procOf };
+  const cases = [
+    ['absent', { processes: [{ process: 'validate-story', pubs: [] }, { process: 'release-readiness', pubs: [{ folder: W.r.folder, ok: true }] }] }, pd],
+    ['unread', { processes: [], procsRead: () => false, failed: [pd + 'publication.json'] }, pd + 'publication.json'],
+    ['not read this time', { partsFailed: { publications: 'EIO' } }, 'publications'],
+    ['the run\'s own version, absent', { processes: [{ process: 'validate-story', pubs: [{ folder: S0.k2.folder, ok: true }] }, { process: 'release-readiness', pubs: [] }] }, 'publications/release-readiness/' + W.r.folder + '/']
+  ];
+  for (const [how, extra, path0] of cases) {
+    const cov = S.coverage(W.r, W.view(), S.inputs(Object.assign({}, base, extra)));
+    same(cov.spreads[0].complete, false, how);
+    assert.ok(cov.spreads[0].missing.some(m => m.path === path0), how + ': ' + JSON.stringify(cov.spreads[0].missing));
+  }
+  same(S.coverage(W.r, W.view(), S.inputs(base)).spreads[0].complete, true, 'nothing failed: complete');
+});
+/* Review round 6 (XB): what is expected comes from every reference to an item, not only the scope a spread was reviewed
+   against: an item a later scope record brought in, whose run or request still names it, isn't lost when that record goes. */
+rule('XB: a later scope record that brought an item in, missing while its run and request name it: incomplete, no stop; back, it is owed', () => {
+  const W = world([101]); W.kid(101, { cleared: true });
+  const add = W.spreadAdd('Security sign-off', { tool: 'release-helper', version: '1.0', key: 'xb-1' }); W.decide(W.r, add.id, 'person-morgan'); W.land(W.r);
+  const sp = spreadOf(W);
+  W.scopes.push(scope('s2', [101, 102], [W.scopes[0].id]));
+  const k2 = W.kid(102); W.request(k2, sp);
+  same(W.one().items.filter(i => i.owed).map(i => i.key), ['ABC-102'], 'set-up: ABC-102 joined and owes it');
+  const later = W.scopes.pop();
+  const C = W.one();
+  same(C.complete, false, 'incomplete, never empty');
+  assert.ok(C.missing.length && C.missing.every(m => m.path), JSON.stringify(C.missing));
+  assert.ok((W.mark().loops.each || []).length, 'its loop is held');
+  const body = { op: 'spread-stop', spread: sp.id, reason: 'Covered elsewhere', owed: [] };
+  const P = T.prepare(W.r, { body, by: { tool: 'release-helper', version: '1.0', key: 'xb-st' }, records: W.recs, unread: W.unread, people: PEOPLE, at: AT, app: '4.0.0', loops: W.loops(), runs: W.runs() });
+  assert.ok(P.why, 'no stop with owed [] is prepared');
+  W.scopes.push(later);
+  same(W.one().items.filter(i => i.owed).map(i => i.key), ['ABC-102'], 'back: still owed');
+});
+rule('XB: a recorded removal of a later item still removes it, with its run and request still naming it', () => {
+  const W = world([101]); W.kid(101, { cleared: true });
+  W.spreadAdd(); W.land(W.r);
+  W.scopes.push(scope('s2', [101, 102], [W.scopes[0].id]));
+  const k2 = W.kid(102); W.request(k2, spreadOf(W));
+  loopChange(W, 'xb-ex', { op: 'exclude', item: { key: 'ABC-102' }, reason: 'Ships in 4.2' });
+  const C = W.one();
+  same([C.complete, C.items.filter(i => i.owed).map(i => i.key)], [true, []]);
+});
+/* Review round 6 (XC): every identity coverage misses reaches the problem collector, so complete, exit 4 and a named path
+   always agree. */
+rule('XC: a held scope record\'s missing predecessor is named before coverage stops', () => {
+  const S0 = applied(), W = S0.W, ghost = 'req-release-helper-' + 'f'.repeat(24);
+  W.scopes.push(scope('s2', [101, 102, 103], [ghost]));
+  const cov = W.cov();
+  same(cov.spreads[0].complete, false);
+  assert.ok(T.missingOf(W.view(), cov).some(m => m.path === 'proposals/' + ghost + '.json'), JSON.stringify(T.missingOf(W.view(), cov)));
+});
+for (const which of ['add', 'application', 'decision']) {
+  rule('XC: a story\'s ' + which + ' record missing is named in the parent\'s coverage, not only held', () => {
+    const W = world([101, 102]); W.kid(101, { cleared: true }); const k2 = W.kid(102);
+    const add = W.spreadAdd('Security sign-off', { tool: 'release-helper', version: '1.0', key: 'xc-1' }); W.decide(W.r, add.id, 'person-morgan'); W.land(W.r);
+    const sp = spreadOf(W), P = W.request(k2, sp), d = W.decide(k2, P.id, 'person-avery'); W.land(k2);
+    const id = which === 'add' ? P.id : which === 'decision' ? d.id : k2.living.head;
+    dropRec(W, id);
+    const cov = W.cov();
+    same(cov.spreads[0].complete, false);
+    assert.ok(T.missingOf(W.view(), cov).some(m => m.path === 'proposals/' + id + '.json'), which + ': ' + JSON.stringify(T.missingOf(W.view(), cov)));
+  });
+}
+/* Review round 7 (YA): a stop ends future inheritance only; existing obligations remain. A 4.0 scope record names the parent's
+   to-do head it saw (flightdeck-plan/4, head), and a stop records the scope cut it saw (seen): after a stop, an item owes on its
+   current attempt unless the stop listed or saw it, or the record that brought it in saw the stop's application. Whatever was
+   invisible when the stop was made (a record missing then, or one with no head) still owes. */
+function scope4(key, ns, seen, head, changes) {
+  const c = LP.cleanIntent({ loop: LOOPT, observation: ns ? obs(ns) : null, changes: changes || [] }, key, { name: 'release-helper', version: '1.0' });
+  same(c.errors, []);
+  const f = LP.buildRequest(c.intent, { seen: seen || [], children: [], now: AT, app: '4.0.0', head });
+  same([f.format, f.features, f.head], ['flightdeck-plan/4', ['loops', 'living-runs'], head], 'a 4.0 scope record names the head it saw');
+  const v = LP.cleanRequest(JSON.parse(LP.text(f)), f.id + '.json');
+  assert.ok(v.ok, v.why);
+  return v.record;
+}
+rule('YA: a 4.0 scope record keeps the parent head it saw; one without a head, or with a head that isn\'t an id, isn\'t read', () => {
+  const W = world([101]), r = scope4('h1', [101], [], 'req-release-helper-' + 'a'.repeat(24) + '.status-w1-0000abcd');
+  same(r.head, 'req-release-helper-' + 'a'.repeat(24) + '.status-w1-0000abcd');
+  same(scope4('h0', [101], [], '').head, '', 'a parent with no application yet: the empty head');
+  same(W.scopes[0].head, null, 'a 3.0 record has none');
+  const c = LP.cleanIntent({ loop: LOOPT, observation: obs([101]), changes: [] }, 'h2', { name: 'release-helper', version: '1.0' });
+  const f = LP.buildRequest(c.intent, { seen: [], children: [], now: AT, app: '4.0.0', head: '' });
+  for (const bad of [undefined, 7, 'not an id!']) {
+    const g = JSON.parse(LP.text(f)); if (bad === undefined) delete g.head; else g.head = bad;
+    const v = LP.cleanRequest(g, f.id + '.json');
+    same([v.ok, v.kind], [false, 'malformed'], String(bad));
+  }
+  const g = JSON.parse(LP.text(f)); g.features = ['loops'];
+  same(LP.cleanRequest(g, f.id + '.json').ok, false, 'plan/4 names living-runs');
+});
+rule('YA: a stop records the scope cut it saw', () => {
+  const W = world([101, 102]); W.kid(101); W.kid(102);
+  W.spreadAdd(); W.land(W.r);
+  W.ask(W.r, stopBody(W, [101, 102]), { person: 'person-morgan' }); W.land(W.r);
+  same(spreadOf(W).stop.cut, [W.scopes[0].id]);
+});
+const YA_WAYS = {
+  'a pending stop names it': (W, sp) => W.ask(W.r, stopBody(W, [104]), { tool: 'release-helper', version: '1.0', key: 'ya-st1' }, { loops: W.loops(), runs: W.runs() }),
+  'a pending binding names it': (W, sp) => W.ask(W.r, { op: 'spread-bind', spread: sp.id, item: { uid: uid(104), attempt: 1 }, dest: { process: 'validate-story', id: 'k104' } }, { tool: 'release-helper', version: '1.0', key: 'ya-b1' })
+};
+for (const way of Object.keys(YA_WAYS)) {
+  rule('YA: ' + way + ', its scope record goes missing and a stop lands; restored, it still owes', () => {
+    const W = world([101]); W.kid(101, { cleared: true });
+    W.spreadAdd(); W.land(W.r);
+    const sp = spreadOf(W);
+    W.scopes.push(scope4('s2', [101, 104], [W.scopes[0].id], W.r.living.head));
+    same(W.one().items.filter(i => i.owed).map(i => i.key), ['ABC-104'], 'set-up: ABC-104 joined');
+    YA_WAYS[way](W, sp);
+    const later = W.scopes.pop();
+    same(W.one().items.filter(i => i.owed).map(i => i.key), [], 'set-up: with its record gone, nothing is owed');
+    W.ask(W.r, stopBody(W, []), { person: 'person-morgan' }); W.land(W.r);
+    same(spreadOf(W).state, 'stopped', 'set-up: stopped on nothing');
+    W.scopes.push(later);
+    same(W.one().items.filter(i => i.owed).map(i => i.key + '#' + i.attempt), ['ABC-104#1'], 'it was there before the stop: still owed');
+  });
+}
+rule('YA: an item that arrives after a stop, by a record that saw the stop\'s application, owes nothing; one whose record has no head owes', () => {
+  const W = world([101, 102]); W.kid(101); W.kid(102);
+  W.spreadAdd(); W.land(W.r);
+  W.ask(W.r, stopBody(W, [101, 102]), { person: 'person-morgan' }); W.land(W.r);
+  const stopApp = W.r.living.head;
+  W.scopes.push(scope4('s2', [101, 102, 105], [W.scopes[0].id], stopApp));
+  same(W.one().items.filter(i => i.owed).map(i => i.key), ['ABC-101', 'ABC-102'], 'a true later arrival is exempt');
+  W.scopes.pop();
+  W.scopes.push(scope('s3', [101, 102, 105], [W.scopes[0].id]));
+  same(W.one().items.filter(i => i.owed).map(i => i.key), ['ABC-101', 'ABC-102', 'ABC-105'], 'no head: owed, conservatively');
+  W.scopes.pop();
+  W.scopes.push(scope4('s4', [101, 102, 106], [W.scopes[0].id], W.view().chain[W.view().chain.length - 2]));
+  same(W.one().items.filter(i => i.owed).map(i => i.key), ['ABC-101', 'ABC-102', 'ABC-106'], 'a head before the stop\'s application: owed');
+});
+rule('YA: an item the stop saw and didn\'t list owes nothing, whatever its attempt', () => {
+  const W = world([101, 102]); W.kid(101, { cleared: true }); W.kid(102);
+  W.spreadAdd(); W.land(W.r);
+  W.ask(W.r, stopBody(W, [102]), { person: 'person-morgan' }); W.land(W.r);
+  W.kid(101, { attempt: 2 });
+  same(W.one().items.filter(i => i.owed).map(i => i.key + '#' + i.attempt), ['ABC-102#1']);
+});
+/* Review round 7 (YB): a binding names the run that counts, so that run is expected whether or not a request was filed on it. */
+rule('YB: an explicitly bound run that isn\'t here makes coverage incomplete and is named, with no request filed on it', () => {
+  const S0 = applied(), W = S0.W, k3 = W.kids.filter(c => c.id === 'k103')[0];
+  W.kid(103, { id: 'k103b' });
+  W.ask(W.r, { op: 'spread-bind', spread: S0.sp.id, item: { uid: uid(103), attempt: 1 }, dest: { process: 'validate-story', id: 'k103' } }, { person: 'person-morgan' }); W.land(W.r);
+  same([W.one().complete, W.one().items.filter(i => i.key === 'ABC-103')[0].run], [true, 'validate-story/k103'], 'set-up: bound, no request');
+  W.kids.splice(W.kids.indexOf(k3), 1);
+  const cov = W.cov(), C = cov.spreads[0];
+  same(C.complete, false);
+  assert.ok(T.missingOf(W.view(), cov).some(x => x.path === 'runs/validate-story/k103/run.json' && x.kind === 'nofile'), JSON.stringify(T.missingOf(W.view(), cov)));
+  W.kids.push(k3);
+  same(W.one().complete, true, 'back');
 });
 run();

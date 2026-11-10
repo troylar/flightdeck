@@ -1041,4 +1041,27 @@ rule('Round 10 (1, 2): every save, backup or archive of a run.json in the app go
   }
   assert.deepStrictEqual(bad, [], 'run.json writes without the loop guard');
 });
+/* Compat (a deliberate 4.0.0 change, named in its release notes): a plain 3.0 loop, with no spreads and no to-dos, keeps its
+   approval while a run of the loop or its version can't be read. 3.0 read the story's result as none and sent the approval
+   back; 4.0 holds instead, and a fresh read that shows nothing changed leaves it approved. */
+rule('Compat (4.0.0 change): a 3.0 loop\'s approval stays put, never sent back, while a story\'s run or its version can\'t be read', async () => {
+  for (const what of ['the story\'s version', 'the story\'s run']) {
+    const app = await setup();
+    app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+    app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(150);
+    await clear(app, kidPaths(app)[0]);
+    app.click('refresh'); await app.tick(200);
+    app.click('loop-approve', 'each'); await app.tick(150);
+    const r0 = parentRun(app);
+    assert.strictEqual(r0.steps.each.s, 'done', what + ': set-up: approved');
+    assert.ok(!r0.living && !(r0.features || []).includes('living-runs'), what + ': set-up: a plain 3.0 loop');
+    const gone = what === 'the story\'s run' ? [kidPaths(app)[0]] : app.files('publications/validate-story/');
+    const kept = {}; gone.forEach(p => { kept[p] = app.fs.files[p]; delete app.fs.files[p]; });
+    app.click('refresh'); await app.tick(400);
+    assert.strictEqual(parentRun(app).steps.each.s, 'done', what + ': unread: the approval stays put');
+    Object.assign(app.fs.files, kept);
+    app.click('refresh'); await app.tick(400);
+    assert.strictEqual(parentRun(app).steps.each.s, 'done', what + ': read again, nothing changed: still approved');
+  }
+});
 run();

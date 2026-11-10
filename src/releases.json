@@ -35,6 +35,28 @@
       {
         "kind": "new",
         "area": "Loops",
+        "title": "Require something of every story in a loop",
+        "now": "A spread asks for one requirement, such as a security sign-off, on every open story of a loop, and on every story or attempt that joins later. Each story's own run decides its part. The loop shows one row per spread with a chip per story, and holds its approval until every story's part is resolved. Accept a spread's plain additions together from the inbox.",
+        "where": "A run's loop, Home's inbox"
+      },
+      {
+        "kind": "new",
+        "area": "Command line",
+        "title": "Add, sync and stop spreads from the command line",
+        "now": "flightdeck spread list shows a run's spreads and each story's state. flightdeck spread add, include and stop preview with --dry-run, then file one request for a person to decide. flightdeck spread sync asks each story's run for its part, one request per story, and names any addition that would send an approval back.",
+        "where": "flightdeck spread, the living-run skill"
+      },
+      {
+        "kind": "improved",
+        "area": "Loops",
+        "title": "A loop's approval stays put while a story's run can't be read",
+        "before": "In 3.0, when a story's run or the version it runs on couldn't be read, the loop read that story's result as none and sent its approval back for review.",
+        "now": "The approval stays as it is and the loop's gate waits until the run and its version read again. If nothing changed, it stays approved; if the result changed, it goes back for review then. This applies to every loop, with or without spreads or to-dos.",
+        "where": "A run's loop"
+      },
+      {
+        "kind": "new",
+        "area": "Loops",
         "title": "See what is known about each story, and check a to-do off on its evidence",
         "now": "A tool can record what it found about a loop's items (PRs, commits, status, blockers), how complete and when. The loop shows it under each item; anything not checked says so, never \"no blockers\". Facts never change work: a to-do is checked off on their evidence only when a person accepts the suggestion, or a delegation covers it, and only if the evidence still holds when applied.",
         "where": "A run's loop, flightdeck fact, the living-run skill"

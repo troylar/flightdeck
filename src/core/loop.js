@@ -314,7 +314,7 @@ PF.loop = (function () {
     });
     var inScope = items.filter(function (x) { return x.state !== 'removed'; }).length;
     var heads = c.heads;
-    return { items: items, held: c.held, duplicates: duplicates, heads: heads, requests: asks, observation: lastObs, applied: c.order.map(function (r) { return r.id; }),
+    return { items: items, held: c.held, duplicates: duplicates, heads: heads, saw: c.saw, requests: asks, observation: lastObs, applied: c.order.map(function (r) { return r.id; }),
       pending: items.filter(function (x) { return x.state === 'proposed'; }).map(function (x) { return { uid: x.uid, key: x.key, proposal: x.proposal }; }),
       overLimit: inScope > max ? { count: inScope, max: max } : null };
   }
@@ -789,6 +789,10 @@ PF.loop = (function () {
      Flightdeck and never offers it; this copy dispatches it here before the plan reader. A decision is
      flightdeck-plan-status/3, named <request>.status-<writer>-<rev>.json, written once and never changed. */
   var FORMAT = 'flightdeck-plan/3', STATUS = 'flightdeck-plan-status/3', FEATURES = ['loops'];
+  /* A living run's scope request (4.0, round 7): flightdeck-plan/4 with loops and living-runs, naming the parent's to-do head
+     it saw (head: an application id, or '' before the first), so a stop can tell an item that arrived after it from one it
+     couldn't see. Every other scope request stays flightdeck-plan/3. */
+  var FORMAT4 = 'flightdeck-plan/4', FEATURES4 = ['loops', 'living-runs'], HEAD = /^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/;
   var ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
   var PROC = /^[a-z0-9][a-z0-9-]{0,59}$/, RUN = /^[a-z0-9-]{1,40}$/i, STEP = /^[a-z0-9][a-z0-9-]{0,59}$/i, PERSON = /^[A-Za-z0-9_.-]{1,80}$/;
   var REQ = /^req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24}$/, WRITER = /^[a-z0-9][a-z0-9-]{0,39}$/, REV = /^[0-9a-f]{8}$/, DNAME = /^(req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})\.status-([a-z0-9][a-z0-9-]{0,39})-([0-9a-f]{8})\.json$/;
@@ -809,7 +813,10 @@ PF.loop = (function () {
   /* The request's id and file stem: like a plan request's (PF.requests.idFor), from the tool's name and the key, but over
      ['scope', tool, key], so a scope request and a plan request with the same key never share a name. */
   function idFor(tool, key) { return 'req-' + tool + '-' + PF.sha256.hex(JSON.stringify(['scope', tool, key])).slice(0, 24); }
-  function isScope(o) { return isMap(o) && typeof o.format === 'string' && (o.format === FORMAT || o.format === STATUS); }
+  function isScope(o) { return isMap(o) && typeof o.format === 'string' && (o.format === FORMAT || o.format === STATUS || (o.format === FORMAT4 && Array.isArray(o.features) && o.features.indexOf('loops') >= 0)); }
+  /* A scope record of any version: this copy's format, or a later plan or plan-status format naming the loops feature, so a
+     newer one is refused by the scope reader (and holds its loop), never read as a plan. */
+  function claims(o) { if (isScope(o)) return true; var m = isMap(o) && typeof o.format === 'string' ? /^flightdeck-plan(-status)?\/([0-9]{1,6})$/.exec(o.format) : null; return !!m && +m[2] > 3 && Array.isArray(o.features) && o.features.indexOf('loops') >= 0; }
   function line(v, max, what, errors, opt) {
     if (v == null && opt) return '';
     if (typeof v !== 'string' || (!opt && !v.trim())) { errors.push(what + ' is text.'); return null; }
@@ -982,14 +989,15 @@ PF.loop = (function () {
   function wire(obs) { if (!obs) return null; var o = Object.create(null); Object.keys(obs).forEach(function (k) { if (k !== 'why') o[k] = obs[k]; }); return o; }
   function canonical(intent) { return canon({ loop: intent.loop, producer: intent.producer ? intent.producer.name : null, observation: wire(intent.observation), changes: intent.changes }); }
   function differs(intent, file) {
-    if (!isMap(file) || file.format !== FORMAT) return ['kind'];
+    if (!isMap(file) || (file.format !== FORMAT && file.format !== FORMAT4)) return ['kind'];
     var a = canonical(intent), b = canon({ loop: file.loop, producer: file.producer ? file.producer.name : null, observation: wire(file.observation || null), changes: file.changes || [] }), out = [];
     ['producer', 'loop', 'observation', 'changes'].forEach(function (k) { if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) out.push(k === 'producer' ? 'tool' : k); });
     return out;
   }
-  /* The file written. o: { seen (the records it saw), children (planned child intents), now, app, by (a person, when no tool), id }. */
+  /* The file written. o: { seen (the records it saw), children (planned child intents), now, app, by (a person, when no tool), id,
+     head (a living parent's to-do head, '' before its first application: a flightdeck-plan/4 record that names it) }. */
   function buildRequest(intent, o) {
-    var tool = intent.producer, f = { format: FORMAT, features: FEATURES.slice() };
+    var tool = intent.producer, four = typeof o.head === 'string', f = { format: four ? FORMAT4 : FORMAT, features: (four ? FEATURES4 : FEATURES).slice() };
     if (PF.envelope.semver(o.app)) f.app = o.app;
     f.id = o.id || idFor(tool.name, intent.key);
     f.loop = intent.loop;
@@ -997,19 +1005,24 @@ PF.loop = (function () {
     if (tool) { f.producer = { name: tool.name, version: tool.version }; f.key = intent.key; f.by = tool.name + ' ' + tool.version + ' (a tool)'; }
     else f.by = o.by;
     f.created = o.now;
+    if (four) f.head = o.head;
     f.seen = (o.seen || []).slice().sort();
     f.observation = wire(intent.observation);
     f.changes = intent.changes;
     f.children = (o.children || []).map(function (k) { return { item: intent.kind && intent.kind !== 'jira.issue' ? { key: k.item.key } : { id: k.item.id || '', key: k.item.key }, attempt: k.attempt, inputs: sorted(k.inputs || {}), owner: k.owner || '' }; });
     return f;
   }
+  /* What a scope request names as the parent's to-do head it saw (round 7): a living run's head ('' before its first
+     application), or undefined for any other run, which keeps flightdeck-plan/3. */
+  function headFor(r) { return r && r.living ? (typeof r.living.head === 'string' ? r.living.head : '') : undefined; }
   /* The same, against a request as the folder reader cleaned it. */
   function differsRecord(intent, rec) { return differs(intent, { format: FORMAT, loop: rec.loop, producer: rec.by && rec.by.tool ? { name: rec.by.tool } : null, observation: rec.observation, changes: rec.changes }); }
   function text(f) { return JSON.stringify(f, null, 2) + '\n'; }
   function verdictOf(o, family) {
     var v = PF.envelope.judge(family, o);
     if (!v.ok) return { ok: false, kind: v.kind, why: v.kind === 'newer' ? 'is a scope ' + (family === 'flightdeck-plan' ? 'request' : 'decision') + ' made with a newer Flightdeck. ' + PF.envelope.needsText(v.needs) : v.why, needs: v.needs || '' };
-    if (v.major !== 3 || v.features.indexOf('loops') < 0) return { ok: false, kind: 'malformed', why: 'isn\'t a scope ' + (family === 'flightdeck-plan' ? 'request' : 'decision') + ' (it doesn\'t name the loops feature)', needs: '' };
+    if ((v.major !== 3 && !(v.major === 4 && family === 'flightdeck-plan')) || v.features.indexOf('loops') < 0) return { ok: false, kind: 'malformed', why: 'isn\'t a scope ' + (family === 'flightdeck-plan' ? 'request' : 'decision') + ' (it doesn\'t name the loops feature)', needs: '' };
+    if (v.major === 4 && v.features.indexOf('living-runs') < 0) return { ok: false, kind: 'malformed', why: 'isn\'t a 4.0 scope request (it doesn\'t name the living-runs feature)', needs: '' };
     return null;
   }
   function byOf(f) {
@@ -1023,6 +1036,8 @@ PF.loop = (function () {
     var errors = [], mal = function (why) { return { ok: false, kind: 'malformed', why: why, needs: '' }; };
     if (typeof o.id !== 'string' || !REQ.test(o.id)) return mal('is a scope request without a request id');
     if (typeof name === 'string' && name.indexOf(o.id) !== 0) return mal('is a scope request whose name isn\'t its id');
+    var four = o.format === FORMAT4;
+    if (four && (typeof o.head !== 'string' || (o.head !== '' && !HEAD.test(o.head)))) return mal('is a 4.0 scope request without the parent head it saw (head is an application id, or "" before the first)');
     /* The kind of item it's about (jira.issue when it doesn't say): one this copy doesn't know is refused, never read as another. */
     if (o.kind != null && !kindOf(o.kind)) return mal('is a scope request for items of kind ' + JSON.stringify(String(o.kind).slice(0, 40)) + ', which this copy of Flightdeck doesn\'t know');
     var kind = o.kind == null ? 'jira.issue' : o.kind;
@@ -1036,7 +1051,7 @@ PF.loop = (function () {
       children.push({ item: it, attempt: k.attempt, inputs: k.inputs, owner: k.owner });
     });
     if (errors.length) return mal('is a scope request that isn\'t in its format: ' + errors[0]);
-    return { ok: true, record: { id: o.id, type: 'request', kind: kind, loop: loop, seen: o.seen.slice(), by: byOf(o), observation: obs, changes: changes, children: children, created: typeof o.created === 'string' ? o.created : '', key: typeof o.key === 'string' ? o.key : '' } };
+    return { ok: true, record: { id: o.id, type: 'request', kind: kind, head: four ? o.head : null, loop: loop, seen: o.seen.slice(), by: byOf(o), observation: obs, changes: changes, children: children, created: typeof o.created === 'string' ? o.created : '', key: typeof o.key === 'string' ? o.key : '' } };
   }
   /* A decision on a scope request's proposed removals: accept (remove them) or keep. Its id is its file stem. */
   function buildDecision(d) {
@@ -1070,11 +1085,11 @@ PF.loop = (function () {
     return v.ok ? '' : 'It wouldn\'t read back: it ' + v.why + '.';
   }
   /* A file of either kind, as the folder reader dispatches it before the plan reader. */
-  function cleanFile(o, name) { return o.format === STATUS ? cleanDecision(o, name) : cleanRequest(o, name); }
+  function cleanFile(o, name) { return /^flightdeck-plan-status\//.test(String(o.format)) ? cleanDecision(o, name) : cleanRequest(o, name); }
   /* The records about one loop instance. */
   function recordsFor(records, loop) { return (records || []).filter(function (r) { return r.loop && r.loop.process === loop.process && r.loop.run === loop.run && r.loop.step === loop.step; }); }
 
-  return { splitIds: splitIds, withCopies: withCopies, askerWhy: askerWhy, seenFor: seenFor, page: page, settleIn: settleIn, pageWords: pageWords, fileWhy: fileWhy, KINDS: KINDS, kindOf: kindOf, nounOf: nounOf, count: count, feedWhy: feedWhy, httpLink: httpLink, cleanItem: cleanItem, cleanChanges: cleanChanges, FEED: FEED, NOUN: NOUN, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
-    idFor: idFor, isScope: isScope, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
+  return { splitIds: splitIds, withCopies: withCopies, headFor: headFor, askerWhy: askerWhy, seenFor: seenFor, page: page, settleIn: settleIn, pageWords: pageWords, fileWhy: fileWhy, KINDS: KINDS, kindOf: kindOf, nounOf: nounOf, count: count, feedWhy: feedWhy, httpLink: httpLink, cleanItem: cleanItem, cleanChanges: cleanChanges, FEED: FEED, NOUN: NOUN, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
+    idFor: idFor, isScope: isScope, claims: claims, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
     rollup: rollup, view: view, markStale: markStale, rowId: rowId, choiceWhy: choiceWhy, resolveWhy: resolveWhy, resolvedBy: resolvedBy, planWhy: planWhy, sendBackWhy: sendBackWhy, again: again, appliedIn: appliedIn, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();

@@ -125,6 +125,10 @@ test/facts.test.js -
 test/loop-cli.test.js -
 test/todo-cli.test.js -
 test/spread-cli.test.js -
+test/spread-deps.test.js 0/4
+test/spread-deps.test.js 1/4
+test/spread-deps.test.js 2/4
+test/spread-deps.test.js 3/4
 test/fact-cli.test.js -
 test/patterns.test.js -
 test/link-fields.test.js -
@@ -155,6 +159,10 @@ test/app-todos.test.js -
 test/app-todos-ui.test.js -
 test/app-todos-inbox.test.js -
 test/app-spreads.test.js -
+test/app-spread-deps.test.js 0/4
+test/app-spread-deps.test.js 1/4
+test/app-spread-deps.test.js 2/4
+test/app-spread-deps.test.js 3/4
 test/app-facts.test.js -
 test/staging-app.test.js -
 test/test-runs-app.test.js -
