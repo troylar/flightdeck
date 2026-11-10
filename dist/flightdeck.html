@@ -20277,6 +20277,13 @@ PF.learn = (function () {
       var u = unproven(map, pmap, proof);
       if (u) { out.owner = true; out.unclassified = true; out.unproven = u; }
     }
+    /* QA: proof that can't be read (a decision on pid, or any keep record) where the text may rest on it holds for everyone,
+       the owner included, before any authority check: nobody publishes past what can't be read. */
+    var du = (R.decUnread || []).filter(function (u) { return u && u.process === pid; }), ku = (R.keepUnread || []).filter(Boolean);
+    if (!out.hold && (du.length || ku.length) && (kept || out.owner)) {
+      var at = du.map(function (u) { return u.path || 'corrections/' + pid + '/' + u._file; }).concat(ku.map(function (u) { return 'proposals/' + u.file; }));
+      out.hold = 'this version may include what was kept for next time, and a file that says so can\'t be read (' + at.slice(0, 3).join(', ') + '), so who may publish it can\'t be told, the checklist\'s owner included. Check Folder health, then try again.';
+    }
     return out;
   }
   /* The first change in map against pmap no ordinary decision recorded as its result ('' when every change is): a step's

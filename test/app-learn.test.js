@@ -234,7 +234,7 @@ rule('Kept content needs its owner from durable proof read at the write: Reopen,
 /* OA: lost proof never frees kept content while any trace of it survives. Every way of losing it (the keep, the decision,
    the keep deleted with its decision truncated, one member, a truncated keep or decision, Reopen with the decisions deleted,
    and staging before that) × Publish and Promote × refreshed and cached: someone else publishes nothing; the owner publishes,
-   unless a keep a readable decision names is gone (held for everyone). With every trace deleted (both-deleted), the draft is
+   unless a keep a readable decision names is gone or any proof can't be read (QA: held for everyone). With every trace deleted (both-deleted), the draft is
    a hand edit, which anyone may publish: the documented limit (design.md 45.3); a stage that still lists it is a trace. */
 const OA_WAYS = ['keep', 'decision', 'both-trunc', 'both-deleted', 'member', 'trunc-keep', 'trunc-decision', 'reopen', 'staged'];
 rule('Lost proof never lets anyone but the owner publish kept content: every way of losing it, for Publish and Promote, refreshed or cached', async () => {
@@ -279,7 +279,7 @@ rule('Lost proof never lets anyone but the owner publish kept content: every way
     assert.ok(/kept for next time/.test(txt(app.html())), label + ': said why: ' + (txt(app.html()).match(/Nothing was (published|promoted)[^.]*\.[^.]*\./) || [])[0]);
     app.choose('person-morgan'); await app.tick(80); await refresh(app, 300); await openPage(app);
     await go();
-    const held = how === 'keep' || how === 'member' || how === 'trunc-keep';
+    const held = how === 'keep' || how === 'member' || how === 'trunc-keep' || how === 'both-trunc' || how === 'trunc-decision';
     assert.strictEqual(versions(app), held ? n : n + 1, label + (held ? ': a keep a decision names is gone: held for the owner too' : ': the owner publishes it')); checks++;
   }
   assert.strictEqual(checks, ways.length * 2 * 2 * 2, 'the whole matrix ran');

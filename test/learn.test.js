@@ -307,7 +307,7 @@ rule('Kept content is worked out from the decisions that applied it, before any 
   assert.strictEqual(L2.keptIn(withKept, md, { decisions: [dec('applied', { members: [] })], keeps: [] }, 'p1').owner, false);
   assert.strictEqual(L2.keptIn(withKept, md, { decisions: [], keeps: [], listed: [{ id: 'gbbbbbbbbbbbbbbbb' }] }, 'p1').owner, true);
   /* A decision on p1 that can't be read while p1 has kept something: the owner's, never no one. */
-  assert.strictEqual(L2.keptIn(md, md, { decisions: [], keeps: [keep], decUnread: [{ process: 'p1', _file: 'x.json' }] }, 'p1').unclassified, true);
+  assert.ok(/can.t be read/.test(L2.keptIn(md, md, { decisions: [], keeps: [keep], decUnread: [{ process: 'p1', _file: 'x.json' }] }, 'p1').hold), 'held, the owner too');
   /* The cap (500 ordinary corrections listed first, the keep cut off): worked out before it, and refused naming the limit. */
   const full = Array.from({ length: 500 }, (_, i) => ({ id: 'g' + i.toString(16).padStart(16, '0') }));
   K = L2.keptIn(withKept, md, { decisions: [dec('applied')], keeps: [keep], listed: full }, 'p1');
@@ -329,8 +329,10 @@ rule('Without positive proof a change needs the owner: a deleted or unreadable d
   /* The only decision deleted while the keep stays; the keep deleted and its decision truncated; the keep truncated and its
      decision deleted: nothing shows the new step is ordinary, so it's the owner's. */
   assert.strictEqual(K(withKept, { decisions: [], keeps: [keep] }).owner, true, 'decision deleted, keep stays');
-  assert.strictEqual(K(withKept, { decisions: [], keeps: [], decUnread: [{ process: 'p1', _file: 'd.json' }] }).owner, true, 'keep deleted, decision truncated');
-  assert.strictEqual(K(withKept, { decisions: [], keeps: [], keepUnread: [{ file: keep.id + '.json' }] }).owner, true, 'keep truncated, decision deleted');
+  /* QA: proof that can't be read holds for everyone, the owner included, before any authority check. */
+  assert.ok(/can.t be read/.test(K(withKept, { decisions: [], keeps: [], decUnread: [{ process: 'p1', _file: 'd.json' }] }).hold), 'keep deleted, decision truncated: held');
+  assert.ok(/can.t be read/.test(K(withKept, { decisions: [], keeps: [keep], decUnread: [{ process: 'p1', _file: 'd.json' }] }).hold), 'keep stays, decision truncated: held');
+  assert.ok(/can.t be read/.test(K(withKept, { decisions: [], keeps: [], keepUnread: [{ file: keep.id + '.json' }] }).hold), 'keep truncated, decision deleted: held');
   /* An ordinary decision that recorded exactly this step proves it: anyone, even where something was kept. */
   assert.strictEqual(K(withKept, { decisions: [ord()], keeps: [keep] }).owner, false, 'proven ordinary');
   assert.strictEqual(K(withKept, { decisions: [ord({ result: { step: 'kept1', sig: 'deadbeef' } })], keeps: [keep] }).owner, true, 'a recorded result that isn\'t this content proves nothing');

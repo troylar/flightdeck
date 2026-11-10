@@ -25,8 +25,8 @@
       "reviewed": "OD: keep commands name source diagnostics and judge the source again before writing; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "3c90995247594ef9947267ba8e41e6b75164ed23dcb1f336ae59dfbe94ffaa71",
-      "reviewed": "documented limit for erased keep traces; tests and docs only; checked for direct writes and unconditional deletes"
+      "sha256": "a239f845eb6a23fba245cee4d5a08b16adab36c3d6fa883bdff8457467d6293e",
+      "reviewed": "QA: unreadable proof holds everyone in keptIn; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -257,8 +257,8 @@
       "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/learn.js": {
-      "sha256": "f7bf4fa04217639fa0cbfabadce11e2e0ddd7f1c42dc1cb2be3dbdb0522056fc",
-      "reviewed": "OA: positive proof for non-owner publish of kept content; checked for direct writes and unconditional deletes"
+      "sha256": "1b9940fee3dfad30ba0bc7c44569e86152b5d2cb499d433cc63413b4ac9be4b8",
+      "reviewed": "QA: unreadable proof holds everyone in keptIn; checked for direct writes and unconditional deletes"
     },
     "src/core/library.js": {
       "sha256": "5c8555ff9b8bc67aa90ea4f556bddebbe47d17ae37e296d44b815187d776bd44",
