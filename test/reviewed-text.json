@@ -25,8 +25,8 @@
       "reviewed": "FC: unread records a suggestion's evidence depends on are named in every reader's problems (evidenceUnread); checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "2bbd891628b8b5c09f6fd2b9a102927ab3a22437d2923ba3f5439c40a3141884",
-      "reviewed": "FD: every fact line reachable on the run screen (count left out, Show all), contrary lines first; checked for direct writes and unconditional deletes"
+      "sha256": "e6071fdcbdd18b6eb48fbe2793750cd86e8a25561edeff8e73e1eb4186c2b9ff",
+      "reviewed": "design 45.2: differing fact copies; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -233,8 +233,8 @@
       "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/facts.js": {
-      "sha256": "1eb6c0bf8c2e6a41f6c6409d2014f843ce74b7769e2dfd4532b08b6894606a65",
-      "reviewed": "FD: every fact line reachable on the run screen (count left out, Show all), contrary lines first; checked for direct writes and unconditional deletes"
+      "sha256": "3e7a02f871baf2a39b90ed0e8ff0899b6289df28d5863d7ad57b6c41dca93f99",
+      "reviewed": "facts: copies of one fact id that differ hold every slot they name on every run; checked for direct writes and unconditional deletes"
     },
     "src/core/followups.js": {
       "sha256": "ee399703ee43c4408af48a9bbd816483f6c28039a4587815063ff0a175c8fea0",

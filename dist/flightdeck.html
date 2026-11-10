@@ -19463,28 +19463,47 @@ PF.facts = (function () {
   /* ---- Reduction: a run's facts, by item, source and domain. Order is causal among a run's facts (PF.loop.causal); a fact
      that saw one this computer can't read, or whose copies differ, is held, and so is its slot. ---- */
   function factsOf(records, r) { return (records || []).filter(function (x) { return x && x.kind === 'fact' && x.run && x.run.process === r.process && x.run.id === r.id; }); }
+  /* Ids whose copies (OneDrive's "<id> (1).json") differ, over every fact record in the folder, whatever run each names:
+     which is meant isn't known, so no copy is ever chosen by the order they were read in. */
+  function splitIds(records) {
+    var first = Object.create(null), split = Object.create(null);
+    (records || []).forEach(function (x) {
+      if (!x || x.kind !== 'fact' || typeof x.id !== 'string') return;
+      var b = JSON.stringify(canon(bodyOf(x)));
+      if (!(x.id in first)) first[x.id] = b; else if (first[x.id] !== b) split[x.id] = true;
+    });
+    return split;
+  }
+  function bodyOf(x) { var o = Object.create(null); Object.keys(x).forEach(function (k) { if (k[0] !== '_') o[k] = x[k]; }); return o; }
   /* o: { records (every to-do and fact record read), unread ({ file, run } that couldn't be read) }. */
   function view(r, o) {
     o = o || {};
-    var mine = factsOf(o.records, r), c = PF.loop.causal(mine), held = Object.create(null), slots = Object.create(null), list = [];
+    var split = splitIds(o.records), mine = factsOf(o.records, r);
+    /* A copy of one of this run's ids on another run makes them differ here too, so causal holds it (and what came after). */
+    var mineIds = Object.create(null); mine.forEach(function (m) { mineIds[m.id] = true; });
+    var away = (o.records || []).filter(function (x) { return x && x.kind === 'fact' && split[x.id] && mineIds[x.id] && !(x.run && x.run.process === r.process && x.run.id === r.id); });
+    var c = PF.loop.causal(mine.concat(away)), held = Object.create(null), slots = Object.create(null), list = [];
     c.held.forEach(function (h) { held[h.record] = h; });
+    Object.keys(split).forEach(function (id) { if (!held[id] && mineIds[id]) { held[id] = { record: id, missing: [], why: 'copies' }; c.held.push(held[id]); } });
     var unread = (o.unread || []).filter(function (u) { return u && u.file !== 'people.json' && (!u.run || (u.run.process === r.process && u.run.id === r.id)); });
     var slotOf = function (f) {
       var k = slotKey(f);
       if (!slots[k]) { slots[k] = { key: k, item: itemKey(f.loopStep, f.uid, f.attempt), loopStep: f.loopStep, uid: f.uid, attempt: f.attempt, source: f.source, domain: f.domain, records: [], held: [], obs: null, obsReview: [], obsFront: [] }; list.push(slots[k]); }
       return slots[k];
     };
-    var byId = Object.create(null); mine.forEach(function (f) { byId[f.id] = f; });
+    /* byId never holds an id whose copies differ: none of them is the record. */
+    var byId = Object.create(null); mine.forEach(function (f) { if (!split[f.id]) byId[f.id] = f; });
     c.order.forEach(function (f) {
       var S = slotOf(f); S.records.push(f.id);
       PF.loop.settleIn(c, S, 'obs', 'obsReview', f, { op: 'observe', content: f.content }, function (a, b) { return a.content === b.content; },
         { both: function () { return 'Two observations made at once say different things.'; }, again: 'Observed again without seeing every earlier observation made at once.' });
     });
-    Object.keys(held).forEach(function (id) { var f = byId[id]; if (f) slotOf(f).held.push(id); });
+    /* Every copy of a held record holds the slot it names on this run. */
+    mine.forEach(function (f) { if (!held[f.id]) return; var S = slotOf(f); if (S.held.indexOf(f.id) < 0) S.held.push(f.id); });
     list.forEach(function (S) { finish(S, byId); });
     var byItem = Object.create(null);
     list.sort(function (a, b) { return cmpStr(a.key, b.key); }).forEach(function (S) { (byItem[S.item] = byItem[S.item] || []).push(S); });
-    return { run: { process: r.process, id: r.id }, slots: list, bySlot: slots, byItem: byItem, byId: byId, held: c.held.slice(), unread: unread, count: mine.length };
+    return { run: { process: r.process, id: r.id }, slots: list, bySlot: slots, byItem: byItem, byId: byId, split: split, held: c.held.slice(), unread: unread, count: mine.length };
   }
   function finish(S, byId) {
     var out = S.obsOut || [];
@@ -19606,13 +19625,14 @@ PF.facts = (function () {
     var it = itemOfTodo(r, x);
     if (!it) return 'Its to-do isn\'t about a loop item, so a fact can\'t support it.';
     var runOf = { process: it.run.process, id: it.run.id }, FV = view(runOf, { records: deps.records || [], unread: deps.unread || [] }), F = FV.byId[s.fact];
-    if (!F) return FV.unread.length ? 'Its evidence can\'t be read here.' : 'Its evidence (fact ' + s.fact + ') isn\'t in the folder.';
+    if (!F) return FV.split[s.fact] ? splitWords(s.fact) : FV.unread.length ? 'Its evidence can\'t be read here.' : 'Its evidence (fact ' + s.fact + ') isn\'t in the folder.';
     if (F.loopStep !== it.loopStep || F.uid !== it.uid || F.attempt !== it.attempt) return 'Its evidence is about another item or attempt.';
     if (F.domain !== s.domain || sourceKey(F.source) !== sourceKey(s.source) || F.content !== s.content) return 'Its evidence isn\'t what it names.';
     var S = FV.bySlot[slotKey(F)];
     if (S && !S.held.length && !FV.unread.length && !S.disputed && S.current && S.content !== s.content) return 'Its evidence changed since it was suggested: ' + words(S, now, FV).words;
     return slotWhy(S, now, FV) || contraryWhy(FV, S, now);
   }
+  function splitWords(id) { return 'Its evidence (fact ' + id + ') has copies in the folder that say different things, so which is meant isn\'t known. Keep one of them.'; }
   /* Contrary facts about the item, beside the one a suggestion rests on: another source or domain that is disputed or held,
      or open blockers. Asked when a suggestion is made and again whenever it would be decided or applied. '' or why. */
   function contraryWhy(FV, S, now) {
@@ -19630,6 +19650,7 @@ PF.facts = (function () {
     if (!it) return { why: 'That to-do isn\'t about a loop item, so a fact can\'t support it.' };
     var FV = view({ process: it.run.process, id: it.run.id }, { records: o.records, unread: o.unread }), F = FV.byId[factId];
     if (FV.unread.length) return { why: 'A fact record can\'t be read, so the evidence can\'t be checked.', held: true };
+    if (FV.split[factId]) return { why: splitWords(factId), held: true };
     if (!F) return { why: 'There\'s no fact ' + factId + ' on ' + it.run.process + '/' + it.run.id + '.' };
     if (F.loopStep !== it.loopStep || F.uid !== it.uid || F.attempt !== it.attempt) return { why: 'That fact is about ' + F.uid + ' (attempt ' + F.attempt + '), not this to-do\'s item.' };
     var S = FV.bySlot[slotKey(F)];
@@ -19684,6 +19705,7 @@ PF.facts = (function () {
     if (extra.length) return { why: 'A fact has no "' + String(extra[0]).slice(0, 40) + '".' };
     if (!isMap(by) || typeof by.tool !== 'string') return { why: 'Say which tool observed it.' };
     var id = idFor(by.tool, b.key), FV = view(r, { records: o.records, unread: o.unread });
+    if (FV.split[id]) return { why: 'A record under this key has copies in the folder that say different things, so which is meant isn\'t known. Keep one of them, then sync again.', held: true };
     var prior = FV.byId[id] || (o.records || []).filter(function (x) { return x && x.id === id; })[0];
     if (prior) {
       if (prior.kind !== 'fact') return { why: 'This key already names another record (' + id + ').', taken: true };

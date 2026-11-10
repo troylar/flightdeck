@@ -349,6 +349,44 @@ rule('A contrary fact about the item filed after a suggestion holds it: an open 
   W.fact('blk-1', { source: JIRA, domain: 'blockers', complete: true, reported: 1, entries: [blk(1)] });
   same([W.view().byTodo[x.id].state, W.view().requests[s.id].status], ['done', 'applied'], 'landed work is unchanged');
 });
+rule('Copies of one fact that differ hold every slot and run any copy names, whatever order they are read in, and on whichever run', () => {
+  const ST = { source: JIRA, domain: 'status', entries: [{ id: 'ABC-101', text: 'Done', category: 'done' }] };
+  const copy = (W, key, o, name) => {
+    const f = F.build(Object.assign({ run: W.r, producer: { name: 'git-bot', version: '1.0' }, key, seen: [], at: AT, app: '4.0.0', loopStep: 'each', uid: uid(101), attempt: 1, source: BB, domain: 'prs', observedAt: AT, maxAgeSeconds: 86400, complete: true, reported: 1, fetched: 1, errors: [], entries: [pr(1)] }, o));
+    const v = T.cleanFile(JSON.parse(T.text(f)), name || f.id + '.json'); assert.ok(v.ok, v.why);
+    return v.record;
+  };
+  const r42 = { process: 'release-readiness', id: 'r-42' };
+  for (const how of ['first-on-101', 'last-on-101', 'other-run', 'other-run-first']) {
+    const W = world(), x = W.todo(), f = W.fact('prs-1', { maxAgeSeconds: 18000 });
+    const g = T.grantOf(W.r, { subject: { tool: 'git-bot' }, ops: ['done'], targets: [{ item: { loopStep: 'each', uid: uid(101), attempt: 1 } }], by: 'person-morgan', key: 'g1', records: W.recs, people: PEOPLE, at: AT, now: NOW });
+    assert.ok(!g.why, g.why); W.push(g.record, g.name);
+    const s = W.suggest(x, f.id); assert.ok(!s.why, s.why); W.push(s.record, s.name);
+    same(W.view().requests[s.id].status, 'queued', how + ' set-up');
+    const id = F.idFor('git-bot', 'st-x');
+    const a = copy(W, 'st-x', ST), b = copy(W, 'st-x', Object.assign({}, ST, how.indexOf('other-run') === 0 ? { run: r42, uid: uid(102) } : { uid: uid(102) }), id + ' (1).json');
+    if (how === 'first-on-101' || how === 'other-run') { W.push(a, id + '.json'); W.push(b, id + ' (1).json'); } else { W.push(b, id + ' (1).json'); W.push(a, id + '.json'); }
+    const S = W.slot({ source: JIRA, domain: 'status' });
+    assert.ok(S && S.held.indexOf(id) >= 0, how + ': the slot the 101 copy names is held: ' + JSON.stringify(S && S.held));
+    const q = W.view().requests[s.id];
+    same(q.status, 'held', how + ': ' + JSON.stringify(q));
+    W.land();
+    same(W.view().byTodo[x.id].state, 'open', how + ': nothing landed');
+    /* The other copy's slot is held too, on the run it names. */
+    const other = how.indexOf('other-run') === 0 ? r42 : W.r, OV = F.view(other, { records: W.recs, unread: [] });
+    const S2 = OV.bySlot[F.slotKey({ loopStep: 'each', uid: uid(102), attempt: 1, source: JIRA, domain: 'status' })];
+    assert.ok(S2 && S2.held.indexOf(id) >= 0, how + ': the 102 copy\'s slot is held on ' + other.id);
+    same(F.stateOf(S2, NOW, OV).state, 'held', how);
+    /* Nothing can be suggested on a fact whose copies differ. */
+    const sf = F.supportFor(W.r, x, id, { records: W.recs, unread: [], now: NOW });
+    assert.ok(sf.why && !sf.support, how + ': ' + JSON.stringify(sf));
+  }
+  /* Copies that say the same thing are one record, as before. */
+  const W = world(), x = W.todo(), id = F.idFor('git-bot', 'st-y');
+  const a = copy(W, 'st-y', ST); W.push(a, id + '.json'); W.push(copy(W, 'st-y', ST, id + ' (1).json'), id + ' (1).json');
+  same(W.slot({ source: JIRA, domain: 'status' }).held, [], 'identical copies are one record');
+  assert.ok(x);
+});
 rule('A delegation that covers done applies a suggestion without a person, still only on its evidence', () => {
   const W = world(), x = W.todo(), f = W.fact('prs-1', { maxAgeSeconds: 18000 });
   const g = T.grantOf(W.r, { subject: { tool: 'git-bot' }, ops: ['done'], targets: [{ item: { loopStep: 'each', uid: uid(101), attempt: 1 } }], by: 'person-morgan', key: 'g1', records: W.recs, people: PEOPLE, at: AT, now: NOW });
