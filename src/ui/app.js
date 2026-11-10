@@ -3397,15 +3397,18 @@
     return made;
   }
   function tdSettled(slot) { var keep = loopMem().tdKeep; if (keep) delete keep[slot]; }
-  function tdWrite(r, made, words, slot, tok) {
+  /* The decision write guard (PF.todos.decideStill), asked with the folder and the clock as they are at the write: '' or why. */
+  function tdDecisionStill(key, o, made) { return PF.todos.decideStill(findRun(key), Object.assign({}, o, { records: data.todos || [], unread: data.todosUnread || [], people: data.people, now: tdNow() }), made); }
+  function tdWrite(r, made, words, slot, tok, recheck) {
     var mem = loopMem(), un = runUnread(r);
     if (un) { mem.tdSaid = un + ' Nothing was written.'; render(); return Promise.resolve(false); }
     /* Said in the dialog it came from while that is still open; once it was closed or opened again, said on the page. */
     var said = function (t, how) { if (!tok || tok === tdTok(tok.split(':')[0])) mem.tdSaid = t; else say(t, how); };
     var cx = loopGuard({ run: r.process + '/' + r.id, readable: true }), endBusy = busyStart(), sg = gen;
-    return repo.saveScope(cx.fs, made.name, made.file, { still: function () { return guardOk(cx); } }).then(function (res) {
+    var late = '';
+    return repo.saveScope(cx.fs, made.name, made.file, { still: function () { if (!guardOk(cx)) return false; late = recheck ? recheck() : ''; return !late; } }).then(function (res) {
       endBusy(); if (sg !== gen) return false;
-      if (res && res.dropped) { said('Nothing was written: the folder, the person or the run changed before it was.', 'warn'); render(); return false; }
+      if (res && res.dropped) { said(late ? 'Nothing was written: ' + late : 'Nothing was written: the folder, the person or the run changed before it was.', 'warn'); render(); return false; }
       if (slot) tdSettled(slot);
       if (res && res.conflict && res.theirs !== PF.todos.text(made.file)) { said('A different record is already saved under that name. Nothing was written; read the folder again.', 'bad'); render(); return false; }
       var rec = made.record; rec._file = made.name;
@@ -3419,9 +3422,10 @@
     if (!r || !state.me) return;
     if (runUnread(r)) { mem.tdSaid = runUnread(r) + ' Nothing was decided.'; render(); return; }
     var sent = op === 'decline' ? tdSent(['td-dec-why'], 'dec') : null, tok = tdTok('dec'), open = mem.tdDec, slot = 'dec', sig = JSON.stringify([key, id, op, shown || '', reason == null ? '' : String(reason), state.me]);
-    var made = tdKept(slot, sig, function (seed) { return PF.todos.decide(r, { request: id, op: op, by: state.me, shown: shown, reason: reason, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION, writer: seed.writer, rev: seed.rev, now: tdNow() }); });
+    var asked = null, made = tdKept(slot, sig, function (seed) { asked = { request: id, op: op, by: state.me, shown: shown, reason: reason, at: new Date().toISOString(), app: APP_VERSION, writer: seed.writer, rev: seed.rev }; return PF.todos.decide(r, Object.assign({ records: data.todos || [], unread: data.todosUnread || [], people: data.people, now: tdNow() }, asked)); });
     if (made.why) { mem.tdSaid = made.why; render(); return; }
-    tdWrite(r, made, made.words, slot, tok).then(function (ok) { if (ok && mem.tdDec === open && tok === tdTok('dec') && (!sent || tdClearIf(sent))) { mem.tdDec = null; render(); } });
+    var o0 = asked || { request: id, op: op, by: state.me, shown: shown, reason: reason, app: APP_VERSION };
+    tdWrite(r, made, made.words, slot, tok, function () { return tdDecisionStill(key, o0, made); }).then(function (ok) { if (ok && mem.tdDec === open && tok === tdTok('dec') && (!sent || tdClearIf(sent))) { mem.tdDec = null; render(); } });
   }
   /* Accept N additions (4.0 slice 3): a spread's plain additions on its stories' runs, accepted together, each its own
      decision on exactly the consequence shown with it (data-ids: run|request|fingerprint). One that changed since, or whose
@@ -3444,12 +3448,14 @@
       var x = list[i], r = findRun(x.run);
       if (!r || runUnread(r)) { failed.push({ why: (r ? runUnread(r) : 'The run ' + x.run + ' isn\'t in this folder.') }); step(i + 1); return; }
       var slot = 'dec-all:' + x.run + '|' + x.id, sig = JSON.stringify([x.run, x.id, 'accept', x.fp, state.me]);
-      var made = tdKept(slot, sig, function (seed) { return PF.todos.decide(r, { request: x.id, op: 'accept', by: state.me, shown: x.fp, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION, writer: seed.writer, rev: seed.rev, now: tdNow() }); });
+      var o1 = { request: x.id, op: 'accept', by: state.me, shown: x.fp, app: APP_VERSION };
+      var made = tdKept(slot, sig, function (seed) { return PF.todos.decide(r, Object.assign({ records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), writer: seed.writer, rev: seed.rev, now: tdNow() }, o1)); });
       if (made.why) { if (made.renewed) changed.push(x); else failed.push({ why: made.why }); step(i + 1); return; }
       var cx = loopGuard({ run: r.process + '/' + r.id, readable: true }), endBusy = busyStart(), sg = gen;
-      repo.saveScope(cx.fs, made.name, made.file, { still: function () { return guardOk(cx); } }).then(function (res) {
+      var late = '';
+      repo.saveScope(cx.fs, made.name, made.file, { still: function () { if (!guardOk(cx)) return false; late = tdDecisionStill(x.run, o1, made); return !late; } }).then(function (res) {
         endBusy(); if (sg !== gen) return;
-        if (res && res.dropped) { failed.push({ why: 'The folder, the person or the run changed before it was written.' }); step(i + 1); return; }
+        if (res && res.dropped) { failed.push({ why: late || 'The folder, the person or the run changed before it was written.' }); step(i + 1); return; }
         tdSettled(slot);
         if (res && res.conflict && res.theirs !== PF.todos.text(made.file)) { failed.push({ why: 'A different record is already saved under its name.' }); step(i + 1); return; }
         var rec = made.record; rec._file = made.name;

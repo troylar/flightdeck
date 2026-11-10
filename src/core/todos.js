@@ -1292,6 +1292,18 @@ PF.todos = (function () {
     var after = view(r, { records: recordsFor(o.records, r).concat([fd.record]), unread: unreadFor(o, r), people: people, deps: depsOf(o), now: o.now }).requests[q.id];
     return { name: s.name, file: s.file, record: fd.record, item: it, words: (o.op === 'accept' ? 'Accepted. ' : 'Declined. ') + it.words + ' ' + thenWords(r, after || q) };
   }
+  /* The decision write guard (every window's, right before the write): deciding again with the folder and the clock as they
+     are now must make the same decision on the same consequence, so a request whose evidence went stale, whose authority
+     ended or whose consequence changed since it was shown is never decided. o: what decide was given, with now. made:
+     decide's result. '' or why. */
+  function decideStill(r, o, made) {
+    if (!r || !made || !made.record) return 'The run or the decision isn\'t here any more.';
+    var again = decide(r, o);
+    if (again.why) return again.why;
+    var a = again.record, b = made.record;
+    var what = function (d) { return JSON.stringify([d.proposal, d.op, d.consequence, d.by]); };
+    return what(a) === what(b) ? '' : 'What it would do changed since it was decided. Look again, then decide.';
+  }
   /* Ending a delegation (a revoke): only a person who may decide, only an active grant; what it covered and hasn't landed waits
      for a person's approval again. o: { grant, by, key, reason, records, unread, people, at, app }. */
   function revokeOf(r, o) {
@@ -1337,6 +1349,6 @@ PF.todos = (function () {
   return { SOPS: SOPS, ALL_OPS: ALL_OPS, isSpreadOp: isSpreadOp, hasPair: hasPair, loopWhy: loopWhy, FORMAT: FORMAT, STATUS: STATUS, FEATURE: FEATURE, LIMITS: LIMITS, OPS: OPS, WORDS: WORDS, STATE_WORDS: STATE_WORDS, idFor: idFor, todoIdFor: todoIdFor, statusName: statusName, isTodo: isTodo, claims: claims, familyOf: familyOf,
     targetKey: targetKey, placeOf: placeOf, placementWhy: placementWhy, placementFor: placementFor, effectOf: effectOf, fingerprint: fp, text: text,
     buildProposal: buildProposal, buildGrant: buildGrant, buildStatus: buildStatus, cleanFile: cleanFile, fileWhy: fileWhy, filed: filed, runOf: runOf, recordsFor: recordsFor,
-    requestFile: requestFile, recordName: recordName, notFact: notFact, reduce: reduce, seenFor: seenFor, requestsOf: requestsOf,
+    requestFile: requestFile, recordName: recordName, decideStill: decideStill, notFact: notFact, reduce: reduce, seenFor: seenFor, requestsOf: requestsOf,
     personWhy: personWhy, mayFor: mayFor, consequenceOf: consequenceOf, authorityFor: authorityFor, view: view, holds: holds, markHolds: markHolds, cutFor: cutFor, cleanCut: cleanCut, cleanLiving: cleanLiving, applyPlan: applyPlan, nextQueued: nextQueued, keepHead: keepHead, prepare: prepare, gateTitle: gateTitle, toOf: toOf, inbox: inbox, delegations: delegations, decide: decide, revokeOf: revokeOf, grantOf: grantOf, whatWords: whatWords, askDiffers: askDiffers };
 })();

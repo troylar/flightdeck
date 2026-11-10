@@ -191,6 +191,25 @@ rule('A plan filed under a fact\'s id as a OneDrive copy holds the suggestion re
   }
 });
 
+rule('An acceptance whose evidence goes stale between pressing Accept and its write writes no decision; fresh, the same press writes it', async () => {
+  for (const how of ['none', 'stale']) {
+    const c = clockOf(), app = await setup({ Date: c.Date }), x = await todo(app), f = await fact(app, 'prs-1', { observedAt: ago(30000), maxAgeSeconds: 120 });
+    const S = await suggest(app, x, f.id);
+    await app.fs.write('proposals/' + S.name, app.PF.todos.text(S.file));
+    await refresh(app, 300);
+    const W = await now(app), it = app.PF.todos.inbox([W.parent], { records: W.d.todos, unread: W.d.todosUnread, people: W.people, me: 'person-avery', now: Date.now() }).find((y) => y.id === S.id);
+    assert.ok(it, how + ' set-up: waiting for Avery');
+    const h = holdApplication(app, S.id);
+    app.click('td-accept', S.id, { run: W.parent.process + '/' + W.parent.id, fp: it.consequence.fingerprint }); await app.tick(80);
+    assert.strictEqual(h.seen(), 1, how + ' set-up: the save is held before its write');
+    h.off();
+    if (how === 'stale') c.skew += 5 * 60000;
+    h.hold.open(); await app.tick(400);
+    const decs = app.files('proposals/').filter((p) => p.indexOf(S.id + '.status-') >= 0 && JSON.parse(app.fs.files[p].t).kind === 'decision');
+    assert.strictEqual(decs.length, how === 'none' ? 1 : 0, how + ': ' + decs.join(', '));
+  }
+});
+
 rule('Evidence replaced or gone stale, a contrary fact about the item, or the delegation revoked, between preparing and each write lands nothing; with nothing changed it lands', async () => {
   for (const point of ['application', 'run']) {
     for (const how of ['none', 'replaced', 'stale', 'blocker', 'revoked']) {

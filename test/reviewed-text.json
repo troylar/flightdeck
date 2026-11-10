@@ -25,8 +25,8 @@
       "reviewed": "takenAt: not-JSON and refused records under a taken name are problems with path and reason; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "b06dc47f30eeeb23d2847bc26b73b4ce57620694a8974155fdb5c427b94484c3",
-      "reviewed": "readPlans: copies differing across families hold as unread before dispatch; checked for direct writes and unconditional deletes"
+      "sha256": "9a0e4ef8560a000fb202ac62730b354de7e2de9afc960c5b12ff3f0fbedfbdba",
+      "reviewed": "decision write guard decideStill, asked by every app decision write; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -357,8 +357,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "d73ffa193f9de1a6439b438f276cc1e7a91a65dbce861bdcf25f038369216b9c",
-      "reviewed": "one recordName classifier notices and holds a req-*.json link in any case; checked for direct writes and unconditional deletes"
+      "sha256": "96241a3a1d4240091e5e8928668ddd5cf236cf3c802228491e32a1e90ef9083e",
+      "reviewed": "decision write guard decideStill, asked by every app decision write; checked for direct writes and unconditional deletes"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",
@@ -413,8 +413,8 @@
       "reviewed": "readPlans: copies differing across families hold as unread before dispatch; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "c8eaa242881ad9fa07e20cb3357d7886527c15173f07208ab081943cfadb0e68",
-      "reviewed": "FD: every fact line reachable on the run screen (count left out, Show all), contrary lines first; checked for direct writes and unconditional deletes"
+      "sha256": "9bb5340476ce918f49042b2ddcf27bd6c35db5b6e727470885e8fb570dfd2629",
+      "reviewed": "decision write guard decideStill, asked by every app decision write; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
