@@ -51,12 +51,26 @@ def main(path):
         print("ok %d entries, living %d" % (len(names), living))
 
 
+def decode(raw):
+    """A packed original read as the app reads it (its checked parse): UTF-8, a byte-order mark read past, nothing nested
+    more than PF.util.JSON_DEPTH (64) levels deep, no NaN or Infinity, and every number a double. ValueError otherwise."""
+    text = raw.decode("utf-8")
+    if text.startswith("\ufeff"):
+        text = text[1:]
+    if CF.json_too_deep(text):
+        raise ValueError(CF.DEEP_WHY)
+    try:
+        return json.loads(text, parse_int=float, parse_constant=CF._no_constant)
+    except RecursionError:
+        raise ValueError(CF.DEEP_WHY)
+
+
 COPY = re.compile(r"^( \([0-9]{1,3}\)|-[A-Za-z0-9-]{1,63})$")
 def check_living(z, man):
     by_path = {f["path"]: f["pack"] for f in man["files"]}
 
     def load(path):
-        return json.loads(z.read(by_path[path]).decode("utf-8"))
+        return decode(z.read(by_path[path]))
 
     cache = {}
 
@@ -79,6 +93,11 @@ def check_living(z, man):
             if not path.startswith("proposals/") or not path.endswith(".json"):
                 continue
             o = packed(path)
+            if o is None:
+                # One the app can't read names no run it can tell: it may be this run's (PF.receipts.deps), so it is reached and
+                # judged below.
+                reached.add(path)
+                continue
             if not isinstance(o, dict):
                 continue
             lp = o.get("loop")
@@ -112,7 +131,10 @@ def check_living(z, man):
         if not paths:
             return None, False
         reached.update(paths)
-        recs = [load(p) for p in paths]
+        try:
+            recs = [load(p) for p in paths]
+        except (ValueError, UnicodeDecodeError):
+            return None, False
         if any(json.dumps(r, sort_keys=True) != json.dumps(recs[0], sort_keys=True) for r in recs):
             return None, True
         return recs[0], False
@@ -214,7 +236,7 @@ def check_living(z, man):
             # Read as the shipped checker reads it: its format, limits and the id its content gives.
             if good_receipt:
                 path = [p for p in by_path if p == "proposals/" + receipt + ".json"]
-                raw = json.loads(z.read(by_path[path[0]]).decode("utf-8"), parse_int=float) if path else None
+                raw = decode(z.read(by_path[path[0]])) if path else None
                 good_receipt = raw is not None and CF.todo_why(raw, receipt + ".json") == ""
             # Every record it names as seen (pending requests included) is in the pack, and what each of those saw, in turn.
             if good_receipt:
@@ -284,10 +306,9 @@ def check_living(z, man):
         to-do record: proposal, compound, decision, application, fact, keep or receipt; a loop's scope record), else ''."""
         raw = z.read(by_path[path])
         try:
-            text = raw.decode("utf-8")
-            o = json.loads(text[1:] if text.startswith("\ufeff") else text, parse_int=float, parse_constant=CF._no_constant)
-        except ValueError:
-            return "isn't complete JSON"
+            o = decode(raw)
+        except ValueError as e:
+            return CF.DEEP_WHY if str(e) == CF.DEEP_WHY else "isn't complete JSON"
         name = path[len("proposals/"):]
         if CF.todo_claims(o):
             return CF.todo_why(o, name, len(raw))

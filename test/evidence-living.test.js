@@ -769,5 +769,30 @@ rule('A fact the work rests on is one witness carrying its id: two different cop
   const full = await pack(B.PF, new BytesFS(B.files), B.key);
   const bad = checkPack(await repacked(B.PF, full.zip, (e, man, g) => { const y = g(fp); e['originals/' + cp2] = Buffer.from(JSON.stringify(o, null, 2) + '\n'); man.files.push(Object.assign({}, y, { path: cp2, pack: 'originals/' + cp2 })); forced(man); }));
   assert.ok(!bad.ok && bad.out.indexOf(fp.slice('proposals/'.length, -5)) >= 0, 'Python refuses it: ' + bad.out);
-});
-run();
+});/* TD: Python reads every packed original as the app does (one decoder): a byte-order mark is read past, and a file nested
+   more than 64 levels deep isn't read. */
+const deep65 = () => { let v = 0; for (let i = 0; i < 65; i++) v = [v]; return v; };
+rule('Python decodes packed originals as the app does: a byte-order mark on run.json is read, and a scope record or evidence plan nested 65 deep is refused', async () => {
+  if (!PY) return;
+  const A = await made({ todos: 1 }), bom = Object.assign({}, A.files, { [A.runPath]: '\ufeff' + A.files[A.runPath] });
+  const b = await pack(A.PF, new BytesFS(bom), A.key);
+  assert.strictEqual(b.res.status, 'complete', 'the app reads it: ' + JSON.stringify(b.res.col.unresolved));
+  const c = checkPack(b.zip);
+  assert.ok(c.ok, 'Python reads it too: ' + c.out);
+  const W = await loopMade(), sp = Object.keys(W.files).find((p) => /^proposals\/req-/.test(p) && JSON.parse(W.files[p]).loop);
+  const o = JSON.parse(W.files[sp]); o.ignored = deep65();
+  const text = JSON.stringify(o) + '\n', got = await pack(W.PF, new BytesFS(Object.assign({}, W.files, { [sp]: text })), W.key);
+  assert.ok(got.res.status === 'partial' && got.res.col.unresolved.some((u) => u.indexOf(sp) >= 0), 'the app refuses it: ' + JSON.stringify(got.res.col.unresolved));
+  const full = await pack(W.PF, new BytesFS(W.files), W.key);
+  const bad = checkPack(await repacked(W.PF, full.zip, (e, man, g) => { e[g(sp).pack] = Buffer.from(text); forced(man); }));
+  assert.ok(!bad.ok, 'Python refuses the deep scope record: ' + bad.out);
+  const X = (await roleWorlds()).filter((w) => w.role === 'evidence')[0], PF = X.PF, [proc, id] = X.key.split('/');
+  const one = await PF.repo.readRunOnly(new BytesFS(X.files), proc, id), planId = 'plan-ev-' + 'a'.repeat(24), path = 'proposals/' + planId + '.json';
+  const plan = PF.plans.make(one.pub, { id: planId, process: proc, title: 'Evidence plan', from: X.key, by: 'person-avery', created: new Date().toISOString() }, true, '4.0.0');
+  const fullP = await pack(PF, new BytesFS(Object.assign({}, X.files, { [path]: JSON.stringify(plan, null, 2) + '\n' })), X.key);
+  const okP = checkPack(await repacked(PF, fullP.zip, (e, man) => forced(man)));
+  assert.ok(okP.ok, 'the plan control holds: ' + okP.out);
+  plan.ignored = deep65();
+  const badP = checkPack(await repacked(PF, fullP.zip, (e, man, g) => { e[g(path).pack] = Buffer.from(JSON.stringify(plan) + '\n'); forced(man); }));
+  assert.ok(!badP.ok && badP.out.indexOf(planId) >= 0, 'Python refuses the deep plan: ' + badP.out);
+});run();

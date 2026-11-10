@@ -2295,6 +2295,11 @@ def same_run(text):
 def parse(text):
     def no_constant(_):
         raise ValueError("not JSON")
+    # The app's checked parse: a byte-order mark read past, and nothing nested past PF.util.JSON_DEPTH read.
+    if text.startswith("\ufeff"):
+        text = text[1:]
+    if CF.json_too_deep(text):
+        return MISSING
     try:
         # A number is a double, as JSON.parse reads it: an integer past 2^53 loses its precision, and one too big is infinite.
         return json.loads(text, parse_constant=no_constant, parse_int=lambda t: int(t) if len(t.lstrip("-")) < 16 else float(t))
