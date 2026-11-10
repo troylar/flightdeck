@@ -128,12 +128,14 @@ PF.detours = (function () {
   }
   /* The whole pin (OC), field by field: the to-do's (c) against its plan's and against each started run's version as read
      now (ev.pubs, or the app's ev.pubOf), whether or not the run carries the field. A problem ({ path, kind, why }) or null.
-     A plan for another checklist or folder is said by startsOf, not here. */
+     A plan for another checklist, or pinned to another folder, is one too. */
   var PIN = ['folder', 'version', 'mapHash', 'typesHash'];
   function pinDiff(c, x) { if (!x) return 'pin'; for (var i = 0; i < PIN.length; i++) if (x[PIN[i]] !== c[PIN[i]]) return PIN[i]; return ''; }
   function pubAt(ev, process, id) { return !ev ? null : typeof ev.pubOf === 'function' ? ev.pubOf(process, id) : ev.pubs ? ev.pubs[process + '/' + id] || null : null; }
   function pinWhy(c, p, ev) {
-    if (!c || !p || p.process !== c.process || !p.pin || p.pin.folder !== c.folder) return null;
+    if (!c || !p) return null;
+    /* A plan for another checklist, or with no pin or another folder, is never this to-do's: named unusable (QB). */
+    if (p.process !== c.process) return { path: 'proposals/' + p.id + '.json', kind: 'unusable', why: 'The evidence plan ' + p.id + ' is for ' + String(p.process || 'another checklist') + ', not ' + c.process + ', so no run it started is evidence for its to-do.' };
     var d = pinDiff(c, p.pin);
     if (d) return { path: 'proposals/' + p.id + '.json', kind: 'unusable', why: 'The evidence plan ' + p.id + ' is pinned to another version than its to-do (its ' + d + ' differs), so no run it started is evidence for it.' };
     var starts = p._starts || [];
@@ -164,9 +166,8 @@ PF.detours = (function () {
     if (planHeld(ev, id).length) return { why: 'Its plan (' + id + ') can\'t be read, so which run it started isn\'t known.', held: true };
     if (!p) return { why: 'No run of ' + c.process + ' was started for this to-do yet (Run this checklist).' };
     if ((p._statusHeld || []).length || p._copiesDiffer) return { why: 'Its plan (' + id + ') has a decision or a copy that can\'t be read, so which run it started isn\'t known.', held: true };
-    if (p.process !== c.process || !p.pin || p.pin.folder !== c.folder) return { why: 'Its plan (' + id + ') isn\'t for ' + c.process + ' ' + c.folder + '.' };
     var pw = pinWhy(c, p, ev);
-    if (pw) return { why: pw.why, held: true };
+    if (pw) return { why: 'Its plan (' + id + ') isn\'t for ' + c.process + ' ' + c.folder + ' as its to-do pinned it: ' + pw.why, held: true };
     return { plan: p, starts: (p._starts || []).filter(function (s) { return typeof s === 'string' && s; }) };
   }
   /* A done on one run's result for a to-do (todo suggest-done --evidence-run, Accept on the run screen): { evidence, run,

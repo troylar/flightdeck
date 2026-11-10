@@ -231,6 +231,9 @@ rule('Evidence that reads but isn\'t trusted, and an evidence plan or decision t
     copytorn: (F, S) => { const f = path.join(F.root, 'proposals', S.plan.id + '.json'); fs.copyFileSync(f, path.join(F.root, 'proposals', S.plan.id + ' (1).json')); fs.writeFileSync(f, '{ torn'); },
     /* OC: the plan's pin, one fingerprint changed: not the version the to-do pinned, everywhere. */
     pinmap: (F, S) => { const f = path.join(F.root, 'proposals', S.plan.id + '.json'), o = JSON.parse(fs.readFileSync(f, 'utf8')); o.pin.mapHash = '0badc0de'; fs.writeFileSync(f, JSON.stringify(o, null, 2)); },
+    /* QB: the plan's process or pin folder changed to another valid value: unusable, named, exit 4 everywhere. */
+    planproc: (F, S) => { const f = path.join(F.root, 'proposals', S.plan.id + '.json'), o = JSON.parse(fs.readFileSync(f, 'utf8')); o.process = 'release-readiness'; fs.writeFileSync(f, JSON.stringify(o, null, 2)); },
+    planfolder: (F, S) => { const f = path.join(F.root, 'proposals', S.plan.id + '.json'), o = JSON.parse(fs.readFileSync(f, 'utf8')); o.pin.folder = o.pin.folder.replace(/-.*/, '-abcd1234'); fs.writeFileSync(f, JSON.stringify(o, null, 2)); },
     pintypes: (F, S) => { const f = path.join(F.root, 'proposals', S.plan.id + '.json'), o = JSON.parse(fs.readFileSync(f, 'utf8')); o.pin.typesHash = '0badc0de'; fs.writeFileSync(f, JSON.stringify(o, null, 2)); },
     /* OC: every OneDrive copy name the loader knows is tied to its plan: a torn (1) or -COMPUTER copy, or a linked (1) copy,
        beside a readable plan, is held. */
@@ -250,7 +253,7 @@ rule('Evidence that reads but isn\'t trusted, and an evidence plan or decision t
     const want = how === 'decision' ? { path: 'proposals/' + S.plan.id + '.status-sk1-d.json', kinds: ['unreadable', 'malformed'] }
       : how === 'plan' || how === 'copytorn' ? { path: 'proposals/' + S.plan.id + '.json', kinds: ['unreadable', 'malformed'] }
         : how === 'planlink' ? { path: 'proposals/' + S.plan.id + '.json', kinds: ['link'] }
-        : how === 'pinmap' || how === 'pintypes' ? { path: 'proposals/' + S.plan.id + '.json', kinds: ['unusable'] }
+        : how === 'pinmap' || how === 'pintypes' || how === 'planproc' || how === 'planfolder' ? { path: 'proposals/' + S.plan.id + '.json', kinds: ['unusable'] }
         : how === 'copyone' ? { path: 'proposals/' + S.plan.id + ' (1).json', kinds: ['unreadable', 'malformed'] }
         : how === 'copycomputer' ? { path: 'proposals/' + S.plan.id + '-LAPTOP.json', kinds: ['unreadable', 'malformed'] }
         : how === 'copylink' ? { path: 'proposals/' + S.plan.id + ' (1).json', kinds: ['link'] }
@@ -264,7 +267,7 @@ rule('Evidence that reads but isn\'t trusted, and an evidence plan or decision t
       const x = readers[k], at = (q) => q.path === want.path || (want.prefix && q.path.indexOf(want.prefix) === 0), hit = (x.problems || []).filter(q => at(q) && want.kinds.indexOf(q.kind) >= 0);
       assert.strictEqual(x.code === 4, x.complete === false, k + ' (' + how + '): exit ' + x.code + ' with complete ' + x.complete);
       assert.strictEqual(x.code === 4, (x.problems || []).length > 0, k + ' (' + how + '): exit ' + x.code + ' with problems ' + JSON.stringify(x.problems));
-      if (k === 'suggest-done --dry-run') return;
+      if (k === 'suggest-done --dry-run' && ['pinmap', 'pintypes', 'planproc', 'planfolder'].indexOf(how) < 0) return;
       assert.deepStrictEqual([k, how, x.code, x.complete, hit.length > 0], [k, how, 4, false, true], k + ' (' + how + '): ' + JSON.stringify(x.problems));
     });
   }

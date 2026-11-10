@@ -183,10 +183,10 @@ rule('Evidence that can\'t be read holds: an unread run, an unread plan decision
 /* OC: the whole pin, field by field: the plan's pin and the version read fresh against the to-do's, whether or not the run
    carries the field (a preflight-run/2 has no typesHash); and every OneDrive copy name the loader knows is its plan's. */
 rule('The evidence verdict compares the whole pin, plan and fresh version, for runs with or without typesHash, and holds every copy of the plan', () => {
-  for (const f of ['mapHash', 'typesHash', 'version']) {
+  for (const f of ['mapHash', 'typesHash', 'version', 'folder', 'process']) {
     const W = world(), x = W.linked('Smoke test the build'), plan = W.plan(x); W.finish(W.start(plan, 'k1'), 'pass');
     assert.ok(D.evidenceFor(W.r, x, 'k1', W.ev()).evidence, 'set-up: evidence');
-    W.plans[0].pin[f] = f === 'version' ? 99 : '0badc0de';
+    if (f === 'process') W.plans[0].process = 'release-readiness'; else W.plans[0].pin[f] = f === 'version' ? 99 : f === 'folder' ? 'v2-abcd1234' : '0badc0de';
     const E = D.evidenceFor(W.r, x, 'k1', W.ev());
     assert.ok(E.why && E.held, 'plan pin ' + f + ': ' + E.why);
     assert.ok(D.planProblems(W.r, [x], W.ev()).some(q => q.kind === 'unusable'), 'plan pin ' + f + ': a problem for every reader');

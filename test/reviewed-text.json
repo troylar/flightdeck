@@ -25,8 +25,8 @@
       "reviewed": "OD: keep commands name source diagnostics and judge the source again before writing; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "a239f845eb6a23fba245cee4d5a08b16adab36c3d6fa883bdff8457467d6293e",
-      "reviewed": "QA: unreadable proof holds everyone in keptIn; checked for direct writes and unconditional deletes"
+      "sha256": "ebfb23b4dad4e074691d8ef59784c3f706da0bdff2e726c6ac0f84bf4fd47f05",
+      "reviewed": "QB: process and folder pin drift are unusable at the plan path in every reader; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -225,8 +225,8 @@
       "reviewed": "OB: per-place keep queue and Web Lock; guarded keep withdrawal removes one record only under writeGuard after fresh reads; checked for direct writes and unconditional deletes"
     },
     "src/core/detours.js": {
-      "sha256": "3ee03b07b0b20d8a7e5014a9dd73b554c82c1f94beb5f0fcdd54a2ecaa05e865",
-      "reviewed": "OC: whole-pin verdict and plan copy names via the loader's rule; read-only; checked for direct writes and unconditional deletes"
+      "sha256": "9368d818dee0adaa8b2e4d7e0f781e2accedae4aae69a1f87bbca0ba486400c3",
+      "reviewed": "QB: process and folder pin drift are unusable at the plan path in every reader; checked for direct writes and unconditional deletes"
     },
     "src/core/envelope.js": {
       "sha256": "55710b76ab73ab450583c0d6262a25ac9b05004dd8cce86cdf67c8810f46dbd2",
