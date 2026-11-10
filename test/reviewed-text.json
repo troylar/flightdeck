@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "bb7bec1de804c9a237b0bdcdc96c5ed47d8e32c984edf1aeedc44e5f40d6135d",
-      "reviewed": "MB: a record's read error is named by path in the proposals read; checked for direct writes and unconditional deletes"
+      "sha256": "c026a3dd17f3dc2da91957e418ce7f55f62add108041434a8215359b2aa47ed7",
+      "reviewed": "NB: a record's read-error kind kept through every reader, named once; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "cf0a7c0289f08fc6d138b4feaddbdc118b45af451a7732e5ee68c9480c752b38",
@@ -25,8 +25,8 @@
       "reviewed": "takenAt: not-JSON and refused records under a taken name are problems with path and reason; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "a69b261ba636cf6e1b6c419a70290ac0ba47099337b4fa13a994c8f649322308",
-      "reviewed": "NA: a failed conflict copy is carried; a landing is put back before the conflict is handled; checked for direct writes and unconditional deletes"
+      "sha256": "8eda400ff3c84a17d2bd07b0777a593a2d44a62516d7e2dd84cc67f6e211840e",
+      "reviewed": "NB: a record's read-error kind kept through every reader, named once; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -409,8 +409,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "330bca6307c739e6339bcda5ad493e82fa8738360a8a93ece999dd1019d5c5d7",
-      "reviewed": "NA: a failed conflict copy is carried; a landing is put back before the conflict is handled; checked for direct writes and unconditional deletes"
+      "sha256": "ab960eea52561b8d7f6c60c4595555a3bc17d321e53f6582bb0a158ca04e1252",
+      "reviewed": "NB: a record's read-error kind kept through every reader, named once; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "8ae63edd30bcf9c139f28ea97d8d91155fb049099081c91ab02c7bad06cd8327",

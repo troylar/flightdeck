@@ -359,20 +359,22 @@ rule('JSON nested past the bound is refused where it is read, by path, before an
   assert.ok(/nested/.test(s.error.why), s.error.why);
 });
 
-rule('A fact record that fails to read (an I/O error) is named by its path in run and next, never only as proposals', async () => {
-  const F0 = await folder(); await todo(F0);
+rule('A fact record that fails to read (an I/O error) is named once, by its path and as unreadable, in run, next, todo list, suggest-done and fact list', async () => {
+  const F0 = await folder(), x = await todo(F0);
   const fid = F.idFor('git-bot', 'prs-102-a');
   assert.strictEqual(json('fact', 'sync', F0.root, PR, '--from', input({ facts: [prs()] }), '--json', ...TOOL).code, 0);
   const FD = require(BIN), open = fs.openSync, read = fs.readSync, bad = new Set(); let seen = 0;
   fs.openSync = function (p) { const fd = open.apply(fs, arguments); if (String(p).endsWith(path.join('proposals', fid + '.json'))) { bad.add(fd); seen++; } else bad.delete(fd); return fd; };
   fs.readSync = function (fd) { if (bad.has(fd)) { const e = new Error('EIO: i/o error, read'); e.code = 'EIO'; throw e; } return read.apply(fs, arguments); };
   const out = {};
-  try { for (const cmd of ['run', 'next']) { const r = await FD.main([cmd, F0.root, PR, '--contract', '2', '--json']); out[cmd] = JSON.parse(r.out); } } finally { fs.openSync = open; fs.readSync = read; }
+  const cmds = { run: ['run', F0.root, PR, '--contract', '2', '--json'], next: ['next', F0.root, PR, '--contract', '2', '--json'], 'todo list': ['todo', 'list', F0.root, PR, '--json'],
+    'suggest-done': ['todo', 'suggest-done', F0.root, PR, '--todo', x, '--fact', fid, '--dry-run', '--json', ...TOOL], 'fact list': ['fact', 'list', F0.root, PR, '--json'] };
+  try { for (const cmd of Object.keys(cmds)) { const r = await FD.main(cmds[cmd]); out[cmd] = JSON.parse(r.out); } } finally { fs.openSync = open; fs.readSync = read; }
   assert.ok(seen > 0, 'set-up: the fact record was opened');
-  for (const cmd of ['run', 'next']) {
-    const j = out[cmd];
+  for (const cmd of Object.keys(cmds)) {
+    const j = out[cmd], mine = (j.problems || []).filter((p) => p.path === 'proposals/' + fid + '.json');
     assert.strictEqual(j.complete, false, cmd + ': ' + JSON.stringify(j).slice(0, 300));
-    assert.ok(j.problems.some((p) => p.path === 'proposals/' + fid + '.json' && p.kind === 'unreadable'), cmd + ' names the record: ' + JSON.stringify(j.problems));
+    assert.deepStrictEqual(mine.map((p) => p.kind), ['unreadable'], cmd + ' names the record once, as unreadable: ' + JSON.stringify(j.problems));
   }
 });
 
