@@ -845,10 +845,17 @@ PF.todos = (function () {
     var map = null; try { map = PF.run.mapOf(r); } catch (e) { map = null; }
     /* deps: every to-do record and unread file read, for what a story's request depends on (its spread, on the parent run). */
     var deps = o.deps || { records: o.records || [], unread: o.unread || [] };
+    /* What evidence is checked against (facts): every record read, and, when the caller read them, the runs and how each read
+       (o.runs, o.loops.unreadRun: PF.spreads.inputs), so the run a fact is on is expected, present and checked. */
+    var ev = { records: deps.records || [], unread: deps.unread || [], runs: Array.isArray(o.runs) ? o.runs : null, unreadRun: o.loops && o.loops.unreadRun || null };
     var T = reduce(o.records || [], r, { all: deps.records || o.records || [], map: map, ended: !!r.ended, may: mayFor(r, o.people), authority: authorityFor(r, map, o.people), depWhy: function (q) { return fulfillsWhy(q, deps); },
       /* o.now: the time evidence is judged by (facts); without one, a done on evidence holds. */
-      supportWhy: function (q, x) { return PF.facts.supportWhy(r, q, x, deps, o.now); } });
+      supportWhy: function (q, x) { return PF.facts.supportWhy(r, q, x, ev, o.now); } });
     T.map = map;
+    /* The expected-dependency manifest's evidence rows (4.0 slice 4): what a done on evidence not yet applied or declined rests
+       on and isn't present and checked (its fact, a fact that fact saw, the run the facts are on), named by missingOf. */
+    T.evidenceMissing = [];
+    Object.keys(T.requests).forEach(function (id) { var q = T.requests[id]; if (!q.support || q.status === 'applied' || q.status === 'declined') return; PF.facts.expected(r, q, T.byTodo[q.todo], ev).forEach(function (m) { T.evidenceMissing.push(m); }); });
     (o.unread || []).forEach(function (u) { if (!u.run || (u.run.process === r.process && u.run.id === r.id)) T.unread.push(u); });
     return T;
   }
@@ -963,6 +970,7 @@ PF.todos = (function () {
     if (T && T.broken && T.broken.missing) rec(T.broken.missing, 'The run\'s applied work names this record (from ' + T.broken.record + '), and it isn\'t in the folder.');
     ((T && T.held) || []).forEach(function (h) { (h.missing || []).forEach(function (id) { rec(id, 'The record ' + h.record + ' saw this one, and it isn\'t in the folder.'); }); });
     ((cov && cov.spreads) || []).forEach(function (C) { (C.missing || []).forEach(put); });
+    ((T && T.evidenceMissing) || []).forEach(put);
     return out;
   }
   /* Every run's holds, read-only, on every read (like PF.loop.markStale). A run with no to-do records and no living marker
@@ -975,7 +983,7 @@ PF.todos = (function () {
       if (!r || !r.steps || r._unrunnable) return;
       var mine = recordsFor(o.records, r).filter(notFact), un = (o.unread || []).filter(function (u) { return u.run ? u.run.process === r.process && u.run.id === r.id : !!r.living; });
       if (!mine.length && !r.living && !un.length) { delete r._todos; return; }
-      var T = view(r, { records: mine, unread: un, people: o.people, now: o.now, deps: { records: o.records || [], unread: o.unread || [] } });
+      var T = view(r, { records: mine, unread: un, people: o.people, now: o.now, deps: { records: o.records || [], unread: o.unread || [] }, runs: o.runs, loops: o.loops });
       var cov = T.spreads.length ? PF.spreads.coverage(r, T, { runs: seen, records: o.records || [], unread: o.unread || [], people: o.people, loops: o.loops, now: o.now }) : null;
       r._todos = holds(T, r, cov);
     });
@@ -1073,7 +1081,7 @@ PF.todos = (function () {
     for (var i = 0; i < extra.length; i++) {
       var a = extra[i], t = JSON.parse(JSON.stringify(cur, function (k, v) { return this === cur && k.charAt(0) === '_' ? undefined : v; }));
       if (good) t.living = { head: good }; else delete t.living;
-      var V = view(t, { records: o.records, unread: o.unread, people: o.people, now: o.now }), q = V.requests[a.kind === 'compound' ? a.id : a.proposal], plan = q ? applyPlan(t, V, q, o) : null;
+      var V = view(t, { records: o.records, unread: o.unread, people: o.people, now: o.now, runs: o.runs, loops: o.loops }), q = V.requests[a.kind === 'compound' ? a.id : a.proposal], plan = q ? applyPlan(t, V, q, o) : null;
       if (!(plan && plan.adopt && plan.adopt.id === a.id)) return { head: good, dropped: a.id };
       good = a.id;
     }
@@ -1096,7 +1104,7 @@ PF.todos = (function () {
     if (r._unrunnable) return { why: 'This run can only be read here.' };
     /* Any authority input that couldn't be read vouches for no one: while people.json is unread, nobody asks as a decider. */
     var people = peopleOf(o);
-    var b = o.body || {}, by = o.by || {}, T = view(r, { records: o.records, unread: o.unread, people: people, deps: depsOf(o), now: o.now });
+    var b = o.body || {}, by = o.by || {}, T = view(r, { records: o.records, unread: o.unread, people: people, deps: depsOf(o), now: o.now, runs: o.runs, loops: o.loops });
     if (ALL_OPS.indexOf(b.op) < 0) return { why: 'Say what to do: add, done, wont, move or reopen (or, for a spread, spread-add, spread-include, spread-bind or spread-stop).' };
     var body = { op: b.op }, x = null, ful = null, slotFront = [], sug = null;
     if (isSpreadOp(b.op)) {
@@ -1172,7 +1180,7 @@ PF.todos = (function () {
     var name = f.id + '.json', fd = filed(name, f);
     if (fd.why) return { why: fd.why };
     /* The request as every window would read it next, with this one in the folder: its status is the preview's. */
-    var dp = depsOf(o), V2 = view(r, { records: (o.records || []).concat([fd.record]), unread: o.unread, people: people, now: o.now, deps: { records: (dp.records || []).concat([fd.record]), unread: dp.unread } }), q = V2.requests[f.id] || { status: 'held', why: 'It can\'t be read in order.' };
+    var dp = depsOf(o), V2 = view(r, { records: (o.records || []).concat([fd.record]), unread: o.unread, people: people, now: o.now, runs: o.runs, loops: o.loops, deps: { records: (dp.records || []).concat([fd.record]), unread: dp.unread } }), q = V2.requests[f.id] || { status: 'held', why: 'It can\'t be read in order.' };
     var placement = b.op === 'add' ? body.placement : x ? x.placement : null, gate = placement ? gateTitle(map, placement.beforeGate) : '', rec = r.recorder && r.recorder.person || '';
     return { id: f.id, name: name, file: f, kind: f.kind, record: fd.record,
       preview: { op: b.op, todo: full.todo || null, spread: full.spread || null, placement: placement || null, gate: gate, consequence: { reopens: C.reopens.slice(), releases: C.releases }, status: q.status, why: q.why || '', recorder: rec, words: whatWords(map, full, x, C, T) + ' ' + thenWords(r, q) } };
@@ -1296,7 +1304,7 @@ PF.todos = (function () {
       if (!r || !r.steps || r._unrunnable || r.ended || r.practice) return;
       var mine = recordsFor(o.records, r);
       if (!mine.length || personWhy(r, o.me, people)) return;
-      var T = view(r, { records: mine, unread: unreadFor(o, r), people: people, deps: depsOf(o), now: o.now });
+      var T = view(r, { records: mine, unread: unreadFor(o, r), people: people, deps: depsOf(o), now: o.now, runs: o.runs, loops: o.loops });
       if (!T.map || T.unread.length || T.held.length || T.broken) return;
       requestsOf(T).forEach(function (q) {
         if (q.unordered) return;
@@ -1323,7 +1331,7 @@ PF.todos = (function () {
       if (!r || !r.steps || r._unrunnable || r.ended || r.practice) return;
       var mine = recordsFor(o.records, r);
       if (!mine.length || personWhy(r, o.me, people)) return;
-      var T = view(r, { records: mine, unread: unreadFor(o, r), people: people, deps: depsOf(o), now: o.now });
+      var T = view(r, { records: mine, unread: unreadFor(o, r), people: people, deps: depsOf(o), now: o.now, runs: o.runs, loops: o.loops });
       Object.keys(T.grants).sort(cmpStr).forEach(function (id) {
         var g = T.grants[id];
         if (g.active) out.push({ run: { process: r.process, id: r.id }, title: String(r.title || r.process), id: id, subject: g.subject, ops: g.ops.slice(), targets: g.targets.slice(), adds: g.limits.adds, by: g.by });
@@ -1342,18 +1350,18 @@ PF.todos = (function () {
     if (r.ended) return { why: 'The run has ended, so nothing on it is decided.' };
     var pw = personWhy(r, o.by, people);
     if (pw) return { why: pw + ', so they can\'t decide this.' };
-    var it = inbox([r], { records: o.records, unread: o.unread, people: people, me: o.by, now: o.now }).filter(function (x) { return x.id === o.request; })[0];
+    var it = inbox([r], { records: o.records, unread: o.unread, people: people, me: o.by, now: o.now, runs: o.runs, loops: o.loops }).filter(function (x) { return x.id === o.request; })[0];
     if (!it) return { why: 'That request isn\'t waiting for a decision on this run (it may be decided, applied or held already). Nothing was decided.' };
     if (DOPS.indexOf(o.op) < 0) return { why: 'Say accept or decline.' };
     if (o.op === 'accept' && o.shown !== it.consequence.fingerprint) return { renewed: true, item: it, why: 'What it would do changed since you saw it: ' + it.words + ' Look again, then decide.' };
     if (o.op === 'accept' && it.op === 'spread-stop' && !it.landed) { var T0 = view(r, { records: recordsFor(o.records, r), unread: unreadFor(o, r), people: people, deps: depsOf(o) }), sc0 = stopCheck(r, T0, T0.requests[o.request], o); if (sc0) return { why: sc0.why + ' Nothing was decided.' }; }
     var reason = o.reason == null ? '' : String(o.reason).trim();
     if (reason.length > LIMITS.reason) return { why: 'A reason is at most ' + LIMITS.reason + ' characters (this is ' + reason.length + ').' };
-    var T = view(r, { records: recordsFor(o.records, r), unread: unreadFor(o, r), people: people, deps: depsOf(o), now: o.now }), q = T.requests[o.request];
+    var T = view(r, { records: recordsFor(o.records, r), unread: unreadFor(o, r), people: people, deps: depsOf(o), now: o.now, runs: o.runs, loops: o.loops }), q = T.requests[o.request];
     var s = buildStatus({ kind: 'decision', proposal: q.id, run: { process: r.process, id: r.id }, seen: seenFor(T, [q.id], [q.id], ['dec', 'raw']).seen, by: o.by, at: o.at, op: o.op, consequence: it.consequence.fingerprint, reason: reason, writer: o.writer, rev: o.rev, app: o.app });
     var fd = filed(s.name, s.file);
     if (fd.why) return { why: fd.why };
-    var after = view(r, { records: recordsFor(o.records, r).concat([fd.record]), unread: unreadFor(o, r), people: people, deps: depsOf(o), now: o.now }).requests[q.id];
+    var after = view(r, { records: recordsFor(o.records, r).concat([fd.record]), unread: unreadFor(o, r), people: people, deps: depsOf(o), now: o.now, runs: o.runs, loops: o.loops }).requests[q.id];
     return { name: s.name, file: s.file, record: fd.record, item: it, words: (o.op === 'accept' ? 'Accepted. ' : 'Declined. ') + it.words + ' ' + thenWords(r, after || q) };
   }
   /* The decision write guard (every window's, right before the write): deciding again with the folder and the clock as they
@@ -1377,7 +1385,7 @@ PF.todos = (function () {
     var pw = personWhy(r, o.by, people);
     if (pw) return { why: pw + ', so they can\'t revoke a delegation here.' };
     if (!KEY.test(String(o.key || ''))) return { why: 'A revoke needs its retry key.' };
-    var T = view(r, { records: recordsFor(o.records, r), unread: unreadFor(o, r), people: people, deps: depsOf(o), now: o.now }), g = T.grants[o.grant];
+    var T = view(r, { records: recordsFor(o.records, r), unread: unreadFor(o, r), people: people, deps: depsOf(o), now: o.now, runs: o.runs, loops: o.loops }), g = T.grants[o.grant];
     if (!g || !g.active) return { why: 'That isn\'t an active delegation on this run.' };
     var f = buildGrant({ kind: 'revoke', id: idFor('flightdeck', o.key), run: { process: r.process, id: r.id }, seen: seenFor(T, [g.id], [], []).seen, by: o.by, at: o.at, grant: g.id, reason: o.reason ? String(o.reason).trim() : '', app: o.app });
     var fd = filed(f.id + '.json', f);
@@ -1401,7 +1409,7 @@ PF.todos = (function () {
     var adds = o.adds == null ? 0 : o.adds;
     if (typeof adds !== 'number' || adds % 1 || adds < 0 || adds > LIMITS.grantAdds) return { why: 'Additions are a whole number from 0 to ' + LIMITS.grantAdds + '.' };
     if (!KEY.test(String(o.key || ''))) return { why: 'A delegation needs its retry key.' };
-    var T = view(r, { records: recordsFor(o.records, r), unread: unreadFor(o, r), people: people, deps: depsOf(o), now: o.now });
+    var T = view(r, { records: recordsFor(o.records, r), unread: unreadFor(o, r), people: people, deps: depsOf(o), now: o.now, runs: o.runs, loops: o.loops });
     var f = buildGrant({ kind: 'grant', id: idFor('flightdeck', o.key), run: { process: r.process, id: r.id }, seen: seenFor(T, [], [], []).seen, by: o.by, at: o.at, subject: o.subject, ops: ops, targets: targets, limits: { adds: adds }, app: o.app });
     var fd = filed(f.id + '.json', f);
     return fd.why ? { why: fd.why } : { id: f.id, name: f.id + '.json', file: f, record: fd.record, words: 'Delegated: ' + (o.subject && (o.subject.tool || o.subject.person)) + ' may ' + ops.join(', ') + ' on ' + targets.length + ' place' + (targets.length === 1 ? '' : 's') + (ops.indexOf('add') >= 0 ? ', up to ' + adds + ' addition' + (adds === 1 ? '' : 's') : '') + '. You can revoke it any time.' };

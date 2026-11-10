@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "7a29c308149a4c15f4ffdec1b8c0facb7efb863bd0f23ba6bd52f918ccf2388e",
-      "reviewed": "JD: fact list and sync judge the run's own version; checked for direct writes and unconditional deletes"
+      "sha256": "21497252ffe2f08cc90f90ade62f75c8e459a054abcdfe823e8454019c186dee",
+      "reviewed": "ID: what a done on evidence rests on is expected, present and checked (the shared manifest); checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "cf0a7c0289f08fc6d138b4feaddbdc118b45af451a7732e5ee68c9480c752b38",
@@ -25,8 +25,8 @@
       "reviewed": "Merge of feat/4.0 (slice 3 round 7) into feat/4.0-facts: both sides' texts kept, spread inputs and fact clocks combined; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "b4617e421daaa8142b9cd818cdb40f350945022fb07add2589cf4ea9a61d7b23",
-      "reviewed": "JD: fact list and sync judge the run's own version; checked for direct writes and unconditional deletes"
+      "sha256": "357439f2cd954189c5ff9ce594aacbdb9b6779aa85628502b2257bfda5a16a27",
+      "reviewed": "ID: what a done on evidence rests on is expected, present and checked (the shared manifest); checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -233,8 +233,8 @@
       "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/facts.js": {
-      "sha256": "08e060e91b8410355ab3efd5d857d1b20259104bf7a3a794180452f794e0ecaf",
-      "reviewed": "one splitIds/withCopies over every record, used by the fact and to-do reducers; checked for direct writes and unconditional deletes"
+      "sha256": "a59e3364e9b232f0e43a71ed41cd3d79dcf1f2208899fe278f2679a744f1a6a3",
+      "reviewed": "ID: what a done on evidence rests on is expected, present and checked (the shared manifest); checked for direct writes and unconditional deletes"
     },
     "src/core/followups.js": {
       "sha256": "ee399703ee43c4408af48a9bbd816483f6c28039a4587815063ff0a175c8fea0",
@@ -357,8 +357,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "e8fa8e2709f296afabdc6306faa6076004cc171e1e74542c4c044163a1fce04e",
-      "reviewed": "Merge of feat/4.0 (slice 3 round 7) into feat/4.0-facts: both sides' texts kept, spread inputs and fact clocks combined; checked for direct writes and unconditional deletes"
+      "sha256": "66314ec6acc0d1a5f33677b59910266c36436aef3866720becca47408644a8d6",
+      "reviewed": "ID: what a done on evidence rests on is expected, present and checked (the shared manifest); checked for direct writes and unconditional deletes"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",
@@ -413,8 +413,8 @@
       "reviewed": "Merge of feat/4.0 (slice 3 round 7) into feat/4.0-facts: both sides' texts kept, spread inputs and fact clocks combined; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "c625ce82da09e40ed5f1a03cb910c354926e34576b7ba6acb65d7c7e6611abd6",
-      "reviewed": "Merge of feat/4.0 (slice 3 round 7): a batch's fresh read skips its own unconfirmed decisions; facts filed within the task go on; checked for direct writes and unconditional deletes"
+      "sha256": "a44603ed32036d8ef5dd4fb0339ad3c3a80d72600af8e2d23fbe76913d173c6c",
+      "reviewed": "ID: what a done on evidence rests on is expected, present and checked (the shared manifest); checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

@@ -123,8 +123,11 @@ const prsObs = (key, state, hours) => ({ key, loopStep: 'each', item: 'ABC-102',
 const FTOOL = ['--tool', 'git-bot@1.0.0'];
 /* What a window reads, for the guards: every run, record and version, through the input builder the app uses. */
 async function windowOf(d) {
-  const all = await PF.repo.loadAll(d, {}), procOf = (id) => { const e = (all.processes || []).filter(p => p.process === id)[0], i = e && e.index; return i ? { latest: i.latest, all: i.all || [], clashes: i.clashes || [], broken: i.broken || [] } : null; };
-  const failed = [].concat(all.unreadable || [], all.nofile || [], all.malformed || [], all.refused || []).map(u => u && u.path).filter(Boolean);
+  const all = await PF.repo.loadAll(d, { explain: true, deep: true }), procOf = (id) => { const e = (all.processes || []).filter(p => p.process === id)[0], i = e && e.index; return i ? { latest: i.latest, all: i.all || [], clashes: i.clashes || [], broken: i.broken || [] } : null; };
+  /* Every path the read failed on, as the app's Folder health has them: unreadable, missing, malformed, refused, and each
+     version that can't be used. */
+  const failed = [].concat(all.unreadable || [], all.nofile || [], all.malformed || [], all.refused || []).map(u => u && u.path).filter(Boolean)
+    .concat(...(all.processes || []).map(p => (p.pubs || []).filter(x => !x.ok).map(x => 'publications/' + p.process + '/' + x.folder + '/')));
   return PF.spreads.inputs({ runs: all.runs || [], records: all.todos || [], unread: all.todosUnread || [], scopes: all.scopes || [], scopesUnread: all.scopesUnread || [], people: PEOPLE, procOf, processes: all.processes || [], procsRead: () => true, failed });
 }
 async function factWorld() {
@@ -163,6 +166,10 @@ async function guards(F) {
   return off;
 }
 const FACT_KINDS = {
+  'a suggestion\'s fact': [(F) => 'proposals/' + F.f2 + '.json', 'both'],
+  'a fact it saw': [(F) => 'proposals/' + F.f1 + '.json', 'both'],
+  'the story\'s application head': [(F) => 'proposals/' + jsonOf(F.root, 'runs/' + KID + '/run.json').living.head + '.json', 'story'],
+  'the run its facts are on': [() => 'runs/' + PR + '/run.json', 'story'],
   'the version its facts\' run runs on': [(F) => files(F.root).find(f => /^publications\/release-readiness\/[^/]+\/publication\.json$/.test(f)), 'both']
 };
 const STORY_READERS = (root, F) => ({
@@ -181,12 +188,12 @@ const FACT_READERS = (root) => ({
 /* refused (JC): a fact in a later format with its features gone, still a fact by its kind. */
 const FACT_MODES = Object.assign({}, MODES);
 for (const kind of Object.keys(FACT_KINDS)) for (const mode of Object.keys(FACT_MODES)) {
-  rule('JD: ' + kind + ', ' + mode + ': fact list and sync exit 4 naming it, sync is held, and nothing is written', async () => {
+  rule('ID: ' + kind + ', ' + mode + ': every reader of a done on evidence exits 4 naming it, suggest-done is held, nothing is written, and the guards hold', async () => {
     if (mode === 'unreadable' && process.getuid && process.getuid() === 0) return;
     const F = await factWorld(), root = F.root;
     const [where, whose] = FACT_KINDS[kind], f = where(F);
     assert.ok(f && fs.existsSync(path.join(root, f)), kind + ': set-up, its file (' + f + ')');
-    const R0 = Object.assign({}, whose === 'both' ? FACT_READERS(root) : {});
+    const R0 = Object.assign({}, STORY_READERS(root, F), whose === 'both' ? FACT_READERS(root) : {});
     /* What reads alone, without writing, reads whole before anything is broken. */
     for (const rd of Object.keys(R0).filter(k => !/^(story suggest-done|fact sync)$/.test(k))) { const r = json(...R0[rd]); assert.ok(r.code === 0 && r.complete !== false, 'set-up: ' + rd + ' reads before it is broken: ' + JSON.stringify(r).slice(0, 400)); }
     const undo = FACT_MODES[mode](root, f);
@@ -202,6 +209,8 @@ for (const kind of Object.keys(FACT_KINDS)) for (const mode of Object.keys(FACT_
       if (rd === 'story todo list' && r.data) { const q = (r.data.requests || []).filter(x => x.op === 'done' && x.status !== 'held'); if (q.length) off.push('todo list · ' + q.map(x => x.status).join(', ')); }
       if (JSON.stringify(before) !== JSON.stringify(after)) off.push(rd + ' · wrote ' + Object.keys(after).filter(k => before[k] !== after[k]).join(', '));
     }
+    /* A link has no meaning in a browser folder (test/app-spread-deps.test.js), so the guards are asked of the other modes. */
+    if (mode !== 'link') off.push(...await guards(F));
     if (typeof undo === 'function') undo();
     assert.deepStrictEqual(off, [], kind + ', ' + mode);
   });

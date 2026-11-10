@@ -3362,7 +3362,7 @@
     });
   }
   var TODO_PAGES = 20;
-  function todoView(r) { return PF.todos.view(r, { records: data.todos || [], unread: data.todosUnread || [], people: data.people, now: tdNow() }); }
+  function todoView(r) { return PF.todos.view(r, { records: data.todos || [], unread: data.todosUnread || [], people: data.people, runs: data.runs || [], loops: spLoops(), now: tdNow() }); }
   /* The time a to-do's evidence (4.0 slice 4: facts) is judged at: now, asked again at every view and before every write. */
   function tdNow() { return Date.now(); }
   /* The to-do records, unread files and people as this window read them last. */
@@ -3467,7 +3467,7 @@
   var tdBox = null;
   function tdInboxNow() {
     if (tdBox) return tdBox;
-    var o = { records: data.todos || [], unread: data.todosUnread || [], people: data.people, me: state.me, now: tdNow() };
+    var o = { records: data.todos || [], unread: data.todosUnread || [], people: data.people, runs: data.runs || [], loops: spLoops(), me: state.me, now: tdNow() };
     tdBox = { items: [], grants: [] };
     /* A run whose own file couldn't be read on the last check asks nothing and offers nothing: the copy shown is stale. */
     var rs = (data.runs || []).filter(function (r) { return r && !runUnread(r); });
@@ -3711,7 +3711,7 @@
   /* Whether a request read now, on the run as this window has it now, still prepares the application it prepared (plan). */
   function todoPlanStill(key, id, plan, snap) {
     var r1 = findRun(key); if (!r1 || r1._unrunnable) return false;
-    var sn = snap || tdData(), V1 = null; try { V1 = PF.todos.view(r1, { records: sn.records, unread: sn.unread, people: sn.people, now: tdNow() }); } catch (e) { V1 = null; }
+    var sn = snap || tdData(), V1 = null; try { V1 = PF.todos.view(r1, { records: sn.records, unread: sn.unread, people: sn.people, runs: data.runs || [], loops: spLoops(), now: tdNow() }); } catch (e) { V1 = null; }
     var q1 = V1 && !V1.broken ? V1.requests[id] : null; if (!q1) return false;
     var p1 = PF.todos.applyPlan(r1, V1, q1, Object.assign(spInputs(), { records: sn.records, unread: sn.unread, people: sn.people, now: tdNow() })), a = plan.write || plan.settle || null, b = p1.write || p1.settle || null;
     return !!a && !!b && JSON.stringify(a) === JSON.stringify(b);
@@ -6542,7 +6542,7 @@
     if (!data) return;
     PF.loop.markStale(runs || [], { records: data.scopes, unread: data.scopesUnread || [], procOf: ctx.procOf });
     /* Living runs (4.0): what open or disputed to-dos hold, read-only, on every read (r._todos). */
-    PF.todos.markHolds(runs || [], { records: data.todos || [], unread: data.todosUnread || [], people: data.people, loops: spLoops(), now: tdNow() });
+    PF.todos.markHolds(runs || [], { records: data.todos || [], unread: data.todosUnread || [], people: data.people, loops: spLoops(), runs: data.runs || [], now: tdNow() });
   }
   function mutate(fn, opts) { return mutateRun(state.runKey, gen, function (r, m, me, now) { markLoops([r].concat((data.runs || []).filter(function (x) { return x.id !== r.id; }))); return fn(r, m, me, now); }, opts); }
   /* Change one run, named by its key, in the folder generation the action started in. An action that finishes after the

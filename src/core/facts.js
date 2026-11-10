@@ -198,7 +198,11 @@ PF.facts = (function () {
     list.forEach(function (S) { finish(S, byId); });
     var byItem = Object.create(null);
     list.sort(function (a, b) { return cmpStr(a.key, b.key); }).forEach(function (S) { (byItem[S.item] = byItem[S.item] || []).push(S); });
-    return { run: { process: r.process, id: r.id }, slots: list, bySlot: slots, byItem: byItem, byId: byId, split: split, held: c.held.slice(), unread: unread, count: mine.length };
+    /* A fact one of these saw that isn't in the folder: expected, so missingOf names it (the held record's item, to keep it to
+       what a suggestion rests on). */
+    var itemOfId = Object.create(null); mine.forEach(function (f) { if (!itemOfId[f.id]) itemOfId[f.id] = itemKey(f.loopStep, f.uid, f.attempt); });
+    var missing = []; c.held.forEach(function (h) { (h.missing || []).forEach(function (id) { missing.push({ id: id, by: h.record, item: itemOfId[h.record] || '' }); }); });
+    return { run: { process: r.process, id: r.id }, slots: list, bySlot: slots, byItem: byItem, byId: byId, split: split, held: c.held.slice(), unread: unread, count: mine.length, missing: missing };
   }
   function finish(S, byId) {
     var out = S.obsOut || [];
@@ -311,6 +315,31 @@ PF.facts = (function () {
     var dw = doneWhy(S);
     return dw ? 'Its evidence (' + head + ') doesn\'t show it done: ' + dw + '.' : '';
   }
+  /* What a run's facts expect and isn't in the folder (the expected-dependency manifest, PF.todos.missingOf): a fact one of
+     them saw. item: only those about one item (itemKey). Each { path, kind: 'nofile', why }. */
+  function missingOf(FV, item) {
+    return ((FV && FV.missing) || []).filter(function (m) { return !item || m.item === item; }).map(function (m) { return { path: 'proposals/' + m.id + '.json', kind: 'nofile', why: 'The fact ' + m.by + ' saw this one, and it isn\'t in the folder.' }; });
+  }
+  /* The run a to-do's facts are on, as the caller read it (deps.runs and deps.unreadRun, PF.spreads.inputs): a problem
+     ({ path, kind, why }) when it isn't there or wasn't read whole, else null. Not asked when the caller didn't read runs,
+     nor for the to-do's own run (its reader judges that). */
+  function evidenceRunProblem(r, it, deps) {
+    if (!it || !deps || !Array.isArray(deps.runs) || (it.run.process === r.process && it.run.id === r.id)) return null;
+    var k = it.run.process + '/' + it.run.id, c = deps.runs.filter(function (x) { return x && x.process === it.run.process && x.id === it.run.id; })[0];
+    if (!c) return { path: 'runs/' + k + '/run.json', kind: 'nofile', why: 'A suggestion here rests on facts of ' + k + ', which isn\'t in the folder.' };
+    if (c._unrunnable) return { path: 'runs/' + k + '/run.json', kind: 'newer', why: 'A suggestion here rests on facts of ' + k + ', which was made with a newer Flightdeck.' };
+    return deps.unreadRun ? deps.unreadRun(c) || null : null;
+  }
+  /* Everything a done on evidence (q, on to-do x of run r) expects and isn't present and checked: the fact it rests on, a
+     fact that one saw, and the run the facts are on. deps as supportWhy's. */
+  function expected(r, q, x, deps) {
+    var s = q && q.support, it = s && x ? itemOfTodo(r, x) : null, out = [];
+    if (!it) return out;
+    var er = evidenceRunProblem(r, it, deps); if (er) out.push(er);
+    var FV = view({ process: it.run.process, id: it.run.id }, { records: deps.records || [], unread: deps.unread || [] });
+    if (typeof s.fact === 'string' && !FV.byId[s.fact] && !FV.split[s.fact] && !FV.unread.length) out.push({ path: 'proposals/' + s.fact + '.json', kind: 'nofile', why: 'A suggestion here rests on this fact, and it isn\'t in the folder.' });
+    return out.concat(missingOf(FV, itemKey(it.loopStep, it.uid, it.attempt)));
+  }
   /* A done request's support, checked against the folder now (statusOf asks this before anything is applied, and again in
      every write guard): r the to-do's run, q the request, x the to-do, deps { records, unread } (every record read), now. */
   function supportWhy(r, q, x, deps, now) {
@@ -319,6 +348,8 @@ PF.facts = (function () {
     if (s.incarnation !== incarnationOf(x)) return 'It was suggested for an earlier opening of this to-do, so it no longer applies.';
     var it = itemOfTodo(r, x);
     if (!it) return 'Its to-do isn\'t about a loop item, so a fact can\'t support it.';
+    var er = evidenceRunProblem(r, it, deps);
+    if (er) return 'Its evidence is on ' + it.run.process + '/' + it.run.id + ', which can\'t be read here (' + er.path + ').';
     var runOf = { process: it.run.process, id: it.run.id }, FV = view(runOf, { records: deps.records || [], unread: deps.unread || [] }), F = FV.byId[s.fact];
     if (!F) return FV.split[s.fact] ? splitWords(s.fact) : FV.unread.length ? 'Its evidence can\'t be read here.' : 'Its evidence (fact ' + s.fact + ') isn\'t in the folder.';
     if (F.loopStep !== it.loopStep || F.uid !== it.uid || F.attempt !== it.attempt) return 'Its evidence is about another item or attempt.';
@@ -424,5 +455,5 @@ PF.facts = (function () {
 
   return { LIMITS: LIMITS, DOMAINS: DOMAINS, NAMES: NAMES, TITLE: TITLE, idFor: idFor, sourceKey: sourceKey, slotKey: slotKey, itemKey: itemKey, contentOf: contentOf, suggestionId: suggestionId, suggestionKey: suggestionKey,
     cleanFile: cleanFile, cleanObservation: cleanObservation, cleanSupport: cleanSupport, build: build, factsOf: factsOf, view: view, stateOf: stateOf, words: words, itemFacts: itemFacts, agoWords: agoWords,
-    incarnationOf: incarnationOf, itemOfTodo: itemOfTodo, supportWords: supportWords, supportWhy: supportWhy, supportFor: supportFor, prepare: prepare };
+    incarnationOf: incarnationOf, itemOfTodo: itemOfTodo, missingOf: missingOf, expected: expected, evidenceRunProblem: evidenceRunProblem, supportWords: supportWords, supportWhy: supportWhy, supportFor: supportFor, prepare: prepare };
 })();
