@@ -163,6 +163,13 @@ PF.spreads = (function () {
       C.missing.push({ path: pth, kind: 'nofile', why: 'A request for spread "' + s.text + '" was filed on this run, and it isn\'t in the folder.' });
       why = why || nm + ': ' + k + ', a run its requests were filed on, isn\'t here, so how it stands isn\'t known.';
     });
+    /* YB: a binding names the run that counts, so that run is expected whether or not a request was filed on it. */
+    Object.keys(s.binds || {}).sort().forEach(function (k) {
+      var b = s.binds[k]; if (!b || b.disputed || typeof b.run !== 'string' || !b.run || have[b.run]) return;
+      var pth = 'runs/' + b.run + '/run.json';
+      if (!C.missing.some(function (m) { return m.path === pth; })) C.missing.push({ path: pth, kind: 'nofile', why: 'Spread "' + s.text + '" binds a story to this run, and it isn\'t in the folder.' });
+      why = why || nm + ': ' + b.run + ', a run a story is bound to, isn\'t here, so how it stands isn\'t known.';
+    });
     if (why) return why;
     /* The run itself and every run of its loop read fresh, with their versions (o.loops.unreadRun, from PF.spreads.inputs). */
     var mineRun = function (c) { return !!c && !!c.parent && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === s.loopStep; };

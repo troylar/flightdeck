@@ -996,4 +996,17 @@ rule('YA: an item the stop saw and didn\'t list owes nothing, whatever its attem
   W.kid(101, { attempt: 2 });
   same(W.one().items.filter(i => i.owed).map(i => i.key + '#' + i.attempt), ['ABC-102#1']);
 });
+/* Review round 7 (YB): a binding names the run that counts, so that run is expected whether or not a request was filed on it. */
+rule('YB: an explicitly bound run that isn\'t here makes coverage incomplete and is named, with no request filed on it', () => {
+  const S0 = applied(), W = S0.W, k3 = W.kids.filter(c => c.id === 'k103')[0];
+  W.kid(103, { id: 'k103b' });
+  W.ask(W.r, { op: 'spread-bind', spread: S0.sp.id, item: { uid: uid(103), attempt: 1 }, dest: { process: 'validate-story', id: 'k103' } }, { person: 'person-morgan' }); W.land(W.r);
+  same([W.one().complete, W.one().items.filter(i => i.key === 'ABC-103')[0].run], [true, 'validate-story/k103'], 'set-up: bound, no request');
+  W.kids.splice(W.kids.indexOf(k3), 1);
+  const cov = W.cov(), C = cov.spreads[0];
+  same(C.complete, false);
+  assert.ok(T.missingOf(W.view(), cov).some(x => x.path === 'runs/validate-story/k103/run.json' && x.kind === 'nofile'), JSON.stringify(T.missingOf(W.view(), cov)));
+  W.kids.push(k3);
+  same(W.one().complete, true, 'back');
+});
 run();

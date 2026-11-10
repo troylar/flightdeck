@@ -337,8 +337,8 @@
       "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
     },
     "src/core/spreads.js": {
-      "sha256": "5249fe9b03c2fcafa6b6445a7765b6c99ddc764a23bc041c8925ff4ce18d2bc5",
-      "reviewed": "Round 7 YA: stops are causal (cut, 4.0 scope head); checker mirrors; no direct writes or deletes added"
+      "sha256": "24e0393454025958fe0d09db3f29136fd59b3f3ae17ec4a0422917794b2b5db7",
+      "reviewed": "YB: bound runs are expected"
     },
     "src/core/staging.js": {
       "sha256": "d01a3204178bd0b055c05524916f55774c4404cca10f86fbb10a2ca675bd6b07",
