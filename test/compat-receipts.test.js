@@ -82,6 +82,31 @@ rule('This version: the loader, run, next and the checker read the receipt and t
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+rule('This version: run, next, runs and todo list name the same receipt problem (path, kind and why), missing or mismatched', async () => {
+  const { files, receipt } = await folder();
+  const cases = [['missing', (dir) => fs.unlinkSync(path.join(dir, 'proposals', receipt)), 'nofile'],
+    ['mismatch', (dir) => { const f = path.join(dir, 'runs/release-notes/run-l/run.json'), r = JSON.parse(fs.readFileSync(f, 'utf8')); r.ended.outcome = 'Stopped early'; r.state = 'stopped'; fs.writeFileSync(f, JSON.stringify(r, null, 2)); }, 'malformed']];
+  for (const [state, damage, kind] of cases) {
+    const { root, dir } = tree(files);
+    try {
+      damage(dir);
+      const before = JSON.stringify(H.readTree(dir));
+      const outs = {
+        run: cli(MINE, 'run', dir, 'release-notes/run-l', '--contract', '2', '--json'),
+        next: cli(MINE, 'next', dir, 'release-notes/run-l', '--as', 'person-avery', '--contract', '2', '--json'),
+        runs: cli(MINE, 'runs', dir, '--contract', '2', '--json'),
+        'todo list': cli(MINE, 'todo', 'list', dir, 'release-notes/run-l', '--json')
+      };
+      const seen = Object.keys(outs).map((k) => { const o = outs[k], p = (o.json.problems || []).filter((x) => x.path === 'proposals/' + receipt); return [k, o.code, p.map((x) => [x.kind, x.why])]; });
+      const want = seen[0][2];
+      assert.strictEqual(want.length, 1, state + ': run names it once: ' + JSON.stringify(outs.run.json.problems));
+      assert.strictEqual(want[0][0], kind, state);
+      same(seen, Object.keys(outs).map((k) => [k, 4, want]), state + ': ' + JSON.stringify(seen));
+      assert.strictEqual(JSON.stringify(H.readTree(dir)), before, 'reading wrote nothing');
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
+});
+
 rule('This version: export packs the ended run with its chain and receipt, complete, and Python checks it', async () => {
   const { files, receipt } = await folder(), { root, dir } = tree(files), out = path.join(root, 'out');
   try {

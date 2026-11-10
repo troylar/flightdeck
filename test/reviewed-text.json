@@ -13,16 +13,16 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "6003161caa0ebb3d0b6175df032ab9151e55c8267fd2e0c32765a1614253554f",
-      "reviewed": "slice 6: full-run fixes (file-formats.md back to 2.14.0's copy, inventory entries, reader and lookup sites, renderNow memo, markTodos)"
+      "sha256": "7e0183a5731a5b3779b352623a41441b27365ef39759962f0886949d1953e24d",
+      "reviewed": "slice 6 CC: one receipt check for run, next, runs and todo list"
     },
     "build.py": {
       "sha256": "4930aee232c7766241927d231c2eb0729443450de507161a3f0e85b7e7f5fb8e",
       "reviewed": "4.0 slice 6 commit 7, plan versus now and receipts: PF.receipts (compare, the receipt record, prepare, stateOf, since, deps), cleanLiving's receipt, PF.run.end's receipt, the app's end flow with its receipt guard and plan-versus-now chips, the evidence pack's living section and check_pack.py's replay, design 45.5 and docs/evidence.md; checked for direct writes and unconditional deletes: the receipt is written create-once through repo.saveScope with a fresh read before the write under the run and to-do guards, the run through the checked save chain, export only reads, nothing deleted"
     },
     "docs/apps.md": {
-      "sha256": "d68c426c8a34c2e1d1fffc0501c673e3d23bfae0a3d066b19ad444b89855797e",
-      "reviewed": "4.0 slice 6 commit 8, readers, checker and release: appjson and bin/flightdeck.js read pending to-do requests before a run gains living and an ended run's receipt (missing or mismatch named, exit 4), check_folder.py's receipt_why port, the living-run, status and learn-from-runs skills, the command guide, file formats, docs/apps.md, the 4.0.0 release entries and the rehearsal waiver; checked for direct writes and unconditional deletes: the readers only read, the skills tell an assistant never to write a receipt or end a run, nothing deleted"
+      "sha256": "a7b8755a0ee49409be1d0ce1309df5c3282047b024be3317c238a2ec15c3eb3e",
+      "reviewed": "slice 6 CC: one receipt check for run, next, runs and todo list"
     },
     "docs/design.md": {
       "sha256": "61e391e780374f8cd49eb9438fc338abbc4cabebf64ddecec2fd8fea8633ab4e",
@@ -61,8 +61,8 @@
       "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
     },
     "example-folder/.flightdeck/skills/_flightdeck/command-guide.md": {
-      "sha256": "1b2837bd2f8b30de420f3d313244d1a53b050d43d55b27a28383939e320225d0",
-      "reviewed": "4.0 slice 6 commit 8, readers, checker and release: appjson and bin/flightdeck.js read pending to-do requests before a run gains living and an ended run's receipt (missing or mismatch named, exit 4), check_folder.py's receipt_why port, the living-run, status and learn-from-runs skills, the command guide, file formats, docs/apps.md, the 4.0.0 release entries and the rehearsal waiver; checked for direct writes and unconditional deletes: the readers only read, the skills tell an assistant never to write a receipt or end a run, nothing deleted"
+      "sha256": "cd75acc8a37250af36f0f9083664ec1f979fde6685a62179fdd983fb70ae3bb6",
+      "reviewed": "slice 6 CC: one receipt check for run, next, runs and todo list"
     },
     "example-folder/.flightdeck/skills/_flightdeck/file-formats.md": {
       "sha256": "3e696299bc5971a578831ad4c25330bcb87a4036c10666469e39b794a9a1bba3",
@@ -197,8 +197,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "73211b2091ffeafa9396a48debb3c657d378450e4cbb835a17ca78cf6c01e6e7",
-      "reviewed": "slice 6: full-run fixes (file-formats.md back to 2.14.0's copy, inventory entries, reader and lookup sites, renderNow memo, markTodos)"
+      "sha256": "02618bd9e78a2c3e01749a325b9c524d6e9a7887d70cc34f2aea60f00e2728f2",
+      "reviewed": "slice 6 CC: one receipt check for run, next, runs and todo list"
     },
     "src/core/appjson.js": {
       "sha256": "744bdb09afa1a0dda2fe006e5b3a963ebe88bef69aaab5a41ae88515ce09cd03",

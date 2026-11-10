@@ -919,6 +919,13 @@ function markTodos(PF, runs, got, people, peopleBad, loopIn, ev) {
   });
   return unread;
 }
+/* The one receipt check every reader shares (run, next, runs, todo list): an ended living run whose receipt is missing or says
+   something else is a problem by the receipt's path, with the same kind and why everywhere (PF.receipts.stateOf). An unreadable
+   one is named as any to-do record that can't be read. Returns { path, kind, why } or null. */
+function receiptProblem(PF, r, records, unread) {
+  const s = r && r.living && r.ended ? PF.receipts.stateOf(r, records || [], unread || []) : null;
+  return s && (s.state === 'missing' || s.state === 'mismatch') ? { path: s.path, kind: s.kind, why: s.why } : null;
+}
 /* The checked publication reader the screen gives a loop (procOf): a process's versions as loadAll indexed them. */
 function procOfFrom(d) { return (id) => { const e = ((d && d.processes) || []).filter((p) => p.process === id)[0], i = e && e.index; return i ? { latest: i.latest, all: i.all || [], clashes: i.clashes || [], broken: i.broken || [] } : null; }; }
 function dependsOn(fs, prefixes) {
@@ -995,7 +1002,8 @@ async function readData(eng, adapter, req) {
           const ev = await evidenceRead(PF, L.fs, gp, PF.todos.recordsFor(gp.todos || [], r)), evp = ev.paths;
           const un = markTodos(PF, [r], gp, one.people, !!(one.peopleWhy || pw), loopIn, ev), was = relevant, mine = {};
           /* A receipt the ended run names that is missing or says something else is this command's problem, by its path. */
-          if (r._rcpt && (r._rcpt.state === 'missing' || r._rcpt.state === 'mismatch')) { mine[r._rcpt.path] = true; L.note(r._rcpt.path, r._rcpt.kind, r._rcpt.why); }
+          const rp = receiptProblem(PF, r, gp.todos, un);
+          if (rp) { mine[rp.path] = true; L.note(rp.path, rp.kind, rp.why); }
           un.filter((u) => u.run ? u.run.process === m[1] && u.run.id === m[2] : !!(r.living || r._tdv)).concat(evidenceUnread(PF, r, r._tdv, un)).forEach((u) => { if (u.file !== 'people.json' && !mine['proposals/' + u.file]) { mine['proposals/' + u.file] = true; L.note('proposals/' + u.file, u.kind === 'newer' || u.kind === 'unreadable' ? u.kind : 'malformed', u.kind === 'newer' ? u.why : fileWhy(u.why)); } });
           relevant = (p) => was(p) || !!mine[p] || evp.some((q) => p === q || String(p).indexOf(q + '/') === 0);
         } else if (r.living) { const was = relevant; relevant = (p) => was(p) || p === 'proposals'; }
@@ -1067,7 +1075,10 @@ async function readData(eng, adapter, req) {
     d.runs.forEach((r) => { if (req.cmd !== 'runs' || tested(r)) take(judgeRun(PF, r, req.cmd === 'runs' ? pubOf(r) : null)); });
     const nameOf = A.names(d.people), runs = d.runs.filter((r) => !newerRun(PF, r)), all = (list) => list;
     /* Living runs (4.0): what to-dos hold, as in every window. */
-    if (two && req.cmd === 'runs') markTodos(PF, runs, { todos: d.todos || [], todosUnread: d.todosUnread || [] }, d.people, !!(d.failed && 'people' in d.failed), { runs: [], loops: { records: d.scopes || [], unread: d.scopesUnread || [], procOf: procOfFrom(d) } }, { runs: d.runs || runs, plans: d.plans || [] });
+    if (two && req.cmd === 'runs') {
+      const un = markTodos(PF, runs, { todos: d.todos || [], todosUnread: d.todosUnread || [] }, d.people, !!(d.failed && 'people' in d.failed), { runs: [], loops: { records: d.scopes || [], unread: d.scopesUnread || [], procOf: procOfFrom(d) } }, { runs: d.runs || runs, plans: d.plans || [] });
+      runs.forEach((r) => { if (req.proc && r.process !== req.proc) return; const rp = receiptProblem(PF, r, d.todos, un); if (rp) L.note(rp.path, rp.kind, rp.why); });
+    }
     const known = (p) => d.processes.some((x) => x.process === p) || d.runs.some((r) => r.process === p) || d.plans.some((x) => x.process === p);
     if (req.proc && !known(req.proc) && !req.stage) return notFound('There\'s no process ' + req.proc + ' in the team folder.');
     if (req.cmd === 'processes') return done(all, A.processes(d.processes), d.readAt);
@@ -3346,6 +3357,8 @@ async function todoMain(argv) {
     /* A record another run's evidence needs that can't be read is this command's problem too, named. */
     const noteUnread = (list) => list.forEach((u) => { const p = 'proposals/' + u.file; if (u.file !== 'people.json' && !extra.some((e) => e.path === p)) extra.push({ path: p, kind: u.kind === 'newer' ? 'newer' : 'malformed', why: u.kind === 'newer' ? u.why : fileWhy(u.why) }); });
     noteUnread(evidenceUnread(PF, r, V, deps.unread));
+    const rp = receiptProblem(PF, r, got.todos, deps.unread);
+    if (rp && !extra.some((e) => e.path === rp.path)) extra.push(rp);
     const runEvidenceOf = (x) => (x && x.evidence ? { plan: x.evidence.plan, run: x.evidence.run, answer: x.evidence.answer, result: x.evidence.result, words: PF.detours.evidenceWords(x.evidence) } : null);
     const evidenceOf = (x) => { if (!x || !x.support) return null; const s = x.support; return { fact: s.fact, domain: s.domain, source: s.source, words: PF.facts.TITLE[s.domain] + ' from ' + [s.source.feed, s.source.site, s.source.account].filter(Boolean).join(' · ') + ' (' + s.fact + ')' }; };
     if (sub === 'list') {
