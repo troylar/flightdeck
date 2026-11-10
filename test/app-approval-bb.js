@@ -29,7 +29,29 @@ const DEPS = {
   'the story\'s application absent': (app, kid) => gone(app, headFile(app, kid)),
   'the story\'s application EIO': (app, kid) => eio(app, headFile(app, kid))
 };
-Object.assign(BREAKS, DEPS);
+/* Round 13 (GA): a scope record that arrives while the write waits (ABC-105 added), and a conflicting copy of one there
+   ("<id> (1).json" saying something else). */
+const newScope = (app) => {
+  const PF = app.PF, LP = PF.loop, r = parentRun(app);
+  const c = LP.cleanIntent({ loop: { process: 'release-readiness', run: r.id, step: 'each' }, changes: [{ op: 'add', item: { key: 'ABC-105', id: '10105' } }] }, 'ga-' + Math.random().toString(36).slice(2, 10), { name: 'release-helper', version: '1.0' });
+  const f = LP.buildRequest(c.intent, { seen: [], children: [], now: new Date().toISOString(), app: '4.0.0', head: LP.headFor(r) });
+  const path = 'proposals/' + f.id + '.json';
+  app.fs.files[path] = { t: LP.text(f), m: Date.now() };
+  return () => { delete app.fs.files[path]; };
+};
+const copyScope = (app) => {
+  const f = scopeFile(app); if (!f) return null;
+  const j = JSON.parse(app.fs.files[f].t); j.created = new Date(Date.now() + 5000).toISOString(); j.seen = []; if (Array.isArray(j.changes)) j.changes = [];
+  if (j.observation && Array.isArray(j.observation.items)) j.observation.items = j.observation.items.slice(0, 1);
+  const path = f.replace(/\.json$/, ' (1).json');
+  app.fs.files[path] = { t: JSON.stringify(j, null, 2), m: Date.now() };
+  return () => { delete app.fs.files[path]; };
+};
+const GA_GB = {
+  'a new scope record': (app) => newScope(app),
+  'a conflicting copy of a scope record': (app) => copyScope(app)
+};
+Object.assign(BREAKS, DEPS, GA_GB);
 const RUN_BREAKS = ['the story\'s run absent', 'the story\'s run EIO', 'its publication EIO'];
 /* Where the write waits: at its read of the parent, or once its candidate is written (before the final write). */
 const WAITS = {
@@ -110,4 +132,20 @@ async function useCopyAfterEio(o, brk, noRefresh) {
   return out;
 }
 
-module.exports = { matrix, useCopyAfterEio, WRITES, DEPS };
+/* Round 13: Try again on a Pass whose first save failed (its candidate write refused), after brk: nothing written. */
+async function retryAfter(o, brk) {
+  const app = await o.prep();
+  app.click('loop-approve', 'each'); await app.tick(250);
+  const p = parentPath(app), before = app.fs.files[p].t, write = app.fs.write; let n = 0;
+  app.fs.write = (q, t, x) => CAND_RE.test(q) && ++n === 1 ? Promise.reject(new Error('EIO')) : write.call(app.fs, q, t, x);
+  app.click('pass', '0'); await app.tick(300);
+  app.fs.write = write;
+  if (!n || app.fs.files[p].t !== before) return ['set-up: the first save didn\'t fail'];
+  if (!/data-act="retry-save"/.test(app.html())) return ['set-up: Try again isn\'t offered'];
+  const undo = BREAKS[brk](app, o.kid(app)); if (!undo) return ['set-up: no such file to break'];
+  app.click('retry-save'); await app.tick(500);
+  const out = app.fs.files[p].t !== before ? ['written by Try again: ' + JSON.stringify((JSON.parse(app.fs.files[p].t).gates || {})[gid(app)] || null)] : [];
+  undo();
+  return out;
+}
+module.exports = { matrix, useCopyAfterEio, retryAfter, WRITES, DEPS, GA_GB: Object.keys(GA_GB) };

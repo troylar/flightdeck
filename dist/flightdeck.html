@@ -35959,18 +35959,29 @@ PF.examples = (function () {
       return p.steps.some(function (x) { return x.type === 'for.each' && ((r._loopStale && Object.prototype.hasOwnProperty.call(r._loopStale, x.id)) || (r._loopUnread && Object.prototype.hasOwnProperty.call(r._loopUnread, x.id))); });
     });
   }
-  /* Round 12 (FB): records read before, read again through the folder's own reader (PF.repo.readPlans, just those files):
-     each must still be there, read, and say exactly what it said. Resolves true or false; never throws. */
-  function freshRecords(fs, recs) {
-    var names = Object.create(null), was = Object.create(null);
+  /* Rounds 12 and 13 (FB, GA): proposals/ listed and read again through the folder's own reader (PF.repo.readPlans), every
+     file in it: the scope records of each loop (loops) and the to-do records of each run (runs) must be exactly the ones read
+     before, file for file and word for word, with none new (a record that arrived, a conflicting copy) and none unread or
+     refused now. The holds worked out from the records read before are then the holds of this fresh read. Resolves true or
+     false; never throws. */
+  function freshRecords(fs, loops, runs) {
     var strip = function (x) { var o = {}; Object.keys(x).sort().forEach(function (k) { if (k.charAt(0) !== '_') o[k] = x[k]; }); return JSON.stringify(o); };
-    for (var i = 0; i < recs.length; i++) { var x = recs[i]; if (!x || typeof x._file !== 'string') return Promise.resolve(false); names[x._file] = true; was[x._file] = strip(x); }
-    if (!Object.keys(names).length) return Promise.resolve(true);
-    return PF.repo.readPlans(fs, null, function (n) { return !!names[n]; }).then(function (res) {
-      if ((res.scopesUnread || []).length || (res.todosUnread || []).length) return false;
-      var now = Object.create(null);
-      (res.scopes || []).concat(res.todos || []).forEach(function (y) { if (y && names[y._file]) now[y._file] = strip(y); });
-      return Object.keys(names).every(function (n) { return now[n] === was[n]; });
+    var sameLoop = function (l, m) { return !!l && !!m && l.process === m.process && l.run === m.run && l.step === m.step; };
+    var sameRun = function (x, c) { return x && x.run && x.run.process === c.process && x.run.id === c.id; };
+    var pick = function (scopes, todos) {
+      var out = Object.create(null);
+      (scopes || []).forEach(function (x) { if (loops.some(function (l) { return sameLoop(x.loop, l); })) out['s:' + x._file] = strip(x); });
+      (todos || []).forEach(function (x) { if (runs.some(function (c) { return sameRun(x, c); })) out['t:' + x._file] = strip(x); });
+      return out;
+    };
+    var was = pick(data.scopes, data.todos);
+    return PF.repo.readPlans(fs, null, null).then(function (res) {
+      if ((res.scopesUnread || []).some(function (u) { return !u.loop || loops.some(function (l) { return sameLoop(u.loop, l); }); })) return false;
+      if ((res.todosUnread || []).some(function (u) { return !u.run || runs.some(function (c) { return u.run.process === c.process && u.run.id === c.id; }); })) return false;
+      /* A file that couldn't be read whole (gone when read, not complete JSON) may be one of them still arriving. */
+      if ((res.torn || []).some(function (t) { return !t.parsed; })) return false;
+      var now = pick(res.scopes, res.todos), a = Object.keys(was).sort(), b = Object.keys(now).sort();
+      return JSON.stringify(a) === JSON.stringify(b) && a.every(function (k) { return was[k] === now[k]; });
     }, function () { return false; });
   }
   /* Round 10 (BB): the phases a run (a conflict or browser copy) approves: its gate passed or waived, or a loop in it done. */
@@ -36012,20 +36023,18 @@ PF.examples = (function () {
     });
     if (bad) return Promise.resolve(false);
     var src = fs || cx.fs;
-    /* Round 12 (FB): what coverage reads besides the runs, read again the same way: the loops' scope records and the to-do
-       records of the run and of each story's run (their applications, the one living.head names among them, and the requests
-       that fulfil a spread). */
-    var deps = [];
+    /* Rounds 12 and 13 (FB, GA): what coverage reads besides the runs, from a fresh listing of proposals/: the loops' scope
+       records and the to-do records of the run and of each story's run (their applications, the one living.head names among
+       them, and the requests that fulfil a spread), new files and conflicting copies included. */
+    var loops = [];
     holdPhases(map, h).forEach(function (pi) {
-      (map.phases[pi] ? map.phases[pi].steps : []).forEach(function (x) { if (x.type === 'for.each') deps = deps.concat(PF.loop.recordsFor(data.scopes || [], { process: r.process, run: r.id, step: x.id })); });
+      (map.phases[pi] ? map.phases[pi].steps : []).forEach(function (x) { if (x.type === 'for.each') loops.push({ process: r.process, run: r.id, step: x.id }); });
     });
     [r].concat(kids).forEach(function (c) {
-      var mine = PF.todos.recordsFor(data.todos || [], c);
-      deps = deps.concat(mine);
-      if (c.living && c.living.head && !mine.some(function (x) { return x.id === c.living.head; })) bad = true;
+      if (c.living && c.living.head && !PF.todos.recordsFor(data.todos || [], c).some(function (x) { return x.id === c.living.head; })) bad = true;
     });
     if (bad) return Promise.resolve(false);
-    var depsOk = freshRecords(src, deps);
+    var depsOk = freshRecords(src, loops, [r].concat(kids));
     return depsOk.then(function (ok) { if (!ok) return [false]; return Promise.all(kids.map(function (c) {
       return PF.repo.readRunOnly(src, c.process, c.id).then(function (one) {
         if (!one || !one.found || one.nofile || !one.run || (one.bad && one.bad.length) || one.run._unrunnable) return false;

@@ -278,4 +278,15 @@ for (const how of Object.keys(BB.WRITES)) rule('FB: ' + how + ' on a fulfilled s
 for (const brk of Object.keys(BB.DEPS)) for (const noRefresh of [false, true]) rule('FB: Use copy on a fulfilled spread\'s loop with ' + brk + (noRefresh ? ', no Refresh first' : ', after Refresh') + ' keeps nothing, and the copy stays', async () => {
   assert.deepStrictEqual(await BB.useCopyAfterEio(bbSpread, brk, noRefresh), []);
 });
+/* Review round 13 (GA, GB): a scope record that arrives, a conflicting copy of one, and the run's own version gone or
+   unreadable, while any approval write waits (at the parent read, after the candidate), on Try again, and on Use copy with
+   no Refresh first: nothing written, the change put back, the copy kept. */
+for (const how of Object.keys(BB.WRITES)) rule('GA/GB: ' + how + ' on a fulfilled spread\'s loop reads a fresh listing and its own version at every write', async () => {
+  const { cases, off } = await BB.matrix(bbSpread, how, BB.GA_GB);
+  assert.deepStrictEqual([cases, off], [BB.GA_GB.length * 2, []]);
+});
+for (const brk of BB.GA_GB) {
+  rule('GA/GB: Try again on a fulfilled spread\'s loop after ' + brk + ' writes nothing', async () => { assert.deepStrictEqual(await BB.retryAfter(bbSpread, brk), []); });
+  rule('GA/GB: Use copy on a fulfilled spread\'s loop after ' + brk + ', no Refresh first, keeps nothing, and the copy stays', async () => { assert.deepStrictEqual(await BB.useCopyAfterEio(bbSpread, brk, true), []); });
+}
 run();
