@@ -309,11 +309,15 @@ PF.learn = (function () {
     if (!mine.length) return null;
     var placed = mine.filter(function (k) { return k.anchor; }), out = { keeps: mine, group: null, process: '', label: '', words: '' };
     if (!placed.length) { out.label = 'Needs placement'; out.words = 'Kept for next time · needs placement: ' + mine[0].needs; return out; }
-    var k = placed[0], gs = gsOf ? gsOf(k.template.process) || [] : [];
-    gs.forEach(function (g) { if (!out.group && g.keep && g.members.some(function (m) { return m.id === k.id; })) out.group = g; });
-    out.process = k.template.process;
-    out.label = out.group ? label(out.group) : 'Suggested';
-    out.words = (out.group && out.group.landed ? 'Learned: published in ' : out.label === 'Suggested' ? 'Suggested for next time in ' : 'Kept for next time in ') + k.template.process + (out.group && out.group.landed ? ' v' + out.group.landed.version : '') + (out.group && !out.group.landed ? ' · ' + out.label : '') + '.';
+    var gs = gsOf ? gsOf(placed[0].template.process) || [] : [], groupOf = function (k) { return gs.filter(function (g) { return g.keep && g.members.some(function (m) { return m.id === k.id; }); })[0] || null; };
+    /* A wording the owner reviewed stands as it was decided, even while a wording kept since waits for review (PF.corrections
+       status: reviewed); one that wasn't reviewed is only Suggested. */
+    var seen = function (k) { var g = groupOf(k); return !!(g && g.reviewed && g.reviewed.members.indexOf(k.id) >= 0); };
+    var k = placed.filter(seen)[0] || placed[0], g = groupOf(k), landed = null;
+    out.group = g; out.process = k.template.process;
+    if (g && seen(k)) { landed = g.reviewedLanded || null; out.label = landed ? 'Published in v' + landed.version : g.reviewed.decision.addressed ? 'Addressed differently' : 'Applied to draft'; }
+    else { landed = g ? g.landed : null; out.label = g ? label(g) : 'Suggested'; }
+    out.words = (landed ? 'Learned: published in ' : out.label === 'Suggested' ? 'Suggested for next time in ' : 'Kept for next time in ') + k.template.process + (landed ? ' v' + landed.version : '') + (g && !landed ? ' · ' + out.label : '') + '.';
     return out;
   }
 

@@ -169,6 +169,32 @@ rule('Keeps for one place join one group; different wording stays as alternative
   assert.strictEqual(L.label(W.groups('release-readiness', [d], [W.pp, v2])[0]), 'Published in v2', 'the chosen wording is proved by its recorded result');
 });
 
+rule('A wording kept after the owner decided waits for review: it never inherits Applied or Published, which stay with what was reviewed', () => {
+  const W = world(), t1 = W.todo('Post the release notes', { phase: 'ship' });
+  W.kept({ todo: t1 });
+  const g = W.groups('release-readiness')[0], rv = C.review(g, W.pp.md);
+  const d = decided(g, 'person-morgan', 'applied', { act: 'a1', result: C.outcome(g, rv.text, rv.added) });
+  const v2 = publishMd(rv.text, 2, { corrections: C.forPublish(rv.text, W.groups('release-readiness', [d])).list });
+  const words = (td) => L.forSource(W.recs, () => W.groups('release-readiness', [d], [W.pp, v2]), W.r, { todo: td });
+  same(words(t1).label, 'Published in v2');
+  const t2 = W.todo('Email the release notes', { phase: 'ship' }), t3 = W.todo('Post the release notes', { phase: 'ship' });
+  W.kept({ todo: t3 }, {}, { person: 'person-casey' });
+  same([words(t3).label, words(t1).label], ['Published in v2', 'Published in v2'], 'the same wording as was reviewed joins what was published');
+  W.kept({ todo: t2 }, {}, { person: 'person-casey' });
+  const gs = W.groups('release-readiness', [d], [W.pp, v2]);
+  same(gs.length, 1);
+  assert.ok(!/Published|Applied/.test(words(t2).label + words(t2).words), 'a new wording waits for the owner: ' + words(t2).words);
+  same(words(t2).label, 'Suggested');
+  same(words(t1).label, 'Published in v2', 'what was reviewed and published still says so');
+  assert.strictEqual(gs[0].status, 'open', 'the owner reviews the new wording');
+  assert.ok(gs[0].again && gs[0].again.status === 'applied', 'said as suggested again after it was applied');
+  const unrelated = world(), ut = unrelated.todo('Write the notes', { phase: 'notes' });
+  unrelated.kept({ todo: ut });
+  const ug = unrelated.groups('release-readiness')[0];
+  const ud = decided(ug, 'person-morgan', 'applied', { act: 'a1', result: C.outcome(ug, C.review(ug, unrelated.pp.md).text, C.review(ug, unrelated.pp.md).added) });
+  same(unrelated.groups('release-readiness', [ud])[0].status, 'applied', 'without a new wording nothing changes');
+});
+
 rule('Only the checklist\'s active owner decides kept steps; its backup only while the owner is inactive; other corrections are unchanged', () => {
   const W = world(), td = W.todo('Post the release notes', { phase: 'ship' });
   W.kept({ todo: td });

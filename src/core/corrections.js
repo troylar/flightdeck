@@ -312,7 +312,7 @@ PF.corrections = (function () {
       pick(d.process + '/' + d.group, d);
     });
     return gs.map(function (g) {
-      var hit = cur[g.process + '/' + g.id], d = hit ? hit.d : null, st = d ? d.status : 'open', again = null;
+      var hit = cur[g.process + '/' + g.id], d = hit ? hit.d : null, st = d ? d.status : 'open', again = null, reviewed = null;
       /* "It's in vN" is applied, with the version a person named. */
       if (st === 'included') st = 'applied';
       /* Two decided at once is unresolved: the group stays open, as Needs review, until someone decides again. */
@@ -320,8 +320,18 @@ PF.corrections = (function () {
       if (d && d.kind === 'correction-decision') {
         var known = d.members || [], fresh = g.members.filter(function (c) { return known.indexOf(c.id) < 0; });
         if (fresh.length && (st === 'declined' || st === 'withdrawn')) { again = { reason: d.reason, by: d.by, status: st }; st = 'open'; }
+        /* Kept for next time (4.0 slice 5): a wording kept after the owner applied the group was never reviewed, so the
+           group is open again for the owner, and what was reviewed keeps its own standing (reviewed, landing's
+           reviewedLanded). The same words again join what was decided. */
+        else if (g.keep && fresh.length && st === 'applied' && !(hit && hit.tie)) {
+          var said = Object.create(null); g.members.forEach(function (c) { if (known.indexOf(c.id) >= 0) said[norm(c.change.text)] = 1; });
+          if (fresh.some(function (c) { return !said[norm(c.change.text)]; })) {
+            reviewed = { decision: d, members: g.members.filter(function (c) { return known.indexOf(c.id) >= 0; }).map(function (c) { return c.id; }) };
+            again = { reason: 'another wording was kept since', by: d.by, status: 'applied' }; st = 'open';
+          }
+        }
       }
-      return Object.assign({}, g, { status: st, decision: d, tie: !!(hit && hit.tie), again: again, label: hit && hit.tie ? 'Needs review' : st === 'applied' && d && d.addressed ? 'Addressed differently' : g.keep && st === 'open' ? 'Suggested' : g.keep && st === 'applied' ? 'Applied to draft' : STATUS[st] });
+      return Object.assign({}, g, { status: st, decision: d, tie: !!(hit && hit.tie), again: again, reviewed: reviewed, label: hit && hit.tie ? 'Needs review' : st === 'applied' && d && d.addressed ? 'Addressed differently' : g.keep && st === 'open' ? 'Suggested' : g.keep && st === 'applied' ? 'Applied to draft' : STATUS[st] });
     });
   }
   function label(g) { return g.keep ? PF.learn.label(g) : g.tie ? 'Needs review' : g.landed ? 'Published in v' + g.landed.version : g.status === 'applied' && g.decision && g.decision.addressed ? 'Addressed differently' : STATUS[g.status] || STATUS.open; }
@@ -676,6 +686,10 @@ PF.corrections = (function () {
     return gs.map(function (g) {
       var out = Object.assign({}, g, { landed: null, proofless: false });
       if (g.status === 'legacy' && !g.tie) out.proofless = out.old = true;
+      if (g.reviewed && !g.tie) {
+        var rg = Object.assign({}, g, { status: 'applied', decision: g.reviewed.decision, reviewed: null, members: g.members.filter(function (c) { return g.reviewed.members.indexOf(c.id) >= 0; }) });
+        out.reviewedLanded = landing([rg], pubs, clashes)[0].landed;
+      }
       if (g.status !== 'applied' || g.tie) return out;
       var d = g.decision, inc = d && d.status === 'included' ? d : null, own = ownVersion(g);
       for (var i = 0; i < ok.length; i++) {
