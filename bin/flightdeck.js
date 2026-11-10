@@ -1146,6 +1146,8 @@ async function readData(eng, adapter, req) {
       const st = req.status || 'all', mine = (p) => !req.proc || p === req.proc;
       const matching = runs.filter((r) => mine(r.process) && (st === 'all' || (st === 'running' && !r.ended) || (st === 'ended' && !!r.ended)));
       const list = matching.filter(tested), leftOut = two ? matching.length - list.length : 0;
+      /* YD: what each listed run's spreads depend on and couldn't be read is this list's problem too, named by its path. */
+      if (two) { const had = {}; L.problems().forEach((x) => { had[x.path] = true; }); list.forEach((r) => ((r._todos && r._todos.missing) || []).forEach((x) => { if (x && x.path && !had[x.path]) { had[x.path] = true; L.note(x.path, x.kind || 'unreadable', x.why); } })); }
       const plans = st === 'all' || st === 'planned' ? d.plans.filter((p) => mine(p.process)) : [];
       /* Which version a plan starts on is unknown (null), not missing, when any of its process's versions couldn't be read or
          verified: only problems with the versions themselves count (a run that doesn't match its version is named at the run). */

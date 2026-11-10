@@ -55,6 +55,8 @@ const MODES = {
 /* Every command that reads them; the asks use keys of their own, so a write would be a new file. */
 const PARENT_READERS = (root, sp) => ({
   run: ['run', root, PR, '--contract', '2', '--json'],
+  /* YD: the list of runs reads every listed run's spread dependencies too. */
+  runs: ['runs', root, '--contract', '2', '--json'],
   next: ['next', root, PR, '--contract', '2', '--json'],
   'todo list': ['todo', 'list', root, PR, '--json'],
   'spread list': ['spread', 'list', root, PR, '--json'],
@@ -99,6 +101,9 @@ for (const [kind, mode] of CELLS) {
       /* XC: exit 4, an incomplete envelope and a named path, always together. */
       const four = r.code === 4, incomplete = r.complete === false, paths = (r.problems || []).length > 0 && (r.problems || []).every(p => p.path);
       if (four !== incomplete || incomplete !== paths) off.push(rd + ' · exit ' + r.code + ', complete ' + r.complete + ', ' + (r.problems || []).length + ' problems');
+      /* YD: the list of runs counts the parent's to-dos as held while what its spread depends on can't be read (a parent it
+         can only show by name, its own version newer, carries no counts). */
+      if (rd === 'runs' && r.data) { const pr = (r.data.runs || []).filter(x => x.process + '/' + x.id === PR)[0]; if (pr && pr.todoCounts && pr.todoCounts.held !== true) off.push('runs · todoCounts ' + JSON.stringify(pr.todoCounts)); }
       if (JSON.stringify(before) !== JSON.stringify(after)) off.push(rd + ' · wrote ' + Object.keys(after).filter(k => before[k] !== after[k]).join(', '));
     }
     if (undo) undo();

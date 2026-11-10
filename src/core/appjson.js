@@ -408,7 +408,7 @@ PF.appjson = (function () {
     var V = r._tdv;
     if (!V) return { open: 0, total: 0, waiting: 0, held: true };
     var open = V.todos.filter(function (x) { return x.state === 'open'; }).length;
-    return { open: open, total: V.todos.length, waiting: PF.todos.requestsOf(V).filter(function (q) { return q.status === 'waiting'; }).length, held: !!(V.broken || V.unread.length || V.held.length) };
+    return { open: open, total: V.todos.length, waiting: PF.todos.requestsOf(V).filter(function (q) { return q.status === 'waiting'; }).length, held: !!(V.broken || V.unread.length || V.held.length || (r._todos && r._todos.missing && r._todos.missing.length)) };
   }
   function todoHolds(r) {
     var mp = R.mapOf(r), out = [];
