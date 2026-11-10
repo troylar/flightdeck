@@ -42,10 +42,19 @@ async function made(o) {
     app.click('refresh'); await app.tick(400);
     o.pendingId = q.id;
   }
+  /* o.keep: a person keeps the first to-do for next time before the end (the receipt names it in keeps). */
+  if (o.keep) {
+    const T = PF.todos, rp = app.files('runs/release-notes/').find(p => /run\.json$/.test(p)), r0 = PF.run.sanitize(JSON.parse(app.fs.files[rp].t));
+    const d = await PF.repo.loadAll(app.fs, {}), td = Object.keys(T.view(r0, { records: d.todos || [], people }).byTodo)[0];
+    const k = PF.learn.build({ run: { process: r0.process, id: r0.id }, by: 'person-avery', at: new Date().toISOString(), app: '4.0.0', source: { todo: td }, change: { text: 'Check the release notes twice', where: 'end' }, needs: 'It isn\'t placed yet.' });
+    await app.fs.write('proposals/' + k.id + '.json', JSON.stringify(k, null, 2) + '\n');
+    app.click('refresh'); await app.tick(400);
+    o.keepId = k.id;
+  }
   if (o.end !== false) { app.click('end', 'Cancelled'); await app.tick(300); }
   const runPath = app.files('runs/release-notes/').find(p => /run\.json$/.test(p)), r = JSON.parse(app.fs.files[runPath].t);
   const files = {}; Object.keys(app.fs.files).forEach(p => { files[p] = app.fs.files[p].t; });
-  return { PF, files, key: r.process + '/' + r.id, run: r, runPath, request: o.request || null, pendingId: o.pendingId || '' };
+  return { PF, files, key: r.process + '/' + r.id, run: r, runPath, request: o.request || null, pendingId: o.pendingId || '', keepId: o.keepId || '' };
 }
 async function pack(PF, fsx, key) {
   const parts = [];

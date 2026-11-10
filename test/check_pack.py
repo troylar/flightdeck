@@ -243,6 +243,11 @@ def check_living(z, man):
                 for x in rec.get("seen") or []:
                     if wit(str(x)) is None:
                         good_receipt = False
+                # Every keep it names is a keep on this run, one witness under its id.
+                for x in rec.get("keeps") or []:
+                    kx = wit(str(x))
+                    if kx is None or kx.get("kind") != "keep" or kx.get("run") != me:
+                        good_receipt = False
             if good_receipt and closed:
                 saw(rec)
                 good_receipt = walk()

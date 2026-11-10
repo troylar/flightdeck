@@ -20780,6 +20780,8 @@ PF.receipts = (function () {
       if (k === rootKey) rs = v;
       /* Every request the receipt names as seen (pending ones included) is part of what it froze. */
       if (v && v.record) (v.record.seen || []).forEach(function (id) { var sx = witness(id, on + 'the receipt names this record as seen'); if (sx) saw(sx); });
+      /* Every keep it names (what was kept for next time) is a checked keep on this run, one witness under its id. */
+      if (v && v.record) (v.record.keeps || []).forEach(function (id) { var kx = witness(id, on + 'the receipt names this keep', function (x) { return x.kind === 'keep' && mineRun(x); }); if (kx) saw(kx); });
       /* Facts used as evidence, evidence runs and their plans, the spreads this run's work holds and the parents whose spread
          one of its requests fulfills. */
       var sp = Object.create(null);

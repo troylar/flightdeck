@@ -795,4 +795,19 @@ rule('Python decodes packed originals as the app does: a byte-order mark on run.
   plan.ignored = deep65();
   const badP = checkPack(await repacked(PF, fullP.zip, (e, man, g) => { e[g(path).pack] = Buffer.from(JSON.stringify(plan) + '\n'); forced(man); }));
   assert.ok(!badP.ok && badP.out.indexOf(planId) >= 0, 'Python refuses the deep plan: ' + badP.out);
-});run();
+});/* TB: the keeps a receipt names are in the closure, each a checked keep witness on the run, in the export and in Python. */
+rule('A keep the receipt names is in the closure: deleted, the export is partial by its path and Python refuses a complete claim without it', async () => {
+  const W = await made({ todos: 1, keep: true }), kp = 'proposals/' + W.keepId + '.json';
+  const rc = JSON.parse(W.files['proposals/' + W.run.living.receipt + '.json']);
+  assert.deepStrictEqual(rc.keeps, [W.keepId], 'set-up: the receipt names the keep');
+  const full = await pack(W.PF, new BytesFS(W.files), W.key);
+  assert.strictEqual(full.res.status, 'complete', JSON.stringify(full.res.col.unresolved));
+  const files = Object.assign({}, W.files); delete files[kp];
+  const { res } = await pack(W.PF, new BytesFS(files), W.key);
+  assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(kp) >= 0), 'the export names it: ' + res.status + ' ' + JSON.stringify(res.col.unresolved));
+  if (!PY) return;
+  assert.ok(checkPack(full.zip).ok, 'the control holds');
+  const bad = checkPack(await repacked(W.PF, full.zip, (e, man, g) => { const y = g(kp); delete e[y.pack]; man.files = man.files.filter((z) => z.path !== kp); }));
+  assert.ok(!bad.ok && /receipt/.test(bad.out), 'Python refuses it: ' + bad.out);
+});
+run();
