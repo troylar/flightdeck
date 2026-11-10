@@ -3213,11 +3213,11 @@ PF.repo = (function () {
         if (b) return { bad: { key: key, path: String(b.path), kind: b.kind || 'malformed', why: String(b.why || 'it can\'t be read') } };
         var c = one.run;
         if (!c || c.id !== id || c.process !== proc) return { bad: { key: key, path: path, kind: 'malformed', why: 'it isn\'t that run' } };
+        /* The run's own verdict, as run, next and runs give it (PF.appjson.judgeRun): its version, newer, times or records this
+           copy can't read as written, conflict copies. The first problem names it. */
+        var jp = PF.appjson.judgeRun(c, one.pub)[0];
+        if (jp) return { bad: { key: key, path: String(jp.path), kind: jp.kind, why: String(jp.why) } };
         if (c._unrunnable) return { bad: { key: key, path: path, kind: 'unusable', why: String(c._unrunnable) } };
-        var pub = one.pub;
-        if (pub && (pub._readFailed || !pub.ok)) return { bad: { key: key, path: PF.run.pubDir(c), kind: 'unreadable', why: 'its version ' + String(c.folder) + ' can\'t be read or doesn\'t verify' } };
-        var mm = pub && pub.info ? runMismatch(c, pub.info) : '';
-        if (mm) return { bad: { key: key, path: path, kind: 'unusable', why: mm } };
         return { run: c };
       }, function (e) { return { bad: { key: key, path: path, kind: errKind(e), why: why(e) } }; });
     }

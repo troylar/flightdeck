@@ -47,6 +47,30 @@ def main(path):
 COPY = re.compile(r"^( \([0-9]{1,3}\)|-[A-Za-z0-9-]{1,63})$")
 
 
+ISO = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$")
+
+
+def times_why(run):
+    """The times a run file holds that the app can't read (as R.sanitize drops them, and run says malformed), or ''."""
+    iso = lambda v: isinstance(v, str) and ISO.match(v)
+    bad = []
+    if not iso(run.get("created")):
+        bad.append("created")
+    if "savedAt" in run and run.get("savedAt") is not None and not iso(run.get("savedAt")):
+        bad.append("savedAt")
+    if isinstance(run.get("ended"), dict) and not iso(run["ended"].get("at")):
+        bad.append("ended")
+    for i, line in enumerate(run.get("log") or []):
+        if not isinstance(line, dict) or not iso(line.get("at")):
+            bad.append("log " + str(i + 1))
+            break
+    for i, p in enumerate(run.get("pauses") or []):
+        if not isinstance(p, dict) or not iso(p.get("from")) or not iso(p.get("to")):
+            bad.append("pause " + str(i + 1))
+            break
+    return ", ".join(bad)
+
+
 def check_living(z, man):
     by_path = {f["path"]: f["pack"] for f in man["files"]}
 
@@ -225,6 +249,9 @@ def check_living(z, man):
                     sys.exit("living: " + r["key"] + " says its work is complete, but " + k + ", a run it depends on, isn't in the pack")
                 if k not in named:
                     sys.exit("living: " + r["key"] + " says its work is complete, but the manifest doesn't name " + k + ", a run it depends on")
+                tw = times_why(dep_run)
+                if tw:
+                    sys.exit("living: " + r["key"] + " says its work is complete, but " + k + ", a run it depends on, has times the app can't read (" + tw + ")")
                 w2, c2, cl2, rc2, cp2 = check_run(dep_run)
                 d = named[k]
                 if cp2:

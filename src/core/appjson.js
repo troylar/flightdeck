@@ -586,6 +586,61 @@ PF.appjson = (function () {
     }).sort(function (a, b) { return a.key < b.key ? -1 : 1; }) };
   }
 
-  return { CONTRACT: CONTRACT, CONTRACT2: CONTRACT2, WRITE1: WRITE1, reportOut: reportOut, targets: targets, SCHEMA2: SCHEMA2, process2: process2, next2: next2, runs2: runs2, followUps2: followUps2, run2: run2, summary2: summary2, CONTRACT_OF: contractOf, VERSIONS: VERSIONS, NOTE: NOTE, KINDS: KINDS, SCHEMA: SCHEMA, opt: opt, map: map, conforms: conforms, envelope: envelope, failure: failure, names: names,
+  /* ---- One run's verdict, as every reader gives it (run, next, runs, the evidence pack's dependency runs) ---- */
+  /* Whether a run is one a newer Flightdeck made (its own format, or a version format this copy can't run). */
+  function newerRun(r) {
+    var why = r._unrunnable || '';
+    if (!why) return false;
+    if (r.snapshot === '' || why.indexOf(PF.run.NEWER) === 0) return true;
+    return why.indexOf(PF.publish.NEWER) === 0 && !!PF.publish.unrunnable(r.snapshot, r.types);
+  }
+  /* Which times R.sanitize couldn't read (r._badTimes), in words, or ''. */
+  function badTimesWhy(b) {
+    if (!b) return '';
+    var names = { created: 'the start', ended: 'the end', pauses: 'an earlier pause', paused: 'the pause under way', log: 'a log entry' };
+    return Object.keys(b).map(function (k) { return k === 'log' && Array.isArray(b.log) && b.log.length > 1 ? b.log.length + ' log entries' : names[k] || k; }).join(', ');
+  }
+  /* Whether a place where the file and what the app reads differ is already named: the same place, one inside the other, or
+     another entry of the same list (dropping one entry shifts the rest). */
+  function explained(p, named) {
+    var base = function (x) { return x.replace(/\[\d+\].*$/, ''); };
+    var starts = function (a, b) { return a.slice(0, b.length) === b; };
+    return named.some(function (e) { return p === e || starts(p, e + '.') || starts(p, e + '[') || starts(e, p + '.') || starts(e, p + '[') || (/\[/.test(p) && /\[/.test(e) && base(p) === base(e)); });
+  }
+  function runProblems(r) {
+    var out = [], key = r.process + '/' + r.id, dir = 'runs/' + key + '/', isNewer = newerRun(r);
+    if (isNewer) out.push({ path: dir + 'run.json', kind: 'newer', why: '"' + r.title + '" (' + key + '): ' + r._unrunnable });
+    /* Times sanitize couldn't read, and every other record it dropped, cut or replaced: one problem for the file, naming each. */
+    var bt = isNewer ? '' : badTimesWhy(r._badTimes), fixed = isNewer ? [] : (r._repairs || []).map(function (x) { return x.at + ' (' + x.what + ')'; }), parts = [];
+    if (bt) parts.push('Some times in this file couldn\'t be read (' + bt + ').');
+    if (fixed.length) parts.push('Records this copy dropped or changed: ' + fixed.slice(0, 20).join(', ') + (fixed.length > 20 ? ', and ' + (fixed.length - 20) + ' more' : '') + '.');
+    /* The safety net: anywhere else sanitize's result differs from the file (R.unexplained), not already named above. */
+    var named = (r._repairs || []).map(function (x) { return x.at; }).concat(Object.keys(r._badTimes || {}));
+    var other = isNewer ? [] : (r._drift || []).filter(function (p) { return !explained(p, named); });
+    if (other.length) parts.push('Other places this copy reads differently from the file: ' + other.slice(0, 20).join(', ') + (other.length > 20 ? ', and ' + (other.length - 20) + ' more' : '') + '.');
+    if (parts.length) out.push({ path: dir + 'run.json', kind: 'malformed', why: parts.join(' ') + ' The run is shown as the app shows it, without them.' });
+    if (r._conflicts && r._conflicts.length) out.push({ path: dir, kind: 'conflict', why: 'Conflict copies or lost saves beside this run: ' + r._conflicts.join(', ') + '. A person resolves them in the app.' });
+    return out;
+  }
+  /* One run, judged the same way by every reader, so a summary never says other than the run itself: its version (pub: what
+     readVersion or the version list found; null when the reader doesn't read versions) decides why it's read-only, as the
+     app decides it (unusable here, or changed since the run started: R's own reason comes first), then every problem of the
+     run file and of that version. Sets r._unrunnable; returns the problems. */
+  function judgeRun(r, pub) {
+    /* A test run's version is its stage (2.1): staged/<process>/<stage>/, whose proposed number is the run's version. */
+    var test = PF.run.isTest(r) && typeof r.folder === 'string' && PF.publish.STAGE.test(r.folder);
+    var out = [], valid = typeof r.folder === 'string' && (test || !!PF.publish.versionOf(r.folder)) && /^[a-z0-9][a-z0-9-]{0,59}$/.test(r.process);
+    var dir = PF.run.pubDir(r);
+    if (pub && valid && !pub._readFailed) {
+      var info = pub.ok && test ? { folder: pub.info.folder, mapHash: pub.info.mapHash, version: pub.info.stage.proposed } : pub.info;
+      var why = pub.unusable ? pub.why : pub.ok ? PF.repo.runMismatch(r, info) : '';
+      if (why && !r._unrunnable) r._unrunnable = why;
+      if (!pub.ok) { var x = pubProblem(pub); out.push({ path: dir, kind: x.kind, why: x.why }); }
+      /* The version is fine; the run doesn't match it. Named at the run, so the version is never taken as unreadable. */
+      else if (why) out.push({ path: 'runs/' + r.process + '/' + r.id + '/run.json', kind: 'unusable', why: 'This run doesn\'t match its version ' + r.folder + ' (its checklist or version number differs from the version\'s record), so the app opens it read-only.' });
+    }
+    return out.concat(runProblems(r));
+  }
+  return { newerRun: newerRun, runProblems: runProblems, judgeRun: judgeRun, CONTRACT: CONTRACT, CONTRACT2: CONTRACT2, WRITE1: WRITE1, reportOut: reportOut, targets: targets, SCHEMA2: SCHEMA2, process2: process2, next2: next2, runs2: runs2, followUps2: followUps2, run2: run2, summary2: summary2, CONTRACT_OF: contractOf, VERSIONS: VERSIONS, NOTE: NOTE, KINDS: KINDS, SCHEMA: SCHEMA, opt: opt, map: map, conforms: conforms, envelope: envelope, failure: failure, names: names,
     v1Pub: v1Pub, v1Processes: v1Processes, v1Run: v1Run, pubProblem: pubProblem, processes: processes, process: process, runs: runs, run: run, next: next, followUps: followUps, summary: summary, request: request };
 })();

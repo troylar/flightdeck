@@ -334,4 +334,28 @@ rule('An evidence run that is malformed makes the pack partial by its path and k
   if (PY) { const c = checkPack(zip); assert.ok(c.ok, c.out); }
 });
 
+/* ---- IB, IC: the full run verdict for every dependency, a complete and byte-exact walk, every durable reference ---- */
+/* Packed entries rewritten, with the manifest's hashes made to match: only the readers' own checks can then refuse it. */
+async function repacked(PF, zip, edit) {
+  const e = unzip(zip), man = JSON.parse(e['manifest.json']);
+  edit(e, man, (path) => man.files.filter(x => x.path === path)[0]);
+  man.files.forEach((f) => { if (e[f.pack]) { f.sha256 = sha(e[f.pack]); f.size = e[f.pack].length; } });
+  e['manifest.json'] = Buffer.from(JSON.stringify(man, null, 2) + '\n');
+  return rezip(PF, e);
+}
+rule('A dependency run with a time the app can\'t read is judged as run judges it: the pack is partial by its path; Python refuses a complete claim with it', async () => {
+  const W = await loopMade();
+  const full = await pack(W.PF, new BytesFS(W.files), W.key);
+  assert.strictEqual(full.res.status, 'complete', JSON.stringify(full.res.col.unresolved));
+  for (const [what, damage] of [['created', (k) => { k.created = 'bad'; }], ['log', (k) => { k.log[0].at = 'bad'; }]]) {
+    const files = Object.assign({}, W.files), k = JSON.parse(files[W.kidPath]); damage(k); files[W.kidPath] = JSON.stringify(k, null, 2);
+    const { res } = await pack(W.PF, new BytesFS(files), W.key);
+    assert.strictEqual(res.status, 'partial', what + ': ' + JSON.stringify(res.col.unresolved));
+    assert.ok(res.col.unresolved.some(u => u.indexOf(W.kidPath) >= 0 && /\(malformed\)/.test(u)), what + ': ' + JSON.stringify(res.col.unresolved));
+    if (!PY) continue;
+    const bad = checkPack(await repacked(W.PF, full.zip, (e, man, f) => { const x = f(W.kidPath), o = JSON.parse(e[x.pack]); damage(o); e[x.pack] = Buffer.from(JSON.stringify(o, null, 2)); }));
+    assert.ok(!bad.ok && bad.out.indexOf(W.kidKey) >= 0 && /times/.test(bad.out), what + ': ' + bad.out);
+  }
+});
+
 run();

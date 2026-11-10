@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "29ad8ee20da969bc3ebdd821ba9637bd7bf6ddd6aa7d8f866aa2145ad4a474b9",
-      "reviewed": "slice 6 round 2 GC: one receipt verdict in every reader, view, copied text and the checker"
+      "sha256": "40965b1b56c9a9c9085d98ed38aee6307ea98d5150bdcbfcbe49c1e94b9a5bcd",
+      "reviewed": "IB: every dependency run gets the run verdict (PF.appjson.judgeRun, shared with the commands)"
     },
     "build.py": {
       "sha256": "4930aee232c7766241927d231c2eb0729443450de507161a3f0e85b7e7f5fb8e",
@@ -201,8 +201,8 @@
       "reviewed": "ID: the checker names every rejected named receipt as the app does"
     },
     "src/core/appjson.js": {
-      "sha256": "744bdb09afa1a0dda2fe006e5b3a963ebe88bef69aaab5a41ae88515ce09cd03",
-      "reviewed": "4.0 slice 6 commit 8, readers, checker and release: appjson and bin/flightdeck.js read pending to-do requests before a run gains living and an ended run's receipt (missing or mismatch named, exit 4), check_folder.py's receipt_why port, the living-run, status and learn-from-runs skills, the command guide, file formats, docs/apps.md, the 4.0.0 release entries and the rehearsal waiver; checked for direct writes and unconditional deletes: the readers only read, the skills tell an assistant never to write a receipt or end a run, nothing deleted"
+      "sha256": "98019ea60f70df332d6774d2ac26d0bbd028e95f1f76f543cbe54c89cb8cd4fe",
+      "reviewed": "IB: every dependency run gets the run verdict (PF.appjson.judgeRun, shared with the commands)"
     },
     "src/core/attach.js": {
       "sha256": "0e75bc0c0d748fe10aaf5657662e4ce8679c27f9d10d85c1e34891b1c9d58df0",
@@ -421,8 +421,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "48389729147e6b0f1ba166b4b426f6946e5061fae5988d0a191579f48303f4ad",
-      "reviewed": "GB: one bounded closure over every dependency run in the evidence pack; checked for direct writes and unconditional deletes"
+      "sha256": "8a10f71d128bd5bdf345b3b1a50ab2590308fecd866abea872a9e4a86410ace4",
+      "reviewed": "IB: every dependency run gets the run verdict (PF.appjson.judgeRun, shared with the commands)"
     },
     "src/ui/app.js": {
       "sha256": "955af8f925081742c4cc70ae0cdd02f7f8d4fad57f45a7601250bd8b50f44dcb",
