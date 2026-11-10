@@ -103,17 +103,21 @@ PF.spreads = (function () {
   }
   /* What a spread's coverage expects to find (the expected-dependency manifest), checked against what was read: '' when all
      of it is here, else why not, with each missing file named in C.missing ({ path, kind: 'nofile', why }). */
-  /* Whether a stopped spread owes a pair {uid, attempt} it didn't list (round 10, docs/design.md 45.1): monotone and order-free.
-     Its witnesses are every scope record that ever names the item (x.witness, a plain union over the records read), or for a
-     later attempt every plan for that attempt (x.witnessAt), and the spread's own snapshot when it names the pair. It is
+  /* Whether a stopped spread owes a pair {uid, attempt} it didn't list (rounds 10 and 11, docs/design.md 45.1): monotone and
+     order-free. Its witnesses are every record of its loop that refers to any alias the item ever had (PF.loop.witnessRefs):
+     with no attempt, for every attempt (x.witness), or naming this attempt (x.witnessAt); and the spread's own snapshot when
+     it names the pair. A record the schema can't fully read (x.witnessDoubt) owes. It is
      exempt only when there is at least one and every one is a 4.0 scope record whose parent head is the stop's application
      or later on this run's chain; anything else (before the stop, concurrent with it, missing when it was made, no head, any
      doubt) owes. */
   function stoppedOwes(s, V, T, o) {
-    var chain = T.chain || [], at = chain.indexOf(s.stop.application), by = Object.create(null);
-    ((o.loops && o.loops.records) || []).forEach(function (x) { if (x && x.id) by[x.id] = x; });
+    /* Only this loop's records (round 11, EA): another loop's record sharing an id never stands in for one of these. Two
+       copies of one that differ hold the loop (PF.loop.causal), so nothing reaches here then; any copy left owes. */
+    var chain = T.chain || [], at = chain.indexOf(s.stop.application), by = Object.create(null), twice = Object.create(null);
+    (V.records || []).forEach(function (x) { if (!x || !x.id) return; if (by[x.id] && by[x.id] !== x) twice[x.id] = true; by[x.id] = x; });
     var items = Object.create(null); (V.ledger.items || []).forEach(function (x) { items[x.uid] = x; });
     var after = function (rec) {
+      if (twice[rec]) return false;
       var R0 = by[rec], h = R0 && typeof R0.head === 'string' ? R0.head : null;
       if (h === null || h === '' || at < 0) return false;
       var hi = chain.indexOf(h);
@@ -122,7 +126,8 @@ PF.spreads = (function () {
     return function (uid, attempt) {
       var x = items[uid]; if (!x) return true;
       if (hasPair(s.scope.open, uid, attempt) || hasPair(s.scope.cleared, uid, attempt)) return true;
-      var W = attempt > 1 ? (x.witnessAt && x.witnessAt[attempt]) || [] : x.witness || [];
+      if (x.witnessDoubt && x.witnessDoubt.length) return true;
+      var W = (x.witness || []).concat((x.witnessAt && x.witnessAt[attempt]) || []);
       return !(W.length && W.every(after));
     };
   }

@@ -25,8 +25,8 @@
       "reviewed": "Round 6 XD: sync dry-run partial status from preparation refusals"
     },
     "docs/design.md": {
-      "sha256": "1088350716c3f50ea585d659a2bfb5c6c72525c72e76d4008a5a72a4efce1071",
-      "reviewed": "BB: approval writes reread their loops' runs"
+      "sha256": "909fb2496fb152fd23316ea856f171a9ff78133fa326909e7058218bfa65b80a",
+      "reviewed": "EA: schema-driven witness references over alias history"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -257,8 +257,8 @@
       "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
     },
     "src/core/loop.js": {
-      "sha256": "65a130ba5664f05aa904f4f47121ef8783b723cab9d88450511706199a12ae36",
-      "reviewed": "BA: stop rule by witness union, pair-keyed"
+      "sha256": "bf415be8dde09169fda7cbc02f4fee2613973252748c4a5a472f89471b5d16e5",
+      "reviewed": "EA: schema-driven witness references over alias history"
     },
     "src/core/map.js": {
       "sha256": "f9eae33f6635cd1b3983fc1c71eb7a3b3c8dc1c70ca3ef8ce8807d5228165d2f",
@@ -337,8 +337,8 @@
       "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
     },
     "src/core/spreads.js": {
-      "sha256": "ff82dc9ea1a3f8f4dbd761f123b10936443b0c07d58b3dff7d2e749f7a4b478b",
-      "reviewed": "BA: stop rule by witness union, pair-keyed"
+      "sha256": "3c3e36f8c3ca432c4abe42acef49cc0835fa58718f90c21ba82c49b782611082",
+      "reviewed": "EA: schema-driven witness references over alias history"
     },
     "src/core/staging.js": {
       "sha256": "d01a3204178bd0b055c05524916f55774c4404cca10f86fbb10a2ca675bd6b07",

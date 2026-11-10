@@ -65,6 +65,8 @@ PF.loop = (function () {
       (by[id].seen || []).forEach(function (s) {
         var j = idx[s];
         if (j === undefined) { ok = false; missing.push(s); return; }
+        /* A record that names itself as seen can't be ordered: held (round 11). */
+        if (j === i) { ok = false; return; }
         if (state[j] !== 2 || anc[j] === null) { ok = false; return; }
         a[j >>> 5] |= 1 << (j & 31);
         var aj = anc[j]; for (var k = 0; k < W; k++) a[k] |= aj[k];
@@ -157,25 +159,11 @@ PF.loop = (function () {
       items.push(x); byUid[x.uid] = x; if (x.key) byKey[x.key] = x;
       return x;
     }
-    /* Round 10 (BA): every scope record that ever names an item, as a plain union over the records read, in no order and
-       never pruned: by its uid and by its key (a key first, then its id: the same item), and for a planned attempt, by the
-       attempt too. A stopped spread reads it (PF.spreads); nothing else here depends on it. */
-    var wit = Object.create(null), witAt = Object.create(null);
-    function witness(it, rec, attempt) {
-      if (!it || typeof it !== 'object') return;
-      var ks = []; if (it.id) ks.push('u:' + uidOf(source, it)); if (it.key) ks.push('k:' + it.key);
-      ks.forEach(function (k) {
-        (wit[k] = wit[k] || Object.create(null))[rec.id] = true;
-        if (attempt) { var a = (witAt[k] = witAt[k] || Object.create(null)); (a[attempt] = a[attempt] || Object.create(null))[rec.id] = true; }
-      });
-    }
-    function named(rec) {
-      if (rec.type === 'request') {
-        ((rec.observation && rec.observation.items) || []).forEach(function (it) { witness(it, rec); });
-        (rec.changes || []).forEach(function (ch) { witness(ch.item, rec); });
-        (rec.children || []).forEach(function (k) { witness(k.item, rec, +k.attempt || 0); });
-      } else (rec.items || []).forEach(function (u) { if (typeof u === 'string') { (wit['u:' + u] = wit['u:' + u] || Object.create(null))[rec.id] = true; (wit['k:' + u] = wit['k:' + u] || Object.create(null))[rec.id] = true; } });
-    }
+    /* Round 11 (EA): every reference any of this loop's records makes to an item (witnessRefs, from the record's schema),
+       joined over the item's whole alias history: a key and an id named together are one item, so are a key-only uid and
+       its key, whatever order they came in. A stopped spread reads x.witness (records naming the item with no attempt: they
+       count for every attempt), x.witnessAt (by attempt) and x.witnessDoubt; nothing else here depends on them. */
+    var refsOf = c.order.map(function (rec) { return { rec: rec, w: witnessRefs(rec, source) }; });
     function note(x, rec, op, extra) { var p = { record: rec.id, op: op, by: rec.by || null }; if (extra) Object.keys(extra).forEach(function (k) { p[k] = extra[k]; }); x.provenance.push(p); }
     /* A verdict (in or removed) on an item: contrary to a concurrent one, the item needs review and stays required, until a
        record that saw both decides it. */
@@ -202,7 +190,6 @@ PF.loop = (function () {
       x.attempt = Math.max(x.attempt, attempt);
       x.planned = sp === 'settled' ? { record: from, attempt: attempt, inputs: inputs, owner: owner } : null;
     }
-    c.order.forEach(named);
     c.order.forEach(function (rec) {
       if (rec.type === 'request') {
         /* A record for another kind of item is never read as this loop's (no fallback). */
@@ -304,16 +291,76 @@ PF.loop = (function () {
     items.forEach(function (x) {
       x.owner = x.ownReview.length ? '' : x.own ? (x.own.contrary ? '' : x.own.owner) : x.planReview.length || !x.planned ? '' : String(x.planned.owner || '');
     });
+    var cls = aliasClasses(refsOf.map(function (e) { return e.w; }));
+    var anyDoubt = refsOf.filter(function (e) { return e.w.doubt; }).map(function (e) { return e.rec.id; });
+    items.forEach(function (x) { if (x.key) cls.union('u:' + x.uid, 'k:' + x.key); });
     items.forEach(function (x) {
-      var keys = ['u:' + x.uid].concat(x.key ? ['k:' + x.key] : []), all = Object.create(null), at = Object.create(null);
-      keys.forEach(function (k) { Object.keys(wit[k] || {}).forEach(function (id) { all[id] = true; }); Object.keys(witAt[k] || {}).forEach(function (a) { at[a] = at[a] || Object.create(null); Object.keys(witAt[k][a]).forEach(function (id) { at[a][id] = true; }); }); });
+      var root = cls.find('u:' + x.uid), mine = function (r) { return r.aliases.some(function (al) { return cls.find(al) === root; }); };
+      var all = Object.create(null), at = Object.create(null);
+      refsOf.forEach(function (e) { e.w.refs.forEach(function (r) { if (!mine(r)) return; if (r.attempt) (at[r.attempt] = at[r.attempt] || Object.create(null))[e.rec.id] = true; else all[e.rec.id] = true; }); });
       x.witness = Object.keys(all).sort(); x.witnessAt = Object.create(null); Object.keys(at).forEach(function (a) { x.witnessAt[a] = Object.keys(at[a]).sort(); });
+      x.witnessDoubt = anyDoubt.slice();
     });
     var inScope = items.filter(function (x) { return x.state !== 'removed'; }).length;
     var heads = c.heads;
     return { items: items, held: c.held, duplicates: duplicates, heads: heads, saw: c.saw, requests: asks, observation: lastObs, applied: c.order.map(function (r) { return r.id; }),
       pending: items.filter(function (x) { return x.state === 'proposed'; }).map(function (x) { return { uid: x.uid, key: x.key, proposal: x.proposal }; }),
       overLimit: inScope > max ? { count: inScope, max: max } : null };
+  }
+
+  /* Round 11 (EA): which fields of a cleaned scope record can carry an item or an attempt, by the record's schema. 0: none;
+     'items': a list of items; 'item': one item; 'attempt': the attempt of its item; 'uids': a list of item uids; a nested
+     table's name: an object read by that table. Every field a cleaned record can have is listed; witnessRefs makes a record
+     with any other field a doubt, so a field added to the format without being classified here fails closed. */
+  var CHANGE_FIELDS = ['op', 'item', 'reason', 'owner', 'approver', 'onBehalf', 'as', 'all', 'run', 'attempt', 'candidates', 'record', 'outcome'];
+  var WITNESS_SCHEMA = {
+    request: { id: 0, type: 0, kind: 0, head: 0, loop: 0, seen: 0, by: 0, created: 0, key: 0, observation: 'observation', changes: 'change', children: 'child' },
+    observation: { source: 0, generation: 0, query: 0, observedAt: 0, items: 'items', reported: 0, fetched: 0, complete: 0, errors: 0, why: 0 },
+    change: { op: 0, item: 'item', reason: 0, owner: 0, approver: 0, onBehalf: 0, as: 0, all: 0, run: 0, attempt: 'attempt', candidates: 0, record: 0, outcome: 0 },
+    child: { item: 'item', attempt: 'attempt', inputs: 0, owner: 0 },
+    decision: { resolver: 0, id: 0, type: 0, loop: 0, proposal: 0, op: 0, items: 'uids', seen: 0, reason: 0, by: 0, onBehalf: 0 },
+    item: { id: 'id', key: 'key', title: 0, link: 0, status: 0, assignee: 0 }
+  };
+  function itemAliases(source, it) {
+    if (!it || typeof it !== 'object') return [];
+    var out = [];
+    if (it.id) out.push('u:' + uidOf(source, it));
+    if (it.key) { out.push('k:' + it.key); if (!it.id) out.push('u:' + uidOf(source, { key: it.key })); }
+    return out;
+  }
+  /* Every (item aliases, attempt) a cleaned scope record refers to, read field by field through WITNESS_SCHEMA:
+     { refs: [{ aliases, attempt (0: none, so every attempt), field: '<table>.<field>' }], doubt }. */
+  function witnessRefs(rec, source) {
+    var refs = [], doubt = false;
+    function walk(o, table, path) {
+      if (!o || typeof o !== 'object' || Array.isArray(o)) return;
+      var T0 = WITNESS_SCHEMA[table], one = null, attempt = 0, field = '';
+      Object.keys(o).forEach(function (k) {
+        if (k.charAt(0) === '_') return;
+        if (!own(T0, k)) { doubt = true; return; }
+        var how = T0[k], v = o[k];
+        if (!how) return;
+        if (how === 'item') { one = v; field = table + '.' + k; }
+        else if (how === 'attempt') attempt = +v || 0;
+        else if (how === 'items') (Array.isArray(v) ? v : []).forEach(function (it) { walkItem(it); var al = itemAliases(source, it); if (al.length) refs.push({ aliases: al, attempt: 0, field: table + '.' + k, path: path }); });
+        else if (how === 'uids') (Array.isArray(v) ? v : []).forEach(function (u) { if (typeof u !== 'string') { doubt = true; return; } var m = /^[^:]+:key:(.*)$/.exec(u); refs.push({ aliases: ['u:' + u].concat(m ? ['k:' + m[1]] : []), attempt: 0, field: table + '.' + k, path: path }); });
+        else if (Array.isArray(v)) v.forEach(function (x) { walk(x, how, path.concat([table + '.' + k])); });
+        else if (v != null) walk(v, how, path.concat([table + '.' + k]));
+      });
+      if (one) { walkItem(one); var al = itemAliases(source, one); if (al.length) refs.push({ aliases: al, attempt: attempt, field: field, path: path }); }
+    }
+    function walkItem(it) { if (it && typeof it === 'object') Object.keys(it).forEach(function (k) { if (k.charAt(0) !== '_' && !own(WITNESS_SCHEMA.item, k)) doubt = true; }); }
+    if (!rec || typeof rec !== 'object') return { refs: [], doubt: true };
+    walk(rec, rec.type === 'decision' ? 'decision' : 'request', []);
+    return { refs: refs, doubt: doubt };
+  }
+  /* The alias classes over every reference: each reference's aliases are one item. Order-free (union-find). */
+  function aliasClasses(ws) {
+    var up = Object.create(null);
+    function find(a) { if (!up[a]) return a; var r = a; while (up[r]) r = up[r]; while (up[a] && up[a] !== r) { var n = up[a]; up[a] = r; a = n; } return r; }
+    function union(a, b) { var ra = find(a), rb = find(b); if (ra === rb) return; if (ra < rb) up[rb] = ra; else up[ra] = rb; }
+    ws.forEach(function (w) { w.refs.forEach(function (r) { for (var i = 1; i < r.aliases.length; i++) union(r.aliases[0], r.aliases[i]); }); });
+    return { find: find, union: union };
   }
 
   /* ---- The gate's roll-up: every item in scope has an accepted result or an approved exception. Pure. ----
@@ -934,7 +981,7 @@ PF.loop = (function () {
     list.forEach(function (ch, i) {
       var where = 'Change ' + (i + 1);
       if (!isMap(ch) || OPS.indexOf(ch.op) < 0) { errors.push(where + ' is {"op": ' + OPS.map(q).join(' | ') + ', "item": {...}}.'); return; }
-      Object.keys(ch).forEach(function (k) { if (['op', 'item', 'reason', 'owner', 'approver', 'onBehalf', 'as', 'all', 'run', 'attempt', 'candidates', 'record', 'outcome'].indexOf(k) < 0 || (k === 'all' && !(ch.op === 'start' && ch.all === true)) || ((k === 'run' || k === 'candidates') && ch.op !== 'choose') || (k === 'attempt' && ch.op !== 'choose' && ch.op !== 'plan') || (k === 'record' && ch.op !== 'plan' && ch.op !== 'resolve') || (k === 'outcome' && ch.op !== 'resolve')) errors.push(where + ' has ' + q(k) + '.'); });
+      Object.keys(ch).forEach(function (k) { if (CHANGE_FIELDS.indexOf(k) < 0 || (k === 'all' && !(ch.op === 'start' && ch.all === true)) || ((k === 'run' || k === 'candidates') && ch.op !== 'choose') || (k === 'attempt' && ch.op !== 'choose' && ch.op !== 'plan') || (k === 'record' && ch.op !== 'plan' && ch.op !== 'resolve') || (k === 'outcome' && ch.op !== 'resolve')) errors.push(where + ' has ' + q(k) + '.'); });
       if (ACTIONS.indexOf(ch.op) >= 0) {
         var ca = { op: ch.op };
         if (ch.op === 'start') { ca.item = cleanItem(ch.item, errors, where + ' item', kind); if (!ca.item) return; if (ch.all === true) ca.all = true; }
@@ -1087,6 +1134,6 @@ PF.loop = (function () {
   function recordsFor(records, loop) { return (records || []).filter(function (r) { return r.loop && r.loop.process === loop.process && r.loop.run === loop.run && r.loop.step === loop.step; }); }
 
   return { headFor: headFor, askerWhy: askerWhy, seenFor: seenFor, page: page, settleIn: settleIn, pageWords: pageWords, fileWhy: fileWhy, KINDS: KINDS, kindOf: kindOf, nounOf: nounOf, count: count, feedWhy: feedWhy, httpLink: httpLink, cleanItem: cleanItem, cleanChanges: cleanChanges, FEED: FEED, NOUN: NOUN, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
-    idFor: idFor, isScope: isScope, claims: claims, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
+    idFor: idFor, isScope: isScope, witnessRefs: witnessRefs, WITNESS_SCHEMA: WITNESS_SCHEMA, CHANGE_FIELDS: CHANGE_FIELDS, claims: claims, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
     rollup: rollup, view: view, markStale: markStale, rowId: rowId, choiceWhy: choiceWhy, resolveWhy: resolveWhy, resolvedBy: resolvedBy, planWhy: planWhy, sendBackWhy: sendBackWhy, again: again, appliedIn: appliedIn, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();
