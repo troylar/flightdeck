@@ -425,4 +425,21 @@ rule('The shared collector follows a loop item\'s choice and a spread\'s binding
   assert.ok(D.toRead.some(x => x.id === 'bound-1'), 'the bound run is read next');
 });
 
+/* KB: a proposal or scope record packed is the one the checked read judged, byte for byte: a change that keeps the cleaned
+   record (whitespace) or keeps the length ("4.0.0" to "4.0.1") still leaves the pack partial, by its path. */
+for (const [name, edit] of [['the app version, at the same length', (b) => b.replace('"app": "4.0.0"', '"app": "4.0.1"')], ['whitespace only, at the same length', (b) => b.replace(/\n$/, ' ')]]) {
+  rule('A to-do record changed between the checked read and the bytes packed (' + name + ') leaves the pack partial', async () => {
+    const W = await made({ todos: 1 });
+    const target = Object.keys(W.files).filter(p => /^proposals\/req-flightdeck-/.test(p) && !/\.status-/.test(p))[0];
+    const t = W.files[target], c = edit(t);
+    assert.ok(c !== t && Buffer.byteLength(c) === Buffer.byteLength(t), 'set-up: the edit keeps the length');
+    let n = 0;
+    const fsx = new BytesFS(W.files, { hooks: { blob: (p, x) => { if (p === target && !n++) x.files.set(p, Buffer.from(c)); } } });
+    const { res } = await pack(W.PF, fsx, W.key);
+    assert.ok(n >= 1, 'set-up: the bytes changed before the capture');
+    assert.strictEqual(res.status, 'partial', JSON.stringify(res.col.unresolved));
+    assert.ok(res.col.unresolved.some(u => u.indexOf(target) >= 0 && /changed/.test(u)), JSON.stringify(res.col.unresolved));
+  });
+}
+
 run();

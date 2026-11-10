@@ -29,8 +29,8 @@
       "reviewed": "IC: the closure walk is complete within the shared bound, byte-exact, and follows the receipt's seen, scope choices and bindings"
     },
     "docs/evidence.md": {
-      "sha256": "bda337bfb28a2fba4655b8433018d40585a80efd261c9c1afd477c6b409694d8",
-      "reviewed": "GB: evidence.md says which runs the pack checks; checked for direct writes and unconditional deletes"
+      "sha256": "1869a2a35e6e650606d9683bae0861c25116c82ba40f6833e28b03822b2df149",
+      "reviewed": "KB: proposal and scope originals held to the bytes judged"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
@@ -421,8 +421,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "b58594bc2e13fe0452da227bddc7b2f45d8a0826a9c3eec2c1536ad5bf625337",
-      "reviewed": "IC: the closure walk is complete within the shared bound, byte-exact, and follows the receipt's seen, scope choices and bindings"
+      "sha256": "beec6c09e8df648ed40f4df428bf477651ae7ef93305bf21b2c5a86f622faa91",
+      "reviewed": "KB: proposal and scope originals held to the bytes judged"
     },
     "src/ui/app.js": {
       "sha256": "955af8f925081742c4cc70ae0cdd02f7f8d4fad57f45a7601250bd8b50f44dcb",
@@ -525,8 +525,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. A maintainer tool, not shipped. Not read line by line."
     },
     "tools/readers.js": {
-      "sha256": "225e9ed156224e24e8738a2176e20e535eccd5ee3ebecb370dcffb8daffdc918",
-      "reviewed": "slice 6: full-run fixes (file-formats.md back to 2.14.0's copy, inventory entries, reader and lookup sites, renderNow memo, markTodos)"
+      "sha256": "758d153a7d373a68f54c4e88648b3a24936824a1d9be50e8f3c3a69a5a8941b3",
+      "reviewed": "KB: proposal and scope originals held to the bytes judged"
     },
     "tools/scale-limits.js": {
       "sha256": "23e06ee46d6b4ff44216f92c530578f714aa05bcecd7a2b0458515287d554ec1",

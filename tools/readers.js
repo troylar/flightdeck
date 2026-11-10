@@ -37,7 +37,6 @@ const RAW = [
   { file: 'src/storage/repo.js', has: 'function detach(o)', why: 'Evidence: a copy of a value already cleaned' },
   { file: 'src/storage/repo.js', has: 'created = o && typeof o === \'object\' && typeof o.created', why: 'Evidence: a run\'s start time, only to choose which runs a date range covers (the raw bytes are packed whatever it says)' },
   { file: 'src/storage/repo.js', has: "var raw = r.text == null ? undefined : json(r.text);", why: 'Evidence: the run\'s lineage and folder (bytes packed as they are), then R.sanitize for its own groups' },
-  { file: 'src/storage/repo.js', has: "var o = json(x.text), name = path.slice('proposals/'.length), v = null;", why: 'Evidence: a living run\'s record read again into the pack; PF.loop.isScope only chooses which checked reader reads it whole (PF.loop.cleanFile or PF.todos.cleanFile) before it is compared' },
   { file: 'src/storage/repo.js', has: "var info = pub.files['publication.json'] != null ? json(", why: 'Evidence: names the version in the pack; the version itself goes through P.verify' },
   { file: 'src/storage/repo.js', has: "var raw = rj ? json(textOf(rj.path))", why: 'Evidence: R.sanitize' },
   { file: 'src/storage/repo.js', has: "R.isPlaceholder(json(x.text), cur)", why: 'R.isPlaceholder' },

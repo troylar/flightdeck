@@ -23656,7 +23656,8 @@ PF.repo = (function () {
     if (sup) Object.keys(sup).forEach(function (k) { raw[k] = sup[k]; });
     return raw;
   }
-  function loadJsonDir(fs, dir, ok, bad, only, torn, perFile) {
+  /* hashes (export): each file kept is also hashed, by name, so what is packed later can be held to the bytes judged here. */
+  function loadJsonDir(fs, dir, ok, bad, only, torn, perFile, hashes) {
     return fs.list(dir).then(function (items) {
       /* A link where a to-do or fact record would be (4.0) is never read and never absent: it is named like one that can't be
          read yet (readPlans). Other folders and kinds read links as 3.0 did: left out, named by the reader's adapter. */
@@ -23668,7 +23669,7 @@ PF.repo = (function () {
           if (!f) { if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: 'was listed but was gone when read' }); return null; }
           if (PF.util.jsonTooDeep(f.text)) { if (torn) torn.push({ path: path, _file: i.name, parsed: false, deep: true, why: PF.util.DEEP_WHY }); return null; }
           var o = json(f.text);
-          if (o && typeof o === 'object' && ok(o)) return tagged(o, i.name, f);
+          if (o && typeof o === 'object' && ok(o)) { if (hashes) hashes[i.name] = fileHash(f.text); return tagged(o, i.name, f); }
           /* parsed: it's JSON, just not this folder's kind of file (ignored, only named); else it may still be arriving. */
           if (torn) torn.push({ path: path, _file: i.name, parsed: o !== undefined, why: o === undefined ? 'isn\'t complete JSON' : 'isn\'t a file Flightdeck reads here, so it\'s ignored' });
           return null;
@@ -23681,6 +23682,7 @@ PF.repo = (function () {
           var o = json(f.text);
           if (o === undefined) { bad.push({ path: path, kind: 'malformed', why: 'isn\'t complete JSON (it may still be arriving)' }); if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: 'isn\'t complete JSON' }); return null; }
           if (!o || typeof o !== 'object' || Array.isArray(o) || !ok(o)) { bad.push({ path: path, kind: 'malformed', why: 'isn\'t a file this copy can read here' }); if (torn) torn.push({ path: path, _file: i.name, parsed: true, why: 'isn\'t a file Flightdeck reads here, so it\'s ignored' }); return null; }
+          if (hashes) hashes[i.name] = fileHash(f.text);
           return tagged(o, i.name, f);
         }, function (e) { bad.push({ path: path, kind: errKind(e), why: why(e) }); if (torn) torn.push({ path: path, _file: i.name, parsed: false, kind: errKind(e), why: 'couldn\'t be read (' + why(e) + ')' }); return null; });
       }));
@@ -25706,11 +25708,11 @@ PF.repo = (function () {
       });
     }, Promise.resolve()).then(function () { return { runs: runs, unreadRuns: unreadRuns, plans: plans, paths: keys.map(function (k) { return 'runs/' + k; }) }; });
   }
-  function readPlans(fs, bad, only, two) {
+  function readPlans(fs, bad, only, two, hashes) {
     var refused = [], torn = [];
     /* A to-do, fact or scope record that fails to read is named by its path (torn, with its kind), never the whole folder
        refused: run and next name proposals/<id>.json. Any other file failing still refuses the read, as in 3.0. */
-    return loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status' || typeof o.format === 'string'; }, bad, only, torn, PF.todos.recordName).then(function (props) {
+    return loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status' || typeof o.format === 'string'; }, bad, only, torn, PF.todos.recordName, hashes).then(function (props) {
       var plans = [], statuses = [], scopes = [], scopesUnread = [], todos = [], todosUnread = [];
       /* Copies of one id that differ are compared over every file read here, before any family reads its own (PF.loop.splitIds):
          one that is a to-do or fact record while another copy is a plan or a scope record would escape every reducer, so each
@@ -26227,9 +26229,9 @@ PF.repo = (function () {
        the receipt), with the evidence runs and plans and the publication proof of what it kept for next time. Anything that
        can't be found or read is named (p.living.missing): the pack is partial and no claim resting on it is confirmed. Past
        the cap the export is refused, never cut. A run with no to-do records is packed exactly as in 3.0. */
-    var propsOnce = null;
+    var propsOnce = null, recHashes = Object.create(null);
     function proposalsRead() {
-      if (!propsOnce) propsOnce = Promise.all([readPlans(ro, null), ro.list('proposals').then(function (it) { return it.filter(function (i) { return PF.todos.recordName(i.name); }).map(function (i) { return i.name; }).sort(); })])
+      if (!propsOnce) propsOnce = Promise.all([readPlans(ro, null, null, false, recHashes), ro.list('proposals').then(function (it) { return it.filter(function (i) { return PF.todos.recordName(i.name); }).map(function (i) { return i.name; }).sort(); })])
         .then(function (x) { x[0].listing = x[1]; return x[0]; }, function (e) { return { failed: why(e) }; });
       return propsOnce;
     }
@@ -26305,10 +26307,10 @@ PF.repo = (function () {
           D = ask();
           if (D.over) throw new Error(D.over);
           if (D.toRead.length) throw new Error('The runs the work of ' + self.process + '/' + self.id + ' depends on weren\'t all read, so no pack was made.');
-          var L = p.living = { head: self.living ? self.living.head : '', chain: D.chain, receipt: D.receipt ? { id: self.living.receipt || '', state: D.receipt.state, why: D.receipt.why } : null, missing: D.missing.slice(), recs: {}, listing: Pr.listing, deps: [], runTexts: {} };
+          var L = p.living = { head: self.living ? self.living.head : '', chain: D.chain, receipt: D.receipt ? { id: self.living.receipt || '', state: D.receipt.state, why: D.receipt.why } : null, missing: D.missing.slice(), recs: {}, recTexts: {}, listing: Pr.listing, deps: [], runTexts: {} };
           var byFile = Object.create(null);
           Pr.todos.concat(Pr.scopes).forEach(function (x) { if (x && x._file) byFile[x._file] = x; });
-          D.files.forEach(function (f) { var path = 'proposals/' + f.file; L.recs[path] = byFile[f.file] || null; add(path, { role: 'living', label: f.label }); });
+          D.files.forEach(function (f) { var path = 'proposals/' + f.file; L.recs[path] = byFile[f.file] || null; L.recTexts[path] = recHashes[f.file] || ''; add(path, { role: 'living', label: f.label }); });
           var planFiles = Object.create(null); (Pr.plans || []).forEach(function (pl) { if (pl && pl._file) planFiles[pl.id] = pl._file; });
           D.plans.forEach(function (id) { if (planFiles[id]) add('proposals/' + planFiles[id], { role: 'evidence plan', label: 'The evidence plan a to-do was done on' }); else L.missing.push('proposals/' + id + '.json: a to-do was done on this evidence plan, but it isn\'t in the folder as read.'); });
           var LBL = { evidence: { role: 'evidence run', label: 'The run a to-do was done on (its result is the evidence)' }, child: { role: 'child run', label: 'A child run of the run\'s loops' }, fulfills: { role: 'fulfilled run', label: 'A run whose spread a request on this run fulfills' } };
@@ -26446,7 +26448,7 @@ PF.repo = (function () {
       rc.checks = E.checks(rc.raw, p.folder ? pubTexts : null, p.folder ? pubShots : null, p.test);
       rc.test = p.test;
       if (rc.raw && !p.folder) limits.push('The version it names isn\'t one this copy can find.');
-      /* A living run (4.0 slice 6): each record its work rests on, as packed, must be the record the one checked read of
+      /* A living run (4.0 slice 6): each record its work rests on, as packed, must be the bytes the one checked read of
          proposals/ read; one that changed, went or wasn't read is named, and nothing kept for next time is confirmed. */
       if (p.living) {
         var L = p.living, lm = L.missing.slice();
@@ -26454,10 +26456,9 @@ PF.repo = (function () {
           var x = done[path], was = L.recs[path];
           if (!x || x.gone) { lm.push(path + ' was removed while the pack was made.'); return; }
           if (x.skipped || x.text == null) { lm.push(path + ' wasn\'t read into the pack, so what it says can\'t be checked.'); return; }
-          var o = json(x.text), name = path.slice('proposals/'.length), v = null;
-          try { v = o && typeof o === 'object' ? (PF.loop.isScope(o) ? PF.loop.cleanFile(o, name) : PF.todos.cleanFile(o, name, PF.util.utf8Bytes(x.text))) : null; } catch (e) { v = null; }
-          var strip = function (r) { if (!r) return ''; var c = {}; Object.keys(r).forEach(function (k) { if (k.charAt(0) !== '_') c[k] = r[k]; }); return E.canonical(c); };
-          if (!v || !v.ok || !was || strip(v.record) !== strip(was)) lm.push(path + ' changed while the pack was made.');
+          /* The bytes packed are the bytes the checked read judged: the same SHA-256, whole, as for the runs below. */
+          var h = (L.recTexts || {})[path];
+          if (!was || !h || fileHash(x.text) !== h) lm.push(path + ' changed while the pack was made.');
         });
         /* Each run the work depends on, read into the pack as it was read for the closure. */
         Object.keys(L.runTexts || {}).sort().forEach(function (path) {
