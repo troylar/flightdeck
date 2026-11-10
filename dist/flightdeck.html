@@ -20653,89 +20653,118 @@ PF.receipts = (function () {
   }
 
   /* ---- What an evidence pack needs for a living run (repo.collectEvidence) ----
-     r: the run (sanitized). o: { records, unread (the one checked read of proposals/), scopes, scopesUnread, children (the
-     loops' child runs, sanitized), childUnread (child run keys that couldn't be read), cap }. Returns { files: [{ file, kind,
-     label }] (names in proposals/, each once), runs: [{ process, id, role }], plans: [plan ids], chain: [application ids, head
-     last], receipt: stateOf's, missing: [why] }. Anything that can't be found, read or bounded is named in missing: the pack is
-     then partial and no claim on it is confirmed. */
+     One bounded closure over the run and every run its work depends on (loop children, evidence runs, the parents whose
+     spread one of its requests fulfills), each walked alike: its records, its living chain with a unique witness for every
+     link, each application's request, authority and what it saw, and its receipt. r: the run (sanitized). o: { records,
+     unread (the one checked read of proposals/), scopes, scopesUnread, runs (key -> each dependency run read, sanitized),
+     kids (key -> that run's loop children), runBad ([{ key, path, kind, why }]: a run that couldn't be listed, found or read,
+     or whose own verdict refuses it; without key, a listing), cap }. Returns { files: [{ file, kind, label }] (names in
+     proposals/, each once), runs: [{ process, id, role, chain, head, receipt, problem }], toRead (runs found that o.runs
+     doesn't hold yet: the caller reads them and asks again), plans, chain (the run's, head last), receipt: stateOf's,
+     missing: [why] }. Anything that can't be found, read, told apart or bounded is named in missing: the pack is then
+     partial and no claim on it is confirmed. */
   var DEP_CAP = 5000;
   function deps(r, o) {
     o = o || {};
     var records = o.records || [], files = [], seenF = Object.create(null), runs = [], seenR = Object.create(null), plans = [], missing = [], byId = Object.create(null);
+    var known = o.runs || Object.create(null), bad = Object.create(null), kids = o.kids || Object.create(null), cap = o.cap || DEP_CAP;
+    (o.runBad || []).forEach(function (b) { if (b && b.key && !bad[b.key]) bad[b.key] = b; });
     records.forEach(function (x) { if (x && typeof x.id === 'string') (byId[x.id] = byId[x.id] || []).push(x); });
     var LABEL = { proposal: 'A to-do request', compound: 'A to-do request with its decision and application', decision: 'A decision on a to-do request', application: 'An application: the run\'s work as it landed', fact: 'A fact a tool observed', keep: 'A to-do kept for next time', receipt: 'The receipt the run ended with' };
     var file = function (x, label) { var f = String(x._file || ''); if (!f || seenF[f]) return; seenF[f] = true; files.push({ file: f, kind: x.kind, label: label || LABEL[x.kind] || 'A to-do record' }); };
-    var run = function (p, id, role) { var k = p + '/' + id; if (seenR[k] || (p === r.process && id === r.id)) return; seenR[k] = true; runs.push({ process: p, id: id, role: role }); };
-    var mine = PF.todos.recordsFor(records, r);
-    mine.forEach(function (x) { file(x); });
-    /* The chain the run's work rests on: from living.head back through previous, every link in the folder. */
-    var chain = [], at = r.living && r.living.head || '', visited = Object.create(null);
-    while (at) {
-      if (visited[at]) { missing.push('The run\'s applications go round in a circle at ' + at + '.'); break; }
-      visited[at] = true;
-      var a = (byId[at] || []).filter(function (x) { return x.run && x.run.process === r.process && x.run.id === r.id; })[0];
-      if (!a) { missing.push('proposals/' + at + '.json: the run\'s work names this application, but it isn\'t in the folder as read.'); break; }
-      var ap = a.kind === 'application' ? a : a.kind === 'compound' ? a.application : null;
-      if (!ap) { missing.push('proposals/' + at + '.json: the run\'s work names it, but it isn\'t an application.'); break; }
-      chain.unshift(at); at = ap.previous;
-    }
-    /* Each application's closure: its request, its authority (the decision on that request, a grant or the compound itself) and
-       every record it saw, followed through what those saw, bounded. A witness not in the folder as read, there as another kind,
-       or there twice with different contents is named: the pack is partial. */
+    var keyOf = function (x) { return x.process + '/' + x.id; }, rootKey = keyOf(r);
+    /* Every run the work depends on (loop children, evidence runs, the parents a request fulfills a spread of), each walked
+       the same way below: once, in the order found, bounded. */
+    var queue = [r], run = function (p, id, role) { var k = p + '/' + id; if (seenR[k] || k === rootKey) return; seenR[k] = true; runs.push({ process: p, id: id, role: role }); if (known[k]) queue.push(known[k]); };
     var canon = function (x) { var c = Object.create(null); Object.keys(x).sort().forEach(function (k) { if (k.charAt(0) !== '_') c[k] = x[k]; }); return JSON.stringify(c); };
-    var witness = function (id, what, ok) {
-      var xs = byId[id] || [], path = 'proposals/' + id + '.json';
+    /* A witness: the one record under an id, the same in every copy. Not in the folder as read, there as another kind, or there
+       twice with different contents (a synced copy, a compound included), it is named and the pack is partial; every copy of
+       an ambiguous one goes in, so a reader sees both. */
+    var unique = function (xs, path, what) {
       if (!xs.length) { missing.push(path + ': ' + what + ', but it isn\'t in the folder as read.'); return null; }
-      if (xs.some(function (x) { return canon(x) !== canon(xs[0]); })) { missing.push(path + ': ' + what + ', but the folder has two different copies of it.'); return null; }
-      if (ok && !ok(xs[0])) { missing.push(path + ': ' + what + ', but it isn\'t that record.'); return null; }
-      file(xs[0]); return xs[0];
+      if (xs.some(function (x) { return canon(x) !== canon(xs[0]); })) { xs.forEach(function (x) { file(x); }); missing.push(path + ': ' + what + ', but the folder has two different copies of it.'); return null; }
+      return xs[0];
     };
-    var sawQ = [], sawSeen = Object.create(null), mineRun = function (x) { return !!x.run && x.run.process === r.process && x.run.id === r.id; };
+    var witness = function (id, what, ok) {
+      var path = 'proposals/' + id + '.json', x = unique(byId[id] || [], path, what);
+      if (!x) return null;
+      if (ok && !ok(x)) { missing.push(path + ': ' + what + ', but it isn\'t that record.'); return null; }
+      file(x); return x;
+    };
+    var sawQ = [], sawSeen = Object.create(null);
     var saw = function (x) { (Array.isArray(x && x.seen) ? x.seen : []).forEach(function (id) { if (typeof id === 'string' && !sawSeen[id]) { sawSeen[id] = true; sawQ.push(id); } }); };
-    chain.forEach(function (id) {
-      var a = (byId[id] || [])[0];
-      if (!a) return;
-      saw(a);
-      if (a.kind !== 'application') return;
-      var q = witness(a.proposal, 'application ' + id + ' applies this request', function (x) { return (x.kind === 'proposal' || x.kind === 'compound') && mineRun(x); });
-      if (q) saw(q);
-      var au = a.authority || {}, w = null;
-      if (au.decision) w = witness(au.decision, 'application ' + id + ' rests on this decision', function (x) { return x.kind === 'decision' && x.proposal === a.proposal && mineRun(x); });
-      else if (au.grant) w = witness(au.grant, 'application ' + id + ' rests on this grant', function (x) { return x.kind === 'grant'; });
-      else if (au.compound) w = witness(au.compound, 'application ' + id + ' rests on this compound', function (x) { return x.kind === 'compound'; });
-      else missing.push('proposals/' + id + '.json: an application that names no authority.');
-      if (w) saw(w);
-    });
-    for (var si = 0; si < sawQ.length; si++) {
-      if (si >= (o.cap || DEP_CAP)) { missing.push('The records the run\'s applications saw go past ' + (o.cap || DEP_CAP) + ', so they weren\'t all checked.'); break; }
-      var sx = witness(sawQ[si], 'a record the run\'s work saw');
-      if (sx) saw(sx);
-    }
-    var rs = r.ended ? stateOf(r, records, o.unread) : null;
-    if (rs && rs.state !== 'confirmed' && rs.state !== 'none') missing.push(rs.why + ' (' + rs.path + ')');
-    /* Facts used as evidence, evidence runs and their plans, and the spreads this run's work holds. */
-    var spreads = Object.create(null);
+    var chain = [], rs = null, spreads = Object.create(null), allKids = Object.create(null);
     var look = function (b) {
       if (!b) return;
       if (b.support && b.support.fact) { var fx = byId[b.support.fact]; if (fx && fx.length) fx.forEach(function (f) { file(f, 'A fact used as evidence'); }); else missing.push('proposals/' + b.support.fact + '.json: a to-do rests on this fact, but it isn\'t in the folder as read.'); }
       if (b.evidence && b.evidence.run) { run(b.evidence.run.process, b.evidence.run.id, 'evidence'); if (plans.indexOf(b.evidence.plan) < 0) plans.push(b.evidence.plan); }
-      if (b.spread) spreads[b.spread] = true;
     };
-    mine.forEach(function (x) { look(x); look(x.effect); look(x.application && x.application.effect); });
-    /* Each child run's records, and every record fulfilling one of this run's spreads (on any run). */
-    (o.children || []).forEach(function (c) { run(c.process, c.id, 'child'); PF.todos.recordsFor(records, c).forEach(function (x) { file(x, 'A to-do record on a child run'); look(x); look(x.effect); look(x.application && x.application.effect); }); });
-    records.forEach(function (x) { if (x && x.fulfills && spreads[x.fulfills.spread]) { file(x, 'A to-do request fulfilling a spread'); if (x.run) run(x.run.process, x.run.id, 'child'); } });
-    (o.childUnread || []).forEach(function (k) { missing.push('runs/' + k + '/run.json: a child run of this run\'s loops can\'t be read.'); });
-    /* The loops' scope records. */
-    (o.scopes || []).forEach(function (x) { var l = PF.loop.loopOf(x); if (l && l.process === r.process && l.run === r.id) file(x, 'A loop scope record'); });
-    (o.scopesUnread || []).forEach(function (u) { if (!u.loop || (u.loop.process === r.process && u.loop.run === r.id)) missing.push('proposals/' + u.file + ': a scope record that can\'t be read (' + String(u.why || 'unreadable') + ').'); });
-    /* Records that can't be read: on this run, a child, or a run that can't be told, they may be part of its work. */
-    var kids = Object.create(null); (o.children || []).forEach(function (c) { kids[c.process + '/' + c.id] = true; });
-    (o.unread || []).forEach(function (u) { var k = u.run ? u.run.process + '/' + u.run.id : ''; if (!u.run || k === r.process + '/' + r.id || kids[k]) missing.push('proposals/' + u.file + ' (' + (u.kind === 'newer' || u.kind === 'unreadable' ? u.kind : 'malformed') + ') can\'t be read (' + String(u.why || 'unreadable') + '), so what the run\'s work rests on may be missing.'); });
+    /* One run's own closure: its records, its living chain (every link a witness), each application's request, authority and
+       what it saw, its receipt, and the runs it depends on. Another run's problems name it. */
+    var walk = function (X) {
+      var k = keyOf(X), on = k === rootKey ? '' : 'On ' + k + ': ', mine = PF.todos.recordsFor(records, X);
+      var mineRun = function (x) { return !!x.run && x.run.process === X.process && x.run.id === X.id; };
+      mine.forEach(function (x) { file(x, k === rootKey ? null : 'A to-do record on a run its work depends on'); });
+      var ch = [], at = X.living && X.living.head || '', visited = Object.create(null);
+      while (at) {
+        if (visited[at]) { missing.push(on + 'The run\'s applications go round in a circle at ' + at + '.'); break; }
+        visited[at] = true;
+        var a = unique((byId[at] || []).filter(mineRun), (on ? on : '') + 'proposals/' + at + '.json', 'the run\'s work names this application');
+        if (!a) break;
+        var ap = a.kind === 'application' ? a : a.kind === 'compound' ? a.application : null;
+        if (!ap) { missing.push(on + 'proposals/' + at + '.json: the run\'s work names it, but it isn\'t an application.'); break; }
+        ch.unshift(at); at = ap.previous;
+      }
+      if (k === rootKey) chain = ch;
+      else for (var ri = 0; ri < runs.length; ri++) if (keyOf(runs[ri]) === k) { runs[ri].chain = ch.slice(); runs[ri].head = X.living ? X.living.head : ''; if (X.living && X.living.receipt) runs[ri].receipt = X.living.receipt; }
+      ch.forEach(function (id) {
+        var a = (byId[id] || [])[0];
+        if (!a) return;
+        saw(a);
+        if (a.kind !== 'application') return;
+        var q = witness(a.proposal, on + 'application ' + id + ' applies this request', function (x) { return (x.kind === 'proposal' || x.kind === 'compound') && mineRun(x); });
+        if (q) saw(q);
+        var au = a.authority || {}, w = null;
+        if (au.decision) w = witness(au.decision, on + 'application ' + id + ' rests on this decision', function (x) { return x.kind === 'decision' && x.proposal === a.proposal && mineRun(x); });
+        else if (au.grant) w = witness(au.grant, on + 'application ' + id + ' rests on this grant', function (x) { return x.kind === 'grant'; });
+        else if (au.compound) w = witness(au.compound, on + 'application ' + id + ' rests on this compound', function (x) { return x.kind === 'compound'; });
+        else missing.push(on + 'proposals/' + id + '.json: an application that names no authority.');
+        if (w) saw(w);
+      });
+      var v = X.ended ? stateOf(X, records, o.unread) : null;
+      if (v && v.state !== 'confirmed' && v.state !== 'none') missing.push(on + v.why + ' (' + v.path + ')');
+      if (k === rootKey) rs = v;
+      /* Facts used as evidence, evidence runs and their plans, the spreads this run's work holds and the parents whose spread
+         one of its requests fulfills. */
+      var sp = Object.create(null);
+      mine.forEach(function (x) { look(x); look(x.effect); look(x.application && x.application.effect); [x, x.effect, x.application && x.application.effect].forEach(function (b) { if (b && b.spread) sp[b.spread] = spreads[b.spread] = true; }); if (x.fulfills && x.fulfills.run) run(x.fulfills.run.process, x.fulfills.run.id, 'fulfills'); });
+      (kids[k] || []).forEach(function (c) { allKids[keyOf(c)] = true; run(c.process, c.id, 'child'); });
+      records.forEach(function (x) { if (x && x.fulfills && sp[x.fulfills.spread]) { file(x, 'A to-do request fulfilling a spread'); if (x.run) run(x.run.process, x.run.id, 'child'); } });
+      (o.scopes || []).forEach(function (x) { var l = PF.loop.loopOf(x); if (l && l.process === X.process && l.run === X.id) file(x, 'A loop scope record'); });
+      (o.scopesUnread || []).forEach(function (u) { if (u.loop && u.loop.process === X.process && u.loop.run === X.id) missing.push('proposals/' + u.file + ': a scope record that can\'t be read (' + String(u.why || 'unreadable') + ').'); });
+    };
+    for (var qi = 0; qi < queue.length; qi++) {
+      if (qi > cap) { missing.push('The runs the work depends on go past ' + cap + ', so they weren\'t all checked.'); break; }
+      walk(queue[qi]);
+    }
+    (o.scopesUnread || []).forEach(function (u) { if (!u.loop) missing.push('proposals/' + u.file + ': a scope record that can\'t be read (' + String(u.why || 'unreadable') + ').'); });
+    for (var si = 0; si < sawQ.length; si++) {
+      if (si >= cap) { missing.push('The records the run\'s applications saw go past ' + cap + ', so they weren\'t all checked.'); break; }
+      var sx = witness(sawQ[si], 'a record the run\'s work saw');
+      if (sx) saw(sx);
+    }
+    /* A run the work depends on that couldn't be listed, found or read, or whose own verdict refuses it: named by path and
+       kind. One neither read nor refused is a caller's to read next (toRead). */
+    var toRead = [];
+    runs.forEach(function (x) { var k = keyOf(x), b = bad[k]; if (b) { x.problem = b; missing.push(b.path + ' (' + b.kind + '): ' + (x.role === 'evidence' ? 'a to-do was done on this run\'s result' : x.role === 'fulfills' ? 'a request on the run fulfills a spread of this run' : 'a child run of its loops') + ', but ' + String(b.why) + '.'); } else if (!known[k]) toRead.push(x); });
+    (o.runBad || []).forEach(function (b) { if (b && !b.key) missing.push(b.path + ' (' + b.kind + '): ' + String(b.why) + ', so a child run of its loops may be missing.'); });
+    /* Records that can't be read: on this run, a run it depends on, or a run that can't be told, they may be part of its work. */
+    (o.unread || []).forEach(function (u) { var k = u.run ? u.run.process + '/' + u.run.id : ''; if (!u.run || k === rootKey || seenR[k]) missing.push('proposals/' + u.file + ' (' + (u.kind === 'newer' || u.kind === 'unreadable' ? u.kind : 'malformed') + ') can\'t be read (' + String(u.why || 'unreadable') + '), so what the run\'s work rests on may be missing.'); });
     /* Past the cap nothing is cut: the export is refused (over), naming why. */
-    var over = files.length + runs.length > (o.cap || DEP_CAP) ? 'The work of ' + r.process + '/' + r.id + ' rests on ' + (files.length + runs.length) + ' records and runs; a pack made here holds at most ' + (o.cap || DEP_CAP) + '. Nothing was packed.' : '';
-    return { files: files, runs: runs, plans: plans, chain: chain, receipt: rs, missing: missing, over: over };
+    var over = files.length + runs.length > cap ? 'The work of ' + r.process + '/' + r.id + ' rests on ' + (files.length + runs.length) + ' records and runs; a pack made here holds at most ' + cap + '. Nothing was packed.' : '';
+    return { files: files, runs: runs, toRead: toRead, plans: plans, chain: chain, receipt: rs, missing: missing, over: over };
   }
+
 
   return { LIMITS: LIMITS, COUNTS: COUNTS, deps: deps, OUTCOMES: OUTCOMES, loopsOf: loopsOf, tally: tally, words: words, compare: compare, coverageOf: coverageOf, evidenceOf: evidenceOf, keepsOf: keepsOf,
     idFor: idFor, build: build, cleanFile: cleanFile, prepare: prepare, stateOf: stateOf, verdict: verdict, since: since };
@@ -26138,51 +26167,95 @@ PF.repo = (function () {
         .then(function (x) { x[0].listing = x[1]; return x[0]; }, function (e) { return { failed: why(e) }; });
       return propsOnce;
     }
-    function childrenOf(self) {
+    /* One run the work depends on, read as the readers read it (readRunOnly) and judged as they judge it: { run } or { bad:
+       { key, path, kind, why } } for one that isn't there, can't be read, or whose version can't be read or doesn't verify. */
+    function depRun(proc, id) {
+      var key = proc + '/' + id, path = 'runs/' + key + '/run.json';
+      return readRunOnly(ro, proc, id).then(function (one) {
+        if (!one || !one.found || one.nofile) return { bad: { key: key, path: path, kind: 'missing', why: 'it isn\'t in the folder' } };
+        var b = (one.bad || []).filter(function (x) { return String(x.path || '').indexOf('runs/' + key + '/') === 0; })[0];
+        if (b) return { bad: { key: key, path: String(b.path), kind: b.kind || 'malformed', why: String(b.why || 'it can\'t be read') } };
+        var c = one.run;
+        if (!c || c.id !== id || c.process !== proc) return { bad: { key: key, path: path, kind: 'malformed', why: 'it isn\'t that run' } };
+        if (c._unrunnable) return { bad: { key: key, path: path, kind: 'unusable', why: String(c._unrunnable) } };
+        var pub = one.pub;
+        if (pub && (pub._readFailed || !pub.ok)) return { bad: { key: key, path: PF.run.pubDir(c), kind: 'unreadable', why: 'its version ' + String(c.folder) + ' can\'t be read or doesn\'t verify' } };
+        var mm = pub && pub.info ? runMismatch(c, pub.info) : '';
+        if (mm) return { bad: { key: key, path: path, kind: 'unusable', why: mm } };
+        return { run: c };
+      }, function (e) { return { bad: { key: key, path: path, kind: errKind(e), why: why(e) } }; });
+    }
+    /* A run's loop children: every run folder under each {for.each} step's process, read. A listing that fails, or a folder
+       whose run.json is missing or can't be read, is named (it may be a child: nothing tells it apart); a run there naming
+       another parent isn't this run's child. */
+    function childrenOf(self, got) {
       var map = null; try { map = R.mapOf(self); } catch (e) { map = null; }
-      var procs = [];
+      var procs = [], out = { runs: [], bad: [] };
       (map ? map.phases : []).forEach(function (ph) { ph.steps.forEach(function (st) { if (st.type === 'for.each' && st.fields && typeof st.fields.process === 'string' && EV_PROC.test(st.fields.process) && procs.indexOf(st.fields.process) < 0) procs.push(st.fields.process); }); });
-      var out = { runs: [], unread: [] };
       return procs.reduce(function (q, cp) { return q.then(function () {
-        return ro.list('runs/' + cp).then(null, function () { return []; }).then(function (items) {
+        return ro.list('runs/' + cp).then(function (items) {
           return limited(items.filter(function (i) { return i.kind === 'dir' && /^[a-z0-9-]{1,40}$/i.test(i.name); }).map(function (i) { return i.name; }).sort(), 4, function (cid) {
-            return sizedText('runs/' + cp + '/' + cid + '/run.json', recordMax).then(function (x) {
-              if (x.missing) return;
-              var c = x.text == null ? null : R.sanitize(json(x.text));
-              if (!c) { out.unread.push(cp + '/' + cid); return; }
-              if (c.parent && c.parent.item && c.parent.process === self.process && c.parent.id === self.id && c.id === cid && c.process === cp) out.runs.push(c);
+            var k = cp + '/' + cid;
+            return (got[k] ? Promise.resolve(got[k]) : depRun(cp, cid).then(function (x) { got[k] = x; return x; })).then(function (x) {
+              /* Which run it is a child of can't be told: named for this run whatever it is (key '': always said). */
+              if (x.bad) { out.bad.push({ key: '', path: x.bad.path, kind: x.bad.kind, why: x.bad.why }); return; }
+              var c = x.run;
+              if (c.parent && c.parent.item && c.parent.process === self.process && c.parent.id === self.id) out.runs.push(c);
             });
           });
-        });
+        }, function (e) { out.bad.push({ key: '', path: 'runs/' + cp + '/', kind: errKind(e), why: 'the folder of ' + cp + ' runs couldn\'t be listed (' + why(e) + ')' }); });
       }); }, Promise.resolve()).then(function () { return out; });
     }
     function livingPart(p, add) {
       var self = p.self;
       if (!self) return Promise.resolve();
       return proposalsRead().then(function (Pr) {
-        if (Pr.failed) { if (self.living) p.living = { head: self.living.head, chain: [], receipt: null, missing: ['proposals/ ' + Pr.failed + ', so the run\'s work can\'t be packed.'], recs: {}, listing: null }; return; }
+        if (Pr.failed) { if (self.living) p.living = { head: self.living.head, chain: [], receipt: null, missing: ['proposals/ ' + Pr.failed + ', so the run\'s work can\'t be packed.'], recs: {}, listing: null, deps: [], runTexts: {} }; return; }
         /* A record that can't be read but names this run (a malformed request, say) is part of its work too, living or not. */
         var mineUnread = (Pr.todosUnread || []).some(function (u) { return u && u.run && u.run.process === self.process && u.run.id === self.id; });
         if (!self.living && !PF.todos.recordsFor(Pr.todos, self).length && !mineUnread) return;
-        return childrenOf(self).then(function (ch) {
-          var D = PF.receipts.deps(self, { records: Pr.todos, unread: Pr.todosUnread, scopes: Pr.scopes, scopesUnread: Pr.scopesUnread, children: ch.runs, childUnread: ch.unread });
+        /* The closure, walked until it holds every run it depends on: the shared collector (PF.receipts.deps) names the runs it
+           found that aren't read yet; they are read (and their loop children listed), and it is asked again. Bounded. */
+        var got = Object.create(null), known = Object.create(null), kids = Object.create(null), runBad = [], listed = Object.create(null), D = null, rounds = 0;
+        var ask = function () { return PF.receipts.deps(self, { records: Pr.todos, unread: Pr.todosUnread, scopes: Pr.scopes, scopesUnread: Pr.scopesUnread, runs: known, kids: kids, runBad: runBad }); };
+        var listKids = function (X) {
+          var k = X.process + '/' + X.id;
+          if (listed[k]) return Promise.resolve(); listed[k] = true;
+          return childrenOf(X, got).then(function (ch) { kids[k] = ch.runs; ch.runs.forEach(function (c) { known[c.process + '/' + c.id] = c; }); runBad = runBad.concat(ch.bad); });
+        };
+        var step = function () {
+          D = ask();
           if (D.over) throw new Error(D.over);
-          var L = p.living = { head: self.living ? self.living.head : '', chain: D.chain, receipt: D.receipt ? { id: self.living.receipt || '', state: D.receipt.state, why: D.receipt.why } : null, missing: D.missing.slice(), recs: {}, listing: Pr.listing };
+          var fresh = Object.keys(known).filter(function (k) { return !listed[k]; }).map(function (k) { return known[k]; });
+          if ((!D.toRead.length && !fresh.length) || ++rounds > 64) return null;
+          return limited(D.toRead, 4, function (x) {
+            var k = x.process + '/' + x.id;
+            return (got[k] ? Promise.resolve(got[k]) : depRun(x.process, x.id).then(function (y) { got[k] = y; return y; })).then(function (y) { if (y.bad) runBad.push(y.bad); else known[k] = y.run; });
+          }).then(function () { return limited(fresh, 2, listKids); }).then(step);
+        };
+        return listKids(self).then(step).then(function () {
+          D = ask();
+          if (D.over) throw new Error(D.over);
+          var L = p.living = { head: self.living ? self.living.head : '', chain: D.chain, receipt: D.receipt ? { id: self.living.receipt || '', state: D.receipt.state, why: D.receipt.why } : null, missing: D.missing.slice(), recs: {}, listing: Pr.listing, deps: [], runTexts: {} };
           var byFile = Object.create(null);
           Pr.todos.concat(Pr.scopes).forEach(function (x) { if (x && x._file) byFile[x._file] = x; });
           D.files.forEach(function (f) { var path = 'proposals/' + f.file; L.recs[path] = byFile[f.file] || null; add(path, { role: 'living', label: f.label }); });
           var planFiles = Object.create(null); (Pr.plans || []).forEach(function (pl) { if (pl && pl._file) planFiles[pl.id] = pl._file; });
           D.plans.forEach(function (id) { if (planFiles[id]) add('proposals/' + planFiles[id], { role: 'evidence plan', label: 'The evidence plan a to-do was done on' }); else L.missing.push('proposals/' + id + '.json: a to-do was done on this evidence plan, but it isn\'t in the folder as read.'); });
-          return limited(D.runs, 4, function (x) {
-            var path = 'runs/' + x.process + '/' + x.id + '/run.json';
-            return statOf(path).then(function (z) {
-              if (z == null) { L.missing.push(path + ': ' + (x.role === 'evidence' ? 'a to-do was done on this run\'s result' : 'a child run of its loops') + ', but it isn\'t in the folder.'); return; }
-              add(path, x.role === 'evidence' ? { role: 'evidence run', label: 'The run a to-do was done on (its result is the evidence)' } : { role: 'child run', label: 'A child run of the run\'s loops' });
-            });
-          }).then(function () { return keepClaims(p, add, Pr); });
+          var LBL = { evidence: { role: 'evidence run', label: 'The run a to-do was done on (its result is the evidence)' }, child: { role: 'child run', label: 'A child run of the run\'s loops' }, fulfills: { role: 'fulfilled run', label: 'A run whose spread a request on this run fulfills' } };
+          D.runs.forEach(function (x) {
+            var k = x.process + '/' + x.id, path = 'runs/' + k + '/run.json';
+            L.deps.push({ key: k, role: x.role, head: x.head || '', chain: (x.chain || []).slice(), receipt: x.receipt || '', problem: x.problem ? x.problem.kind : '' });
+            if (x.problem || !known[k]) return;
+            L.runTexts[path] = runMark(known[k]);
+            add(path, LBL[x.role] || LBL.child);
+          });
+          return keepClaims(p, add, Pr);
         });
       });
     }
+    /* What the closure read of a run it depends on, to tell whether the copy packed is that one. */
+    function runMark(r) { return JSON.stringify([r.rev || 0, r.state || '', r.living || null, r.ended || null]); }
     /* What the run kept for next time, and where each stands: its correction's decisions and, once published, the version's
        files as proof (a claim like any correction's). */
     function keepClaims(p, add, Pr) {
@@ -26319,9 +26392,17 @@ PF.repo = (function () {
           var strip = function (r) { if (!r) return ''; var c = {}; Object.keys(r).forEach(function (k) { if (k.charAt(0) !== '_') c[k] = r[k]; }); return E.canonical(c); };
           if (!v || !v.ok || !was || strip(v.record) !== strip(was)) lm.push(path + ' changed while the pack was made.');
         });
+        /* Each run the work depends on, read into the pack as it was read for the closure. */
+        Object.keys(L.runTexts || {}).sort().forEach(function (path) {
+          var x = done[path];
+          if (!x || x.gone) { lm.push(path + ' was removed while the pack was made.'); return; }
+          if (x.skipped || x.text == null) { lm.push(path + ' wasn\'t read into the pack, so what it says can\'t be checked.'); return; }
+          var o = R.sanitize(json(x.text));
+          if (!o || runMark(o) !== L.runTexts[path]) lm.push(path + ' changed while the pack was made.');
+        });
         lm.forEach(function (m) { col.unresolved.push(p.key + ': ' + m); });
         if (lm.length) { limits.push('What the run\'s work rests on isn\'t all in this pack, so nothing it claims from its to-dos is confirmed.'); p.claims.forEach(function (c) { if (c.process) c.why = c.why || 'what the run\'s work rests on isn\'t all in this pack.'; }); }
-        rc.living = { head: L.head, chain: L.chain.slice(), receipt: L.receipt, records: Object.keys(L.recs).sort(), missing: lm, complete: !lm.length };
+        rc.living = { head: L.head, chain: L.chain.slice(), receipt: L.receipt, records: Object.keys(L.recs).sort(), deps: (L.deps || []).map(function (d) { return { key: d.key, role: d.role, head: d.head, chain: d.chain, receipt: d.receipt, confirmed: !d.problem && !lm.length }; }), missing: lm, complete: !lm.length };
       }
       rc.claims = p.claims.map(function (c) {
         var proof = c.folder ? ['map.md', 'types.json', 'publication.json'].map(function (n) { return 'publications/' + (c.process || p.process) + '/' + c.folder + '/' + n; }) : [];

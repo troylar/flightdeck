@@ -221,4 +221,117 @@ rule('A pack needs each application\'s request and the decision that authorized 
   }
 });
 
+/* ---- GB: one bounded closure over every run the work depends on: loop children, evidence runs, fulfillment parents ---- */
+const KID = ['---', 'process: validate-story', 'title: Validate a story', 'owner: person-avery', 'context: issue, disposition:choice(cleared|needs-work)', 'result: disposition', '---', '',
+  '## Assess · DO-CONFIRM {#assess}', '- [!] {decide} Record the validation result {#verdict}', '  options: cleared, needs-work', '  sets: disposition=decision', ''].join('\n');
+const PARENT = ['---', 'process: release-readiness', 'title: Release 4.1', 'owner: person-avery', '---', '',
+  '## Stories · DO-CONFIRM {#stories}', '- [!] {for.each} Validate every release story {#each}', '  process: validate-story', '  items: jira.issue', '  pass: issue=item:key', '  accepts: cleared', '',
+  '## Ship · READ-DO {#ship}', '- [!] {confirm} Ship it {#ship1}', ''].join('\n');
+/* A loop parent with a to-do, and one story run with a to-do of its own (living, its own application chain). */
+async function loopMade() {
+  const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(80); app.choose('person-avery'); await app.tick();
+  const PF = app.PF, people = JSON.parse(app.fs.files['people.json'].t), now = new Date().toISOString();
+  const put = (md, id, rand) => {
+    const b = PF.publish.build(md, { people, ...require('./harness').exampleSetup(PF), by: 'person-avery', changes: 'First', existing: [], now, rand, app: '4.0.0' });
+    assert.ok(!b.blockers, JSON.stringify(b.blockers));
+    Object.keys(b.files).forEach(k => { app.fs.files['publications/' + id + '/' + b.folder + '/' + k] = { t: b.files[k], m: Date.now() }; });
+  };
+  put(KID, 'validate-story', 'vs000001'); put(PARENT, 'release-readiness', 'rr000001');
+  app.click('refresh'); await app.tick(80);
+  app.click('start', 'release-readiness'); await app.settle();
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(150);
+  const pPath = app.files('runs/release-readiness/').find(p => /run\.json$/.test(p)), kPath = app.files('runs/validate-story/').find(p => /run\.json$/.test(p));
+  assert.ok(pPath && kPath, 'set-up: a parent and a story run');
+  const P0 = JSON.parse(app.fs.files[pPath].t), K0 = JSON.parse(app.fs.files[kPath].t);
+  for (const [r, text] of [[K0, 'Check the story'], [P0, 'Post the release notes']]) {
+    app.click('open-run', r.process + '/' + r.id); await app.tick(80);
+    app.set('td-add', text); app.click('td-add'); await app.tick(120); app.click('refresh'); await app.tick(400);
+  }
+  const P = JSON.parse(app.fs.files[pPath].t), K = JSON.parse(app.fs.files[kPath].t);
+  assert.ok(P.living && K.living && K.living.head, 'set-up: both are living');
+  const files = {}; Object.keys(app.fs.files).forEach(p => { files[p] = app.fs.files[p].t; });
+  return { PF, files, key: P.process + '/' + P.id, run: P, kid: K, kidPath: kPath, kidKey: K.process + '/' + K.id };
+}
+const failing = (fsx, test, code) => { const list = fsx.list.bind(fsx), read = fsx.read.bind(fsx), e = () => Object.assign(new Error(code + ': it can\'t be read'), { code });
+  fsx.list = (p) => test('list', p) ? Promise.reject(e()) : list(p); fsx.read = (p, o) => test('read', p) ? Promise.reject(e()) : read(p, o); return fsx; };
+
+rule('A loop child\'s own work is in the parent\'s pack: its run, its chain and its records, named as a dependency; Python accepts it', async () => {
+  const W = await loopMade(), { zip, res } = await pack(W.PF, new BytesFS(W.files), W.key);
+  assert.strictEqual(res.status, 'complete', JSON.stringify(res.col.unresolved));
+  const man = manifestOf(zip), L = man.runs[0].living, paths = man.files.map(f => f.path);
+  assert.ok(paths.indexOf(W.kidPath) >= 0 && paths.indexOf('proposals/' + W.kid.living.head + '.json') >= 0, 'the child and its head application');
+  assert.ok((L.deps || []).some(d => d.key === W.kidKey && d.role === 'child' && d.chain && d.chain[d.chain.length - 1] === W.kid.living.head), JSON.stringify(L.deps));
+  if (PY) { const c = checkPack(zip); assert.ok(c.ok, c.out); }
+});
+
+rule('A loop child with a missing application makes the parent\'s pack partial by its path; Python refuses a complete claim without it', async () => {
+  const W = await loopMade(), ap = 'proposals/' + W.kid.living.head + '.json';
+  const full = await pack(W.PF, new BytesFS(W.files), W.key);
+  const files = Object.assign({}, W.files); delete files[ap];
+  const { zip, res } = await pack(W.PF, new BytesFS(files), W.key);
+  assert.strictEqual(res.status, 'partial', JSON.stringify(res.col.unresolved));
+  assert.ok(res.col.unresolved.some(u => u.indexOf(ap) >= 0), JSON.stringify(res.col.unresolved));
+  if (PY) { const c = checkPack(zip); assert.ok(c.ok, c.out); }
+  if (!PY) return;
+  const e = unzip(full.zip), man = JSON.parse(e['manifest.json']), f = man.files.filter(x => x.path === ap)[0];
+  assert.ok(f, 'set-up: packed');
+  delete e[f.pack]; man.files = man.files.filter(x => x !== f);
+  e['manifest.json'] = Buffer.from(JSON.stringify(man, null, 2) + '\n');
+  const bad = checkPack(await rezip(W.PF, e));
+  assert.ok(!bad.ok && bad.out.indexOf(W.kidKey) >= 0, bad.out);
+});
+
+rule('Two different copies of a link in the chain (a compound) make the pack ambiguous by path; Python refuses a complete claim with both packed', async () => {
+  const W = await made({ todos: 1 }), head = W.run.living.head, ap = 'proposals/' + head + '.json', o = JSON.parse(W.files[ap]);
+  assert.strictEqual(o.kind, 'compound', 'set-up: the recorder\'s own add is a compound');
+  o.at = new Date(Date.parse(o.at) + 1000).toISOString();
+  const files = Object.assign({}, W.files, { ['proposals/' + head + ' (1).json']: JSON.stringify(o, null, 2) + '\n' });
+  const { zip, res } = await pack(W.PF, new BytesFS(files), W.key);
+  assert.strictEqual(res.status, 'partial', JSON.stringify(res.col.unresolved));
+  assert.ok(res.col.unresolved.some(u => u.indexOf(ap) >= 0 && /two different copies/.test(u)), JSON.stringify(res.col.unresolved));
+  if (!PY) return;
+  const e = unzip(zip), man = JSON.parse(e['manifest.json']);
+  assert.ok(man.files.some(f => f.path === 'proposals/' + head + ' (1).json'), 'both copies are packed');
+  man.status = 'complete'; man.runs[0].living.complete = true; man.runs[0].living.missing = [];
+  e['manifest.json'] = Buffer.from(JSON.stringify(man, null, 2) + '\n');
+  const bad = checkPack(await rezip(W.PF, e));
+  assert.ok(!bad.ok && /cop/.test(bad.out), bad.out);
+});
+
+rule('A child folder that can\'t be listed, a child run.json missing or one that can\'t be read makes the pack partial, by path and kind', async () => {
+  const W = await loopMade(), dir = W.kidPath.replace(/run\.json$/, '');
+  const cases = [
+    ['listing', (f) => failing(f, (op, p) => op === 'list' && p === 'runs/validate-story', 'EIO'), 'runs/validate-story', 'unreadable'],
+    ['missing', (f) => f, W.kidPath, 'missing'],
+    ['read', (f) => failing(f, (op, p) => op === 'read' && p === W.kidPath, 'EIO'), W.kidPath, 'unreadable']
+  ];
+  for (const [what, wrap, path, kind] of cases) {
+    const files = Object.assign({}, W.files);
+    if (what === 'missing') { delete files[W.kidPath]; files[dir + 'notes.txt'] = 'kept'; }
+    const { zip, res } = await pack(W.PF, wrap(new BytesFS(files)), W.key);
+    assert.strictEqual(res.status, 'partial', what + ': ' + JSON.stringify(res.col.unresolved));
+    assert.ok(res.col.unresolved.some(u => u.indexOf(path) >= 0 && u.indexOf('(' + kind + ')') >= 0), what + ': ' + JSON.stringify(res.col.unresolved));
+    if (PY) { const c = checkPack(zip); assert.ok(c.ok, what + ': ' + c.out); }
+  }
+});
+
+rule('An evidence run that is malformed makes the pack partial by its path and kind, never packed as confirmed', async () => {
+  const W = await made({ todos: 1 }), PF = W.PF, T = PF.todos, r = PF.run.sanitize(JSON.parse(JSON.stringify(W.run)));
+  const d = await PF.repo.loadAll(new BytesFS(W.files), {}), V = T.view(r, { records: d.todos || [], people: JSON.parse(W.files['people.json']) });
+  const td = Object.keys(V.byTodo || {})[0] || (V.todos && V.todos[0] && V.todos[0].id);
+  assert.ok(td, 'set-up: a to-do');
+  const ev = { plan: 'plan-ev-' + 'a'.repeat(24), run: { process: 'release-notes', id: 'evrun1' }, answer: 'Yes', result: '' };
+  const q = T.buildProposal({ run: { process: r.process, id: r.id }, id: PF.detours.requestId(td, ev), by: 'person-avery', seen: V.heads.slice(0, 50), at: new Date().toISOString(), body: { op: 'done', todo: td, evidence: ev }, app: '4.0.0' });
+  const files = Object.assign({}, W.files, { ['proposals/' + q.id + '.json']: T.text(q), 'runs/release-notes/evrun1/run.json': '{ broken' });
+  assert.ok(T.cleanFile(JSON.parse(T.text(q)), q.id + '.json').ok, 'set-up: the done request reads');
+  const { zip, res } = await pack(PF, new BytesFS(files), W.key);
+  assert.strictEqual(res.status, 'partial');
+  assert.ok(res.col.unresolved.some(u => u.indexOf('runs/release-notes/evrun1/run.json') >= 0 && /\((malformed|unreadable)\)/.test(u)), JSON.stringify(res.col.unresolved));
+  const L = manifestOf(zip).runs[0].living;
+  assert.ok(!(L.deps || []).some(x => x.key === 'release-notes/evrun1' && x.confirmed), 'never confirmed');
+  if (PY) { const c = checkPack(zip); assert.ok(c.ok, c.out); }
+});
+
 run();

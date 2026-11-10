@@ -3203,51 +3203,95 @@ PF.repo = (function () {
         .then(function (x) { x[0].listing = x[1]; return x[0]; }, function (e) { return { failed: why(e) }; });
       return propsOnce;
     }
-    function childrenOf(self) {
+    /* One run the work depends on, read as the readers read it (readRunOnly) and judged as they judge it: { run } or { bad:
+       { key, path, kind, why } } for one that isn't there, can't be read, or whose version can't be read or doesn't verify. */
+    function depRun(proc, id) {
+      var key = proc + '/' + id, path = 'runs/' + key + '/run.json';
+      return readRunOnly(ro, proc, id).then(function (one) {
+        if (!one || !one.found || one.nofile) return { bad: { key: key, path: path, kind: 'missing', why: 'it isn\'t in the folder' } };
+        var b = (one.bad || []).filter(function (x) { return String(x.path || '').indexOf('runs/' + key + '/') === 0; })[0];
+        if (b) return { bad: { key: key, path: String(b.path), kind: b.kind || 'malformed', why: String(b.why || 'it can\'t be read') } };
+        var c = one.run;
+        if (!c || c.id !== id || c.process !== proc) return { bad: { key: key, path: path, kind: 'malformed', why: 'it isn\'t that run' } };
+        if (c._unrunnable) return { bad: { key: key, path: path, kind: 'unusable', why: String(c._unrunnable) } };
+        var pub = one.pub;
+        if (pub && (pub._readFailed || !pub.ok)) return { bad: { key: key, path: PF.run.pubDir(c), kind: 'unreadable', why: 'its version ' + String(c.folder) + ' can\'t be read or doesn\'t verify' } };
+        var mm = pub && pub.info ? runMismatch(c, pub.info) : '';
+        if (mm) return { bad: { key: key, path: path, kind: 'unusable', why: mm } };
+        return { run: c };
+      }, function (e) { return { bad: { key: key, path: path, kind: errKind(e), why: why(e) } }; });
+    }
+    /* A run's loop children: every run folder under each {for.each} step's process, read. A listing that fails, or a folder
+       whose run.json is missing or can't be read, is named (it may be a child: nothing tells it apart); a run there naming
+       another parent isn't this run's child. */
+    function childrenOf(self, got) {
       var map = null; try { map = R.mapOf(self); } catch (e) { map = null; }
-      var procs = [];
+      var procs = [], out = { runs: [], bad: [] };
       (map ? map.phases : []).forEach(function (ph) { ph.steps.forEach(function (st) { if (st.type === 'for.each' && st.fields && typeof st.fields.process === 'string' && EV_PROC.test(st.fields.process) && procs.indexOf(st.fields.process) < 0) procs.push(st.fields.process); }); });
-      var out = { runs: [], unread: [] };
       return procs.reduce(function (q, cp) { return q.then(function () {
-        return ro.list('runs/' + cp).then(null, function () { return []; }).then(function (items) {
+        return ro.list('runs/' + cp).then(function (items) {
           return limited(items.filter(function (i) { return i.kind === 'dir' && /^[a-z0-9-]{1,40}$/i.test(i.name); }).map(function (i) { return i.name; }).sort(), 4, function (cid) {
-            return sizedText('runs/' + cp + '/' + cid + '/run.json', recordMax).then(function (x) {
-              if (x.missing) return;
-              var c = x.text == null ? null : R.sanitize(json(x.text));
-              if (!c) { out.unread.push(cp + '/' + cid); return; }
-              if (c.parent && c.parent.item && c.parent.process === self.process && c.parent.id === self.id && c.id === cid && c.process === cp) out.runs.push(c);
+            var k = cp + '/' + cid;
+            return (got[k] ? Promise.resolve(got[k]) : depRun(cp, cid).then(function (x) { got[k] = x; return x; })).then(function (x) {
+              /* Which run it is a child of can't be told: named for this run whatever it is (key '': always said). */
+              if (x.bad) { out.bad.push({ key: '', path: x.bad.path, kind: x.bad.kind, why: x.bad.why }); return; }
+              var c = x.run;
+              if (c.parent && c.parent.item && c.parent.process === self.process && c.parent.id === self.id) out.runs.push(c);
             });
           });
-        });
+        }, function (e) { out.bad.push({ key: '', path: 'runs/' + cp + '/', kind: errKind(e), why: 'the folder of ' + cp + ' runs couldn\'t be listed (' + why(e) + ')' }); });
       }); }, Promise.resolve()).then(function () { return out; });
     }
     function livingPart(p, add) {
       var self = p.self;
       if (!self) return Promise.resolve();
       return proposalsRead().then(function (Pr) {
-        if (Pr.failed) { if (self.living) p.living = { head: self.living.head, chain: [], receipt: null, missing: ['proposals/ ' + Pr.failed + ', so the run\'s work can\'t be packed.'], recs: {}, listing: null }; return; }
+        if (Pr.failed) { if (self.living) p.living = { head: self.living.head, chain: [], receipt: null, missing: ['proposals/ ' + Pr.failed + ', so the run\'s work can\'t be packed.'], recs: {}, listing: null, deps: [], runTexts: {} }; return; }
         /* A record that can't be read but names this run (a malformed request, say) is part of its work too, living or not. */
         var mineUnread = (Pr.todosUnread || []).some(function (u) { return u && u.run && u.run.process === self.process && u.run.id === self.id; });
         if (!self.living && !PF.todos.recordsFor(Pr.todos, self).length && !mineUnread) return;
-        return childrenOf(self).then(function (ch) {
-          var D = PF.receipts.deps(self, { records: Pr.todos, unread: Pr.todosUnread, scopes: Pr.scopes, scopesUnread: Pr.scopesUnread, children: ch.runs, childUnread: ch.unread });
+        /* The closure, walked until it holds every run it depends on: the shared collector (PF.receipts.deps) names the runs it
+           found that aren't read yet; they are read (and their loop children listed), and it is asked again. Bounded. */
+        var got = Object.create(null), known = Object.create(null), kids = Object.create(null), runBad = [], listed = Object.create(null), D = null, rounds = 0;
+        var ask = function () { return PF.receipts.deps(self, { records: Pr.todos, unread: Pr.todosUnread, scopes: Pr.scopes, scopesUnread: Pr.scopesUnread, runs: known, kids: kids, runBad: runBad }); };
+        var listKids = function (X) {
+          var k = X.process + '/' + X.id;
+          if (listed[k]) return Promise.resolve(); listed[k] = true;
+          return childrenOf(X, got).then(function (ch) { kids[k] = ch.runs; ch.runs.forEach(function (c) { known[c.process + '/' + c.id] = c; }); runBad = runBad.concat(ch.bad); });
+        };
+        var step = function () {
+          D = ask();
           if (D.over) throw new Error(D.over);
-          var L = p.living = { head: self.living ? self.living.head : '', chain: D.chain, receipt: D.receipt ? { id: self.living.receipt || '', state: D.receipt.state, why: D.receipt.why } : null, missing: D.missing.slice(), recs: {}, listing: Pr.listing };
+          var fresh = Object.keys(known).filter(function (k) { return !listed[k]; }).map(function (k) { return known[k]; });
+          if ((!D.toRead.length && !fresh.length) || ++rounds > 64) return null;
+          return limited(D.toRead, 4, function (x) {
+            var k = x.process + '/' + x.id;
+            return (got[k] ? Promise.resolve(got[k]) : depRun(x.process, x.id).then(function (y) { got[k] = y; return y; })).then(function (y) { if (y.bad) runBad.push(y.bad); else known[k] = y.run; });
+          }).then(function () { return limited(fresh, 2, listKids); }).then(step);
+        };
+        return listKids(self).then(step).then(function () {
+          D = ask();
+          if (D.over) throw new Error(D.over);
+          var L = p.living = { head: self.living ? self.living.head : '', chain: D.chain, receipt: D.receipt ? { id: self.living.receipt || '', state: D.receipt.state, why: D.receipt.why } : null, missing: D.missing.slice(), recs: {}, listing: Pr.listing, deps: [], runTexts: {} };
           var byFile = Object.create(null);
           Pr.todos.concat(Pr.scopes).forEach(function (x) { if (x && x._file) byFile[x._file] = x; });
           D.files.forEach(function (f) { var path = 'proposals/' + f.file; L.recs[path] = byFile[f.file] || null; add(path, { role: 'living', label: f.label }); });
           var planFiles = Object.create(null); (Pr.plans || []).forEach(function (pl) { if (pl && pl._file) planFiles[pl.id] = pl._file; });
           D.plans.forEach(function (id) { if (planFiles[id]) add('proposals/' + planFiles[id], { role: 'evidence plan', label: 'The evidence plan a to-do was done on' }); else L.missing.push('proposals/' + id + '.json: a to-do was done on this evidence plan, but it isn\'t in the folder as read.'); });
-          return limited(D.runs, 4, function (x) {
-            var path = 'runs/' + x.process + '/' + x.id + '/run.json';
-            return statOf(path).then(function (z) {
-              if (z == null) { L.missing.push(path + ': ' + (x.role === 'evidence' ? 'a to-do was done on this run\'s result' : 'a child run of its loops') + ', but it isn\'t in the folder.'); return; }
-              add(path, x.role === 'evidence' ? { role: 'evidence run', label: 'The run a to-do was done on (its result is the evidence)' } : { role: 'child run', label: 'A child run of the run\'s loops' });
-            });
-          }).then(function () { return keepClaims(p, add, Pr); });
+          var LBL = { evidence: { role: 'evidence run', label: 'The run a to-do was done on (its result is the evidence)' }, child: { role: 'child run', label: 'A child run of the run\'s loops' }, fulfills: { role: 'fulfilled run', label: 'A run whose spread a request on this run fulfills' } };
+          D.runs.forEach(function (x) {
+            var k = x.process + '/' + x.id, path = 'runs/' + k + '/run.json';
+            L.deps.push({ key: k, role: x.role, head: x.head || '', chain: (x.chain || []).slice(), receipt: x.receipt || '', problem: x.problem ? x.problem.kind : '' });
+            if (x.problem || !known[k]) return;
+            L.runTexts[path] = runMark(known[k]);
+            add(path, LBL[x.role] || LBL.child);
+          });
+          return keepClaims(p, add, Pr);
         });
       });
     }
+    /* What the closure read of a run it depends on, to tell whether the copy packed is that one. */
+    function runMark(r) { return JSON.stringify([r.rev || 0, r.state || '', r.living || null, r.ended || null]); }
     /* What the run kept for next time, and where each stands: its correction's decisions and, once published, the version's
        files as proof (a claim like any correction's). */
     function keepClaims(p, add, Pr) {
@@ -3384,9 +3428,17 @@ PF.repo = (function () {
           var strip = function (r) { if (!r) return ''; var c = {}; Object.keys(r).forEach(function (k) { if (k.charAt(0) !== '_') c[k] = r[k]; }); return E.canonical(c); };
           if (!v || !v.ok || !was || strip(v.record) !== strip(was)) lm.push(path + ' changed while the pack was made.');
         });
+        /* Each run the work depends on, read into the pack as it was read for the closure. */
+        Object.keys(L.runTexts || {}).sort().forEach(function (path) {
+          var x = done[path];
+          if (!x || x.gone) { lm.push(path + ' was removed while the pack was made.'); return; }
+          if (x.skipped || x.text == null) { lm.push(path + ' wasn\'t read into the pack, so what it says can\'t be checked.'); return; }
+          var o = R.sanitize(json(x.text));
+          if (!o || runMark(o) !== L.runTexts[path]) lm.push(path + ' changed while the pack was made.');
+        });
         lm.forEach(function (m) { col.unresolved.push(p.key + ': ' + m); });
         if (lm.length) { limits.push('What the run\'s work rests on isn\'t all in this pack, so nothing it claims from its to-dos is confirmed.'); p.claims.forEach(function (c) { if (c.process) c.why = c.why || 'what the run\'s work rests on isn\'t all in this pack.'; }); }
-        rc.living = { head: L.head, chain: L.chain.slice(), receipt: L.receipt, records: Object.keys(L.recs).sort(), missing: lm, complete: !lm.length };
+        rc.living = { head: L.head, chain: L.chain.slice(), receipt: L.receipt, records: Object.keys(L.recs).sort(), deps: (L.deps || []).map(function (d) { return { key: d.key, role: d.role, head: d.head, chain: d.chain, receipt: d.receipt, confirmed: !d.problem && !lm.length }; }), missing: lm, complete: !lm.length };
       }
       rc.claims = p.claims.map(function (c) {
         var proof = c.folder ? ['map.md', 'types.json', 'publication.json'].map(function (n) { return 'publications/' + (c.process || p.process) + '/' + c.folder + '/' + n; }) : [];

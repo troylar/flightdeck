@@ -25,12 +25,12 @@
       "reviewed": "slice 6: pending and unreadable records shown before living; receipt head ''"
     },
     "docs/design.md": {
-      "sha256": "0c7c71145c6305e9c31f366422bd86a27361a6dc5712872b160e60af9f449fca",
-      "reviewed": "slice 6 round 2 GC: one receipt verdict in every reader, view, copied text and the checker"
+      "sha256": "98adee4a681ac4eabba8e9dd3dc677274f3aec6dfeebf1b57d688e0fc8a341ff",
+      "reviewed": "GB: one bounded closure over every dependency run in the evidence pack; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
-      "sha256": "0e404d7949687394725354f90cd1c5ec5a9dce05969c5761a57f8119b79b8e0b",
-      "reviewed": "slice 6 CB: packs require each application's request, authority and causal closure"
+      "sha256": "bda337bfb28a2fba4655b8433018d40585a80efd261c9c1afd477c6b409694d8",
+      "reviewed": "GB: evidence.md says which runs the pack checks; checked for direct writes and unconditional deletes"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
@@ -309,8 +309,8 @@
       "reviewed": "loops: items: item kind, feed binding, completeness fix, nouns, unknown-kind refusal in loop.js/map.js/publish.js/types.js and check_folder.py parity; pure checks only, checked for direct writes and unconditional deletes"
     },
     "src/core/receipts.js": {
-      "sha256": "380f6dd57748d2080e4387c73d01ec30155762ec282efd5b0d72c8779a781841",
-      "reviewed": "slice 6 round 2 GC: one receipt verdict in every reader, view, copied text and the checker"
+      "sha256": "dd9818212cb6eea2a1c7b7f86d45cb998b4d780381f0c643c414f790d734847e",
+      "reviewed": "GB: one bounded closure over every dependency run in the evidence pack; checked for direct writes and unconditional deletes"
     },
     "src/core/refs.js": {
       "sha256": "24b7d2b52fcd99673fcc427db286a7224af83342da19efcd561ac850d6baa441",
@@ -421,8 +421,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "a9aab7bbb49962aabba8ff6ebbc3d28d8d7aa05bd7b5baff1cb6f158e724fa16",
-      "reviewed": "slice 6 round 2 GC: one receipt verdict in every reader, view, copied text and the checker"
+      "sha256": "48389729147e6b0f1ba166b4b426f6946e5061fae5988d0a191579f48303f4ad",
+      "reviewed": "GB: one bounded closure over every dependency run in the evidence pack; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "63edc99b5e74d69b10993ba2f800f08a5fdcdf1cd67c7f57ffd167077a677174",
