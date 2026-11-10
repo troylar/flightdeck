@@ -26278,7 +26278,8 @@ PF.repo = (function () {
       var self = p.self;
       if (!self) return Promise.resolve();
       return proposalsRead().then(function (Pr) {
-        if (Pr.failed) { if (self.living) p.living = { head: self.living.head, chain: [], receipt: null, missing: ['proposals/ ' + Pr.failed + ', so the run\'s work can\'t be packed.'], recs: {}, listing: null, deps: [], runTexts: {} }; return; }
+        /* Whether the run has to-do records at all is only known from this read: one that fails is named, living or not yet. */
+        if (Pr.failed) { p.living = { head: self.living ? self.living.head : '', chain: [], receipt: null, missing: ['proposals/ ' + Pr.failed + ', so the run\'s work can\'t be packed.'], recs: {}, listing: null, deps: [], runTexts: {} }; return; }
         /* A record that can't be read but names this run (a malformed request, say) is part of its work too, living or not. */
         var mineUnread = (Pr.todosUnread || []).some(function (u) { return u && u.run && u.run.process === self.process && u.run.id === self.id; });
         if (!self.living && !PF.todos.recordsFor(Pr.todos, self).length && !mineUnread) return;

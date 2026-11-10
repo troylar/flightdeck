@@ -29,8 +29,8 @@
       "reviewed": "LG: declined requests count in the Changes total"
     },
     "docs/evidence.md": {
-      "sha256": "12bc4defc7c8ba2e4a4978394c9e616364d9836a24e7d9fce50863f950e2761e",
-      "reviewed": "KA: one complete run verdict wherever a dependency is judged"
+      "sha256": "2e1e42409ed1e8c6f1604fef8bcce02c45fe5b7858c37e8c4d65fc0bb6fe3560",
+      "reviewed": "LD: a failed proposals read is named before living"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
@@ -421,8 +421,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "3400bca7317385c56b85ac6d9ff18e8bdd9738de02268659299f8272b379f4c7",
-      "reviewed": "KA: one complete run verdict wherever a dependency is judged"
+      "sha256": "8326c16b893ca5ac5b814c5dea733152c5873408c79c24e8434f7b488456a744",
+      "reviewed": "LD: a failed proposals read is named before living"
     },
     "src/ui/app.js": {
       "sha256": "813c5c73f708fe91a6f093f148b9d7bda601318f5c12d120a018b6b6a4a123d3",

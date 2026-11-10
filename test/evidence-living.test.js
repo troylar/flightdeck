@@ -540,4 +540,16 @@ rule('A dependency run whose version can\'t be read (EIO) is named by the versio
   assert.ok(!(L.deps || []).some(d => d.key === W.kidKey && d.confirmed), 'never confirmed: ' + JSON.stringify(L.deps));
 });
 
+/* LD: the checked read of proposals/ that fails is named, and the pack is partial, whether or not the run is living yet. */
+rule('proposals/ that can\'t be read is named and the pack partial, for a run with a pending request that isn\'t living yet; Python agrees', async () => {
+  const W = await made({ todos: 0, end: false });
+  const PF = W.PF, T = PF.todos, r = PF.run.sanitize(JSON.parse(JSON.stringify(W.run)));
+  const p = T.buildProposal({ run: { process: r.process, id: r.id }, id: T.idFor('flightdeck', 'k-0a1b2d'), by: 'person-blake', seen: [], at: new Date().toISOString(), body: { op: 'add', text: 'Waiting one', target: { phase: 'draft' }, placement: T.placementFor(PF.run.mapOf(r), { phase: 'draft' }) }, app: '4.0.0' });
+  W.files['proposals/' + p.id + '.json'] = T.text(p);
+  const { zip, res } = await pack(PF, failing(new BytesFS(W.files), (op, q) => op === 'list' && q === 'proposals', 'EIO'), W.key);
+  assert.strictEqual(res.status, 'partial', JSON.stringify(res.col.unresolved));
+  assert.ok(res.col.unresolved.some(u => u.indexOf('proposals/') >= 0), JSON.stringify(res.col.unresolved));
+  if (PY) { const c = checkPack(zip); assert.ok(c.ok, c.out); }
+});
+
 run();
