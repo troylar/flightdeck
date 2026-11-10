@@ -3144,8 +3144,8 @@ async function factMain(argv) {
    decides: a person decides in Flightdeck (or a delegation covers it), and the recorder's window applies it. --as names who the
    tool asks for; it never stands for that person's approval. */
 /* flightdeck todo keep / spread keep (4.0 slice 5, docs/design.md 45.3): a to-do or a spread kept for next time, as one keep
-   record (PF.learn). Named by the run, what it keeps and where, never by a key: the same keep again is already, the same
-   place in other words is refused. It changes no work and never writes run.json; what it rests on that can't be read holds
+   record (PF.learn). Named by the run, what it keeps, where and in which words, never by a key: the same keep again is
+   already, the same place in other words another alternative. It changes no work and never writes run.json; what it rests on that can't be read holds
    it (exit 4) with the path named. */
 const KEEP_VAL = ['--tool', '--key', '--todo', '--spread', '--text', '--reason', '--phase', '--after'];
 async function keepMain(argv, noun) {

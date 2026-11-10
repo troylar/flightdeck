@@ -135,13 +135,20 @@ rule('A draft phase emptied since the run takes the kept step at its end, once a
   same([clean.state, PF.outline.parse(clean.text).phases.find(p => p.id === 'notes').steps.map(s => s.text)], ['clean', ['Note anything odd', 'Write the notes']], 'at the end of a phase as it was');
 });
 
-rule('The same to-do kept twice, by a person and by a tool, is one record; a second wording for it is refused, never filed', () => {
+rule('The same to-do kept twice, by a person and by a tool, is one record; a second wording for it is another alternative in the same group', () => {
   const W = world(), td = W.todo('Post the release notes', { phase: 'ship' });
   const a = W.kept({ todo: td }), b = W.keep({ todo: td }, {}, { tool: 'notes-bot', version: '1.0' });
   same([b.status, b.id], ['already', a.id]);
-  const c = W.keep({ todo: td }, { text: 'Post the notes to the wiki' });
-  assert.ok(c.taken && /other words/.test(c.why), c.why);
-  assert.strictEqual(L.keepsOf(W.recs).length, 1);
+  assert.strictEqual(W.keep({ todo: td }, { text: 'Post  the release notes ' }).status, 'already', 'the same words, spaced differently, are the same keep');
+  const c = W.kept({ todo: td }, { text: 'Post the notes to the wiki' });
+  assert.ok(c.status === 'new' && c.id !== a.id, 'another wording is its own keep');
+  same([W.keep({ todo: td }, { text: 'Post the notes to the wiki' }, { tool: 'notes-bot', version: '1.0' }).status], ['already'], 'its retry is already');
+  const d = W.keep({ todo: td }, { reason: 'Another reason' });
+  assert.ok(d.taken && /other words/.test(d.why), 'the same wording with another reason is refused: ' + d.why);
+  assert.strictEqual(L.keepsOf(W.recs).length, 2);
+  const g = W.groups('release-readiness');
+  same([g.length, L.alternatives(g[0]).map(x => x.text).sort()], [1, ['Post the notes to the wiki', 'Post the release notes']], 'one group, both wordings for the owner');
+  same(L.forSource(W.recs, () => g, W.r, { todo: td }).keeps.length, 2);
 });
 
 rule('Keeps for one place join one group; different wording stays as alternatives the owner chooses between', () => {

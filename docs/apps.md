@@ -790,7 +790,7 @@ flightdeck spread keep <team folder> <process>/<run> --spread <spread id> --tool
 
 Where it goes: a phase's to-do goes at the end of that phase of the run's own checklist, a step's to-do right after that step. A spread goes to the checklist the loop's items run, at the end of the phase that holds its gate. A to-do on one item goes to the checklist the items run too, but needs `--phase` (the end of that phase) or `--after` (after that step) to say where; without one it is kept as needing placement, which shows on the to-do and goes into no correction. `--text` keeps it in other words (no @roles, ^details or {#ids}; at most 2,000 characters, never cut).
 
-There is no `--key`: a keep is named by the run, what it keeps and the place. The same keep again (any tool, any person) is `already`; the same place in other words is refused, since the owner chooses between wordings in the correction. Two to-dos kept for the same place join one correction, each wording kept as an alternative.
+There is no `--key`: a keep is named by the run, what it keeps, the place and its wording (spacing aside). The same keep again (any tool, any person) is `already`; the same place in other words is another keep, an alternative in the same correction for the owner to choose between, and the same words with another reason are refused. Two to-dos kept for the same place join one correction, each wording kept as an alternative.
 
 Only the checklist's active owner (or its backup while the owner is inactive) reviews, applies and declines what was kept, in the app. The to-do then says where it stands: Suggested, Applied to draft, or Published in vN.
 
@@ -803,7 +803,7 @@ Only the checklist's active owner (or its backup while the owner is inactive) re
 | Situation | What it says |
 |---|---|
 | A record, people.json or the items' checklist can't be read | `held` (exit 4), each named in `problems`: nothing was written |
-| The same place, kept in other words | `key-taken` |
+| The same place and words, kept with another reason | `key-taken` |
 | No such to-do or spread, a place not in that checklist, a step text a checklist can't hold | `invalid`, with why |
 | `--key`, both `--phase` and `--after` | `usage` |
 | No such run | exit 5 |

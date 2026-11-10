@@ -1,6 +1,6 @@
 // flightdeck todo keep and spread keep (4.0, docs/apps.md, docs/design.md 45.3): keep a to-do or a spread for next time. One
 // record in proposals/, named by the run, what it keeps and where, never by a key: the same keep again is already, the same
-// place in other words is refused. It changes no work, holds no gate and never writes run.json. What it rests on that can't
+// place in other words is another alternative. It changes no work, holds no gate and never writes run.json. What it rests on that can't
 // be read holds it (exit 4) with the path named, never guessed; --dry-run writes nothing.
 'use strict';
 const assert = require('assert'), fs = require('fs'), os = require('os'), path = require('path');
@@ -104,8 +104,12 @@ rule('todo keep on a phase to-do: --dry-run writes nothing; it files one keep fo
   const again = json('todo', 'keep', F.root, PR, '--todo', F.phaseTodo, '--reason', 'We forget it every time', '--json', '--tool', 'other-helper@2.0');
   assert.deepStrictEqual([again.code, again.data.status, ls(F.root).length], [0, 'already', n]);
   const other = json('todo', 'keep', F.root, PR, '--todo', F.phaseTodo, '--text', 'Post the notes to the wiki', '--json', ...TOOL);
-  assert.deepStrictEqual([other.code, other.error.kind, ls(F.root).length], [1, 'key-taken', n]);
-  assert.ok(/other words/.test(other.error.why), other.error.why);
+  assert.deepStrictEqual([other.code, other.data.status, ls(F.root).length], [0, 'kept', n + 1], 'another wording is another alternative');
+  assert.notStrictEqual(other.data.keep.id, id);
+  const otherAgain = json('todo', 'keep', F.root, PR, '--todo', F.phaseTodo, '--text', 'Post the notes to the wiki', '--json', ...TOOL);
+  assert.deepStrictEqual([otherAgain.code, otherAgain.data.status, ls(F.root).length], [0, 'already', n + 1]);
+  const reasoned = json('todo', 'keep', F.root, PR, '--todo', F.phaseTodo, '--reason', 'Another reason', '--json', ...TOOL);
+  assert.deepStrictEqual([reasoned.code, reasoned.error.kind, ls(F.root).length], [1, 'key-taken', n + 1]);
   const keyed = json('todo', 'keep', F.root, PR, '--todo', F.phaseTodo, '--key', 'k-1', '--json', ...TOOL);
   assert.deepStrictEqual([keyed.code, keyed.error.kind], [1, 'usage']);
   assert.strictEqual(fs.readFileSync(runFile(F.root, PR), 'utf8'), before['runs/release-readiness/r-41/run.json'], 'the CLI never writes run.json');

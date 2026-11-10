@@ -42,14 +42,14 @@ PF.learn = (function () {
     return '';
   }
 
-  /* ---- Names. A keep is named by what it keeps and where, never by who or when: the same to-do kept for the same place, by
-     a person or any tool, is one file. Kept for another place it is another, and a placed keep replaces one that needed
-     placement. ---- */
+  /* ---- Names. A keep is named by what it keeps, where and in which words (spacing aside), never by who or when: the same
+     to-do kept for the same place in the same words, by a person or any tool, is one file. Kept for another place it is
+     another, and so is another wording of it: an alternative in the same group, for the owner to choose between. ---- */
   function sourceKey(s) { return s.todo ? 'todo:' + s.todo : 'spread:' + s.spread; }
   function anchorKey(a) { return a ? a.phase + '/' + (a.after || '') : ''; }
-  function hashOf(run, source, template, anchor) { return hex(['keep', run.process, run.id, sourceKey(source), template ? template.process : '', anchorKey(anchor)]).slice(0, 24); }
-  function idFor(run, source, template, anchor) { return 'req-keep-' + hashOf(run, source, template, anchor); }
-  function keyFor(run, source, template, anchor) { return 'kp-' + hashOf(run, source, template, anchor); }
+  function hashOf(run, source, template, anchor, text) { return hex(['keep', run.process, run.id, sourceKey(source), template ? template.process : '', anchorKey(anchor), norm(text)]).slice(0, 24); }
+  function idFor(run, source, template, anchor, text) { return 'req-keep-' + hashOf(run, source, template, anchor, text); }
+  function keyFor(run, source, template, anchor, text) { return 'kp-' + hashOf(run, source, template, anchor, text); }
 
   /* A phase as a place for a new step: its steps, each with its signature. A phase that gains, loses or changes a step since
      the run's version is another place. */
@@ -130,8 +130,8 @@ PF.learn = (function () {
       var nd = line(o.needs, LIMITS.needs, '"needs" (why it needs placement)', errors); if (nd) r.needs = nd;
     }
     if (o.reason != null) { var rs = line(o.reason, LIMITS.reason, '"reason"', errors); if (rs) r.reason = rs; }
-    if (!errors.length && o.id !== idFor(r.run, r.source, r.template, r.anchor)) errors.push('Its id isn\'t the one its run, source and place give.');
-    if (!errors.length && r.by.tool && o.key !== keyFor(r.run, r.source, r.template, r.anchor)) errors.push('Its key isn\'t the one its run, source and place give.');
+    if (!errors.length && o.id !== idFor(r.run, r.source, r.template, r.anchor, r.change.text)) errors.push('Its id isn\'t the one its run, source, place and wording give.');
+    if (!errors.length && r.by.tool && o.key !== keyFor(r.run, r.source, r.template, r.anchor, r.change.text)) errors.push('Its key isn\'t the one its run, source, place and wording give.');
     if (errors.length) return mal('is a keep that isn\'t in its format: ' + errors[0]);
     return { ok: true, record: r };
   }
@@ -140,8 +140,8 @@ PF.learn = (function () {
   function build(o) {
     var f = { format: PF.todos.FORMAT, features: [PF.todos.FEATURE] };
     if (PF.envelope.semver(o.app)) f.app = o.app;
-    f.kind = 'keep'; f.id = idFor(o.run, o.source, o.template || null, o.anchor || null); f.run = { process: o.run.process, id: o.run.id };
-    if (o.producer) { f.producer = { name: o.producer.name, version: o.producer.version }; f.key = keyFor(o.run, o.source, o.template || null, o.anchor || null); } else f.by = o.by;
+    f.kind = 'keep'; f.id = idFor(o.run, o.source, o.template || null, o.anchor || null, o.change.text); f.run = { process: o.run.process, id: o.run.id };
+    if (o.producer) { f.producer = { name: o.producer.name, version: o.producer.version }; f.key = keyFor(o.run, o.source, o.template || null, o.anchor || null, o.change.text); } else f.by = o.by;
     f.at = o.at; f.source = o.source;
     if (o.template) f.template = o.template;
     if (o.anchor) { f.anchor = o.anchor; f.base = o.base; }
@@ -249,7 +249,7 @@ PF.learn = (function () {
     if (prior.length) {
       if (prior.length > 1 || prior[0].kind !== 'keep') return { why: 'Something else is already filed under this keep\'s name (proposals/' + name + ').', taken: true };
       var a = prior[0];
-      if (norm(a.change.text) !== text || (a.reason || '') !== reason) return { why: 'It was already kept for this place in other words (proposals/' + name + '). One keep a to-do and place; a person decides between wordings in its correction.', taken: true };
+      if (norm(a.change.text) !== text || (a.reason || '') !== reason) return { why: 'It was already kept for this place in these words, with another reason (proposals/' + name + '). A keep is filed once; keep it in other words for another alternative.', taken: true };
       return { id: f.id, name: name, status: 'already', record: a, preview: previewOf(a) };
     }
     if ((o.unread || []).some(function (u) { return u && u.file === name; })) return { why: 'A keep under this name is in the folder but can\'t be read yet.', held: true };

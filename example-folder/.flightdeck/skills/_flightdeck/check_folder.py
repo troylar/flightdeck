@@ -2262,10 +2262,10 @@ def keep_step_why(t):
     return ""
 
 
-def _khash(run, source, template, anchor):
+def _khash(run, source, template, anchor, text):
     sk = "todo:" + source["todo"] if "todo" in source else "spread:" + source["spread"]
     ak = anchor["phase"] + "/" + (anchor.get("after") or "") if anchor else ""
-    return _thash(["keep", run["process"], run["id"], sk, template["process"] if template else "", ak], 24)
+    return _thash(["keep", run["process"], run["id"], sk, template["process"] if template else "", ak, js_trim(K_WS.sub(" ", text))], 24)
 
 
 def keep_why(o, name):
@@ -2370,10 +2370,10 @@ def keep_why(o, name):
         _kline(o.get("needs"), K_LIMITS["needs"], '"needs" (why it needs placement)', err)
     if o.get("reason") is not None:
         _kline(o["reason"], K_LIMITS["reason"], '"reason"', err)
-    if not errors and o["id"] != "req-keep-" + _khash(rrun, source, tpl, anc):
-        err("Its id isn't the one its run, source and place give.")
-    if not errors and tool and o.get("key") != "kp-" + _khash(rrun, source, tpl, anc):
-        err("Its key isn't the one its run, source and place give.")
+    if not errors and o["id"] != "req-keep-" + _khash(rrun, source, tpl, anc, ch["text"]):
+        err("Its id isn't the one its run, source, place and wording give.")
+    if not errors and tool and o.get("key") != "kp-" + _khash(rrun, source, tpl, anc, ch["text"]):
+        err("Its key isn't the one its run, source, place and wording give.")
     return "is a keep that isn't in its format: " + errors[0] if errors else ""
 
 
