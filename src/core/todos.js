@@ -491,7 +491,9 @@ PF.todos = (function () {
   function reduce(records, r, o) {
     o = o || {};
     /* Facts (4.0 slice 4) are informational: they never enter the to-do order or the chain of applications. */
-    var mine = recordsFor(records, r).filter(notFact), c = PF.loop.causal(mine), byId = Object.create(null), heldIds = Object.create(null), T;
+    /* Copies of one id that differ are found over every record read (o.all: any kind, any run) before facts are left out, so a
+       request with a fact's copy, or another run's, is held with everything after it (PF.loop.withCopies). */
+    var mine = recordsFor(records, r).filter(notFact), c = PF.loop.causal(PF.loop.withCopies(mine, o.all || records)), byId = Object.create(null), heldIds = Object.create(null), T;
     c.order.forEach(function (x) { byId[x.id] = x; });
     c.held.forEach(function (h) { heldIds[h.record] = h; });
     mine.forEach(function (x) { if (!byId[x.id] && !heldIds[x.id]) heldIds[x.id] = { record: x.id, missing: [], why: 'after' }; });
@@ -833,7 +835,7 @@ PF.todos = (function () {
     var map = null; try { map = PF.run.mapOf(r); } catch (e) { map = null; }
     /* deps: every to-do record and unread file read, for what a story's request depends on (its spread, on the parent run). */
     var deps = o.deps || { records: o.records || [], unread: o.unread || [] };
-    var T = reduce(o.records || [], r, { map: map, ended: !!r.ended, may: mayFor(r, o.people), authority: authorityFor(r, map, o.people), depWhy: function (q) { return fulfillsWhy(q, deps); },
+    var T = reduce(o.records || [], r, { all: deps.records || o.records || [], map: map, ended: !!r.ended, may: mayFor(r, o.people), authority: authorityFor(r, map, o.people), depWhy: function (q) { return fulfillsWhy(q, deps); },
       /* o.now: the time evidence is judged by (facts); without one, a done on evidence holds. */
       supportWhy: function (q, x) { return PF.facts.supportWhy(r, q, x, deps, o.now); } });
     T.map = map;

@@ -387,6 +387,42 @@ rule('Copies of one fact that differ hold every slot and run any copy names, wha
   same(W.slot({ source: JIRA, domain: 'status' }).held, [], 'identical copies are one record');
   assert.ok(x);
 });
+rule('Copies of one id that differ in kind (a fact and a request) hold both sides: the evidence slot, the request and what came after it', () => {
+  /* A request filed under a fact's id: the suggestion resting on that fact holds and nothing lands. */
+  for (const order of ['fact-first', 'request-first']) {
+    const W = world(), x = W.todo(), f = W.fact('prs-1', { maxAgeSeconds: 18000 });
+    const g = T.grantOf(W.r, { subject: { tool: 'git-bot' }, ops: ['done'], targets: [{ item: { loopStep: 'each', uid: uid(101), attempt: 1 } }], by: 'person-morgan', key: 'g1', records: W.recs, people: PEOPLE, at: AT, now: NOW });
+    assert.ok(!g.why, g.why); W.push(g.record, g.name);
+    const s = W.suggest(x, f.id); assert.ok(!s.why, s.why); W.push(s.record, s.name);
+    same(W.view().requests[s.id].status, 'queued', order + ' set-up');
+    const p = T.buildProposal({ run: W.r, id: f.id, by: 'person-avery', seen: [], at: AT, body: { op: 'add', text: 'Something else', target: x.target, placement: x.placement } });
+    const v = T.cleanFile(JSON.parse(T.text(p)), f.id + ' (1).json'); assert.ok(v.ok, v.why);
+    if (order === 'request-first') { const i = W.recs.indexOf(f.record || W.recs.filter((y) => y.id === f.id)[0]); const fr = W.recs.splice(i, 1)[0]; W.push(v.record, f.id + ' (1).json'); W.push(fr, f.id + '.json'); }
+    else W.push(v.record, f.id + ' (1).json');
+    const S = W.slot();
+    assert.ok(S && S.held.indexOf(f.id) >= 0, order + ': the fact\'s slot is held: ' + JSON.stringify(S && S.held));
+    const V = W.view();
+    same(V.requests[s.id].status, 'held', order + ': ' + JSON.stringify(V.requests[s.id]));
+    assert.ok(!V.requests[f.id] || V.requests[f.id].status === 'held', order + ': the request copy is held too');
+    W.land();
+    same(W.view().byTodo[x.id].state, 'open', order + ': nothing landed');
+  }
+  /* A fact filed under an applied request's id: the request, its application and the chain after it hold (fail closed). */
+  const W = world(), fid = F.idFor('git-bot', 'kk'), x0 = W.todo('First');
+  const P = T.buildProposal({ run: W.r, id: fid, by: 'person-avery', seen: [], at: AT, body: { op: 'add', text: 'Merge the fix', target: x0.target, placement: x0.placement } });
+  const pv = T.cleanFile(JSON.parse(T.text(P)), fid + '.json'); assert.ok(pv.ok, pv.why); W.push(pv.record, fid + '.json');
+  const it = T.inbox([W.r], { records: W.recs, people: PEOPLE, me: 'person-morgan', now: NOW }).filter((y) => y.id === fid)[0];
+  assert.ok(it, 'set-up: in the inbox');
+  const d = T.decide(W.r, { request: fid, op: 'accept', by: 'person-morgan', shown: it.consequence.fingerprint, records: W.recs, people: PEOPLE, at: AT, writer: 'w2', rev: rev(), now: NOW });
+  assert.ok(!d.why, d.why); W.push(d.record, d.name); W.land();
+  const V0 = W.view();
+  same([V0.todos.length, !!V0.broken], [2, false], 'set-up: the to-do landed under ' + fid + ' (' + P.id + ')');
+  const fr = W.raw('kk', {}); fr._file = fid + ' (1).json';
+  const V = W.view();
+  assert.ok(V.broken && V.todos.length === 0, 'the chain resting on the request whose copies differ holds: ' + JSON.stringify({ broken: V.broken, todos: V.todos.length }));
+  assert.ok(W.slot().held.indexOf(fid) >= 0, 'and the fact\'s slot is held');
+});
+
 rule('A delegation that covers done applies a suggestion without a person, still only on its evidence', () => {
   const W = world(), x = W.todo(), f = W.fact('prs-1', { maxAgeSeconds: 18000 });
   const g = T.grantOf(W.r, { subject: { tool: 'git-bot' }, ops: ['done'], targets: [{ item: { loopStep: 'each', uid: uid(101), attempt: 1 } }], by: 'person-morgan', key: 'g1', records: W.recs, people: PEOPLE, at: AT, now: NOW });

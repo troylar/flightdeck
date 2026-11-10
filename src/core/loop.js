@@ -44,11 +44,39 @@ PF.loop = (function () {
   function uidOf(source, it) { return it && it.id ? source + ':' + it.id : source + ':key:' + String((it && it.key) || ''); }
   /* Each record's ancestors (every record it saw, transitively), and the causal order. A record that names one this copy
      can't read is held, with everything after it that saw it: nothing of theirs is applied. */
+  /* What a copy of a record says, for telling copies apart: its fields, without the reader's own (_file, created). */
+  function copyBody(r) { var o = Object.create(null); Object.keys(r).forEach(function (k) { if (k[0] !== '_' && k !== 'created') o[k] = r[k]; }); return JSON.stringify(canon(o)); }
+  /* The ids whose copies differ (OneDrive's "<id> (1).json"), over every checked record given, whatever its kind or run, so a
+     fact and a request under one id are caught before either reducer picks out its own. Kept per list (and its length), so
+     every reducer of one read asks once. */
+  var splitMemo = typeof WeakMap === 'function' ? new WeakMap() : null;
+  function splitIds(records) {
+    var list = records || [], m = splitMemo && splitMemo.get(list);
+    if (m && m.n === list.length) return m.split;
+    var first = Object.create(null), split = Object.create(null);
+    list.forEach(function (x) {
+      if (!x || typeof x.id !== 'string') return;
+      var b = copyBody(x);
+      if (!(x.id in first)) first[x.id] = b; else if (first[x.id] !== b) split[x.id] = true;
+    });
+    if (splitMemo) splitMemo.set(list, { n: list.length, split: split });
+    return split;
+  }
+  /* mine (one reducer's records) with every other copy, from all, of an id in mine whose copies differ: causal then holds that
+     id, and everything that saw it, wherever the other copy is and whatever it is. */
+  function withCopies(mine, all) {
+    var split = splitIds(all), ids = Object.keys(split);
+    if (!ids.length) return mine;
+    var has = Object.create(null), own = typeof Set === 'function' ? new Set(mine) : null;
+    mine.forEach(function (x) { if (x && split[x.id]) has[x.id] = true; });
+    var away = (all || []).filter(function (x) { return x && has[x.id] && !(own ? own.has(x) : mine.indexOf(x) >= 0); });
+    return away.length ? mine.concat(away) : mine;
+  }
   function causal(records) {
     var by = Object.create(null), order = [], held = [], anc = Object.create(null), split = Object.create(null);
     /* OneDrive copies of one record (the same id): counted once when they say the same thing; when they differ, which is
        meant isn't known, so the record is held, with everything after it. */
-    function body(r) { var o = Object.create(null); Object.keys(r).forEach(function (k) { if (k[0] !== '_' && k !== 'created') o[k] = r[k]; }); return JSON.stringify(canon(o)); }
+    var body = copyBody;
     records.forEach(function (r) {
       if (!r || typeof r.id !== 'string') return;
       if (!by[r.id]) by[r.id] = r; else if (body(by[r.id]) !== body(r)) split[r.id] = true;
@@ -1046,7 +1074,7 @@ PF.loop = (function () {
   /* The records about one loop instance. */
   function recordsFor(records, loop) { return (records || []).filter(function (r) { return r.loop && r.loop.process === loop.process && r.loop.run === loop.run && r.loop.step === loop.step; }); }
 
-  return { askerWhy: askerWhy, seenFor: seenFor, page: page, settleIn: settleIn, pageWords: pageWords, fileWhy: fileWhy, KINDS: KINDS, kindOf: kindOf, nounOf: nounOf, count: count, feedWhy: feedWhy, httpLink: httpLink, cleanItem: cleanItem, cleanChanges: cleanChanges, FEED: FEED, NOUN: NOUN, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
+  return { splitIds: splitIds, withCopies: withCopies, askerWhy: askerWhy, seenFor: seenFor, page: page, settleIn: settleIn, pageWords: pageWords, fileWhy: fileWhy, KINDS: KINDS, kindOf: kindOf, nounOf: nounOf, count: count, feedWhy: feedWhy, httpLink: httpLink, cleanItem: cleanItem, cleanChanges: cleanChanges, FEED: FEED, NOUN: NOUN, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
     idFor: idFor, isScope: isScope, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
     rollup: rollup, view: view, markStale: markStale, rowId: rowId, choiceWhy: choiceWhy, resolveWhy: resolveWhy, resolvedBy: resolvedBy, planWhy: planWhy, sendBackWhy: sendBackWhy, again: again, appliedIn: appliedIn, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();

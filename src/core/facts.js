@@ -173,28 +173,13 @@ PF.facts = (function () {
   /* ---- Reduction: a run's facts, by item, source and domain. Order is causal among a run's facts (PF.loop.causal); a fact
      that saw one this computer can't read, or whose copies differ, is held, and so is its slot. ---- */
   function factsOf(records, r) { return (records || []).filter(function (x) { return x && x.kind === 'fact' && x.run && x.run.process === r.process && x.run.id === r.id; }); }
-  /* Ids whose copies (OneDrive's "<id> (1).json") differ, over every fact record in the folder, whatever run each names:
-     which is meant isn't known, so no copy is ever chosen by the order they were read in. */
-  function splitIds(records) {
-    var first = Object.create(null), split = Object.create(null);
-    (records || []).forEach(function (x) {
-      if (!x || x.kind !== 'fact' || typeof x.id !== 'string') return;
-      var b = JSON.stringify(canon(bodyOf(x)));
-      if (!(x.id in first)) first[x.id] = b; else if (first[x.id] !== b) split[x.id] = true;
-    });
-    return split;
-  }
-  function bodyOf(x) { var o = Object.create(null); Object.keys(x).forEach(function (k) { if (k[0] !== '_') o[k] = x[k]; }); return o; }
   /* o: { records (every to-do and fact record read), unread ({ file, run } that couldn't be read) }. */
   function view(r, o) {
     o = o || {};
-    var split = splitIds(o.records), mine = factsOf(o.records, r);
-    /* A copy of one of this run's ids on another run makes them differ here too, so causal holds it (and what came after). */
-    var mineIds = Object.create(null); mine.forEach(function (m) { mineIds[m.id] = true; });
-    var away = (o.records || []).filter(function (x) { return x && x.kind === 'fact' && split[x.id] && mineIds[x.id] && !(x.run && x.run.process === r.process && x.run.id === r.id); });
-    var c = PF.loop.causal(mine.concat(away)), held = Object.create(null), slots = Object.create(null), list = [];
+    /* Copies of one id that differ, of any kind or run, are found over every record (PF.loop.splitIds) before this run's
+       facts are picked out: none is chosen by the order they were read in. */
+    var split = PF.loop.splitIds(o.records), mine = factsOf(o.records, r), c = PF.loop.causal(PF.loop.withCopies(mine, o.records)), held = Object.create(null), slots = Object.create(null), list = [];
     c.held.forEach(function (h) { held[h.record] = h; });
-    Object.keys(split).forEach(function (id) { if (!held[id] && mineIds[id]) { held[id] = { record: id, missing: [], why: 'copies' }; c.held.push(held[id]); } });
     var unread = (o.unread || []).filter(function (u) { return u && u.file !== 'people.json' && (!u.run || (u.run.process === r.process && u.run.id === r.id)); });
     var slotOf = function (f) {
       var k = slotKey(f);

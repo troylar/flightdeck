@@ -16777,11 +16777,39 @@ PF.loop = (function () {
   function uidOf(source, it) { return it && it.id ? source + ':' + it.id : source + ':key:' + String((it && it.key) || ''); }
   /* Each record's ancestors (every record it saw, transitively), and the causal order. A record that names one this copy
      can't read is held, with everything after it that saw it: nothing of theirs is applied. */
+  /* What a copy of a record says, for telling copies apart: its fields, without the reader's own (_file, created). */
+  function copyBody(r) { var o = Object.create(null); Object.keys(r).forEach(function (k) { if (k[0] !== '_' && k !== 'created') o[k] = r[k]; }); return JSON.stringify(canon(o)); }
+  /* The ids whose copies differ (OneDrive's "<id> (1).json"), over every checked record given, whatever its kind or run, so a
+     fact and a request under one id are caught before either reducer picks out its own. Kept per list (and its length), so
+     every reducer of one read asks once. */
+  var splitMemo = typeof WeakMap === 'function' ? new WeakMap() : null;
+  function splitIds(records) {
+    var list = records || [], m = splitMemo && splitMemo.get(list);
+    if (m && m.n === list.length) return m.split;
+    var first = Object.create(null), split = Object.create(null);
+    list.forEach(function (x) {
+      if (!x || typeof x.id !== 'string') return;
+      var b = copyBody(x);
+      if (!(x.id in first)) first[x.id] = b; else if (first[x.id] !== b) split[x.id] = true;
+    });
+    if (splitMemo) splitMemo.set(list, { n: list.length, split: split });
+    return split;
+  }
+  /* mine (one reducer's records) with every other copy, from all, of an id in mine whose copies differ: causal then holds that
+     id, and everything that saw it, wherever the other copy is and whatever it is. */
+  function withCopies(mine, all) {
+    var split = splitIds(all), ids = Object.keys(split);
+    if (!ids.length) return mine;
+    var has = Object.create(null), own = typeof Set === 'function' ? new Set(mine) : null;
+    mine.forEach(function (x) { if (x && split[x.id]) has[x.id] = true; });
+    var away = (all || []).filter(function (x) { return x && has[x.id] && !(own ? own.has(x) : mine.indexOf(x) >= 0); });
+    return away.length ? mine.concat(away) : mine;
+  }
   function causal(records) {
     var by = Object.create(null), order = [], held = [], anc = Object.create(null), split = Object.create(null);
     /* OneDrive copies of one record (the same id): counted once when they say the same thing; when they differ, which is
        meant isn't known, so the record is held, with everything after it. */
-    function body(r) { var o = Object.create(null); Object.keys(r).forEach(function (k) { if (k[0] !== '_' && k !== 'created') o[k] = r[k]; }); return JSON.stringify(canon(o)); }
+    var body = copyBody;
     records.forEach(function (r) {
       if (!r || typeof r.id !== 'string') return;
       if (!by[r.id]) by[r.id] = r; else if (body(by[r.id]) !== body(r)) split[r.id] = true;
@@ -17779,7 +17807,7 @@ PF.loop = (function () {
   /* The records about one loop instance. */
   function recordsFor(records, loop) { return (records || []).filter(function (r) { return r.loop && r.loop.process === loop.process && r.loop.run === loop.run && r.loop.step === loop.step; }); }
 
-  return { askerWhy: askerWhy, seenFor: seenFor, page: page, settleIn: settleIn, pageWords: pageWords, fileWhy: fileWhy, KINDS: KINDS, kindOf: kindOf, nounOf: nounOf, count: count, feedWhy: feedWhy, httpLink: httpLink, cleanItem: cleanItem, cleanChanges: cleanChanges, FEED: FEED, NOUN: NOUN, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
+  return { splitIds: splitIds, withCopies: withCopies, askerWhy: askerWhy, seenFor: seenFor, page: page, settleIn: settleIn, pageWords: pageWords, fileWhy: fileWhy, KINDS: KINDS, kindOf: kindOf, nounOf: nounOf, count: count, feedWhy: feedWhy, httpLink: httpLink, cleanItem: cleanItem, cleanChanges: cleanChanges, FEED: FEED, NOUN: NOUN, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
     idFor: idFor, isScope: isScope, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
     rollup: rollup, view: view, markStale: markStale, rowId: rowId, choiceWhy: choiceWhy, resolveWhy: resolveWhy, resolvedBy: resolvedBy, planWhy: planWhy, sendBackWhy: sendBackWhy, again: again, appliedIn: appliedIn, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();
@@ -18277,7 +18305,9 @@ PF.todos = (function () {
   function reduce(records, r, o) {
     o = o || {};
     /* Facts (4.0 slice 4) are informational: they never enter the to-do order or the chain of applications. */
-    var mine = recordsFor(records, r).filter(notFact), c = PF.loop.causal(mine), byId = Object.create(null), heldIds = Object.create(null), T;
+    /* Copies of one id that differ are found over every record read (o.all: any kind, any run) before facts are left out, so a
+       request with a fact's copy, or another run's, is held with everything after it (PF.loop.withCopies). */
+    var mine = recordsFor(records, r).filter(notFact), c = PF.loop.causal(PF.loop.withCopies(mine, o.all || records)), byId = Object.create(null), heldIds = Object.create(null), T;
     c.order.forEach(function (x) { byId[x.id] = x; });
     c.held.forEach(function (h) { heldIds[h.record] = h; });
     mine.forEach(function (x) { if (!byId[x.id] && !heldIds[x.id]) heldIds[x.id] = { record: x.id, missing: [], why: 'after' }; });
@@ -18619,7 +18649,7 @@ PF.todos = (function () {
     var map = null; try { map = PF.run.mapOf(r); } catch (e) { map = null; }
     /* deps: every to-do record and unread file read, for what a story's request depends on (its spread, on the parent run). */
     var deps = o.deps || { records: o.records || [], unread: o.unread || [] };
-    var T = reduce(o.records || [], r, { map: map, ended: !!r.ended, may: mayFor(r, o.people), authority: authorityFor(r, map, o.people), depWhy: function (q) { return fulfillsWhy(q, deps); },
+    var T = reduce(o.records || [], r, { all: deps.records || o.records || [], map: map, ended: !!r.ended, may: mayFor(r, o.people), authority: authorityFor(r, map, o.people), depWhy: function (q) { return fulfillsWhy(q, deps); },
       /* o.now: the time evidence is judged by (facts); without one, a done on evidence holds. */
       supportWhy: function (q, x) { return PF.facts.supportWhy(r, q, x, deps, o.now); } });
     T.map = map;
@@ -19463,28 +19493,13 @@ PF.facts = (function () {
   /* ---- Reduction: a run's facts, by item, source and domain. Order is causal among a run's facts (PF.loop.causal); a fact
      that saw one this computer can't read, or whose copies differ, is held, and so is its slot. ---- */
   function factsOf(records, r) { return (records || []).filter(function (x) { return x && x.kind === 'fact' && x.run && x.run.process === r.process && x.run.id === r.id; }); }
-  /* Ids whose copies (OneDrive's "<id> (1).json") differ, over every fact record in the folder, whatever run each names:
-     which is meant isn't known, so no copy is ever chosen by the order they were read in. */
-  function splitIds(records) {
-    var first = Object.create(null), split = Object.create(null);
-    (records || []).forEach(function (x) {
-      if (!x || x.kind !== 'fact' || typeof x.id !== 'string') return;
-      var b = JSON.stringify(canon(bodyOf(x)));
-      if (!(x.id in first)) first[x.id] = b; else if (first[x.id] !== b) split[x.id] = true;
-    });
-    return split;
-  }
-  function bodyOf(x) { var o = Object.create(null); Object.keys(x).forEach(function (k) { if (k[0] !== '_') o[k] = x[k]; }); return o; }
   /* o: { records (every to-do and fact record read), unread ({ file, run } that couldn't be read) }. */
   function view(r, o) {
     o = o || {};
-    var split = splitIds(o.records), mine = factsOf(o.records, r);
-    /* A copy of one of this run's ids on another run makes them differ here too, so causal holds it (and what came after). */
-    var mineIds = Object.create(null); mine.forEach(function (m) { mineIds[m.id] = true; });
-    var away = (o.records || []).filter(function (x) { return x && x.kind === 'fact' && split[x.id] && mineIds[x.id] && !(x.run && x.run.process === r.process && x.run.id === r.id); });
-    var c = PF.loop.causal(mine.concat(away)), held = Object.create(null), slots = Object.create(null), list = [];
+    /* Copies of one id that differ, of any kind or run, are found over every record (PF.loop.splitIds) before this run's
+       facts are picked out: none is chosen by the order they were read in. */
+    var split = PF.loop.splitIds(o.records), mine = factsOf(o.records, r), c = PF.loop.causal(PF.loop.withCopies(mine, o.records)), held = Object.create(null), slots = Object.create(null), list = [];
     c.held.forEach(function (h) { held[h.record] = h; });
-    Object.keys(split).forEach(function (id) { if (!held[id] && mineIds[id]) { held[id] = { record: id, missing: [], why: 'copies' }; c.held.push(held[id]); } });
     var unread = (o.unread || []).filter(function (u) { return u && u.file !== 'people.json' && (!u.run || (u.run.process === r.process && u.run.id === r.id)); });
     var slotOf = function (f) {
       var k = slotKey(f);
