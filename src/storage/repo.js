@@ -2645,7 +2645,8 @@ PF.repo = (function () {
       props.forEach(function (p) {
         /* A scope request or decision (3.0, PF.loop; a living run's scope request is flightdeck-plan/4 with loops) goes to its own
            reader first, before the to-do reader, and never reaches the plan reader. */
-        if (PF.loop.claims(p)) {
+        /* A fact by its kind goes to the to-do reader before any loop or scope dispatch (PB), whatever envelope it carries. */
+        if (PF.loop.claims(p) && !(p && p.kind === 'fact')) {
           var sv = PF.loop.cleanFile(asWritten(p), p._file), sp = 'proposals/' + p._file, sf = /^flightdeck-plan-status\//.test(p.format) ? 'flightdeck-plan-status' : 'flightdeck-plan';
           if (!sv.ok) { if (bad) bad.push({ path: sp, kind: sv.kind, why: sv.why }); refused.push(PF.envelope.refusal(sp, sf, sv)); scopesUnread.push({ file: p._file, why: sv.why, loop: PF.loop.loopOf(p) }); return; }
           sv.record._file = p._file; scopes.push(sv.record); return;

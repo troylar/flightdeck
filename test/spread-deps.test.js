@@ -191,8 +191,13 @@ const FACT_READERS = (root) => ({
 const FACT_MODES = Object.assign({}, MODES, {
   refused: (root, f) => { const j = jsonOf(root, f); if (j.kind !== 'fact') return 'n/a'; j.format = 'flightdeck-plan/5'; delete j.features; fs.writeFileSync(path.join(root, f), JSON.stringify(j, null, 2)); }
 });
+/* PB: a fact in a loop's envelope (a scope record's format and features) is still a fact by its kind: the to-do reader takes
+   it before the loop's reader, so it is refused as a fact and holds what rests on it. */
+['flightdeck-plan/3', 'flightdeck-plan/4', 'flightdeck-plan/5'].forEach((fmt) => {
+  FACT_MODES['loop envelope ' + fmt] = (root, f) => { const j = jsonOf(root, f); if (j.kind !== 'fact') return 'n/a'; j.format = fmt; j.features = ['loops']; fs.writeFileSync(path.join(root, f), JSON.stringify(j, null, 2)); };
+});
 for (const kind of Object.keys(FACT_KINDS)) for (const mode of Object.keys(FACT_MODES)) {
-  if (mode === 'refused' && !/fact/.test(kind.replace(/facts/g, ''))) continue;
+  if ((mode === 'refused' || /^loop envelope/.test(mode)) && !/fact/.test(kind.replace(/facts/g, ''))) continue;
   rule('ID: ' + kind + ', ' + mode + ': every reader of a done on evidence exits 4 naming it, suggest-done is held, nothing is written, and the guards hold', async () => {
     if (mode === 'unreadable' && process.getuid && process.getuid() === 0) return;
     const F = await factWorld(), root = F.root;
@@ -222,10 +227,12 @@ for (const kind of Object.keys(FACT_KINDS)) for (const mode of Object.keys(FACT_
 }
 /* JC: a later observation of the same slot in a later format, its features gone: still a fact by its kind, so it holds its
    slot (an observation can't be read), never reads as a plan, and what rests on that slot holds. */
-rule('JC: a newer fact with its features gone holds its slot and every suggestion on it, named as a fact, never as a plan', async () => {
+/* PB: and in a loop's envelope (a scope record's format with the loops feature), taken by the to-do reader before the loop's. */
+for (const env of [{ format: 'flightdeck-plan/5' }, { format: 'flightdeck-plan/3', features: ['loops'] }, { format: 'flightdeck-plan/4', features: ['loops'] }, { format: 'flightdeck-plan/5', features: ['loops'] }])
+rule('JC, PB: a later fact in ' + JSON.stringify(env) + ' holds its slot and every suggestion on it, named as a fact, never as a plan or a scope record', async () => {
   const F = await factWorld(), root = F.root, o = jsonOf(root, 'proposals/' + F.f2 + '.json');
-  const id = FX.idFor('git-bot', 'id-prs-newer'), n = Object.assign({}, o, { id, key: 'id-prs-newer', seen: [F.f2], format: 'flightdeck-plan/5', app: '9.0.0' });
-  delete n.features;
+  const id = FX.idFor('git-bot', 'id-prs-newer'), n = Object.assign({}, o, { id, key: 'id-prs-newer', seen: [F.f2], app: env.format === 'flightdeck-plan/4' ? '4.0.0' : '9.0.0' });
+  delete n.features; Object.assign(n, env);
   fs.writeFileSync(path.join(root, 'proposals', id + '.json'), JSON.stringify(n, null, 2));
   const off = [], p = 'proposals/' + id + '.json';
   const l = json('fact', 'list', root, PR, '--json'), it = (l.data && l.data.items || []).find((i) => i.key === 'ABC-102'), prs = it && it.facts.find((x) => x.domain === 'prs');
@@ -233,8 +240,12 @@ rule('JC: a newer fact with its features gone holds its slot and every suggestio
   for (const [rd, r] of [['fact list', l], ['story todo list', json('todo', 'list', root, KID, '--json')]]) {
     const named = (r.problems || []).filter((x) => x.path === p);
     if (r.code !== 4 || !named.length) off.push(rd + ' · exit ' + r.code + ' · ' + JSON.stringify(r.problems));
-    else if (named[0].kind !== 'newer' || /\bplan\b/.test(named[0].why)) off.push(rd + ' · named as ' + named[0].kind + ': ' + named[0].why);
+    else if (named[0].kind !== (env.format === 'flightdeck-plan/5' ? 'newer' : 'malformed') || /\bplan\b|scope/.test(named[0].why)) off.push(rd + ' · named as ' + named[0].kind + ': ' + named[0].why);
     if (rd === 'story todo list' && r.data) { const q = (r.data.requests || []).filter(x => x.op === 'done' && x.status !== 'held'); if (q.length) off.push('todo list · ' + q.map(x => x.status).join(', ')); }
+  }
+  for (const [rd, args] of [['story run', ['run', root, KID, '--contract', '2', '--json']], ['story next', ['next', root, KID, '--contract', '2', '--json']], ['story suggest-done', ['todo', 'suggest-done', root, KID, '--todo', F.todos[1], '--fact', F.f2, '--dry-run', '--json', ...FTOOL]]]) {
+    const r = json(...args);
+    if (r.code !== 4 || !(r.problems || []).some((x) => x.path === p)) off.push(rd + ' · exit ' + r.code + ' · ' + JSON.stringify((r.problems || []).map((x) => x.path)));
   }
   off.push(...await guards(F));
   assert.deepStrictEqual(off, []);

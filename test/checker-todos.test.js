@@ -258,22 +258,26 @@ rule('In a folder, a refused to-do record is listed under refused as the app nam
 });
 /* JC (4.0 slice 4): a fact in a later format with its features gone is still a fact by its kind: the app's to-do reader and the
    checker refuse it alike, as a newer fact record, never as a plan. */
-rule('JC: a fact in a later format with its features gone is refused by the app and the checker as a fact, the same way, never as a plan', async () => {
+rule('JC, PB: a fact in a later format, with its features gone or in a loop\'s envelope, is refused by the app and the checker as a fact, the same way, never as a plan or a scope record', async () => {
   const py = python();
   if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
   const [name, f] = valid().filter(([n, x]) => x.kind === 'fact')[0], o = JSON.parse(T.text(f));
-  o.format = 'flightdeck-plan/5'; o.app = '9.0.0'; delete o.features;
+  for (const env of [{ format: 'flightdeck-plan/5' }, { format: 'flightdeck-plan/3', features: ['loops'] }, { format: 'flightdeck-plan/4', features: ['loops'] }, { format: 'flightdeck-plan/5', features: ['loops'] }]) {
+  /* PB: a loop's envelope too: the kind comes before any loop or scope dispatch, in the app and the checker. */
+  delete o.features; Object.assign(o, env); if (env.format !== 'flightdeck-plan/4') o.app = '9.0.0'; else o.app = '4.0.0';
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-todo-jc-'));
   fs.mkdirSync(path.join(root, 'proposals')); fs.writeFileSync(path.join(root, 'proposals', name), JSON.stringify(o, null, 2));
   const files = { ['proposals/' + name]: JSON.stringify(o, null, 2) };
   const mem = { list: (p) => Promise.resolve(p === 'proposals' ? [{ name, kind: 'file' }] : []), read: (p) => Promise.resolve(files[p] ? { text: files[p], mtime: 1 } : null), stat: (p) => Promise.resolve(files[p] ? { size: files[p].length, mtime: 1 } : null) };
   const bad = [], got = await PF.repo.readPlans(mem, bad, null, true);
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(got.todosUnread.map((u) => [u.file, u.kind, u.run && u.run.process + '/' + u.run.id]))), [[name, 'newer', RUN.process + '/' + RUN.id]], 'the app holds its run: ' + JSON.stringify(got.todosUnread) + ' ' + JSON.stringify(bad));
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(got.todosUnread.map((u) => [u.file, u.kind, u.run && u.run.process + '/' + u.run.id]))), [[name, env.format === 'flightdeck-plan/5' ? 'newer' : 'malformed', RUN.process + '/' + RUN.id]], JSON.stringify(env) + ': the app holds its run: ' + JSON.stringify(got.todosUnread) + ' ' + JSON.stringify(bad));
   assert.ok(bad.length === 1 && !/\bplan\b/.test(bad[0].why), 'never named as a plan: ' + JSON.stringify(bad));
   const res = JSON.parse(cp.execFileSync(py, ['-I', path.join(DIR, 'check_folder.py'), root], { encoding: 'utf8' }));
   const mine = res.refused.filter((x) => x.file === 'proposals/' + name);
   assert.strictEqual(mine.length, 1, JSON.stringify(res.refused));
   assert.ok(!/\bplan\b/.test(mine[0].why) && mine[0].why === bad[0].why, 'the checker says what the app says: ' + mine[0].why + ' / ' + bad[0].why);
+  assert.ok(!got.scopesUnread.length && !(res.scopes || []).length, JSON.stringify(env) + ': never a scope record');
+  }
 });
 rule('In a folder, a to-do destination or origin on an international domain name is reported as unchecked and never judged', () => {
   const py = python();

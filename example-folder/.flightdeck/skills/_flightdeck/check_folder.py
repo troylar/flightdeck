@@ -3969,7 +3969,8 @@ def main():
             continue
         # A loop's scope record (a living run's is flightdeck-plan/4 with loops) goes to its own reader first, before the to-do
         # reader, and never reaches the plan reader (repo.readPlans).
-        if scope_claims(obj):
+        # A fact by its kind goes to the to-do reader before any scope dispatch (PB), as repo.readPlans does.
+        if scope_claims(obj) and obj.get("kind") != "fact":
             kind, needs, why, unchecked = scope_verdict(obj, name)
             if kind:
                 out["refused"].append(dict({"file": "proposals/" + name, "why": why}, **({"linkUnchecked": unchecked} if unchecked else {})))
