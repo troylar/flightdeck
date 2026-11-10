@@ -1054,4 +1054,25 @@ rule('ZA: a removal and a restore after the stop start a new incarnation, which 
   W.scopes.push(scope4(kq + 'r', null, [ex.id], stopApp, [{ op: 'restore', item: { key: 'ABC-104', id: '10104' }, reason: 'Back in' }]));
   same(owedOf(W), [true, []], 'restored after the stop: a later arrival');
 });
+/* Review round 8 (ZC): an attempt made after the stop inherits nothing, even of an item whose earlier attempt still owes it. */
+function plan4(key, n, attempt, seen, head) {
+  const c = LP.cleanIntent({ loop: LOOPT, observation: null, changes: [] }, key, { name: 'release-helper', version: '1.0' });
+  const f = LP.buildRequest(c.intent, { seen, children: [{ item: { id: String(10000 + n), key: 'ABC-' + n }, attempt, inputs: { issue: 'ABC-' + n, fix_version: '4.1' }, owner: '' }], now: AT, app: '4.0.0', head });
+  const v = LP.cleanRequest(JSON.parse(LP.text(f)), f.id + '.json'); assert.ok(v.ok, v.why); return v.record;
+}
+rule('ZC: a later attempt planned after the stop owes nothing; one planned by a record with no head still owes', () => {
+  const { W, pre, stopApp } = hiddenBeforeStop('zc1', true);
+  W.scopes.push(pre);
+  same(owedOf(W), [true, ['ABC-104#1']], 'set-up: attempt 1 owes');
+  W.kid(104, { cleared: true });
+  const p2 = plan4('zc-p2', 104, 2, [pre.id], stopApp);
+  W.scopes.push(p2);
+  same(W.loopView().rollup.items.filter(i => i.key === 'ABC-104')[0].attempt, 2, 'set-up: attempt 2 is planned');
+  same(owedOf(W), [true, []], 'attempt 2 came after the stop');
+  W.scopes.pop();
+  const c3 = LP.cleanIntent({ loop: LOOPT, observation: null, changes: [] }, 'zc-p3', { name: 'release-helper', version: '1.0' });
+  const f3 = LP.buildRequest(c3.intent, { seen: [pre.id], children: [{ item: { id: '10104', key: 'ABC-104' }, attempt: 2, inputs: { issue: 'ABC-104', fix_version: '4.1' }, owner: '' }], now: AT, app: '3.0.0' });
+  W.scopes.push(LP.cleanRequest(JSON.parse(LP.text(f3)), f3.id + '.json').record);
+  same(owedOf(W), [true, ['ABC-104#2']], 'a 3.0 plan can\'t say it came after the stop: owed');
+});
 run();

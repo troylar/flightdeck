@@ -260,7 +260,7 @@ PF.loop = (function () {
           var resolving = (x.planReview || []).length && x.plan && x.plan.attempt === k.attempt;
           if (intents[key] && intents[key] !== rec.id) { duplicates.push({ record: rec.id, op: 'plan', item: x.key, why: 'attempt ' + k.attempt + ' is already planned by ' + intents[key] }); if (c.saw(rec.id, intents[key]) && !resolving) return; }
           else if (intents[key]) return;
-          else intents[key] = rec.id;
+          else { intents[key] = rec.id; x.attemptBy = x.attemptBy || Object.create(null); x.attemptBy[k.attempt] = rec.id; }
           if (k.attempt < x.attempt) return;
           settlePlan(x, rec, k.attempt, k.inputs || {}, k.owner || '', rec.id);
         });

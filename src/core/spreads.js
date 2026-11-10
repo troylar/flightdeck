@@ -86,7 +86,7 @@ PF.spreads = (function () {
         var listed = Object.create(null); (s.stop.owed || []).forEach(function (p) { listed[p.uid] = true; });
         (s.stop.owed || []).forEach(function (p) { var w = rows[p.uid]; if (w && w.required && (w.attempt || 1) === p.attempt) owe({ uid: p.uid, attempt: p.attempt }); });
         var after = stoppedOwes(s, V, T, o);
-        V.rollup.items.forEach(function (i) { var a = i.attempt || 1; if (i.required && !listed[i.uid] && !exempt(i, a) && after(i.uid)) owe({ uid: i.uid, attempt: a }); });
+        V.rollup.items.forEach(function (i) { var a = i.attempt || 1; if (i.required && !listed[i.uid] && !exempt(i, a) && after(i.uid, a)) owe({ uid: i.uid, attempt: a }); });
       } else V.rollup.items.forEach(function (i) {
         if (!i.required) return;
         var a = i.attempt || 1;
@@ -106,7 +106,8 @@ PF.spreads = (function () {
      brought the item into scope in its current incarnation (x.intro). The stop saw the item when its scope cut saw any of
      them, and listed what it owed then: nothing more. Otherwise it owes unless every one is a 4.0 scope record whose parent
      head is the stop's application or later on this run's chain; a record with no head (a 3.0 writer), an empty head, or a
-     head not on the chain, owes, since the stop couldn't have seen it. */
+     head not on the chain, owes, since the stop couldn't have seen it. A later attempt (ZC) is judged by the record that
+     planned it as well: one planned after the stop inherits nothing, like a later arrival. */
   function stoppedOwes(s, V, T, o) {
     var cut = s.stop.cut || [], saw = V.ledger.saw || function () { return false; }, chain = T.chain || [];
     var at = chain.indexOf(s.stop.application), by = Object.create(null);
@@ -119,11 +120,13 @@ PF.spreads = (function () {
       var hi = chain.indexOf(h);
       return hi >= 0 && hi >= at;
     };
-    return function (uid) {
+    return function (uid, attempt) {
       var x = items[uid]; if (!x) return true;
       var intro = (x.intro && x.intro.length ? x.intro : [x.since || '']).filter(Boolean);
       if (!intro.length) return true;
       if (intro.some(seen)) return false;
+      var planned = attempt > 1 && x.attemptBy ? x.attemptBy[attempt] : '';
+      if (planned && later(planned)) return false;
       return !intro.every(later);
     };
   }
