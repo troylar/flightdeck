@@ -68,7 +68,9 @@ const PARENT_READERS = (root, sp) => ({
   'spread stop': ['spread', 'stop', root, PR, '--spread', sp.id, '--reason', 'Not needed', '--key', 'wa-stop', '--json', ...TOOL]
 });
 /* ZD: the list of runs reads a listed story's parents too, as the story's own reader does. */
-const CHILD_READERS = (root) => ({ 'story run': ['run', root, KID, '--contract', '2', '--json'], 'story next': ['next', root, KID, '--contract', '2', '--json'], 'story todo list': ['todo', 'list', root, KID, '--json'], 'story runs': ['runs', root, '--contract', '2', '--json'] });
+const CHILD_READERS = (root) => ({ 'story run': ['run', root, KID, '--contract', '2', '--json'], 'story next': ['next', root, KID, '--contract', '2', '--json'], 'story todo list': ['todo', 'list', root, KID, '--json'], 'story runs': ['runs', root, '--contract', '2', '--json'],
+  /* AC: filtered lists read the story's parents whatever they list. */
+  'story runs --process': ['runs', root, '--process', 'validate-story', '--contract', '2', '--json'], 'story runs --status': ['runs', root, '--status', 'running', '--contract', '2', '--json'] });
 /* A problem names it: the file, its folder, or a folder above it. */
 const names = (p, f) => { const q = String(p.path || '').replace(/\/$/, ''); return q === f || q === path.posix.dirname(f) || (q && f.indexOf(q + '/') === 0); };
 /* The set-up every cell starts from. */
@@ -104,7 +106,7 @@ for (const [kind, mode] of CELLS) {
       if (four !== incomplete || incomplete !== paths) off.push(rd + ' · exit ' + r.code + ', complete ' + r.complete + ', ' + (r.problems || []).length + ' problems');
       /* YD: the list of runs counts the parent's to-dos as held while what its spread depends on can't be read (a parent it
          can only show by name, its own version newer, carries no counts). */
-      if (rd === 'story runs' && r.data) { const kr = (r.data.runs || []).filter(x => x.process + '/' + x.id === KID)[0]; if (kr && kr.todoCounts && kr.todoCounts.held !== true) off.push('story runs · todoCounts ' + JSON.stringify(kr.todoCounts)); }
+      if (/^story runs/.test(rd) && r.data) { const kr = (r.data.runs || []).filter(x => x.process + '/' + x.id === KID)[0]; if (kr && kr.todoCounts && kr.todoCounts.held !== true) off.push('story runs · todoCounts ' + JSON.stringify(kr.todoCounts)); }
       if (rd === 'runs' && r.data) { const pr = (r.data.runs || []).filter(x => x.process + '/' + x.id === PR)[0]; if (pr && pr.todoCounts && pr.todoCounts.held !== true) off.push('runs · todoCounts ' + JSON.stringify(pr.todoCounts)); }
       if (JSON.stringify(before) !== JSON.stringify(after)) off.push(rd + ' · wrote ' + Object.keys(after).filter(k => before[k] !== after[k]).join(', '));
     }
@@ -112,4 +114,16 @@ for (const [kind, mode] of CELLS) {
     assert.deepStrictEqual(off, [], kind + ', ' + mode);
   });
 }
+/* AC: with every dependency present, the filtered lists read as the full one does: complete, and the story's to-dos held only
+   as they are there. */
+rule('AC: filtered runs, with the parent present, are complete and count the story\'s to-dos as the full list does', async () => {
+  const { root } = await world();
+  const kidOf = (r) => (r.data.runs || []).filter(x => x.process + '/' + x.id === KID)[0];
+  const full = json('runs', root, '--contract', '2', '--json');
+  assert.strictEqual(full.code, 0, 'set-up: ' + JSON.stringify(full.problems));
+  for (const args of [['--process', 'validate-story'], ['--status', 'running']]) {
+    const r = json('runs', root, ...args, '--contract', '2', '--json');
+    assert.deepStrictEqual([r.code, r.complete, r.problems, kidOf(r).todoCounts], [0, true, [], kidOf(full).todoCounts], args.join(' '));
+  }
+});
 run();

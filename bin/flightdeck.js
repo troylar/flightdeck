@@ -921,18 +921,7 @@ async function readDeps(PF, L, r, o) {
      expected and named when missing. */
   for (const pk of Object.keys(parents)) {
     const ix = pk.indexOf('/'), pp = pk.slice(0, ix), pid = pk.slice(ix + 1);
-    /* YC: the parent is judged as its own reader judges it (its file, its format, its pinned version); its applied work is
-       read only when the parent itself can be. */
-    let one = null; try { one = await repo.readRunOnly(dependsOn(L.fs, ['runs/' + pk, 'publications/' + pp, 'staged/' + pp]), pp, pid); } catch (e) { put({ path: 'runs/' + pk + '/run.json', kind: 'unreadable', why: fileWhy(e && e.message || String(e)) }); continue; }
-    (one && one.bad || []).forEach((b) => put({ path: b.path, kind: b.kind || 'unreadable', why: fileWhy(b.why) }));
-    const pr = one && one.run;
-    if (!pr) { put({ path: 'runs/' + pk + '/run.json', kind: 'nofile', why: 'A request of this run fulfils a spread on ' + pk + ', which can\'t be read here.' }); continue; }
-    const pj = judgeRun(PF, pr, one.pub);
-    if (one.pub && one.pub._readFailed) pj.push({ path: PF.run.pubDir(pr), kind: 'unreadable', why: 'The version ' + pk + ' runs on couldn\'t be read here: ' + String(one.pub.why || 'unknown') + '.' });
-    pj.forEach(put);
-    if (newerRun(PF, pr) || (one.pub && !one.pub.ok) || pj.some((x) => x.kind === 'unusable')) continue;
-    let PV = null; try { PV = T.view(pr, { records: T.recordsFor((got && got.todos) || [], pr), unread: [], people: o.people }); } catch (e) { PV = null; }
-    if (PV) T.missingOf(PV, null).forEach(put);
+    (await parentVerdict(PF, L, pk, (got && got.todos) || [], o.people)).problems.forEach(put);
   }
   const own = got ? T.recordsFor(got.todos || [], r) : [];
   let spreads = 0; try { spreads = got && r.living ? T.view(r, { records: own, unread: [], people: o.people }).spreads.length : 0; } catch (e) { spreads = 0; }
@@ -966,6 +955,23 @@ async function readDeps(PF, L, r, o) {
     procOf: d ? procOfFrom(d) : () => null, processes: d ? d.processes || [] : null, procsRead: (p) => prefixes.indexOf('publications/' + p) >= 0, failed: probs.concat(more || []) }), over || {});
   return { got, runs, procOf: d ? procOfFrom(d) : () => null, problems: probs, coverage, bad, inputs, add: put,
     covers: (pth) => !!named[pth] || prefixes.some((k) => pth === k || String(pth).indexOf(k + '/') === 0) };
+}
+/* YC, AC: a parent a story's requests fulfil, judged as the parent's own reader judges it (its file, its format, its pinned
+   version), and its applied work (living.head, its chain) read only when the parent itself can be. Every reader of a story
+   asks this one, whatever it lists. Resolves { run (or null), problems }. */
+async function parentVerdict(PF, L, pk, todos, people) {
+  const T = PF.todos, repo = PF.repo, ix = pk.indexOf('/'), pp = pk.slice(0, ix), pid = pk.slice(ix + 1), out = [];
+  let one = null; try { one = await repo.readRunOnly(dependsOn(L.fs, ['runs/' + pk, 'publications/' + pp, 'staged/' + pp]), pp, pid); } catch (e) { return { run: null, problems: [{ path: 'runs/' + pk + '/run.json', kind: 'unreadable', why: fileWhy(e && e.message || String(e)) }] }; }
+  (one && one.bad || []).forEach((b) => out.push({ path: b.path, kind: b.kind || 'unreadable', why: fileWhy(b.why) }));
+  const pr = one && one.run;
+  if (!pr) { out.push({ path: 'runs/' + pk + '/run.json', kind: 'nofile', why: 'A request of this run fulfils a spread on ' + pk + ', which can\'t be read here.' }); return { run: null, problems: out }; }
+  const pj = judgeRun(PF, pr, one.pub);
+  if (one.pub && one.pub._readFailed) pj.push({ path: PF.run.pubDir(pr), kind: 'unreadable', why: 'The version ' + pk + ' runs on couldn\'t be read here: ' + String(one.pub.why || 'unknown') + '.' });
+  pj.forEach((x) => out.push(x));
+  if (newerRun(PF, pr) || (one.pub && !one.pub.ok) || pj.some((x) => x.kind === 'unusable')) return { run: pr, problems: out };
+  let PV = null; try { PV = T.view(pr, { records: T.recordsFor(todos || [], pr), unread: [], people }); } catch (e) { PV = null; }
+  if (PV) T.missingOf(PV, null).forEach((x) => out.push(x));
+  return { run: pr, problems: out };
 }
 /* Puts a reader's dependency problems in its ledger, once each (a read the ledger saw fail is there already). */
 function noteDeps(L, dep) { const had = {}; L.problems().forEach((x) => { had[x.path] = true; }); dep.problems.forEach((x) => { if (!had[x.path]) { had[x.path] = true; L.note(x.path, x.kind, x.why); } }); }
@@ -1154,17 +1160,29 @@ async function readData(eng, adapter, req) {
       /* ZD: each parent a listed run's requests fulfil is expected and judged as that run's own reader judges it: missing, or
          named by the folder's read and the run judge (unreadable, malformed, newer, its version); the listed run's to-dos are
          then held. */
-      if (two) list.forEach((r) => {
+      if (two) for (const r of list) {
         const pks = {}; PF.todos.recordsFor(d.todos || [], r).forEach((x) => { if (x && x.fulfills && x.fulfills.run && typeof x.fulfills.run.process === 'string' && typeof x.fulfills.run.id === 'string') pks[x.fulfills.run.process + '/' + x.fulfills.run.id] = true; });
-        Object.keys(pks).sort().forEach((pk) => {
+        for (const pk of Object.keys(pks).sort()) {
           const dir = 'runs/' + pk, pr = d.runs.filter((c) => c.process + '/' + c.id === pk)[0];
-          let bad = ledger().filter((x) => x.path === dir || String(x.path).indexOf(dir + '/') === 0 || (pr && typeof pr.folder === 'string' && String(x.path).indexOf(PF.run.pubDir(pr).replace(/\/$/, '')) === 0));
-          if (!pr && !bad.length) { L.note(dir + '/run.json', 'nofile', 'A request of ' + r.process + '/' + r.id + ' fulfils a spread on ' + pk + ', which isn\'t in the folder.'); bad = [{ path: dir + '/run.json' }]; }
-          /* The parent's own applied work that can't be read (its living.head, its chain) holds it as the story's reader does. */
-          if (!bad.length && pr && pr._todos && (pr._todos.missing || []).length) bad = pr._todos.missing.slice(0, 1);
-          if ((bad.length || (pr && newerRun(PF, pr))) && r._todos) { r._todos.missing = (r._todos.missing || []).concat([{ path: bad.length ? bad[0].path : dir + '/run.json', kind: 'unreadable', why: 'Its parent ' + pk + ' can\'t be read here.' }]); }
-        });
-      });
+          let bad;
+          /* AC: a parent the list's filter left out (another process) is read and judged on its own, whatever is listed, and
+             its paths count. */
+          if (req.proc && pk.split('/')[0] !== req.proc) {
+            const v = await parentVerdict(PF, L, pk, d.todos || [], d.people);
+            v.problems.forEach((x) => { if (!L.problems().some((y) => y.path === x.path)) L.note(x.path, x.kind, x.why); });
+            const named = covers([dir].concat(v.run && typeof v.run.folder === 'string' ? [PF.run.pubDir(v.run).replace(/\/$/, '')] : []).concat(v.problems.map((x) => String(x.path).replace(/\/$/, '')))), was = relevant;
+            relevant = (q) => was(q) || named(q);
+            bad = v.problems;
+          } else {
+            bad = ledger().filter((x) => x.path === dir || String(x.path).indexOf(dir + '/') === 0 || (pr && typeof pr.folder === 'string' && String(x.path).indexOf(PF.run.pubDir(pr).replace(/\/$/, '')) === 0));
+            if (!pr && !bad.length) { L.note(dir + '/run.json', 'nofile', 'A request of ' + r.process + '/' + r.id + ' fulfils a spread on ' + pk + ', which isn\'t in the folder.'); bad = [{ path: dir + '/run.json' }]; }
+            /* The parent's own applied work that can't be read (its living.head, its chain) holds it as the story's reader does. */
+            if (!bad.length && pr && pr._todos && (pr._todos.missing || []).length) bad = pr._todos.missing.slice(0, 1);
+            if (!bad.length && pr && newerRun(PF, pr)) bad = [{ path: dir + '/run.json' }];
+          }
+          if (bad.length && r._todos) r._todos.missing = (r._todos.missing || []).concat([{ path: bad[0].path, kind: 'unreadable', why: 'Its parent ' + pk + ' can\'t be read here.' }]);
+        }
+      }
       const plans = st === 'all' || st === 'planned' ? d.plans.filter((p) => mine(p.process)) : [];
       /* Which version a plan starts on is unknown (null), not missing, when any of its process's versions couldn't be read or
          verified: only problems with the versions themselves count (a run that doesn't match its version is named at the run). */

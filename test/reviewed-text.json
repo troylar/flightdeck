@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "edf1e1528b8afd71844846f4df9d95c0bb8667861a2faedd86360b11d31d7a3e",
-      "reviewed": "ZD: runs expects listed children's parents"
+      "sha256": "db6d6a8379fb38a98d2cf6f536fe182b586658f2de0d2aadb0e8a1d4b2b5d2d6",
+      "reviewed": "AC: filtered runs judge the listed stories' parents"
     },
     "build.py": {
       "sha256": "1dce012e7269422f84c2c2aeb7b327b242a28e4990a5c5c95a22dc98228122dc",
