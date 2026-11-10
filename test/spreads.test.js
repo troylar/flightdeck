@@ -138,7 +138,7 @@ rule('Every spread record and limit is checked whole: never cut, never read past
   assert.ok(why(Object.assign({}, o, { todo: 'td-' + 'a'.repeat(24) })), 'a spread has no to-do');
   assert.ok(why(Object.assign({}, o, { loopStep: undefined })));
   const sp = o.spread;
-  const stop = T.buildProposal({ run: { process: 'release-readiness', id: 'r-41' }, producer: { name: 'release-helper', version: '1.0' }, key: 'stop-1', seen: [], at: AT, body: { op: 'spread-stop', spread: sp, reason: 'Done', owed: pairs(2) } });
+  const stop = T.buildProposal({ run: { process: 'release-readiness', id: 'r-41' }, producer: { name: 'release-helper', version: '1.0' }, key: 'stop-1', seen: [], at: AT, body: { op: 'spread-stop', spread: sp, reason: 'Done', owed: pairs(2), cut: [] } });
   same(why(stop), '');
   assert.ok(why(Object.assign({}, stop, { reason: undefined })), 'stopping says why');
   assert.ok(why(Object.assign({}, stop, { owed: pairs(501) })), 'at most 500 obligations kept');
@@ -257,7 +257,8 @@ rule('Stopping needs a person, ends future inheritance only, and keeps every obl
   same([st.preview.consequence.releases, st.preview.status], [true, 'waiting']);
   W.decide(W.r, st.id, 'person-morgan'); W.land(W.r);
   same(spreadOf(W).state, 'stopped');
-  W.scopes.push(scope('s2', [101, 102, 106], [W.scopes[0].id]));
+  /* A later arrival is one whose scope record saw the stop's application (round 7: a 4.0 scope record names the head). */
+  W.scopes.push(scope4('s2', [101, 102, 106], [W.scopes[0].id], W.r.living.head));
   same(W.one().items.map(i => i.key), ['ABC-101', 'ABC-102'], 'a story that joins after the stop owes nothing');
   has(W.mark().loops.each, /ABC-101/);
 });
@@ -780,7 +781,7 @@ function applied() {
   const sp = spreadOf(W); assert.ok(sp && sp.state === 'active', 'set-up: applied');
   const req = W.request(k2, sp);
   same(W.one().items.filter(i => i.owed).map(i => i.key), ['ABC-102', 'ABC-103'], 'set-up: two owed');
-  return { W, add, dec, head: W.r.living.head, req, k2, sp, stop: (owed) => ({ op: 'spread-stop', spread: sp.id, reason: 'Covered by the platform review', owed: owed.map(n => ({ uid: uid(n), attempt: 1 })) }) };
+  return { W, add, dec, head: W.r.living.head, req, k2, sp, stop: (owed) => ({ op: 'spread-stop', spread: sp.id, reason: 'Covered by the platform review', owed: owed.map(n => ({ uid: uid(n), attempt: 1 })), cut: W.scopes.map(x => x.id).slice(-1) }) };
 }
 const dropRec = (W, id) => { const i = W.recs.findIndex(x => x.id === id); assert.ok(i >= 0, 'set-up: ' + id); return W.recs.splice(i, 1)[0]; };
 /* [kind, how it goes missing or unread, the path named (or null when its own reader names it), restore] */
@@ -920,4 +921,79 @@ for (const which of ['add', 'application', 'decision']) {
     assert.ok(T.missingOf(W.view(), cov).some(m => m.path === 'proposals/' + id + '.json'), which + ': ' + JSON.stringify(T.missingOf(W.view(), cov)));
   });
 }
+/* Review round 7 (YA): a stop ends future inheritance only; existing obligations remain. A 4.0 scope record names the parent's
+   to-do head it saw (flightdeck-plan/4, head), and a stop records the scope cut it saw (seen): after a stop, an item owes on its
+   current attempt unless the stop listed or saw it, or the record that brought it in saw the stop's application. Whatever was
+   invisible when the stop was made (a record missing then, or one with no head) still owes. */
+function scope4(key, ns, seen, head, changes) {
+  const c = LP.cleanIntent({ loop: LOOPT, observation: ns ? obs(ns) : null, changes: changes || [] }, key, { name: 'release-helper', version: '1.0' });
+  same(c.errors, []);
+  const f = LP.buildRequest(c.intent, { seen: seen || [], children: [], now: AT, app: '4.0.0', head });
+  same([f.format, f.features, f.head], ['flightdeck-plan/4', ['loops', 'living-runs'], head], 'a 4.0 scope record names the head it saw');
+  const v = LP.cleanRequest(JSON.parse(LP.text(f)), f.id + '.json');
+  assert.ok(v.ok, v.why);
+  return v.record;
+}
+rule('YA: a 4.0 scope record keeps the parent head it saw; one without a head, or with a head that isn\'t an id, isn\'t read', () => {
+  const W = world([101]), r = scope4('h1', [101], [], 'req-release-helper-' + 'a'.repeat(24) + '.status-w1-0000abcd');
+  same(r.head, 'req-release-helper-' + 'a'.repeat(24) + '.status-w1-0000abcd');
+  same(scope4('h0', [101], [], '').head, '', 'a parent with no application yet: the empty head');
+  same(W.scopes[0].head, null, 'a 3.0 record has none');
+  const c = LP.cleanIntent({ loop: LOOPT, observation: obs([101]), changes: [] }, 'h2', { name: 'release-helper', version: '1.0' });
+  const f = LP.buildRequest(c.intent, { seen: [], children: [], now: AT, app: '4.0.0', head: '' });
+  for (const bad of [undefined, 7, 'not an id!']) {
+    const g = JSON.parse(LP.text(f)); if (bad === undefined) delete g.head; else g.head = bad;
+    const v = LP.cleanRequest(g, f.id + '.json');
+    same([v.ok, v.kind], [false, 'malformed'], String(bad));
+  }
+  const g = JSON.parse(LP.text(f)); g.features = ['loops'];
+  same(LP.cleanRequest(g, f.id + '.json').ok, false, 'plan/4 names living-runs');
+});
+rule('YA: a stop records the scope cut it saw', () => {
+  const W = world([101, 102]); W.kid(101); W.kid(102);
+  W.spreadAdd(); W.land(W.r);
+  W.ask(W.r, stopBody(W, [101, 102]), { person: 'person-morgan' }); W.land(W.r);
+  same(spreadOf(W).stop.cut, [W.scopes[0].id]);
+});
+const YA_WAYS = {
+  'a pending stop names it': (W, sp) => W.ask(W.r, stopBody(W, [104]), { tool: 'release-helper', version: '1.0', key: 'ya-st1' }, { loops: W.loops(), runs: W.runs() }),
+  'a pending binding names it': (W, sp) => W.ask(W.r, { op: 'spread-bind', spread: sp.id, item: { uid: uid(104), attempt: 1 }, dest: { process: 'validate-story', id: 'k104' } }, { tool: 'release-helper', version: '1.0', key: 'ya-b1' })
+};
+for (const way of Object.keys(YA_WAYS)) {
+  rule('YA: ' + way + ', its scope record goes missing and a stop lands; restored, it still owes', () => {
+    const W = world([101]); W.kid(101, { cleared: true });
+    W.spreadAdd(); W.land(W.r);
+    const sp = spreadOf(W);
+    W.scopes.push(scope4('s2', [101, 104], [W.scopes[0].id], W.r.living.head));
+    same(W.one().items.filter(i => i.owed).map(i => i.key), ['ABC-104'], 'set-up: ABC-104 joined');
+    YA_WAYS[way](W, sp);
+    const later = W.scopes.pop();
+    same(W.one().items.filter(i => i.owed).map(i => i.key), [], 'set-up: with its record gone, nothing is owed');
+    W.ask(W.r, stopBody(W, []), { person: 'person-morgan' }); W.land(W.r);
+    same(spreadOf(W).state, 'stopped', 'set-up: stopped on nothing');
+    W.scopes.push(later);
+    same(W.one().items.filter(i => i.owed).map(i => i.key + '#' + i.attempt), ['ABC-104#1'], 'it was there before the stop: still owed');
+  });
+}
+rule('YA: an item that arrives after a stop, by a record that saw the stop\'s application, owes nothing; one whose record has no head owes', () => {
+  const W = world([101, 102]); W.kid(101); W.kid(102);
+  W.spreadAdd(); W.land(W.r);
+  W.ask(W.r, stopBody(W, [101, 102]), { person: 'person-morgan' }); W.land(W.r);
+  const stopApp = W.r.living.head;
+  W.scopes.push(scope4('s2', [101, 102, 105], [W.scopes[0].id], stopApp));
+  same(W.one().items.filter(i => i.owed).map(i => i.key), ['ABC-101', 'ABC-102'], 'a true later arrival is exempt');
+  W.scopes.pop();
+  W.scopes.push(scope('s3', [101, 102, 105], [W.scopes[0].id]));
+  same(W.one().items.filter(i => i.owed).map(i => i.key), ['ABC-101', 'ABC-102', 'ABC-105'], 'no head: owed, conservatively');
+  W.scopes.pop();
+  W.scopes.push(scope4('s4', [101, 102, 106], [W.scopes[0].id], W.view().chain[W.view().chain.length - 2]));
+  same(W.one().items.filter(i => i.owed).map(i => i.key), ['ABC-101', 'ABC-102', 'ABC-106'], 'a head before the stop\'s application: owed');
+});
+rule('YA: an item the stop saw and didn\'t list owes nothing, whatever its attempt', () => {
+  const W = world([101, 102]); W.kid(101, { cleared: true }); W.kid(102);
+  W.spreadAdd(); W.land(W.r);
+  W.ask(W.r, stopBody(W, [102]), { person: 'person-morgan' }); W.land(W.r);
+  W.kid(101, { attempt: 2 });
+  same(W.one().items.filter(i => i.owed).map(i => i.key + '#' + i.attempt), ['ABC-102#1']);
+});
 run();

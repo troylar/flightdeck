@@ -76,14 +76,21 @@ PF.spreads = (function () {
       C.complete = true; C.noun = V.noun;
       var rows = Object.create(null); V.rollup.items.forEach(function (i) { rows[i.uid] = i; });
       /* Who owes it: while it stands, every item in scope on its current attempt, apart from those cleared when it was added
-         (unless included one by one); once stopped, the obligations it had then that are still required on the item's current
-         attempt (a removed item or an earlier attempt owes nothing, a later attempt inherits nothing; the stop is unchanged). */
+         (unless included one by one). A stop ends future inheritance only; existing obligations remain (round 7): once
+         stopped, each obligation it listed that is still required on that attempt (a removed item or an earlier attempt owes
+         nothing, a later attempt inherits nothing), and every other required item on its current attempt that the stop
+         couldn't see, unless it truly arrived after the stop (stoppedOwes). */
       var mine = Object.create(null), owe = function (p) { C.items.push(itemOf(r, s, V, rows[p.uid], p, o, deps, childView, mine, C)); };
-      if (s.state === 'stopped') (s.stop.owed || []).forEach(function (p) { var w = rows[p.uid]; if (w && w.required && (w.attempt || 1) === p.attempt) owe({ uid: p.uid, attempt: p.attempt }); });
-      else V.rollup.items.forEach(function (i) {
+      var exempt = function (i, a) { return hasPair(s.scope.cleared, i.uid, a) && !hasPair(s.included, i.uid, a); };
+      if (s.state === 'stopped') {
+        var listed = Object.create(null); (s.stop.owed || []).forEach(function (p) { listed[p.uid] = true; });
+        (s.stop.owed || []).forEach(function (p) { var w = rows[p.uid]; if (w && w.required && (w.attempt || 1) === p.attempt) owe({ uid: p.uid, attempt: p.attempt }); });
+        var after = stoppedOwes(s, V, T, o);
+        V.rollup.items.forEach(function (i) { var a = i.attempt || 1; if (i.required && !listed[i.uid] && !exempt(i, a) && after(i.uid)) owe({ uid: i.uid, attempt: a }); });
+      } else V.rollup.items.forEach(function (i) {
         if (!i.required) return;
         var a = i.attempt || 1;
-        if (hasPair(s.scope.cleared, i.uid, a) && !hasPair(s.included, i.uid, a)) { C.items.push({ uid: i.uid, key: i.key, attempt: a, state: 'exempt', words: STATE.exempt, resolved: true, owed: false }); return; }
+        if (exempt(i, a)) { C.items.push({ uid: i.uid, key: i.key, attempt: a, state: 'exempt', words: STATE.exempt, resolved: true, owed: false }); return; }
         owe({ uid: i.uid, attempt: a });
       });
       C.scope = Object.keys(mine).sort(); C.scope.forEach(function (id) { scope[id] = true; });
@@ -95,6 +102,27 @@ PF.spreads = (function () {
   }
   /* What a spread's coverage expects to find (the expected-dependency manifest), checked against what was read: '' when all
      of it is here, else why not, with each missing file named in C.missing ({ path, kind: 'nofile', why }). */
+  /* Whether a stopped spread owes an item it didn't list (round 7, docs/design.md 45.1): the scope record that last brought the
+     item into scope (an add or a restore) is looked at. One in the past of the stop's scope cut was seen by the stop, which
+     listed what it owed then: nothing more. Otherwise it owes unless that record is a 4.0 scope record whose parent head is
+     the stop's application or later on this run's chain; a record with no head (a 3.0 writer), an empty head, or a head not on
+     the chain, owes, since the stop couldn't have seen it. */
+  function stoppedOwes(s, V, T, o) {
+    var cut = s.stop.cut || [], saw = V.ledger.saw || function () { return false; }, chain = T.chain || [];
+    var at = chain.indexOf(s.stop.application), by = Object.create(null);
+    ((o.loops && o.loops.records) || []).forEach(function (x) { if (x && x.id) by[x.id] = x; });
+    var items = Object.create(null); (V.ledger.items || []).forEach(function (x) { items[x.uid] = x; });
+    return function (uid) {
+      var x = items[uid]; if (!x) return true;
+      var rec = ''; (x.provenance || []).forEach(function (p) { if (p.op === 'add' || p.op === 'restore') rec = p.record; });
+      rec = rec || x.since || '';
+      if (rec && cut.some(function (h) { return h === rec || saw(h, rec); })) return false;
+      var R0 = by[rec], h = R0 && typeof R0.head === 'string' ? R0.head : null;
+      if (h === null || h === '' || at < 0) return true;
+      var hi = chain.indexOf(h);
+      return hi < 0 || hi < at;
+    };
+  }
   function unreadAt(o, id) { return ((o.loops && o.loops.unread) || []).some(function (u) { return String(u.file || '').indexOf(id) === 0; }); }
   function expected(r, s, V, o, deps, C) {
     var nm = 'Spread "' + s.text + '"', why = '';

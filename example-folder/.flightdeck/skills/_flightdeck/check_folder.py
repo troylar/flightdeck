@@ -1600,7 +1600,7 @@ def read_text(path):
 FAMILIES = {
     "preflight-publication": {"majors": {1: [], 2: ["phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "typed-details", "typed-evidence", "conditions", "passed-details", "team-values", "jira-search", "detail-patterns", "module-results", "loops", "staged"]}, "future": {2: "2.0"}, "unmarked": False},
     "flightdeck-step-type": {"majors": {1: [], 2: ["typed-evidence"]}, "future": {2: "2.0"}, "unmarked": True},
-    "flightdeck-plan": {"majors": {1: [], 2: [], 3: ["loops"], 4: ["living-runs"]}, "future": {}, "unmarked": False, "kinds": ["plan"]},
+    "flightdeck-plan": {"majors": {1: [], 2: [], 3: ["loops"], 4: ["living-runs", "loops"]}, "future": {}, "unmarked": False, "kinds": ["plan"]},
     "flightdeck-plan-status": {"majors": {1: [], 2: [], 3: ["loops"], 4: ["living-runs"]}, "future": {}, "unmarked": False, "kinds": ["status"]},
     "flightdeck-skill": {"majors": {1: [], 2: []}, "future": {2: "2.0"}, "unmarked": True},
     "flightdeck-team-values": {"majors": {1: []}, "future": {1: "2.9"}, "unmarked": False},
@@ -1781,7 +1781,7 @@ TODO_OPS, TODO_DOPS = ["add", "done", "wont", "move", "reopen"], ["accept", "dec
 # Spreads (4.0 slice 3, PF.todos): a standing requirement on a loop, asked, decided and applied like a to-do.
 TODO_SOPS = ["spread-add", "spread-include", "spread-bind", "spread-stop"]
 TODO_ALL_OPS = TODO_OPS + TODO_SOPS
-T_SFIELDS = ["spread", "loopStep", "child", "scope", "item", "dest", "owed"]
+T_SFIELDS = ["spread", "loopStep", "child", "scope", "item", "dest", "owed", "cut"]
 T_SP = re.compile(r"^sp-[0-9a-f]{24}\Z")
 TODO_PKINDS, TODO_SKINDS = ["proposal", "compound", "grant", "revoke"], ["decision", "application"]
 T_PROC = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}\Z")
@@ -1802,10 +1802,10 @@ T_ISO = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(?::[0-9]{2}(?
 T_CONTROL = re.compile("[\u0000-\u001f\u007f  ]")
 T_RUNKEY = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}/[a-z0-9-]{1,40}\Z", re.I | re.A)
 T_COMMON = ["format", "features", "app", "kind", "id", "run", "seen", "producer", "key", "by", "at"]
-T_BODY = ["op", "todo", "target", "placement", "text", "owner", "reason", "origin", "to", "requester", "spread", "loopStep", "child", "scope", "item", "dest", "owed", "fulfills"]
+T_BODY = ["op", "todo", "target", "placement", "text", "owner", "reason", "origin", "to", "requester", "spread", "loopStep", "child", "scope", "item", "dest", "owed", "cut", "fulfills"]
 T_EFIELDS = {"add": ["op", "todo", "text", "target", "placement", "owner", "reason", "origin", "fulfills"], "done": ["op", "todo", "reason"],
              "spread-add": ["op", "spread", "loopStep", "text", "child", "scope", "owner", "reason"], "spread-include": ["op", "spread", "item", "reason"],
-             "spread-bind": ["op", "spread", "item", "dest", "reason"], "spread-stop": ["op", "spread", "reason", "owed"],
+             "spread-bind": ["op", "spread", "item", "dest", "reason"], "spread-stop": ["op", "spread", "reason", "owed", "cut"],
              "reopen": ["op", "todo", "reason"], "wont": ["op", "todo", "reason"], "move": ["op", "todo", "to", "reason"]}
 
 
@@ -2178,7 +2178,7 @@ def todo_why(o, name, nbytes=None, unchecked=None):
                 ow = clean_owner(oo["owner"], "owner")
                 if ow:
                     b["owner"] = ow
-            for k in ("item", "dest", "owed"):
+            for k in ("item", "dest", "owed", "cut"):
                 if oo.get(k) is not None:
                     err("A spread-add has no " + k)
         else:
@@ -2199,8 +2199,12 @@ def todo_why(o, name, nbytes=None, unchecked=None):
                 err("Only a binding has dest")
             if oo["op"] == "spread-stop":
                 b["owed"] = clean_pairs(oo.get("owed"), TODO_LIMITS["items"], "owed")
-            elif oo.get("owed") is not None:
-                err("Only a stop has owed")
+                b["cut"] = clean_stop_cut(oo.get("cut"), "cut")
+            else:
+                if oo.get("owed") is not None:
+                    err("Only a stop has owed")
+                if oo.get("cut") is not None:
+                    err("Only a stop has cut")
         if oo["op"] == "spread-stop":
             b["reason"] = line(oo.get("reason"), TODO_LIMITS["reason"], "reason")
         elif oo.get("reason") is not None:
@@ -2210,6 +2214,13 @@ def todo_why(o, name, nbytes=None, unchecked=None):
         if oo.get("requester") is not None and (not _tstr(oo["requester"]) or not T_PERSON.match(oo["requester"])):
             err("requester")
         return b
+
+    # A stop's scope cut (round 7, PF.todos cleanStopCut): the loop's scope heads it saw, at most 500 record ids.
+    def clean_stop_cut(v, what):
+        if not isinstance(v, list) or len(v) > TODO_LIMITS["items"] or not all(_tstr(x) and (T_REQ.match(x) or T_DNAME.match(x + ".json")) for x in v):
+            err(what)
+            return None
+        return sorted(v)
 
     def clean_effect(e):
         if not isinstance(e, dict):
@@ -2246,6 +2257,7 @@ def todo_why(o, name, nbytes=None, unchecked=None):
                 out["dest"] = clean_dest(e.get("dest"))
             if e["op"] == "spread-stop":
                 out["owed"] = clean_pairs(e.get("owed"), TODO_LIMITS["items"], "effect owed")
+                out["cut"] = clean_stop_cut(e.get("cut"), "effect cut")
                 out["reason"] = line(e.get("reason"), TODO_LIMITS["reason"], "effect reason")
             elif e.get("reason") is not None:
                 sr = line(e["reason"], TODO_LIMITS["reason"], "effect reason")
@@ -2292,6 +2304,7 @@ def todo_why(o, name, nbytes=None, unchecked=None):
                 e["dest"] = p["dest"]
             if p["op"] == "spread-stop":
                 e["owed"] = p.get("owed")
+                e["cut"] = p.get("cut")
             if p.get("reason"):
                 e["reason"] = p["reason"]
             return e
@@ -2518,6 +2531,21 @@ def todo_why(o, name, nbytes=None, unchecked=None):
 # A loop's scope records (3.0, PF.loop): requests (flightdeck-plan/3) and decisions on them (flightdeck-plan-status/3). The
 # folder reader dispatches them before the plan reader (repo.readPlans), so one is never a plan or a plan decision.
 SCOPE_REQUEST, SCOPE_DECISION = "flightdeck-plan/3", "flightdeck-plan-status/3"
+# A living run's scope request (4.0, round 7): flightdeck-plan/4 with loops and living-runs, naming the parent's to-do head it
+# saw (head: an application id, or "" before the first).
+SCOPE_REQUEST4, SCOPE_HEAD = "flightdeck-plan/4", re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._-]{0,159}\Z")
+_SCOPE_FMT = re.compile(r"\Aflightdeck-plan(-status)?/([0-9]{1,6})\Z")
+
+
+def scope_claims(o):
+    """PF.loop.claims: this copy's scope formats, or a later plan or plan-status format naming the loops feature (refused by
+    the scope reader, never read as a plan or a to-do record)."""
+    if not isinstance(o, dict) or not isinstance(o.get("format"), str):
+        return False
+    if o["format"] in (SCOPE_REQUEST, SCOPE_DECISION):
+        return True
+    m = _SCOPE_FMT.match(o["format"])
+    return bool(m) and int(m.group(2)) > 3 and isinstance(o.get("features"), list) and "loops" in o["features"]
 SCOPE_REQ = re.compile(r"^req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24}\Z", re.A)
 SCOPE_DNAME = re.compile(r"^(req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})\.status-([a-z0-9][a-z0-9-]{0,39})-([0-9a-f]{8})\.json\Z", re.A)
 SCOPE_PERSON = re.compile(r"^[A-Za-z0-9_.-]{1,80}\Z", re.A)
@@ -2848,13 +2876,15 @@ def scope_why(o, name, unchecked=None):
     """Why a scope record can't be read (PF.loop.cleanFile), or "": its envelope, id, name and loop, and a request's
     observation, changes and planned children (3.0.1), in the app's words and order. What they ask isn't worked out here
     (see SCOPE_NOTE)."""
-    dec = o.get("format") == SCOPE_DECISION
+    dec = isinstance(o.get("format"), str) and o["format"].startswith("flightdeck-plan-status/")
     what, fam = ("decision", "flightdeck-plan-status") if dec else ("request", "flightdeck-plan")
     v = judge(fam, o)
     if not v["ok"]:
         return v["kind"], v.get("needs") or "", ("is a scope " + what + " made with a newer Flightdeck. " + ("Needs Flightdeck " + v["needs"] + "." if v["needs"] else "Needs a newer Flightdeck.")) if v["kind"] == "newer" else v["why"]
-    if v["major"] != 3 or "loops" not in (o.get("features") or []):
+    if (v["major"] != 3 and not (v["major"] == 4 and not dec)) or "loops" not in (o.get("features") or []):
         return "malformed", "", "isn't a scope " + what + " (it doesn't name the loops feature)"
+    if v["major"] == 4 and "living-runs" not in (o.get("features") or []):
+        return "malformed", "", "isn't a 4.0 scope request (it doesn't name the living-runs feature)"
     seen = o.get("seen")
     seen_ok = isinstance(seen, list) and len(seen) <= 50
     if dec:
@@ -2880,6 +2910,8 @@ def scope_why(o, name, unchecked=None):
         return "malformed", "", "is a scope request without a request id"
     if not name.startswith(o["id"]):
         return "malformed", "", "is a scope request whose name isn't its id"
+    if o.get("format") == SCOPE_REQUEST4 and (not isinstance(o.get("head"), str) or (o["head"] != "" and not SCOPE_HEAD.match(o["head"]))):
+        return "malformed", "", "is a 4.0 scope request without the parent head it saw (head is an application id, or \"\" before the first)"
     if o.get("kind") is not None and o.get("kind") not in ("jira.issue", "item"):
         return "malformed", "", "is a scope request for items of kind " + js_string(js_slice(js_String(o["kind"]), 40)) + ", which this copy of Flightdeck doesn't know"
     kind = "jira.issue" if o.get("kind") is None else o["kind"]
@@ -3698,6 +3730,16 @@ def main():
             torn.append(name)
         if not isinstance(obj, dict):
             continue
+        # A loop's scope record (a living run's is flightdeck-plan/4 with loops) goes to its own reader first, before the to-do
+        # reader, and never reaches the plan reader (repo.readPlans).
+        if scope_claims(obj):
+            kind, needs, why, unchecked = scope_verdict(obj, name)
+            if kind:
+                out["refused"].append(dict({"file": "proposals/" + name, "why": why}, **({"linkUnchecked": unchecked} if unchecked else {})))
+                refused_decisions.append((name, kind, needs))
+            else:
+                out["scopes"].append(dict({"file": "proposals/" + name, "type": "decision" if obj["format"].startswith("flightdeck-plan-status/") else "request", "loop": obj.get("loop")}, **({"linkUnchecked": unchecked} if unchecked else {})))
+            continue
         # A to-do record (4.0, PF.todos.claims): read by its own reader first, as the app does, and never a plan or a decision.
         # One it refuses is named with the app's reason; one it reads is a living run's record, not this checker's to report.
         if todo_claims(obj):
@@ -3710,15 +3752,6 @@ def main():
             elif note:
                 # Read by this check apart from a link it doesn't judge: named, so whether Flightdeck reads it is left to Flightdeck.
                 todo_unchecked.append({"file": "proposals/" + name, "linkUnchecked": note})
-            continue
-        # A loop's scope record goes to its own reader first and never reaches the plan reader (repo.readPlans).
-        if obj.get("format") in (SCOPE_REQUEST, SCOPE_DECISION):
-            kind, needs, why, unchecked = scope_verdict(obj, name)
-            if kind:
-                out["refused"].append(dict({"file": "proposals/" + name, "why": why}, **({"linkUnchecked": unchecked} if unchecked else {})))
-                refused_decisions.append((name, kind, needs))
-            else:
-                out["scopes"].append(dict({"file": "proposals/" + name, "type": "decision" if obj["format"] == SCOPE_DECISION else "request", "loop": obj.get("loop")}, **({"linkUnchecked": unchecked} if unchecked else {})))
             continue
         # The app's one reader of plans and plan decisions (PF.plans.clean): a file from a newer Flightdeck (flightdeck-plan/2,
         # a feature this copy doesn't know) is refused and named, never a plan or a decision; one it can't read is left out.

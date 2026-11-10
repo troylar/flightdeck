@@ -34,7 +34,8 @@ const has = (list, re) => assert.ok(list.some(x => re.test(x)), 'expected ' + re
 rule('living-runs is a frozen 4.0 feature of runs, to-do requests and their decisions', () => {
   assert.ok(E.FROZEN.indexOf('living-runs') >= 0);
   same(E.SINCE['living-runs'], '4.0');
-  same(E.FAMILIES['flightdeck-plan'].majors[4], ['living-runs']);
+  /* A living run's scope requests are flightdeck-plan/4 with loops too (round 7). */
+  same(E.FAMILIES['flightdeck-plan'].majors[4], ['living-runs', 'loops']);
   same(E.FAMILIES['flightdeck-plan-status'].majors[4], ['living-runs']);
   same([E.FAMILIES['flightdeck-plan'].future[4], E.FAMILIES['flightdeck-plan-status'].future[4]], ['4.0', '4.0']);
   assert.ok(E.FAMILIES['preflight-run'].majors[3].indexOf('living-runs') >= 0);

@@ -25,8 +25,8 @@
       "reviewed": "Round 6 XD: sync dry-run partial status from preparation refusals"
     },
     "docs/design.md": {
-      "sha256": "db85f798ab3be79824e78241e0689c98580ff04a90629a8cfb26ead2e0bd0a87",
-      "reviewed": "Round 6 XC: every missing identity reaches the problem collector"
+      "sha256": "10f6e968c55b9a266d9b744985b0eba3726b8ee4fea5c8b5880be600a9cb8e4b",
+      "reviewed": "Round 7 YA: stops are causal (cut, 4.0 scope head); checker mirrors; no direct writes or deletes added"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -53,8 +53,8 @@
       "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "2200bcc8c7ffc12dd2fbdd281737399aa8e51b33323ae3b2831651e4d304d416",
-      "reviewed": "spread coverage expects what it depends on and one collector names each missing record; checked for direct writes and unconditional deletes"
+      "sha256": "b7b842bface6ffc6620c90e1bc352ee38343af48955f42ad41b678a81804da60",
+      "reviewed": "Round 7 YA: stops are causal (cut, 4.0 scope head); checker mirrors; no direct writes or deletes added"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
       "sha256": "197779e5fb047d6137527db0211659a2db320470f3086d61b5126d6e868b0cf8",
@@ -197,8 +197,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "a4380933ad3c8386e26464e5df958b5a432b06e570c0bae629d80e45e0d25aa4",
-      "reviewed": "4.0.0 notes name spreads; the living-run skill names no facts; section 45 says slices 1 to 3 are built"
+      "sha256": "94d6228cd5f1ec52f944c6ef4770fe46d04bc6b42bc851438d31c32e9758b143",
+      "reviewed": "Round 7 YA: stops are causal (cut, 4.0 scope head); checker mirrors; no direct writes or deletes added"
     },
     "src/core/appjson.js": {
       "sha256": "d3bcd6c56e778c6eba888b38b74415cf61bc96905589d51ce8c67b319f63c676",
@@ -225,8 +225,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/envelope.js": {
-      "sha256": "55710b76ab73ab450583c0d6262a25ac9b05004dd8cce86cdf67c8810f46dbd2",
-      "reviewed": "4.0 slice 1, commit 1: to-do records and their reduction (src/core/todos.js), loop settle and paging shared, living-runs feature, design §45"
+      "sha256": "a959abe1723ef8e832366750c29945aad87391fb335e23bf32945fd3b15124d6",
+      "reviewed": "Round 7 YA: stops are causal (cut, 4.0 scope head); checker mirrors; no direct writes or deletes added"
     },
     "src/core/evidence.js": {
       "sha256": "f3b2d1b62d72274f6169f873bae26689fb931b2dab4e2fae9a2335e5ec9b67e2",
@@ -257,8 +257,8 @@
       "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
     },
     "src/core/loop.js": {
-      "sha256": "b6094f6a75df8498dca54c2877f246b6185197b48c3551ad05cc052e3088e208",
-      "reviewed": "readers expect and name every dependency of a spread; a failed dependency holds before a spread is called absent; checked for direct writes and unconditional deletes"
+      "sha256": "df77655eb2a36b5966d665331fd5099d189be152f9aac4a6bbe21c2c933d49fc",
+      "reviewed": "Round 7 YA: stops are causal (cut, 4.0 scope head); checker mirrors; no direct writes or deletes added"
     },
     "src/core/map.js": {
       "sha256": "f9eae33f6635cd1b3983fc1c71eb7a3b3c8dc1c70ca3ef8ce8807d5228165d2f",
@@ -337,8 +337,8 @@
       "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
     },
     "src/core/spreads.js": {
-      "sha256": "b46db37b409a4a0a06f432ffaed35c96575d268d44510570239eff81215621c3",
-      "reviewed": "Round 6 XC: every missing identity reaches the problem collector"
+      "sha256": "5249fe9b03c2fcafa6b6445a7765b6c99ddc764a23bc041c8925ff4ce18d2bc5",
+      "reviewed": "Round 7 YA: stops are causal (cut, 4.0 scope head); checker mirrors; no direct writes or deletes added"
     },
     "src/core/staging.js": {
       "sha256": "d01a3204178bd0b055c05524916f55774c4404cca10f86fbb10a2ca675bd6b07",
@@ -353,8 +353,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "24b6dc45aba2da84436cb80afbb1862189ccabe72a31a7aa7e33a68e0cba14e3",
-      "reviewed": "spread coverage expects what it depends on and one collector names each missing record; checked for direct writes and unconditional deletes"
+      "sha256": "c54b9cf74d58ba0ed6190d9ccaccaab871876cc0c5e4b4f5eaa140bea763473a",
+      "reviewed": "Round 7 YA: stops are causal (cut, 4.0 scope head); checker mirrors; no direct writes or deletes added"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",
@@ -405,8 +405,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "9dbc20c1374f4129768d79afcec51322d5c680e7879b10ddba3f44f12337332a",
-      "reviewed": "readers expect and name every dependency of a spread; a failed dependency holds before a spread is called absent; checked for direct writes and unconditional deletes"
+      "sha256": "2d4de6c53b769a5f810a16d2277f22f63bcf4ffd7b9ee5115bcea46ca83e9b14",
+      "reviewed": "Round 7 YA: stops are causal (cut, 4.0 scope head); checker mirrors; no direct writes or deletes added"
     },
     "src/ui/app.js": {
       "sha256": "0be7f1eae09e6739a59aa64b1492fb959dbf19881df347300e1299d54b213846",

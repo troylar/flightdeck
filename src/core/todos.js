@@ -169,6 +169,11 @@ PF.todos = (function () {
     return out;
   }
   function hasPair(list, p) { return (list || []).some(function (y) { return y.uid === p.uid && y.attempt === p.attempt; }); }
+  /* A stop's scope cut (round 7): the loop's scope records it saw (their heads), so what was invisible to it is known. */
+  function cleanStopCut(v, errors, what) {
+    if (!Array.isArray(v) || v.length > LIMITS.items || !v.every(function (x) { return typeof x === 'string' && (REQ.test(x) || DNAME.test(x + '.json')); })) { errors.push(what + ' is the list of the loop\'s scope records the stop saw (at most ' + LIMITS.items + ').'); return null; }
+    return v.slice().sort(cmpStr);
+  }
   function cleanScope(v, errors) {
     if (!isMap(v)) { errors.push('"scope" is {"open", "cleared", "fingerprint", "seen"}.'); return null; }
     var n0 = errors.length;
@@ -197,7 +202,7 @@ PF.todos = (function () {
     if (errors.length > n0) return null;
     return { run: run, spread: v.spread, uid: pair.uid, attempt: pair.attempt };
   }
-  var SFIELDS = ['spread', 'loopStep', 'child', 'scope', 'item', 'dest', 'owed'];
+  var SFIELDS = ['spread', 'loopStep', 'child', 'scope', 'item', 'dest', 'owed', 'cut'];
   /* A spread operation's body: spread-add (its loop step, text, child gate and the scope reviewed; the spread's id comes from
      the request), include (one item's attempt cleared when it was added), bind (which run covers an item's attempt), stop
      (why, and the obligations it keeps). */
@@ -213,13 +218,13 @@ PF.todos = (function () {
       b.child = cleanChild(o.child, errors);
       b.scope = cleanScope(o.scope, errors);
       if (o.owner != null) { if (typeof o.owner !== 'string' || !PERSON.test(o.owner)) errors.push('"owner" is a person\'s ID from people.json.'); else b.owner = o.owner; }
-      ['item', 'dest', 'owed'].forEach(function (k) { if (o[k] != null) errors.push('A spread-add has no ' + q(k) + '.'); });
+      ['item', 'dest', 'owed', 'cut'].forEach(function (k) { if (o[k] != null) errors.push('A spread-add has no ' + q(k) + '.'); });
     } else {
       if (typeof o.spread !== 'string' || !SP.test(o.spread)) errors.push('"spread" is the spread\'s id (sp-...).'); else b.spread = o.spread;
       ['loopStep', 'text', 'child', 'scope', 'owner'].forEach(function (k) { if (o[k] != null) errors.push('Only a spread-add has ' + q(k) + '.'); });
       if (o.op === 'spread-include' || o.op === 'spread-bind') b.item = cleanPair(o.item, errors, '"item"'); else if (o.item != null) errors.push('A stop has no "item".');
       if (o.op === 'spread-bind') b.dest = cleanDest(o.dest, errors); else if (o.dest != null) errors.push('Only a binding has "dest".');
-      if (o.op === 'spread-stop') b.owed = cleanPairs(o.owed, LIMITS.items, errors, '"owed"'); else if (o.owed != null) errors.push('Only a stop has "owed".');
+      if (o.op === 'spread-stop') { b.owed = cleanPairs(o.owed, LIMITS.items, errors, '"owed"'); b.cut = cleanStopCut(o.cut, errors, '"cut"'); } else { if (o.owed != null) errors.push('Only a stop has "owed".'); if (o.cut != null) errors.push('Only a stop has "cut".'); }
     }
     if (o.op === 'spread-stop') b.reason = line(o.reason, LIMITS.reason, '"reason" (why it stops)', errors);
     else if (o.reason != null) { var r = line(o.reason, LIMITS.reason, '"reason"', errors); if (r) b.reason = r; }
@@ -228,7 +233,7 @@ PF.todos = (function () {
   }
 
   /* The operation a request asks for, as a proposal or a compound carries it. op: one of OPS; add has text and a target. */
-  var BODY = ['op', 'todo', 'target', 'placement', 'text', 'owner', 'reason', 'origin', 'to', 'requester', 'spread', 'loopStep', 'child', 'scope', 'item', 'dest', 'owed', 'fulfills'];
+  var BODY = ['op', 'todo', 'target', 'placement', 'text', 'owner', 'reason', 'origin', 'to', 'requester', 'spread', 'loopStep', 'child', 'scope', 'item', 'dest', 'owed', 'cut', 'fulfills'];
   function cleanBody(o, errors, id) {
     var b = { op: o.op };
     if (ALL_OPS.indexOf(o.op) < 0) { errors.push('"op" is one of ' + ALL_OPS.join(', ') + ' (one operation per request).'); return null; }
@@ -262,7 +267,7 @@ PF.todos = (function () {
       if (p.op === 'spread-add') { s.loopStep = p.loopStep; s.text = p.text; s.child = p.child; s.scope = p.scope; if (p.owner) s.owner = p.owner; }
       if (p.item) s.item = p.item;
       if (p.dest) s.dest = p.dest;
-      if (p.op === 'spread-stop') s.owed = p.owed;
+      if (p.op === 'spread-stop') { s.owed = p.owed; s.cut = p.cut; }
       if (p.reason) s.reason = p.reason;
       return s;
     }
@@ -275,7 +280,7 @@ PF.todos = (function () {
   /* The fields an effect of each op may have; any other is refused, never dropped (so a fingerprint is checked on exactly
      what the file says). Every field is type-checked before it is used. */
   var EFIELDS = { add: ['op', 'todo', 'text', 'target', 'placement', 'owner', 'reason', 'origin', 'fulfills'],
-    'spread-add': ['op', 'spread', 'loopStep', 'text', 'child', 'scope', 'owner', 'reason'], 'spread-include': ['op', 'spread', 'item', 'reason'], 'spread-bind': ['op', 'spread', 'item', 'dest', 'reason'], 'spread-stop': ['op', 'spread', 'reason', 'owed'], done: ['op', 'todo', 'reason'], reopen: ['op', 'todo', 'reason'], wont: ['op', 'todo', 'reason'], move: ['op', 'todo', 'to', 'reason'] };
+    'spread-add': ['op', 'spread', 'loopStep', 'text', 'child', 'scope', 'owner', 'reason'], 'spread-include': ['op', 'spread', 'item', 'reason'], 'spread-bind': ['op', 'spread', 'item', 'dest', 'reason'], 'spread-stop': ['op', 'spread', 'reason', 'owed', 'cut'], done: ['op', 'todo', 'reason'], reopen: ['op', 'todo', 'reason'], wont: ['op', 'todo', 'reason'], move: ['op', 'todo', 'to', 'reason'] };
   function cleanEffect(e, errors) {
     if (!isMap(e)) { errors.push('"effect" is the change it made.'); return null; }
     if (typeof e.op !== 'string' || ALL_OPS.indexOf(e.op) < 0) { errors.push('"effect" "op" is one of ' + ALL_OPS.join(', ') + '.'); return null; }
@@ -293,7 +298,7 @@ PF.todos = (function () {
       }
       if (e.op === 'spread-include' || e.op === 'spread-bind') out.item = cleanPair(e.item, errors, '"effect" "item"');
       if (e.op === 'spread-bind') out.dest = cleanDest(e.dest, errors);
-      if (e.op === 'spread-stop') { out.owed = cleanPairs(e.owed, LIMITS.items, errors, '"effect" "owed"'); out.reason = line(e.reason, LIMITS.reason, '"effect" "reason"', errors); }
+      if (e.op === 'spread-stop') { out.owed = cleanPairs(e.owed, LIMITS.items, errors, '"effect" "owed"'); out.cut = cleanStopCut(e.cut, errors, '"effect" "cut"'); out.reason = line(e.reason, LIMITS.reason, '"effect" "reason"', errors); }
       else if (e.reason != null) { var sr = line(e.reason, LIMITS.reason, '"effect" "reason"', errors); if (sr) out.reason = sr; }
       return out;
     }
@@ -600,7 +605,7 @@ PF.todos = (function () {
   /* A request as the reducer keeps it: what it asks, and slots for its decisions and applications. */
   function reqOf(x, landedAs) {
     return { id: x.id, kind: x.kind, op: x.op, todo: x.todo, target: x.target || null, placement: x.placement || null, text: x.text || '', to: x.to || null, reason: x.reason || '', owner: x.owner || '', origin: x.origin || null, by: x.by, requester: x.requester || '', at: x.at,
-      spread: x.spread || '', loopStep: x.loopStep || '', child: x.child || null, scope: x.scope || null, item: x.item || null, dest: x.dest || null, owed: x.owed || null, fulfills: x.fulfills || null,
+      spread: x.spread || '', loopStep: x.loopStep || '', child: x.child || null, scope: x.scope || null, item: x.item || null, dest: x.dest || null, owed: x.owed || null, cut: x.cut || null, fulfills: x.fulfills || null,
       status: '', why: '', landed: landedAs, candidates: [], decisions: [], dec: null, decReview: [], rawReview: [], app: null, appReview: [], ignored: [], disputedIds: [] };
   }
   /* ---- Spreads in the chain (4.0 slice 3): each landed spread operation, checked against the spreads as they stood. ---- */
@@ -619,7 +624,7 @@ PF.todos = (function () {
       T.bySpread[s.id] = s; T.spreads.push(s);
     } else if (e.op === 'spread-include') s.included.push({ uid: e.item.uid, attempt: e.item.attempt, application: appId });
     else if (e.op === 'spread-bind') s.binds[e.item.uid + '#' + e.item.attempt] = { run: e.dest.process + '/' + e.dest.id, application: appId };
-    else { s.state = 'stopped'; s.stop = { reason: e.reason, owed: e.owed, application: appId }; }
+    else { s.state = 'stopped'; s.stop = { reason: e.reason, owed: e.owed, cut: e.cut, application: appId }; }
     s.history.push({ op: e.op, application: appId, request: pid });
   }
   /* Bindings of one item's attempt settle causally, like every decision (PF.loop.settleIn): two made at once that disagree hold
@@ -1184,6 +1189,11 @@ PF.todos = (function () {
       var sc = stopCheck(r, T, { spread: sp.id, owed: owed }, o);
       if (sc) return { why: sc.why + ' Nothing was asked.' };
       body.owed = owed;
+      /* The scope cut it saw: the loop's scope heads now (read whole, since stopCheck found its coverage complete). */
+      var LV = null; try { LV = PF.loop.view(r, sp.loopStep, { records: o.loops.records, unread: o.loops.unread, runs: o.runs || [r], procOf: o.loops.procOf }); } catch (e) { LV = null; }
+      if (!LV) return { why: 'The loop of spread "' + sp.text + '" can\'t be read here, so a stop waits. Nothing was asked.' };
+      if (LV.ledger.heads.length > LIMITS.items) return { why: 'The loop of spread "' + sp.text + '" has ' + LV.ledger.heads.length + ' open scope records; a stop names at most ' + LIMITS.items + '. Resolve some first. Nothing was asked.' };
+      body.cut = LV.ledger.heads.slice().sort(cmpStr);
     }
     if (b.reason != null && String(b.reason).trim()) body.reason = String(b.reason).trim();
     return { body: body };

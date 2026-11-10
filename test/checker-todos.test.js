@@ -29,7 +29,7 @@ function valid() {
     scope: { open: [pair], cleared: [{ uid: 'jira:key:ABC-2', attempt: 2 }], fingerprint: '0123456789abcdef', seen: [] } } });
   const inc = T.buildProposal({ run: RUN, producer: bot, key: 's-2', seen: [sp.id], at: AT, body: { op: 'spread-include', spread: sp.spread, item: { uid: 'jira:key:ABC-2', attempt: 2 } } });
   const bnd = T.buildProposal({ run: RUN, id: T.idFor('flightdeck', 's-3'), by: 'person-avery', seen: [], at: AT, body: { op: 'spread-bind', spread: sp.spread, item: pair, dest: { process: 'validate-story', id: 'k101' } } });
-  const stp = T.buildProposal({ run: RUN, id: T.idFor('flightdeck', 's-4'), by: 'person-avery', seen: [], at: AT, body: { op: 'spread-stop', spread: sp.spread, reason: 'Covered elsewhere', owed: [pair] } });
+  const stp = T.buildProposal({ run: RUN, id: T.idFor('flightdeck', 's-4'), by: 'person-avery', seen: [], at: AT, body: { op: 'spread-stop', spread: sp.spread, reason: 'Covered elsewhere', owed: [pair], cut: [] } });
   const kidRun = { process: 'validate-story', id: 'k101' }, ful = { run: RUN, spread: sp.spread, uid: pair.uid, attempt: 1 };
   const fil = T.buildProposal({ run: kidRun, producer: bot, key: PF.spreads.obligationId(sp.spread, pair.uid, 1), seen: [], at: AT, body: { op: 'add', text: 'Security sign-off', target: { phase: 'assess' }, placement: { beforeGate: 'assess-confirm' }, fulfills: ful } });
   const spr = T.cleanFile(JSON.parse(T.text(sp)), sp.id + '.json').record, se = T.effectOf(spr);

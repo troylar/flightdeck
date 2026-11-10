@@ -2598,6 +2598,13 @@ PF.repo = (function () {
     return loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status' || typeof o.format === 'string'; }, bad, only, torn).then(function (props) {
       var plans = [], statuses = [], scopes = [], scopesUnread = [], todos = [], todosUnread = [];
       props.forEach(function (p) {
+        /* A scope request or decision (3.0, PF.loop; a living run's scope request is flightdeck-plan/4 with loops) goes to its own
+           reader first, before the to-do reader, and never reaches the plan reader. */
+        if (PF.loop.claims(p)) {
+          var sv = PF.loop.cleanFile(asWritten(p), p._file), sp = 'proposals/' + p._file, sf = /^flightdeck-plan-status\//.test(p.format) ? 'flightdeck-plan-status' : 'flightdeck-plan';
+          if (!sv.ok) { if (bad) bad.push({ path: sp, kind: sv.kind, why: sv.why }); refused.push(PF.envelope.refusal(sp, sf, sv)); scopesUnread.push({ file: p._file, why: sv.why, loop: PF.loop.loopOf(p) }); return; }
+          sv.record._file = p._file; scopes.push(sv.record); return;
+        }
         /* A to-do record (4.0, PF.todos), or any record naming living-runs, goes to its own reader first; one that can't be
            read (newer, malformed) holds its run (or, when which run it is for can't be told, every living run). */
         if (PF.todos.claims(p)) {
@@ -2609,12 +2616,6 @@ PF.repo = (function () {
           var tp = 'proposals/' + p._file, tf = PF.todos.familyOf(p);
           if (!tv.ok) { if (bad) bad.push({ path: tp, kind: tv.kind, why: tv.why }); refused.push(PF.envelope.refusal(tp, tf, tv)); todosUnread.push({ file: p._file, why: tv.why, kind: tv.kind, run: PF.todos.runOf(p) }); return; }
           tv.record._file = p._file; todos.push(tv.record); return;
-        }
-        /* A scope request or decision (3.0, PF.loop) goes to its own reader first and never reaches the plan reader. */
-        if (PF.loop.claims(p)) {
-          var sv = PF.loop.cleanFile(asWritten(p), p._file), sp = 'proposals/' + p._file, sf = /^flightdeck-plan-status\//.test(p.format) ? 'flightdeck-plan-status' : 'flightdeck-plan';
-          if (!sv.ok) { if (bad) bad.push({ path: sp, kind: sv.kind, why: sv.why }); refused.push(PF.envelope.refusal(sp, sf, sv)); scopesUnread.push({ file: p._file, why: sv.why, loop: PF.loop.loopOf(p) }); return; }
-          sv.record._file = p._file; scopes.push(sv.record); return;
         }
         var v = PF.plans.clean(p, p._file, !!bad && !two), path = 'proposals/' + p._file, fam = PF.plans.familyOf(p, p._file) === 'status' ? 'flightdeck-plan-status' : 'flightdeck-plan';
         if (!v.ok) { if (bad) bad.push({ path: path, kind: v.kind, why: v.why }); refused.push(PF.envelope.refusal(path, fam, v)); return; }
