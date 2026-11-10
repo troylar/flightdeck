@@ -923,12 +923,17 @@ PF.repo = (function () {
      if a file of that name is already there, nothing is written. */
   /* still (4.0, kept for next time): asked after the read, right before the write; false writes nothing and rejects with
      .dropped. Without it, as before. */
-  function decideCorrection(fs, rec, writer, still) {
+  /* still (4.0, a decision on what was kept for next time): asked right before the write; fresh(fs), when given, is awaited
+     after the read of the decision's name and before still (the guard's own read of people.json). */
+  function decideCorrection(fs, rec, writer, still, fresh) {
     if (!/^[a-z0-9][a-z0-9-]{0,59}$/.test(rec.process) || !/^[\w-]{1,40}$/.test(rec.group) || !/^[\w-]{1,40}$/.test(writer) || !(rec.rev >= 1)) return Promise.reject(new Error('That correction can\'t be decided here.'));
     var path = 'corrections/' + rec.process + '/' + rec.group + '.' + writer + '.' + Math.floor(rec.rev) + '.json';
+    var drop = function () { var e = new Error('the folder, the person or who may decide changed before it was written.'); e.dropped = true; throw e; };
     return fs.read(path).then(function (f) {
       if (f) throw new Error('A decision with that name is already in the folder. Look again, then decide.');
-      if (typeof still === 'function' && !still()) { var e = new Error('the folder, the person or who may decide changed before it was written.'); e.dropped = true; throw e; }
+      return typeof fresh === 'function' ? Promise.resolve().then(function () { return fresh(fs); }).then(function (ok) { return ok !== false; }, function () { return false; }) : true;
+    }).then(function (ok) {
+      if (!ok || (typeof still === 'function' && !still())) drop();
       return fs.write(path, JSON.stringify(rec, null, 2) + '\n').then(function () { return path; });
     });
   }
@@ -1496,6 +1501,33 @@ PF.repo = (function () {
       return publishWith(fs, draftMd, opts);
     });
   }
+  /* A version written under a write guard (4.0, a version with what was kept for next time): o.fresh(fs) is awaited and
+     o.still asked right before every write, after every read before it. Refused, nothing more is written and what this
+     write put there is removed by identity (only a file that still has exactly its bytes): { dropped: true }. */
+  function guardedWrites(fs, o) {
+    var wrote = [], dropped = new Error('dropped'); dropped.dropped = true;
+    var gate = function () {
+      var f = typeof o.fresh === 'function' ? Promise.resolve().then(function () { return o.fresh(fs); }).then(function (ok) { return ok !== false; }, function () { return false; }) : Promise.resolve(true);
+      return f.then(function (ok) { if (!ok || !o.still()) throw dropped; });
+    };
+    var same = function (w) {
+      if (typeof w.data === 'string') return fs.read(w.path).then(function (f) { return !!f && f.text === w.data; }, function () { return false; });
+      return Promise.all([fs.blob(w.path).then(function (b) { return b ? bytesOf(b) : null; }), bytesOf(w.data)]).then(function (two) {
+        return !!two[0] && !!two[1] && sha256Of(two[0]) === sha256Of(two[1]);
+      }, function () { return false; });
+    };
+    return {
+      write: function (path, data, after) {
+        return gate().then(function () { return fs.write(path, data); }).then(function () { wrote.push({ path: path, data: data }); return after ? after() : null; });
+      },
+      settle: function (e) {
+        if (!(e && e.dropped)) throw e;
+        return wrote.slice().reverse().reduce(function (p, w) {
+          return p.then(function () { return same(w).then(function (ok) { return ok && fs.remove ? fs.remove(w.path).then(null, function () {}) : null; }); });
+        }, Promise.resolve()).then(function () { return { dropped: true }; });
+      }
+    };
+  }
   function publishWith(fs, draftMd, opts) {
     var built = P.build(draftMd, opts);
     if (built.blockers) return Promise.resolve(built);
@@ -1513,8 +1545,15 @@ PF.repo = (function () {
         /* opts.still (4.0, a version with what was kept for next time): asked right before the first write; false writes
            nothing ({ dropped: true }). Without it, as before. */
         if (typeof opts.still === 'function' && !opts.still()) return { dropped: true };
-        return shots.reduce(function (p, src) { return p.then(function () { return fs.write(base + src, blobs[src]); }); }, Promise.resolve())
+        if (typeof opts.still !== 'function') return shots.reduce(function (p, src) { return p.then(function () { return fs.write(base + src, blobs[src]); }); }, Promise.resolve())
           .then(function () { return writePublication(fs, base, rebuilt); });
+        /* Under a write guard: asked again before every file, and a refusal takes back what this publish wrote. */
+        var G = guardedWrites(fs, opts), fl = rebuilt.files;
+        return shots.reduce(function (p, src) { return p.then(function () { return G.write(base + src, blobs[src]); }); }, Promise.resolve())
+          .then(function () { return G.write(base + 'map.md', fl['map.md']); })
+          .then(function () { return G.write(base + 'types.json', fl['types.json']); })
+          .then(function () { return G.write(base + 'publication.json', fl['publication.json']); })
+          .then(function () { return rebuilt; }, G.settle);
       });
     });
   }
@@ -1757,6 +1796,16 @@ PF.repo = (function () {
           .then(function () { return text('types.json', pay.types).then(function (t) { got.types = t; }); })
           .then(function () {
             if (o && typeof o.still === 'function' && !o.still()) return { dropped: true };
+            /* With o.fresh (4.0, a stage with what was kept for next time): asked again before every file, and a refusal
+               takes back what this promotion wrote. */
+            if (o && typeof o.fresh === 'function') {
+              var G = guardedWrites(fs, o), gput = function (path, data, want) { return G.write(base + path, data, function () { return readBack(fs, base + path, want); }); };
+              return shots.reduce(function (p, src) { return p.then(function () { return gput(src, got.blobs[src], pay.images[src]); }); }, Promise.resolve())
+                .then(function () { return gput('map.md', got.map, pay.map); })
+                .then(function () { return gput('types.json', got.types, pay.types); })
+                .then(function () { return G.write(base + 'publication.json', record); })
+                .then(finish, G.settle);
+            }
             return shots.reduce(function (p, src) { return p.then(function () { return put(src, got.blobs[src], pay.images[src]); }); }, Promise.resolve())
               .then(function () { return put('map.md', got.map, pay.map); })
               .then(function () { return put('types.json', got.types, pay.types); })

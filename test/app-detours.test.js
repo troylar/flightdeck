@@ -7,6 +7,7 @@
 const assert = require('assert');
 const { rule, run } = require('./harness');
 const { boot } = require('./app-harness');
+const { race } = require('./race-harness');
 
 const PARENT = ['---', 'process: release-notes', 'title: Release notes', 'owner: person-morgan', '---', '',
   '## Draft · DO-CONFIRM {#draft}', '- [!] {confirm} Write the notes {#write}', ''].join('\n');
@@ -191,6 +192,43 @@ rule('Run this checklist checks its pin again when the run starts: a pinned vers
     assert.deepStrictEqual([how, kidPaths(app).length, decs()], [how, before, d0], how + ': no run and no started decision');
     assert.ok(/Nothing was started|wasn.t started/.test(txt(app.html())), how + ': said');
   }
+});
+
+/* Every write path of a checklist-linked to-do, raced (test/race-harness.js): each async read before its writes paused in turn,
+   the person switched, the folder switched, the person marked inactive or people.json made unreadable, then released. */
+rule('Every checklist-linked write path is guarded after every read and right before every write: a pause and a change of person, folder, activity or people.json writes nothing after it', async () => {
+  const only = process.env.RACE ? process.env.RACE.split(',') : null, want = (n) => !only || only.indexOf(n) >= 0, out = {};
+  const completed = async () => { const S = await setup(), key = await runIt(S.app, S.todo); finish(S.app, key, 'pass'); await toParent(S.app); await refresh(S.app, 300); return Object.assign(S, { key }); };
+  if (want('plan')) out.plan = await race('plan', async () => {
+    const { app, todo } = await setup();
+    return { app, act: () => app.click('td-detour', todo), mine: (p) => /^proposals\/plan-ev-[0-9a-f]{24}\.json$/.test(p), who: 'person-avery', other: 'person-casey' };
+  });
+  if (want('start')) out.start = await race('start', async () => {
+    const { app, todo } = await setup();
+    app.click('td-detour', todo); await app.tick(250);
+    /* Only a decision written before the pause may have its run saved after it, in the name of whoever started it. */
+    const allowed = (p, before, was) => {
+      const m = /^runs\/smoke-test\/([^/]+)\//.exec(p);
+      return !!m && Object.keys(before).some(k => /^proposals\/plan-ev-[0-9a-f]{24}\.status-/.test(k) && String(before[k]).indexOf('"' + m[1] + '"') >= 0) && /person-avery/.test(String(was.files[p] && was.files[p].t));
+    };
+    return { app, act: () => app.chooseApprovers().submitForm('start-form'), mine: (p) => /^proposals\/plan-ev-[0-9a-f]{24}\.status-/.test(p) || /^runs\/smoke-test\//.test(p), allowed, who: 'person-avery', other: 'person-casey' };
+  });
+  if (want('accept')) out.accept = await race('accept', async () => {
+    const { app, todo, key } = await completed();
+    return { app, act: () => app.click('td-evidence', todo, { run: key.split('/')[1] }), mine: (p) => /^proposals\/req-evidence-/.test(p), who: 'person-avery', other: 'person-casey' };
+  });
+  if (want('decide')) out.decide = await race('decide', async () => {
+    const { app, todo, key } = await completed();
+    app.choose('person-casey'); await app.tick(80); await toParent(app);
+    app.click('td-evidence', todo, { run: key.split('/')[1] }); await app.tick(250);
+    assert.strictEqual(evRecs(app).length, 1, 'set-up: Casey asked');
+    app.choose('person-avery'); await app.tick(80); await refresh(app, 300); await toParent(app);
+    app.click('td-inbox', ''); await app.tick(40);
+    const m = /data-act="td-accept" data-id="([^"]+)" data-run="([^"]+)" data-fp="([^"]+)"/.exec(app.overlay() || app.html());
+    assert.ok(m, 'set-up: Avery decides it');
+    return { app, act: () => app.click('td-accept', m[1], { run: m[2], fp: m[3] }), mine: (p) => /^proposals\/req-evidence-[0-9a-f]+\.status-/.test(p) && !/apply|appl/.test(p), who: 'person-avery', other: 'person-casey' };
+  });
+  if (process.env.RACE_SAY) console.log(JSON.stringify(out));
 });
 
 run();

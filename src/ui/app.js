@@ -1895,15 +1895,15 @@
       if (!still()) return { dropped: true };
       var lk = LOCKS ? lock : null;
       if (what !== 'promote') return repo.decideStage(sfs, pid, folder, what, { by: by, now: new Date().toISOString(), window: WRITER, app: APP_VERSION, lock: lk, still: still });
-      var promote = function (st) { return repo.promote(sfs, pid, folder, { by: by, now: new Date().toISOString(), app: APP_VERSION, lock: lk, still: st }); };
+      var promote = function (st, fr) { return repo.promote(sfs, pid, folder, { by: by, now: new Date().toISOString(), app: APP_VERSION, lock: lk, still: st, fresh: fr }); };
       /* A stage that includes what was kept for next time is promoted only by the checklist's active owner, asked again on
          people.json read right before the write; one that can't be read isn't promoted on a guess. */
       return repo.readStage(sfs, pid, folder).then(function (sv) {
         var kp = keepPubGroup(pid, sv && sv.info && Array.isArray(sv.info.corrections) ? sv.info.corrections : []);
         if (!kp) return promote(still);
         if (keepPubWhy(kp, pid)) return { refused: keepPubWhy(kp, pid) };
-        var kg = keepGuard(kp, pid);
-        return kg.fresh(sfs).then(function () { return promote(function () { return still() && kg.still(); }); }).then(function (res) { return res && res.dropped && !still() ? res : res && res.dropped ? { refused: 'Nothing was published: ' + kg.why() } : res; });
+        var kg = keepGuard(kp, pid, false, { me: by, fs: sfs, gen: pg });
+        return kg.fresh(sfs).then(function () { return promote(function () { return still() && kg.still(); }, kg.fresh); }).then(function (res) { return res && res.dropped && !still() ? res : res && res.dropped ? { refused: 'Nothing was published: ' + kg.why() } : res; });
       }, function (e) { return { refused: 'Nothing was published: the stage couldn\'t be read again right before it was (' + (e && e.message || e) + '), so whether it includes what was kept for next time can\'t be told.' }; });
     }).then(function (res) {
       state.stageBusy = null;
@@ -3383,7 +3383,8 @@
     return repo.readTodos(cx.fs, { evidence: true, also: also || [] }).then(function (s) {
       if (!bound()) return null;
       var d = { todos: s.records, todosUnread: s.unread }; todoBodies(d);
-      return { records: d.todos || [], unread: d.todosUnread || [], people: s.people || data.people, evidence: s.evidence || null };
+      /* people.json that can't be read now is unread here too (s.unread names it), never this window's older copy. */
+      return { records: d.todos || [], unread: d.todosUnread || [], people: s.people || null, evidence: s.evidence || null };
     }, function () { return null; });
   }
   /* A run's facts (PF.facts.view), worked out once per read of the folder; how they stand is judged at tdNow(). */
@@ -3431,8 +3432,13 @@
     var cx = loopGuard({ run: r.process + '/' + r.id, readable: true }), text = PF.todos.text(P.file), endBusy = busyStart(), sg = gen, rk = r.process + '/' + r.id;
     /* A done on a run's result (4.0 slice 5) is asked again on the folder read right before the write: the run it rests on
        must still give exactly that answer and result, or nothing is written. */
-    var snap = null, opts = { still: function () { return guardOk(cx) && (!body.evidence || detourStill(rk, body, snap)); } };
-    if (body.evidence) opts.fresh = function () { return tdFresh(cx, [body.evidence.run]).then(function (sn) { snap = sn; return !!sn; }); };
+    var snap = null, opts = { still: function () { return guardOk(cx) && (!body.evidence || detourStill(rk, body, snap, P, key)); } };
+    /* A done on a run's result: the records, the runs and then people.json read again (writeGuard), all asked on that read. */
+    if (body.evidence) {
+      var eg = writeGuard({ fresh: function () { return tdFresh(cx, [body.evidence.run]).then(function (sn) { snap = sn; return !!sn; }); },
+        still: function (ppl) { if (snap) snap = Object.assign({}, snap, { people: ppl }); return guardOk(cx) && detourStill(rk, body, snap, P, key); } });
+      opts = { fresh: eg.fresh, still: eg.still };
+    }
     repo.saveScope(cx.fs, P.name, P.file, opts).then(function (res) {
       endBusy(); if (sg !== gen) return;
       if (res && res.dropped) { say(body.evidence ? 'Nothing was written: the run it rests on changed since this screen was drawn, or the folder, the person or the run did. Look at it again, then accept it again.' : 'Nothing was written: the folder, the person or the run changed before it was. Ask again if it still needs doing.', 'warn'); render(); return; }
@@ -3491,12 +3497,12 @@
     if ((data.plans || []).some(function (p) { return p.id === id; })) { open(); return; }
     if (runUnread(r)) { say(runUnread(r) + ' Nothing was written.', 'warn'); render(); return; }
     var cx = loopGuard({ run: rk, readable: true }), endBusy = busyStart(), sg = gen;
-    var still = function () {
+    var pg = writeGuard({ still: function () {
       if (!guardOk(cx)) return false;
       var r2 = findRun(rk), V2 = r2 ? todoView(r2) : null, x2 = V2 && V2.byTodo[todoId], F2 = x2 ? PF.detours.planFor(r2, x2, detourPub(x2.checklist), {}) : null;
       return !!F2 && !F2.why && F2.plan.id === id;
-    };
-    repo.savePlan(cx.fs, F.plan, { still: still }).then(function (res) {
+    } });
+    repo.savePlan(cx.fs, F.plan, { fresh: pg.fresh, still: pg.still }).then(function (res) {
       endBusy(); if (sg !== gen) return;
       if (res && res.dropped) { say('Nothing was written: the folder, the person or the run changed before its plan was. Run this checklist again if it still needs doing.', 'warn'); render(); return; }
       /* Already there (made from another window or computer): the same plan by its name, which is opened. */
@@ -3520,13 +3526,21 @@
       return '';
     }, function (err) { return 'the checklist it pins, ' + name + ', couldn\'t be read again right before it started (' + (err && err.message || err) + ').'; });
   }
-  /* The write guard of a done on a run's result: on the records and the run read again (snap), the same evidence. */
-  function detourStill(rk, body, snap) {
-    if (!snap || !snap.evidence) return false;
+  /* The write guard of a done on a run's result: on the records, people.json and the run read again (snap), the same
+     evidence, and the same request asked by the same person (P made again there: its authority, a compound or a request
+     that waits, exactly the bytes about to be written). people.json that can't be read refuses it. */
+  function detourStill(rk, body, snap, P, key) {
+    if (!snap || !snap.evidence || !snap.people || !state.me) return false;
+    if ((snap.unread || []).some(function (u) { return u && u.file === 'people.json'; })) return false;
+    var mine = snap.people.filter(function (x) { return x && x.id === state.me; })[0];
+    if (!mine || mine.inactive) return false;
     var r2 = findRun(rk), V2 = null; if (!r2) return false;
     try { V2 = PF.todos.view(r2, { records: snap.records, unread: snap.unread, people: snap.people, now: tdNow(), evidence: snap.evidence }); } catch (e) { return false; }
     var x2 = V2.byTodo[body.todo], E2 = x2 ? PF.detours.evidenceFor(r2, x2, body.evidence.run.id, snap.evidence) : null;
-    return !!E2 && !E2.why && JSON.stringify(E2.evidence) === JSON.stringify(body.evidence);
+    if (!E2 || E2.why || JSON.stringify(E2.evidence) !== JSON.stringify(body.evidence)) return false;
+    if (!P) return true;
+    var P2; try { P2 = PF.todos.prepare(r2, { body: body, by: { person: state.me }, key: key, records: snap.records, unread: snap.unread, people: snap.people, at: P.record.at, app: APP_VERSION, now: tdNow(), evidence: snap.evidence }); } catch (e) { return false; }
+    return !P2.why && P2.id === P.id && PF.todos.text(P2.file) === PF.todos.text(P.file);
   }
   function detourAccept(todoId, runId) {
     var r = ctx.run(); if (!r || !state.me || !runId) return;
@@ -3546,24 +3560,49 @@
     return (ctx.corrections(pid) || []).filter(function (g) { return g && g.keep && set[g.id]; })[0] || null;
   }
   function keepPubWhy(g, pid) { var w = g ? keepOwnerWhy(g, pid) : ''; return w ? 'Nothing was published: this version includes what was kept for next time. ' + w : ''; }
-  /* The write guard of a decision on what was kept for next time, or of its draft application (null for any other correction,
-     which is guarded as before): people.json read again right before each write (fresh), then the same folder, generation
-     and person as at the click, and that person still the checklist's active owner on that read (still). */
-  function keepGuard(g, pid) {
-    if (!g || !g.keep) return null;
-    var me = state.me, dfs = state.fs, gg = gen, ppl = null;
+  /* The write guard every write slice 5 added takes (4.0): bound at the click to the folder, the read (generation) and the
+     person; fresh(fs) runs the path's own reads (o.fresh(fs)) and then reads people.json again, awaited after every other read and
+     right before every write; still() asks, on that read, the same folder, generation and person, that person listed and
+     active, their authority for this write (o.who(people, me): '' or why) and the path's own checks (o.still(people)).
+     Refused, nothing is written and why() says what stopped it. */
+  /* o.at: the folder, generation and person taken at the click ({ me, fs, gen }), for a guard made later, in a queue. */
+  function writeGuard(o) {
+    o = o || {};
+    var at = o.at || { me: state.me, fs: state.fs, gen: gen }, me = at.me, dfs = at.fs, gg = at.gen, ppl = null, read = false, late = '';
     return {
       fresh: function (f) {
-        ppl = null;
-        return (f || dfs).read(PF.people.FILE).then(function (x) {
-          var o; try { o = x ? JSON.parse(x.text) : null; } catch (e) { return true; }
-          if (PF.people.verdict(o).ok) ppl = PF.people.clean(o);
-          return true;
-        }, function () { return true; });
+        ppl = null; read = false; late = '';
+        var fx = f || dfs, ok = true;
+        /* The path's own reads first, people.json last: nothing read after it before the write. */
+        return Promise.resolve(o.fresh ? o.fresh(fx) : true).then(function (v) { ok = v !== false; return fx.read(PF.people.FILE); }).then(function (x) {
+          var d; try { d = x ? JSON.parse(x.text) : null; } catch (e) { d = null; }
+          if (d && PF.people.verdict(d).ok) ppl = PF.people.clean(d);
+        }, function () { ppl = null; }).then(function () { read = true; return ok; });
       },
-      still: function () { return gg === gen && dfs === state.fs && state.me === me && !!ppl && !PF.learn.ownerWhy(g, procFind(pid), ppl, me, false); },
-      why: function () { return !ppl ? 'people.json couldn\'t be read again right before it was written.' : PF.learn.ownerWhy(g, procFind(pid), ppl, me, false) || 'the folder or the person changed before it was written.'; }
+      still: function () {
+        late = '';
+        if (gg !== gen || dfs !== state.fs || state.me !== me) { late = 'the folder or the person changed before it was written.'; return false; }
+        if (!read || !ppl) { late = 'people.json couldn\'t be read again right before it was written.'; return false; }
+        var mine = ppl.filter(function (x) { return x && x.id === me; })[0];
+        if (!mine) { late = 'you aren\'t listed in people.json now.'; return false; }
+        if (mine.inactive) { late = 'you are marked inactive in people.json now.'; return false; }
+        late = o.who ? o.who(ppl, me) || '' : '';
+        if (!late && o.still && !o.still(ppl)) late = (o.late && o.late()) || 'what it rests on changed before it was written.';
+        return !late;
+      },
+      why: function () { return late || 'the folder or the person changed before it was written.'; },
+      people: function () { return ppl; }
     };
+  }
+  /* The write guard of a decision on what was kept for next time, or of its draft application (null for any other correction,
+     which is guarded as before): the checklist's active owner on people.json read again right before each write. Withdrawing
+     a keep is its author's (every keep in it theirs). */
+  function keepGuard(g, pid, withdraw, at) {
+    if (!g || !g.keep) return null;
+    return writeGuard({ at: at, who: function (ppl, me) {
+      if (withdraw) return g.members.every(function (c) { return c.by === me; }) ? '' : 'Only whoever kept it can withdraw it.';
+      return PF.learn.ownerWhy(g, procFind(pid), ppl, me, false);
+    } });
   }
   function keepWrite(r, source) {
     if (!r || !state.me) return;
@@ -3579,19 +3618,23 @@
     /* The checklist another one's keep rests on (a loop's items' checklist) is read again right before the write, never
        taken from the copy read before: one that can't be read now holds the keep. */
     var gov = K.record.template && K.record.template.process !== r.process ? K.record.template.process : '', govProc = null, late = '';
-    var fresh = gov ? function () {
-      return repo.readProcess(cx.fs, gov).then(function (p) { govProc = p; if (!p) late = 'the checklist ' + gov + ' isn\'t published in this folder now.'; return !!p; },
-        function (e) { late = 'publications/' + gov + '/ couldn\'t be read again right before it was (' + (e && e.message || e) + ').'; return false; });
-    } : null;
-    var still = function () {
-      if (!guardOk(cx)) return false;
-      if (gov && !govProc) return false;
-      var A = PF.learn.prepare(findRun(rk), { source: source, by: { person: state.me }, records: data.todos || [], unread: data.todosUnread || [], people: data.people, procOf: gov ? function (id) { return id === gov ? govProc : ctx.procOf(id); } : ctx.procOf, at: K.record.at, app: APP_VERSION, now: tdNow() });
-      if (A.why && A.held) late = A.why;
-      return !A.why && A.status === 'new' && A.id === K.id && PF.todos.text(A.file) === text;
-    };
-    repo.saveScope(cx.fs, K.name, K.file, { fresh: fresh, still: still }).then(function (res) {
+    /* The keep is asked again on people.json read right before the write (writeGuard): its person listed and active. */
+    var kg = writeGuard({
+      fresh: gov ? function (fx) {
+        return repo.readProcess(fx, gov).then(function (p) { govProc = p; if (!p) late = 'the checklist ' + gov + ' isn\'t published in this folder now.'; return !!p; },
+          function (e) { late = 'publications/' + gov + '/ couldn\'t be read again right before it was (' + (e && e.message || e) + ').'; return false; });
+      } : null,
+      still: function (ppl) {
+        if (!guardOk(cx)) return false;
+        if (gov && !govProc) return false;
+        var A = PF.learn.prepare(findRun(rk), { source: source, by: { person: state.me }, records: data.todos || [], unread: data.todosUnread || [], people: ppl, procOf: gov ? function (id) { return id === gov ? govProc : ctx.procOf(id); } : ctx.procOf, at: K.record.at, app: APP_VERSION, now: tdNow() });
+        if (A.why && A.held) late = A.why;
+        return !A.why && A.status === 'new' && A.id === K.id && PF.todos.text(A.file) === text;
+      }
+    });
+    repo.saveScope(cx.fs, K.name, K.file, { fresh: kg.fresh, still: kg.still }).then(function (res) {
       endBusy(); if (sg !== gen) return;
+      if (res && res.dropped && !late && /people\.json/.test(kg.why())) late = kg.why();
       if (res && res.dropped) { say(late ? 'Nothing was kept: ' + late + ' Keep it again once it can be read.' : 'Nothing was kept: the folder, the person or the run changed before it was written. Keep it again if it still matters.', 'warn'); render(); return; }
       if (res && res.conflict && res.theirs !== text) { say('Something else is already saved under this keep\'s name. Nothing was written; read the folder again, then keep it again.', 'bad'); render(); return; }
       state.keepTry = null;
@@ -3649,7 +3692,11 @@
     var cx = loopGuard({ run: r.process + '/' + r.id, readable: true }), endBusy = busyStart(), sg = gen;
     var late = '', snap = null;
     var fresh = function () { return tdFresh(cx).then(function (s) { snap = s; if (!s) late = 'the folder couldn\'t be read again right before it was.'; return !!s; }); };
-    return repo.saveScope(cx.fs, made.name, made.file, { fresh: recheck ? fresh : null, still: function () { if (!guardOk(cx)) return false; late = recheck ? recheck(snap) : ''; return !late; } }).then(function (res) {
+    /* A decision asked again on the folder: the records, then people.json read last (writeGuard), all asked on that read. */
+    var wg = recheck ? writeGuard({ fresh: fresh, still: function (ppl) { if (snap) snap = Object.assign({}, snap, { people: ppl }); late = recheck(snap); return !late; }, late: function () { return late; } }) : null;
+    var opts = wg ? { fresh: wg.fresh, still: function () { if (!guardOk(cx)) return false; if (wg.still()) return true; late = late || wg.why(); return false; } }
+      : { fresh: null, still: function () { return guardOk(cx); } };
+    return repo.saveScope(cx.fs, made.name, made.file, opts).then(function (res) {
       endBusy(); if (sg !== gen) return false;
       if (res && res.dropped) { said(late ? 'Nothing was written: ' + late : 'Nothing was written: the folder, the person or the run changed before it was.', 'warn'); render(); return false; }
       if (slot) tdSettled(slot);
@@ -3697,7 +3744,8 @@
       var cx = loopGuard({ run: r.process + '/' + r.id, readable: true }), endBusy = busyStart(), sg = gen;
       var late = '', snap = null;
       var fresh = function () { return tdFresh(cx).then(function (s) { snap = s; if (!s) late = 'The folder couldn\'t be read again right before it was written.'; return !!s; }); };
-      repo.saveScope(cx.fs, made.name, made.file, { fresh: fresh, still: function () { if (!guardOk(cx)) return false; late = tdDecisionStill(x.run, o1, made, snap); return !late; } }).then(function (res) {
+      var wg = writeGuard({ fresh: fresh, still: function (ppl) { if (snap) snap = Object.assign({}, snap, { people: ppl }); late = tdDecisionStill(x.run, o1, made, snap); return !late; }, late: function () { return late; } });
+      repo.saveScope(cx.fs, made.name, made.file, { fresh: wg.fresh, still: function () { if (!guardOk(cx)) return false; if (wg.still()) return true; late = late || wg.why(); return false; } }).then(function (res) {
         endBusy(); if (sg !== gen) return;
         if (res && res.dropped) { failed.push({ why: late || 'The folder, the person or the run changed before it was written.' }); step(i + 1); return; }
         tdSettled(slot);
@@ -5448,7 +5496,7 @@
     queued(function () {
       if (gg !== gen || dfs !== state.fs || keepOwnerWhy(g, ov.pid)) return Promise.reject(new Error(keepOwnerWhy(g, ov.pid) || 'the folder changed.'));
       if (!kg) return repo.decideCorrection(dfs, rec, WRITER);
-      return kg.fresh(dfs).then(function () { return repo.decideCorrection(dfs, rec, WRITER, kg.still).then(null, function (e) { if (e && e.dropped) throw new Error('Nothing was decided: ' + kg.why()); throw e; }); });
+      return repo.decideCorrection(dfs, rec, WRITER, kg.still, kg.fresh).then(null, function (e) { if (e && e.dropped) throw new Error('Nothing was decided: ' + kg.why()); throw e; });
     }).then(function () {
       if (gg !== gen) return; if (caOv() === ov) closeOverlay(); state.focus = 'fx-h'; say(msg, 'good'); return load(true);
     }, function (e) { if (gg !== gen) return; ov.busy = false; if (caOv() === ov) caErr(ov, 'Couldn\'t save the decision: ' + e.message); else { say('Couldn\'t save the decision: ' + e.message, 'bad'); render(); } });
@@ -5501,7 +5549,7 @@
             state.corrApplied[k] = res;
             return queued(function () {
               if (!kg) return repo.decideCorrection(dfs, rec, WRITER);
-              return kg.fresh(dfs).then(function () { return repo.decideCorrection(dfs, rec, WRITER, kg.still).then(null, function (e) { if (e && e.dropped) throw new Error(kg.why()); throw e; }); });
+              return repo.decideCorrection(dfs, rec, WRITER, kg.still, kg.fresh).then(null, function (e) { if (e && e.dropped) throw new Error(kg.why()); throw e; });
             }).then(function () { delete state.corrApplied[k]; });
           });
         }, Promise.resolve()).catch(function (e) { if (gg === gen) say('The draft has the correction, but marking it as applied didn\'t save: ' + e.message + ' Review it again and choose Link this correction.', 'warn'); });
@@ -8301,7 +8349,7 @@
       /* Everything the publication is checked against comes from this folder now, before the queue waits on anything. */
       var pfs = state.fs, pg = gen, by = state.me, people = data.people, wfs = data.jira.workflows, pids = processes().filter(function (x) { return x.latest; }).map(function (x) { return x.id; });
       var tk = dlg ? wsTicket(id) : null, fail = dlg ? wsFailed(dlg, '[data-act="publish"]') : null;
-      var kw = keepPubWhy(keepPubGroup(id, PF.corrections.forPublish(shown, ctx.corrections(id)).list), id);
+      var kp0 = keepPubGroup(id, PF.corrections.forPublish(shown, ctx.corrections(id)).list), at0 = { me: state.me, fs: state.fs, gen: gen }, kw = keepPubWhy(kp0, id);
       if (kw) { if (fail) fail(kw); else { say(kw, 'warn'); render(); } return; }
       if (dlg) { dlg.note = note; dlg.clicked = 'publish'; dlg.err = ''; state.overlayFocus = '[data-act="publish"]'; }
       state.publishBusy = id; render();
@@ -8313,12 +8361,14 @@
           if (!f || f.text !== shown) return { changed: true };
           /* The corrections this exact text includes, worked out from the folder as last read (see PF.corrections.forPublish). */
           var inc = pg === gen ? PF.corrections.forPublish(f.text, ctx.corrections(id)).list : [];
-          var kp = keepPubGroup(id, inc), kg = kp ? keepGuard(kp, id) : null, go = function (still) {
-            return repo.publish(pfs, f.text, { people: people, customTypes: got[1].types, workflows: wfs, processes: pids, by: by, changes: note, existing: p.taken, now: new Date().toISOString(), corrections: inc, app: APP_VERSION, still: still }).then(function (res) { if (res && !res.blockers && !res.dropped) res.included = inc.length; return res; });
+          /* A version that included what was kept when it was clicked is never published past a change of folder or read. */
+          if (kp0 && pg !== gen) return { refused: 'Nothing was published: the folder or the person changed before it was written.' };
+          var kp = keepPubGroup(id, inc), kg = kp ? keepGuard(kp, id, false, at0) : null, go = function (still, fresh) {
+            return repo.publish(pfs, f.text, { people: people, customTypes: got[1].types, workflows: wfs, processes: pids, by: by, changes: note, existing: p.taken, now: new Date().toISOString(), corrections: inc, app: APP_VERSION, still: still, fresh: fresh }).then(function (res) { if (res && !res.blockers && !res.dropped) res.included = inc.length; return res; });
           };
           if (!kp) return go(undefined);
           if (keepPubWhy(kp, id)) return { refused: keepPubWhy(kp, id) };
-          return kg.fresh(pfs).then(function () { return go(kg.still); }).then(function (res) { return res && res.dropped ? { refused: 'Nothing was published: ' + kg.why() } : res; });
+          return kg.fresh(pfs).then(function () { return go(kg.still, kg.fresh); }).then(function (res) { return res && res.dropped ? { refused: 'Nothing was published: ' + kg.why() } : res; });
         });
       }).then(function (res) {
         state.publishBusy = null;
@@ -9217,8 +9267,13 @@
     var rec;
     try { rec = PF.corrections.decision(g, state.me, status, reason, new Date().toISOString(), Object.assign({ current: g.decision, act: U.randomId(10) }, more || {})); }
     catch (e) { if (status === 'declined') { state.fieldErr = { id: 'corr-decline', msg: e.message }; state.focus = 'pick-input'; } else say(e.message, 'warn'); render(); return; }
-    var dfs = state.fs, gg = gen;
-    queued(function () { if (gg !== gen || dfs !== state.fs || ownerWhy()) return Promise.reject(new Error(ownerWhy() || 'the folder changed.')); return repo.decideCorrection(dfs, rec, WRITER); }).then(function () {
+    var dfs = state.fs, gg = gen, kg = keepGuard(g, p.id, status === 'withdrawn');
+    queued(function () {
+      if (gg !== gen || dfs !== state.fs || ownerWhy()) return Promise.reject(new Error(ownerWhy() || 'the folder changed.'));
+      if (!kg) return repo.decideCorrection(dfs, rec, WRITER);
+      /* Kept for next time: the guard asked again on people.json read after every read and right before the write. */
+      return repo.decideCorrection(dfs, rec, WRITER, kg.still, kg.fresh).then(null, function (e) { if (e && e.dropped) throw new Error('Nothing was decided: ' + kg.why()); throw e; });
+    }).then(function () {
       if (gg !== gen) return; state.pick = null; state.fieldErr = null; if (state.view === 'process') state.focus = 'fx-h'; say(done, 'good'); return load(true);
     }, function (e) { if (gg !== gen) return; say('Couldn\'t save the decision: ' + e.message, 'bad'); render(); });
   }
@@ -9856,6 +9911,7 @@
        the decision reserves the plan for this one run, so a run that doesn't save can only be saved again, never started
        twice. The exact bytes it tried are kept in this window, by plan (state.pendingStarts), for Try again (repo.resumeStart). */
     var formSha = e.target.dataset.planHash, startFolder = pub.info.folder, dec = null, pinLate = '', detour = !!(plan && plan.pin && /^plan-ev-[0-9a-f]{24}$/.test(String(plan.id)));
+    var sg2 = detour ? writeGuard({}) : null;
     queued(function () {
       r.recorder.session = SESSION;
       /* A run of a checklist with a loop is guarded like every loop write (round 10). A planned start's run is saved once its
@@ -9870,13 +9926,17 @@
         return repo.decidePlan(sfs, plan, { action: 'start', sha: formSha, folder: startFolder, lock: LOCKS ? lock : null, still: still, write: function () {
           var mark = function () { return repo.recordPlanStatus(sfs, plan, WRITER, 'accepted', r.id, who, null, APP_VERSION).then(function (path) { dec = path; return save(true); }); };
           if (!detour) return mark();
-          return detourPinWhy(sfs, plan, pub).then(function (w) { if (w) { pinLate = w; var e = new Error(w); e.dropped = true; throw e; } return mark(); });
+          /* Run this checklist: after the pin's read, people.json is read again and the whole guard asked right before the
+             decision is written; only a decision actually written has its run saved (and only that is recovered). */
+          var drop = function (w) { pinLate = w; var e = new Error(w); e.dropped = true; throw e; };
+          return detourPinWhy(sfs, plan, pub).then(function (w) { if (w) drop(w); return sg2.fresh(sfs); })
+            .then(function () { if (!still() || !sg2.still()) drop(sg2.why()); return mark(); });
         } });
       };
       /* Run this checklist (4.0): the exact version its to-do pins is read again before the start is reserved and right
          before its decision is written; changed, gone or unreadable, nothing starts. Any other plan starts as before. */
       if (!detour) return decide();
-      return detourPinWhy(sfs, plan, pub).then(function (w) { if (w) { pinLate = w; return { dropped: true }; } return decide(); });
+      return detourPinWhy(sfs, plan, pub).then(function (w) { if (w) { pinLate = w; return { dropped: true }; } return sg2.fresh(sfs).then(function () { if (!still() || !sg2.still()) { pinLate = sg2.why(); return { dropped: true }; } return decide(); }); });
     }).then(function (res) {
       endBusy();
       if (res && res.dropped && pinLate) { releaseNav(held); say('Nothing was started: ' + pinLate, 'warn'); render(); return null; }

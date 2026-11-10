@@ -6,6 +6,7 @@
 const assert = require('assert');
 const { rule, run } = require('./harness');
 const { boot } = require('./app-harness');
+const { race } = require('./race-harness');
 
 const MD = ['---', 'process: release-notes', 'title: Release notes', 'owner: person-morgan', '---', '',
   '## Draft · DO-CONFIRM {#draft}', '- [!] {confirm} Write the notes {#write}', '',
@@ -298,6 +299,46 @@ rule('A spread\'s keep is held when its checklist\'s publication can\'t be read 
   app.click('keep', spread, { kind: 'spread' }); await app.tick(200);
   assert.strictEqual(keeps(app).length, n + 1, 'kept once it reads');
   assert.strictEqual(keeps(app)[0].template.process, 'validate-story');
+});
+
+/* Every write path of keeping for next time, raced (test/race-harness.js): each async read before its writes paused in turn,
+   the person switched, the folder switched, the person marked inactive or people.json made unreadable, then released. */
+rule('Every keep write path is guarded after every read and right before every write: a pause and a change of person, folder, activity or people.json writes nothing after it', async () => {
+  const only = process.env.RACE ? process.env.RACE.split(',') : null, want = (n) => !only || only.indexOf(n) >= 0, out = {};
+  const proposals = (p) => /^proposals\/req-/.test(p), corr = (p) => /^corrections\//.test(p);
+  const kept = async (who) => { const app = await setup(), id = await added(app, 'Post the release notes'); app.click('keep', id, { kind: 'todo' }); await app.tick(120); await refresh(app, 300); const gid = groupId(app); if (who) { app.choose(who); await app.tick(80); } return { app, gid }; };
+  if (want('keep')) out.keep = await race('keep', async () => {
+    const app = await setup(), id = await added(app, 'Post the release notes');
+    return { app, act: () => app.click('keep', id, { kind: 'todo' }), mine: proposals, who: 'person-avery', other: 'person-casey' };
+  });
+  if (want('withdraw')) out.withdraw = await race('withdraw', async () => {
+    const { app, gid } = await kept();
+    return { app, act: () => app.click('corr-withdraw', gid, { process: 'release-notes' }), mine: corr, who: 'person-avery', other: 'person-casey' };
+  });
+  if (want('decide')) out.decide = await race('decide', async () => {
+    const { app, gid } = await kept('person-morgan'); await openPage(app);
+    return { app, act: () => app.click('corr-applied', gid), mine: corr, who: 'person-morgan', other: 'person-avery' };
+  });
+  if (want('apply')) out.apply = await race('apply', async () => {
+    const { app, gid } = await kept();
+    app.click('keep-open', gid, { process: 'release-notes' }); await app.tick(120);
+    app.choose('person-morgan'); await app.tick(80);
+    app.click('corr-review', gid); await app.tick(60);
+    return { app, act: () => app.click('corr-apply', gid), mine: (p) => corr(p) || /^maps\/drafts\//.test(p), who: 'person-morgan', other: 'person-avery' };
+  });
+  if (want('publish')) out.publish = await race('publish', async () => {
+    const { app } = await appliedKeep(); await openPage(app);
+    app.set('change-note', 'Post the notes');
+    return { app, act: () => app.click('publish', 'release-notes'), mine: (p) => /^publications\//.test(p), who: 'person-morgan', other: 'person-avery' };
+  });
+  if (want('promote')) out.promote = await race('promote', async () => {
+    const { app } = await appliedKeep(); await openPage(app);
+    app.set('change-note', 'Post the notes'); app.click('stage-draft', 'release-notes'); await app.tick(300);
+    const st = app.files('staged/release-notes/').filter(f => /publication\.json$/.test(f)), folder = JSON.parse(app.fs.files[st[0]].t).folder;
+    await refresh(app, 200); await openPage(app);
+    return { app, act: () => app.click('promote-stage', folder), mine: (p) => /^publications\//.test(p), who: 'person-morgan', other: 'person-avery' };
+  });
+  if (process.env.RACE_SAY) console.log(JSON.stringify(out));
 });
 
 run();

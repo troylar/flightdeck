@@ -1,0 +1,94 @@
+// The generated race for the write paths slice 5 added (4.0, round 2): every write is under one guard, asked after every
+// async read and right before every write. For one path (make: a fresh app with the path ready; act: the gesture), a dry
+// run lists the async reads the path makes before its last write; then, for each of them in turn, a fresh app pauses that
+// read, does one of: switch the person, switch the folder, mark the person inactive, make people.json unreadable, and
+// releases it. Nothing the path writes may land after the pause, unless allowed (what a written decision already committed,
+// attributed to whoever made it), and no version folder is left without its record.
+'use strict';
+const assert = require('assert');
+
+const PERTS = ['person', 'folder', 'inactive', 'people'];
+const READS = ['read', 'list', 'stat', 'blob'];
+
+function instrument(fs) {
+  const st = { armed: false, log: [], occ: Object.create(null), target: null, held: false, release: null, writes: [], paused: false };
+  READS.forEach((m) => {
+    if (typeof fs[m] !== 'function') return;
+    const orig = fs[m].bind(fs);
+    fs[m] = (p, o) => {
+      if (!st.armed) return orig(p, o);
+      const sig = m + ':' + p;
+      st.occ[sig] = (st.occ[sig] || 0) + 1;
+      st.log.push({ sig, n: st.occ[sig], writes: st.writes.length });
+      if (st.target && !st.held && sig === st.target.sig && st.occ[sig] === st.target.n) {
+        st.held = true;
+        return new Promise((res, rej) => { st.release = () => { st.paused = false; orig(p, o).then(res, rej); }; st.paused = true; });
+      }
+      return orig(p, o);
+    };
+  });
+  ['write', 'remove'].forEach((m) => {
+    const orig = fs[m].bind(fs);
+    fs[m] = (p, ...a) => { if (st.armed) st.writes.push({ m, p, afterPause: st.held }); return orig(p, ...a); };
+  });
+  return st;
+}
+const textOf = (fs, p) => (fs.files[p] ? (typeof fs.files[p].t === 'string' ? fs.files[p].t : '<blob>') : null);
+const snapshot = (fs) => { const o = {}; Object.keys(fs.files).forEach((p) => { o[p] = textOf(fs, p); }); return o; };
+
+async function perturb(app, how, ctx, was) {
+  if (how === 'person') { app.choose(ctx.other); return; }
+  if (how === 'folder') { app.click('reset-examples'); return; }
+  const f = was.files['people.json'];
+  if (how === 'people') { was.files['people.json'] = { t: '{ torn', m: Date.now() }; return; }
+  const ppl = JSON.parse(f.t), list = Array.isArray(ppl) ? ppl : ppl.people;
+  list.forEach((p) => { if (p.id === ctx.who) p.inactive = true; });
+  was.files['people.json'] = { t: JSON.stringify(ppl), m: Date.now() };
+}
+
+/* One path's race. make() resolves to { app, act(), mine(path), who, other, allowed?(path, before, was) }. */
+async function race(name, make, o) {
+  o = o || {};
+  const settle = o.settle || 400;
+  const dry = await make(), dfs = dry.app.fs, ds = instrument(dfs);
+  ds.armed = true; dry.act(); await dry.app.tick(settle); ds.armed = false;
+  const mineWrites = ds.writes.filter((w) => w.m === 'write' && dry.mine(w.p));
+  assert.ok(mineWrites.length, name + ': set-up: the path writes when nothing changes (reads: ' + ds.log.length + ')');
+  /* The reads up to the path's last write: each is a step to pause. */
+  const lastW = ds.writes.lastIndexOf(mineWrites[mineWrites.length - 1]) + 1;
+  const steps = ds.log.filter((x) => x.writes < lastW);
+  const cases = [];
+  steps.forEach((s, i) => {
+    const before = steps[i + 1] ? steps[i + 1].writes > s.writes : true;
+    (before ? PERTS : [PERTS[i % PERTS.length]]).forEach((how) => cases.push({ s, how }));
+  });
+  let ran = 0;
+  for (const c of cases) {
+    const ctx = await make(), app = ctx.app, was = app.fs, st = instrument(was);
+    st.target = { sig: c.s.sig, n: c.s.n }; st.armed = true;
+    ctx.act();
+    for (let k = 0; k < 40 && !st.paused && !st.held; k++) await app.tick(10);
+    for (let k = 0; k < 40 && !st.paused; k++) await app.tick(10);
+    if (!st.paused) { st.armed = false; continue; }
+    ran++;
+    const at = st.writes.length, before = snapshot(was);
+    await perturb(app, c.how, ctx, was);
+    await app.tick(20);
+    st.release();
+    await app.tick(settle);
+    st.armed = false;
+    const label = name + ' · paused ' + c.s.sig + ' #' + c.s.n + ' · ' + c.how;
+    const landed = st.writes.slice(at).filter((w) => w.m === 'write' && ctx.mine(w.p)).map((w) => w.p)
+      .filter((p, i, a) => a.indexOf(p) === i && textOf(was, p) !== null && textOf(was, p) !== before[p])
+      .filter((p) => !(ctx.allowed && ctx.allowed(p, before, was)));
+    assert.deepStrictEqual(landed, [], label + ': written after the pause');
+    /* A version or stage folder is whole or absent: never files without its record. */
+    const dirs = {};
+    Object.keys(was.files).forEach((p) => { const m = /^(publications|staged)\/[^/]+\/[^/]+\//.exec(p); if (m) (dirs[m[0]] = dirs[m[0]] || []).push(p); });
+    Object.keys(dirs).forEach((d) => assert.ok(dirs[d].indexOf(d + 'publication.json') >= 0, label + ': ' + d + ' left without its record: ' + dirs[d].join(', ')));
+  }
+  assert.ok(ran >= Math.min(cases.length, 1), name + ': no step could be paused');
+  return { steps: steps.length, cases: cases.length, ran };
+}
+
+module.exports = { race, PERTS };

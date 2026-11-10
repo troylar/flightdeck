@@ -25,8 +25,8 @@
       "reviewed": "DC: evidence runs judged by the shared run verdict (PF.appjson.judgeRun, moved from the CLI), evidence plan and decision refusals and an absent plan are problems; no writes added; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "156b3dbce75caa2f9f92d7b9bf242c1a830a81ad6a46f5539bf8de411efd49b2",
-      "reviewed": "DC: evidence runs judged by the shared run verdict (PF.appjson.judgeRun, moved from the CLI), evidence plan and decision refusals and an absent plan are problems; no writes added; checked for direct writes and unconditional deletes"
+      "sha256": "7577cd9438937e98fd2f8684d4e543e32f6e799fe57fb37b772164c5cde0ae4f",
+      "reviewed": "DA: one write guard (writeGuard) for every slice 5 write path, fresh people.json after the path's reads and before every write; publish/promote with keeps gate each file and roll back by identity; checked for direct writes and unconditional deletes (the rollback removes only files with exactly its own bytes)"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -417,12 +417,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "584780473258f57fd5943cb7171d90d0ae9710845a1d44b144fbdb8bd70b1c6b",
-      "reviewed": "DC: evidence runs judged by the shared run verdict (PF.appjson.judgeRun, moved from the CLI), evidence plan and decision refusals and an absent plan are problems; no writes added; checked for direct writes and unconditional deletes"
+      "sha256": "687bdfec2ce184a65b3d7ab8db20cb4fc283afe1b074b99831ae4ff29ee9b149",
+      "reviewed": "DA: one write guard (writeGuard) for every slice 5 write path, fresh people.json after the path's reads and before every write; publish/promote with keeps gate each file and roll back by identity; checked for direct writes and unconditional deletes (the rollback removes only files with exactly its own bytes)"
     },
     "src/ui/app.js": {
-      "sha256": "b243f0daec0888827eac37196aaa9d2734c9d070a987d966df264c2dedbaad69",
-      "reviewed": "Run this checklist rereads its pin at start; checked for direct writes and unconditional deletes"
+      "sha256": "4af85fcbf6c7401302c41194f64bce3def53ec6e15e835dcc8630088fc9bdcd4",
+      "reviewed": "DA: one write guard (writeGuard) for every slice 5 write path, fresh people.json after the path's reads and before every write; publish/promote with keeps gate each file and roll back by identity; checked for direct writes and unconditional deletes (the rollback removes only files with exactly its own bytes)"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
