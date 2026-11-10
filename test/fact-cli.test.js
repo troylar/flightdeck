@@ -256,6 +256,41 @@ rule('A story\'s suggestion resting on its parent\'s fact: that fact unreadable 
   named(json('runs', F0.root, '--contract', '2', '--json'), 'runs');
 });
 
+rule('A fact record that is a link is unread, never absent: it holds what rests on it, and every reader names it, incomplete, exit 4', async () => {
+  const linkIt = (root, name) => { const p = path.join(root, 'proposals', name), away = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-fact-away-')), name); fs.renameSync(p, away); fs.symlinkSync(away, p); };
+  const F0 = await folder(), KID = 'validate-story/k102';
+  assert.strictEqual(json('todo', 'add', F0.root, KID, '--phase', 'assess', '--text', 'Merge the fix', '--key', 'kid-td', '--json', ...TOOL).code, 0);
+  assert.strictEqual(await decideAll(F0.d, KID, 'person-avery'), 1);
+  await land(F0.d, KID);
+  const x = json('todo', 'list', F0.root, KID, '--json').data.todos[0].id;
+  assert.strictEqual(json('fact', 'sync', F0.root, PR, '--from', input({ facts: [prs()] }), '--json', ...TOOL).code, 0);
+  const fid = F.idFor('git-bot', 'prs-102-a');
+  assert.deepStrictEqual(json('todo', 'suggest-done', F0.root, KID, '--todo', x, '--fact', fid, '--json', ...TOOL).data.status, 'requested');
+  linkIt(F0.root, fid + '.json');
+  const named = (r, what) => {
+    assert.deepStrictEqual([r.code, r.complete], [4, false], what + ': ' + JSON.stringify(r).slice(0, 600));
+    assert.ok(r.problems.some(p => p.path === 'proposals/' + fid + '.json'), what + ' names the link: ' + JSON.stringify(r.problems));
+  };
+  const l = json('todo', 'list', F0.root, KID, '--json');
+  named(l, 'todo list');
+  assert.strictEqual(l.data.requests.filter(q => q.op === 'done')[0].status, 'held');
+  named(json('run', F0.root, KID, '--contract', '2', '--json'), 'run');
+  named(json('next', F0.root, KID, '--contract', '2', '--json'), 'next');
+  named(json('todo', 'suggest-done', F0.root, KID, '--todo', x, '--fact', fid, '--json', ...TOOL), 'suggest-done');
+  named(json('fact', 'list', F0.root, PR, '--json'), 'fact list');
+  named(json('runs', F0.root, '--contract', '2', '--json'), 'runs');
+  /* An open blocker that becomes a link no longer reads as no blocker: the suggestion it stopped is held, nothing written. */
+  const F1 = await folder(), x1 = await todo(F1);
+  assert.strictEqual(json('fact', 'sync', F1.root, PR, '--from', input({ facts: [prs(), blockers({ complete: true, reported: 1, errors: [], entries: [{ id: 'B-1', text: 'Waiting on legal', state: 'open' }] })] }), '--json', ...TOOL).code, 0);
+  const pid = F.idFor('git-bot', 'prs-102-a');
+  assert.deepStrictEqual(json('todo', 'suggest-done', F1.root, PR, '--todo', x1, '--fact', pid, '--json', ...TOOL).error.kind, 'invalid', 'set-up: the open blocker refuses it');
+  linkIt(F1.root, F.idFor('git-bot', 'blk-102-a') + '.json');
+  const n = ls(F1.root).length, g = json('todo', 'suggest-done', F1.root, PR, '--todo', x1, '--fact', pid, '--json', ...TOOL);
+  assert.deepStrictEqual([g.code, g.data && g.data.status, ls(F1.root).length], [4, 'held', n], JSON.stringify(g).slice(0, 600));
+  const s = json('fact', 'sync', F1.root, PR, '--from', input({ facts: [prs({ key: 'prs-102-c' })] }), '--json', ...TOOL);
+  assert.deepStrictEqual([s.code, s.data && s.data.status, ls(F1.root).length], [4, 'held', n], 'sync holds too');
+});
+
 rule('Importing facts alone changes no run bytes: every run.json and `run --contract 2` read the same before and after', async () => {
   const { root } = await folder();
   const runs0 = runsOf(root), read0 = json('run', root, PR, '--contract', '2', '--json'), kid0 = json('run', root, 'validate-story/k102', '--contract', '2', '--json');

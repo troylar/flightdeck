@@ -21,12 +21,12 @@
       "reviewed": "slice 4 commit 3: facts core (facts.js: records, reduction, freshness, support, de-duplication), todos hooks (fact dispatch, done support, now), Python checker parity; pure code, no direct writes or unconditional deletes"
     },
     "docs/apps.md": {
-      "sha256": "1253ed4cd8d6e9bfb6aa062aaa5f5c9fdaa2b929075a92fe71fdbac6fa243e2b",
-      "reviewed": "FC: unread records a suggestion's evidence depends on are named in every reader's problems (evidenceUnread); checked for direct writes and unconditional deletes"
+      "sha256": "05398d015543151054867b5c06883335301e094806d84547570f83d643e1b9e4",
+      "reviewed": "a link where a to-do or fact record would be is unread, run unknown; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "e6071fdcbdd18b6eb48fbe2793750cd86e8a25561edeff8e73e1eb4186c2b9ff",
-      "reviewed": "design 45.2: differing fact copies; checked for direct writes and unconditional deletes"
+      "sha256": "4104d242ff70159ce12ceb19b3bbe95f6c2c9c13355a9de40d497379052f01c6",
+      "reviewed": "a link where a to-do or fact record would be is unread, run unknown; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -409,8 +409,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "de2faf18cb0bd7d4fd89dd057542b8cb0eec0d19e7671f72fbb3bfbb7c17bf9c",
-      "reviewed": "AY: the folder reader keeps a file's own _file/_bytes apart from the loader's and validates to-do and scope records as written; checked for direct writes and unconditional deletes (none)"
+      "sha256": "0327966d48c512192b1030d6313f7a1294dbc0f760276379b058169fa929c257",
+      "reviewed": "a link where a to-do or fact record would be is unread, run unknown; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "c8eaa242881ad9fa07e20cb3357d7886527c15173f07208ab081943cfadb0e68",

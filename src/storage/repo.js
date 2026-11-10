@@ -627,6 +627,9 @@ PF.repo = (function () {
   }
   function loadJsonDir(fs, dir, ok, bad, only, torn, perFile) {
     return fs.list(dir).then(function (items) {
+      /* A link where a to-do or fact record would be (4.0) is never read and never absent: it is named like one that can't be
+         read yet (readPlans). Other folders and kinds read links as 3.0 did: left out, named by the reader's adapter. */
+      if (torn && dir === 'proposals') items.forEach(function (i) { if (i && i.kind === 'link' && /^req-.*\.json$/i.test(i.name) && (!only || only(i.name))) torn.push({ path: dir + '/' + i.name, _file: i.name, parsed: false, link: true, why: 'is a link, and Flightdeck never reads through links' }); });
       return Promise.all(items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name) && (!only || only(i.name)); }).map(function (i) {
         var path = dir + '/' + i.name;
         if (!bad) return fs.read(path).then(function (f) {
@@ -770,7 +773,7 @@ PF.repo = (function () {
          readable plan's ID could be a renamed decision on any plan. It holds none, and Folder health names it on its own. */
       var planIds = (r[6].plans || []).map(function (p) { return p.id; });
       var named = function (n) { return PF.plans.namesPlan(String(n)) || planIds.some(function (id) { if (typeof id !== 'string' || !id || String(n).indexOf(id) !== 0) return false; var c = String(n).charAt(id.length); return c === '.' || c === ' ' || c === '-' || c === '('; }); };
-      var planUnread = 'proposals' in failed ? [] : (r[6].torn || []).map(function (u) { var x = { _unread: true, path: u.path, _file: u._file, why: u.why, kind: u.parsed ? 'ignored' : 'unreadable' }; if (!u.parsed && !named(u._file)) x.unnamed = true; return x; });
+      var planUnread = 'proposals' in failed ? [] : (r[6].torn || []).filter(function (u) { return !u.link; }).map(function (u) { var x = { _unread: true, path: u.path, _file: u._file, why: u.why, kind: u.parsed ? 'ignored' : 'unreadable' }; if (!u.parsed && !named(u._file)) x.unnamed = true; return x; });
       /* A file refused here (a newer Flightdeck's, not in its format, or a format that can't be read at all) holds its plan as
          one still arriving does, by its name alone (groupPlans: <plan>.status-…), whatever it says it is. A refused plan file
          isn't named so, and holds no plan. */
@@ -2629,7 +2632,8 @@ PF.repo = (function () {
         else if (typeof p.id === 'string' && typeof p.process === 'string') plans.push(p);
       });
       /* A scope record that can't be read (cut short, still syncing) holds every loop, since which loop it is for can't be known. */
-      (torn || []).forEach(function (t) { if (/^req-/.test(String(t._file || ''))) { scopesUnread.push({ file: t._file, why: t.why, loop: null }); todosUnread.push({ file: t._file, why: t.why, run: null }); } });
+      /* A link holds every living run's to-dos and facts (which run it is for can't be told); loops read as in 3.0. */
+      (torn || []).forEach(function (t) { if (/^req-/.test(String(t._file || ''))) { if (!t.link) scopesUnread.push({ file: t._file, why: t.why, loop: null }); todosUnread.push({ file: t._file, why: t.why, run: null }); } });
       return { plans: plans, statuses: statuses, scopes: scopes, scopesUnread: scopesUnread, todos: todos, todosUnread: todosUnread, refused: refused, torn: torn || [] };
     });
   }
