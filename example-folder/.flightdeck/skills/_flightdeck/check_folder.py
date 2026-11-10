@@ -2379,7 +2379,7 @@ def keep_why(o, name):
 
 R_KEYS = ["format", "features", "app", "kind", "id", "run", "seen", "by", "at", "outcome", "head", "counts", "coverage", "evidence", "keeps"]
 R_COUNTS = ["steps", "answered", "items", "cleared", "abandoned", "todos", "resolved", "done", "wont", "moved", "ticket", "toRun", "link",
-            "asked", "added", "queued", "waiting", "held", "disputed", "declined", "applied", "pending", "owed", "covered"]
+            "asked", "added", "queued", "waiting", "held", "disputed", "declined", "applied", "pending", "refused", "owed", "covered"]
 R_LIMITS = {"refs": 500, "spreads": 50, "count": 1000000, "answer": 80, "result": 60, "seen": 50}
 R_OUTCOMES = ["Completed", "Stopped early", "Cancelled"]
 R_STATUS = re.compile(r"^req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24}\.status-[a-z0-9][a-z0-9-]{0,39}-[0-9a-f]{8}\Z")

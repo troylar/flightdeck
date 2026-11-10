@@ -91,6 +91,23 @@ rule('Plan versus now counts a queued or waiting addition as asked, never as app
   assert.strictEqual(C.chips.filter((c) => c.id === 'changes')[0].words, 'Changes: 1 of 3 requests applied · 2 not applied yet');
 });
 
+rule('The Changes line counts declined requests in its total, apart from the ones not applied yet', () => {
+  const W = world();
+  W.todo('Post the notes', { phase: 'ship' });
+  for (const text of ['Ask legal', 'Ask finance']) {
+    const q = W.ask({ op: 'add', text, target: { phase: 'ship' } }, BOT);
+    const it = T.inbox([W.r], { records: W.recs, unread: W.unread, people: W.people, me: 'person-morgan' }).filter((x) => x.id === q.id)[0];
+    const d = T.decide(W.r, { records: W.recs, unread: W.unread, people: W.people, request: q.id, op: 'decline', by: 'person-morgan', shown: it.consequence.fingerprint, at: AT, writer: 'w1', rev: rev(), app: '4.0.0' });
+    assert.ok(!d.why, d.why); W.push(d.record, d.name);
+  }
+  const C = W.compare();
+  assert.strictEqual(C.chips.filter((c) => c.id === 'additions')[0].words, 'Additions: 1 of 3 asked applied · 2 declined');
+  assert.strictEqual(C.chips.filter((c) => c.id === 'changes')[0].words, 'Changes: 1 of 3 requests applied · 2 declined');
+  const P1 = W.receipt('Completed');
+  assert.ok(!P1.why && !P1.none, P1.why);
+  assert.strictEqual(RC.words(P1.record.counts).chips.filter((c) => c.id === 'changes')[0].words, 'Changes: 1 of 3 requests applied · 2 declined', 'the receipt\'s frozen numbers read the same');
+});
+
 rule('Plan versus now keeps the checklist, its items and the to-dos on separate lines, each naming its denominator', () => {
   const W = world();
   const a = W.todo('Post the notes', { phase: 'ship' }); W.todo('Tag the build', { phase: 'ship' });

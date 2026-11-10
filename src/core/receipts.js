@@ -16,9 +16,9 @@ PF.receipts = (function () {
   var LIMITS = { refs: 500, spreads: 50, count: 1000000, answer: 80, result: 60, seen: 50 };
   /* Plan versus now's numbers, in this order. steps/answered: the checklist; items/cleared/abandoned: a loop's items (every loop
      of the run); todos/resolved/done/wont/moved and where moved work went (ticket, toRun, link); asked/added and the additions
-     not landed by status; applied/pending: every request; owed/covered: spreads' obligations. */
+     not landed by status; applied/pending/refused: every request (refused: declined); owed/covered: spreads' obligations. */
   var COUNTS = ['steps', 'answered', 'items', 'cleared', 'abandoned', 'todos', 'resolved', 'done', 'wont', 'moved', 'ticket', 'toRun', 'link',
-    'asked', 'added', 'queued', 'waiting', 'held', 'disputed', 'declined', 'applied', 'pending', 'owed', 'covered'];
+    'asked', 'added', 'queued', 'waiting', 'held', 'disputed', 'declined', 'applied', 'pending', 'refused', 'owed', 'covered'];
   var KEYS = ['format', 'features', 'app', 'kind', 'id', 'run', 'seen', 'by', 'at', 'outcome', 'head', 'counts', 'coverage', 'evidence', 'keeps'];
   var OUTCOMES = ['Completed', 'Stopped early', 'Cancelled'];
   var REQ = /^req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24}$/, STATUS = /^req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24}\.status-[a-z0-9][a-z0-9-]{0,39}-[0-9a-f]{8}$/;
@@ -72,7 +72,7 @@ PF.receipts = (function () {
     });
     (T ? PF.todos.requestsOf(T) : []).forEach(function (q1) {
       var st = q1.status;
-      if (st === 'applied') n.applied++; else if (st !== 'declined') n.pending++;
+      if (st === 'applied') n.applied++; else if (st === 'declined') n.refused++; else n.pending++;
       if (q1.op !== 'add') return;
       n.asked++;
       if (st === 'applied') n.added++; else if (own(REQ_WORDS, st)) n[st]++;
@@ -93,7 +93,7 @@ PF.receipts = (function () {
       chips.push({ id: 'resolutions', words: 'Resolved: ' + n.resolved + ' of ' + plural(n.todos, 'to-do') + (n.done ? ' · ' + n.done + ' done' : '') + (n.wont ? ' · ' + n.wont + ' won\'t do' : '') + (n.moved ? ' · ' + n.moved + ' moved' + (to.length ? ' (' + to.join(', ') + ')' : '') : '') });
     }
     if (n.owed) chips.push({ id: 'coverage', words: 'Coverage: ' + n.covered + ' of ' + plural(n.owed, 'owed item') + ' resolved' + (coverage && coverage.length > 1 ? ' across ' + coverage.length + ' spreads' : '') });
-    if (n.applied || n.pending) chips.push({ id: 'changes', words: 'Changes: ' + n.applied + ' of ' + plural(n.applied + n.pending, 'request') + ' applied' + (n.pending ? ' · ' + n.pending + ' not applied yet' : '') });
+    if (n.applied || n.pending || n.refused) chips.push({ id: 'changes', words: 'Changes: ' + n.applied + ' of ' + plural(n.applied + n.pending + n.refused, 'request') + ' applied' + (n.refused ? ' · ' + n.refused + ' declined' : '') + (n.pending ? ' · ' + n.pending + ' not applied yet' : '') });
     return { lines: lines, chips: chips };
   }
   /* Plan versus now for a run as it is. o: { loops, runs } for its items. Returns { counts, lines, chips, phases, coverage }:

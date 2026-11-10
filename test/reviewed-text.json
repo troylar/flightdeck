@@ -25,8 +25,8 @@
       "reviewed": "slice 6: pending and unreadable records shown before living; receipt head ''"
     },
     "docs/design.md": {
-      "sha256": "80e2a02b914ac2a48c24403738259f50f607de73155110b695998f0fc5ad786d",
-      "reviewed": "KA: one complete run verdict wherever a dependency is judged"
+      "sha256": "fe3054fbae9c8935f87efcab59a6620f085c2c0b052cf76f332054cd1405043d",
+      "reviewed": "LG: declined requests count in the Changes total"
     },
     "docs/evidence.md": {
       "sha256": "12bc4defc7c8ba2e4a4978394c9e616364d9836a24e7d9fce50863f950e2761e",
@@ -53,8 +53,8 @@
       "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "d8bd96282843b5b48867bbd874617ed9b1fc05b7f428c37efc11ecd7e1449c1c",
-      "reviewed": "KD: the checker holds a receipt with copies of another record family as unread, as the loader does"
+      "sha256": "8e8dfbf0a193d9bc3907419f6e8b006a2780b825ca854e4ce5c6eab2d594c3cf",
+      "reviewed": "LG: declined requests count in the Changes total"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
       "sha256": "197779e5fb047d6137527db0211659a2db320470f3086d61b5126d6e868b0cf8",
@@ -197,8 +197,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "660467414cdcaaa901be990200f94dca0f1dd7ee0c9f371110e2cfc0e11fa090",
-      "reviewed": "KD: the checker holds a receipt with copies of another record family as unread, as the loader does"
+      "sha256": "47cbbc62acb9ac2718adb970b2287539ed4beac4b87d41de72c9eb598661ea76",
+      "reviewed": "LG: declined requests count in the Changes total"
     },
     "src/core/appjson.js": {
       "sha256": "98019ea60f70df332d6774d2ac26d0bbd028e95f1f76f543cbe54c89cb8cd4fe",
@@ -309,8 +309,8 @@
       "reviewed": "loops: items: item kind, feed binding, completeness fix, nouns, unknown-kind refusal in loop.js/map.js/publish.js/types.js and check_folder.py parity; pure checks only, checked for direct writes and unconditional deletes"
     },
     "src/core/receipts.js": {
-      "sha256": "4ef7acb92861dcfa87164925c6c7ab9d74a7c3a4f0e86774c298b415bac2a8e9",
-      "reviewed": "IC: the closure walk is complete within the shared bound, byte-exact, and follows the receipt's seen, scope choices and bindings"
+      "sha256": "aa561db2ea38d6164a7b3f7795c242215c2a0427719013a48a44095b6f8823b9",
+      "reviewed": "LG: declined requests count in the Changes total"
     },
     "src/core/refs.js": {
       "sha256": "24b7d2b52fcd99673fcc427db286a7224af83342da19efcd561ac850d6baa441",
