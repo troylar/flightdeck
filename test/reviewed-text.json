@@ -21,8 +21,8 @@
       "reviewed": "slice 4 commit 3: facts core (facts.js: records, reduction, freshness, support, de-duplication), todos hooks (fact dispatch, done support, now), Python checker parity; pure code, no direct writes or unconditional deletes"
     },
     "docs/apps.md": {
-      "sha256": "3a8ac7286942c99e36bf38b00b10861069bd200565d378c5096a66b528bcc082",
-      "reviewed": "fact sync refuses a key twice in one batch before writing; checked for direct writes and unconditional deletes"
+      "sha256": "972c5223803086e8bd9e8fe186e526aafb22c4083b875368b914cb197c5be2ad",
+      "reviewed": "one recordName classifier notices and holds a req-*.json link in any case; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
       "sha256": "5ff0c6d4f6787c6a8e0760fc7af59160e677c157a5d66a9135421d21e9281013",
@@ -357,8 +357,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "36cc28109a711e7c72f8412520f146f959ac416c55e613ce6f70151b81ec11e0",
-      "reviewed": "one splitIds/withCopies over every record, used by the fact and to-do reducers; checked for direct writes and unconditional deletes"
+      "sha256": "d73ffa193f9de1a6439b438f276cc1e7a91a65dbce861bdcf25f038369216b9c",
+      "reviewed": "one recordName classifier notices and holds a req-*.json link in any case; checked for direct writes and unconditional deletes"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",
@@ -409,8 +409,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "0327966d48c512192b1030d6313f7a1294dbc0f760276379b058169fa929c257",
-      "reviewed": "a link where a to-do or fact record would be is unread, run unknown; checked for direct writes and unconditional deletes"
+      "sha256": "c8f261e61e9cf4c30072a4dcc5125d8900ec9e32e297a4c0a5072e7ce4c27359",
+      "reviewed": "one recordName classifier notices and holds a req-*.json link in any case; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "c8eaa242881ad9fa07e20cb3357d7886527c15173f07208ab081943cfadb0e68",

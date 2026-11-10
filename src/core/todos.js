@@ -484,6 +484,9 @@ PF.todos = (function () {
   function runOf(o) { var v = isMap(o) && isMap(o.run) ? o.run : null; return v && typeof v.process === 'string' && typeof v.id === 'string' ? { process: v.process, id: v.id } : null; }
   function recordsFor(records, r) { return (records || []).filter(function (x) { return x.run && x.run.process === r.process && x.run.id === r.id; }); }
   function notFact(x) { return !x || x.kind !== 'fact'; }
+  /* Whether a file in proposals/ may be a to-do or fact record (req-*.json, in any case): the one test for both noticing a
+     file that can't be read (a link, one cut short) and holding on it, so no name is noticed and then dropped. */
+  function recordName(name) { return /^req-[^/]*\.json$/i.test(String(name || '')); }
 
   /* ---- Reduction: a run's to-do records, reduced to its work and each request's status. Pure; the same records in any
      order (any file names) give the same result. o: { map (the run's frozen checklist), may(record) -> '' or why a
@@ -1334,6 +1337,6 @@ PF.todos = (function () {
   return { SOPS: SOPS, ALL_OPS: ALL_OPS, isSpreadOp: isSpreadOp, hasPair: hasPair, loopWhy: loopWhy, FORMAT: FORMAT, STATUS: STATUS, FEATURE: FEATURE, LIMITS: LIMITS, OPS: OPS, WORDS: WORDS, STATE_WORDS: STATE_WORDS, idFor: idFor, todoIdFor: todoIdFor, statusName: statusName, isTodo: isTodo, claims: claims, familyOf: familyOf,
     targetKey: targetKey, placeOf: placeOf, placementWhy: placementWhy, placementFor: placementFor, effectOf: effectOf, fingerprint: fp, text: text,
     buildProposal: buildProposal, buildGrant: buildGrant, buildStatus: buildStatus, cleanFile: cleanFile, fileWhy: fileWhy, filed: filed, runOf: runOf, recordsFor: recordsFor,
-    requestFile: requestFile, notFact: notFact, reduce: reduce, seenFor: seenFor, requestsOf: requestsOf,
+    requestFile: requestFile, recordName: recordName, notFact: notFact, reduce: reduce, seenFor: seenFor, requestsOf: requestsOf,
     personWhy: personWhy, mayFor: mayFor, consequenceOf: consequenceOf, authorityFor: authorityFor, view: view, holds: holds, markHolds: markHolds, cutFor: cutFor, cleanCut: cleanCut, cleanLiving: cleanLiving, applyPlan: applyPlan, nextQueued: nextQueued, keepHead: keepHead, prepare: prepare, gateTitle: gateTitle, toOf: toOf, inbox: inbox, delegations: delegations, decide: decide, revokeOf: revokeOf, grantOf: grantOf, whatWords: whatWords, askDiffers: askDiffers };
 })();

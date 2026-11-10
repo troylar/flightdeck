@@ -307,6 +307,22 @@ rule('A fact record that is a link is unread, never absent: it holds what rests 
   assert.deepStrictEqual([s.code, s.data && s.data.status, ls(F1.root).length], [4, 'held', n], 'sync holds too');
 });
 
+rule('A link is a hold whatever case its name is in: REQ-*.json or req-*.JSON is one reader\'s and every reader\'s unread record', async () => {
+  for (const nameOf of [(n) => n.replace(/^req-/, 'REQ-'), (n) => n.replace(/\.json$/, '.JSON'), (n) => n.replace(/^req-/, 'Req-')]) {
+    const F1 = await folder(), x1 = await todo(F1);
+    assert.strictEqual(json('fact', 'sync', F1.root, PR, '--from', input({ facts: [prs(), blockers({ complete: true, reported: 1, errors: [], entries: [{ id: 'B-1', text: 'Waiting on legal', state: 'open' }] })] }), '--json', ...TOOL).code, 0);
+    const pid = F.idFor('git-bot', 'prs-102-a'), bname = F.idFor('git-bot', 'blk-102-a') + '.json', link = nameOf(bname);
+    const p = path.join(F1.root, 'proposals', bname), away = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-fact-away-')), bname);
+    fs.renameSync(p, away); fs.symlinkSync(away, path.join(F1.root, 'proposals', link));
+    const n = ls(F1.root).length, g = json('todo', 'suggest-done', F1.root, PR, '--todo', x1, '--fact', pid, '--json', ...TOOL);
+    assert.deepStrictEqual([g.code, g.data && g.data.status, ls(F1.root).length], [4, 'held', n], link + ': ' + JSON.stringify(g).slice(0, 600));
+    for (const [what, r] of [['todo list', json('todo', 'list', F1.root, PR, '--json')], ['run', json('run', F1.root, PR, '--contract', '2', '--json')], ['next', json('next', F1.root, PR, '--contract', '2', '--json')]]) {
+      assert.deepStrictEqual([r.code, r.complete], [4, false], link + ' · ' + what + ': ' + JSON.stringify(r).slice(0, 400));
+      assert.ok(r.problems.some((q) => q.path === 'proposals/' + link), link + ' · ' + what + ' names it: ' + JSON.stringify(r.problems));
+    }
+  }
+});
+
 rule('Importing facts alone changes no run bytes: every run.json and `run --contract 2` read the same before and after', async () => {
   const { root } = await folder();
   const runs0 = runsOf(root), read0 = json('run', root, PR, '--contract', '2', '--json'), kid0 = json('run', root, 'validate-story/k102', '--contract', '2', '--json');
