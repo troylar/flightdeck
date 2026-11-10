@@ -651,4 +651,7 @@ const MATRIX = (world, hows) => async () => {
 };
 rule('PA: the run a story\'s evidence is on, or its pinned version, gone or unreadable while a decision, an application, a landing or Use copy is held writes no decision, application, candidate or run.json; with nothing changed each writes', MATRIX(storyEv, ['none', 'gone', 'eio', 'pin', 'pin-eio']));
 rule('QA: a to-do\'s evidence on its own run, that run\'s pinned version gone or unreadable while a decision, an application, a landing or Use copy is held writes nothing; with nothing changed each writes', MATRIX(sameWorld, ['none', 'pin', 'pin-eio']));
+rule('QB: the evidence\'s run with a time made unreadable (the repair the CLI names as malformed), on its own run or its loop\'s run, while a decision, an application, a landing or Use copy is held writes nothing', async () => {
+  for (const world of [sameWorld, storyEv]) await MATRIX(world, ['bad-time'])();
+});
 run();

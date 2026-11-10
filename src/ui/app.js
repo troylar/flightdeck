@@ -3406,11 +3406,11 @@
         (one && one.bad || []).forEach(function (b) { put({ path: b.path, kind: b.kind || 'unreadable', why: b.why }); });
         var r = one && one.run;
         if (!r) { put({ path: rf, kind: 'nofile', why: 'A suggestion here rests on facts of ' + k + ', which isn\'t in the folder.' }); return; }
-        if (r._unrunnable) { put({ path: rf, kind: 'newer', why: 'A suggestion here rests on facts of ' + k + ', which can\'t be read by this copy.' }); return; }
+        /* The verdict the commands' readers give the same run (PF.appjson.judgeRun: its version, newer, and every time or
+           record the read had to repair), less conflict copies, which a person resolves here and which hide nothing read. */
         var pub = one.pub;
-        if (!pub) return;
-        if (!pub.ok) { put({ path: R.pubDir(r), kind: 'unreadable', why: 'The version ' + k + ' runs on can\'t be read here' + (pub.why ? ': ' + pub.why : '') + '.' }); return; }
-        if (!R.isTest(r) && repo.runMismatch(r, pub.info)) put({ path: rf, kind: 'unusable', why: 'Run ' + k + ' doesn\'t match its version ' + r.folder + '.' });
+        if (pub && pub._readFailed) put({ path: R.pubDir(r), kind: 'unreadable', why: 'The version ' + k + ' runs on couldn\'t be read here: ' + String(pub.why || 'unknown') + '.' });
+        PF.appjson.judgeRun(r, pub || null).forEach(function (x) { if (x.kind !== 'conflict') put(x); });
       }, function (e) { put({ path: rf, kind: 'unreadable', why: String(e && e.message || e) }); });
     })).then(function () { return out; });
   }

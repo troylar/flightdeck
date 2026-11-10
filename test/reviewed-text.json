@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "29e3f93f1df7335515dad1fec559ade1c86e41b649e664f8ee264a8dd1aa28b5",
-      "reviewed": "PC: a first suggest-done's evidence is expected before it previews or files; checked for direct writes and unconditional deletes"
+      "sha256": "5d4255d300c92ec5504660382a94c4e21dbc0ba1ec25972b1ed978c98b64f79d",
+      "reviewed": "QB: run verdict moved to appjson and shared with app guards; pure, checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "cf0a7c0289f08fc6d138b4feaddbdc118b45af451a7732e5ee68c9480c752b38",
@@ -25,8 +25,8 @@
       "reviewed": "Merge of feat/4.0 (slice 3 round 7) into feat/4.0-facts: both sides' texts kept, spread inputs and fact clocks combined; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "c4178f7e72547a17738be9cc46755ab8f194246c22eb99fd95a8f03751178981",
-      "reviewed": "QA: evidence runs found through itemOfTodo, own run judged when read fresh; checked for direct writes and unconditional deletes"
+      "sha256": "5d06522bbecb4a3cc562586608414d6fa969591995e81865febf91861db24506",
+      "reviewed": "QB: run verdict moved to appjson and shared with app guards; pure, checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -201,8 +201,8 @@
       "reviewed": "PB: a fact by its kind comes before loop and scope dispatch; checked for direct writes and unconditional deletes"
     },
     "src/core/appjson.js": {
-      "sha256": "aa5c7391f87ec2fa5ddacaf9f74b7b99c7413e77989cdaf9bc359397ce96807b",
-      "reviewed": "Merge of feat/4.0 (slice 3 round 7) into feat/4.0-facts: both sides' texts kept, spread inputs and fact clocks combined; checked for direct writes and unconditional deletes"
+      "sha256": "cc3e017a3306cadced1400975b518bc533b29730b051ee2f01dbf0cdd116b19b",
+      "reviewed": "QB: run verdict moved to appjson and shared with app guards; pure, checked for direct writes and unconditional deletes"
     },
     "src/core/attach.js": {
       "sha256": "0e75bc0c0d748fe10aaf5657662e4ce8679c27f9d10d85c1e34891b1c9d58df0",
@@ -413,8 +413,8 @@
       "reviewed": "PB: a fact by its kind comes before loop and scope dispatch; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "ad3509c95d6275e7bbd7ad60b4f71bed771e0aa4679fa342ef0934fc5f7ca314",
-      "reviewed": "QA: evidence runs found through itemOfTodo, own run judged when read fresh; checked for direct writes and unconditional deletes"
+      "sha256": "97a6f21d2aae924f3f0fe351b5b3689c276726451939976613b39f9bd7f074e6",
+      "reviewed": "QB: run verdict moved to appjson and shared with app guards; pure, checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
