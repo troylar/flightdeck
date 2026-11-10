@@ -536,6 +536,22 @@ rule('A scope record\'s seen is in the closure: a missing predecessor leaves the
   const ok = checkPack(full.zip);
   assert.ok(ok.ok, 'the control holds: ' + ok.out);
 });
+/* PC: a scope record that saw another is followed to it through the same witness index as every to-do record: a valid second
+   scope record leaves the pack complete, and Python accepts it. */
+rule('A second scope record that saw the first keeps the pack complete: scope records are witnesses too', async () => {
+  const W = await loopMade(), sp = Object.keys(W.files).find((p) => /^proposals\/req-/.test(p) && JSON.parse(W.files[p]).loop);
+  assert.ok(sp, 'set-up: a scope record');
+  const files = Object.assign({}, W.files), first = JSON.parse(files[sp]), id = 'req-flightdeck-' + 'c'.repeat(24);
+  const second = Object.assign({}, first, { id, seen: [first.id], created: new Date(Date.parse(first.created) + 1000).toISOString(), changes: [{ op: 'add', item: { id: '', key: 'ABC-102', title: '' } }], children: [] });
+  files['proposals/' + id + '.json'] = JSON.stringify(second, null, 2) + '\n';
+  const { res, zip } = await pack(W.PF, new BytesFS(files), W.key);
+  assert.strictEqual(res.status, 'complete', JSON.stringify(res.col.unresolved));
+  const packed = manifestOf(zip).files.map((f) => f.path);
+  assert.ok(packed.indexOf(sp) >= 0 && packed.indexOf('proposals/' + id + '.json') >= 0, 'both scope records are packed');
+  if (!PY) return;
+  const c = checkPack(zip);
+  assert.ok(c.ok, c.out);
+});
 rule('Python requires every evidence plan the work\'s records name: a plan removed from the pack, with a manifest made to match, is refused', async () => {
   if (!PY) return;
   const X = (await roleWorlds()).filter(w => w.role === 'evidence')[0], PF = X.PF;

@@ -309,8 +309,8 @@
       "reviewed": "loops: items: item kind, feed binding, completeness fix, nouns, unknown-kind refusal in loop.js/map.js/publish.js/types.js and check_folder.py parity; pure checks only, checked for direct writes and unconditional deletes"
     },
     "src/core/receipts.js": {
-      "sha256": "0c35adebbc8bcee735b214f1a56252d12cba34d6f8b068fed689a7709afc1cc9",
-      "reviewed": "NF: scope records' seen followed in the closure; checked for direct writes and unconditional deletes"
+      "sha256": "3f112b92f0bb4d783fce77969bd570ab90328a5c77f6308a71a7da8f9d3a92fa",
+      "reviewed": "receipts.js: scope records join the witness index in PF.receipts.deps; no instruction text, writes or deletes changed"
     },
     "src/core/refs.js": {
       "sha256": "24b7d2b52fcd99673fcc427db286a7224af83342da19efcd561ac850d6baa441",

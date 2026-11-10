@@ -320,7 +320,8 @@ PF.receipts = (function () {
     var records = o.records || [], files = [], seenF = Object.create(null), runs = [], seenR = Object.create(null), plans = [], missing = [], byId = Object.create(null);
     var known = o.runs || Object.create(null), bad = Object.create(null), kids = o.kids || Object.create(null), cap = o.cap || DEP_CAP;
     (o.runBad || []).forEach(function (b) { if (b && b.key && !bad[b.key]) bad[b.key] = b; });
-    records.forEach(function (x) { if (x && typeof x.id === 'string') (byId[x.id] = byId[x.id] || []).push(x); });
+    /* The witness index: every checked to-do record and every checked scope record (a scope record's seen names another). */
+    records.concat(o.scopes || []).forEach(function (x) { if (x && typeof x.id === 'string') (byId[x.id] = byId[x.id] || []).push(x); });
     var LABEL = { proposal: 'A to-do request', compound: 'A to-do request with its decision and application', decision: 'A decision on a to-do request', application: 'An application: the run\'s work as it landed', fact: 'A fact a tool observed', keep: 'A to-do kept for next time', receipt: 'The receipt the run ended with' };
     var file = function (x, label) { var f = String(x._file || ''); if (!f || seenF[f]) return; seenF[f] = true; files.push({ file: f, kind: x.kind, label: label || LABEL[x.kind] || 'A to-do record' }); };
     var keyOf = function (x) { return x.process + '/' + x.id; }, rootKey = keyOf(r);
