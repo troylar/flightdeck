@@ -331,4 +331,38 @@ rule('An end whose run save fails is put back, never left for Try again: Try aga
   assert.ok(!theRun(app).ended, 'nor after a request filed since');
 });
 
+/* ---- IA: recovery validates the copy before touching the live run, and guards every ended living run it adopts ---- */
+rule('Use copy clicked twice with the copy\'s receipt missing, damaged or unnamed ends nothing, on disk or on screen, and the copy stays', async () => {
+  for (const what of ['gone', 'damaged', 'none']) {
+    const app = await setup(); await added(app, 'Post the release notes');
+    const c = await endedCopy(app, what === 'none' ? (o) => { delete o.living.receipt; } : null), before = app.fs.files[runPath(app)].t;
+    if (what === 'gone') delete app.fs.files['proposals/' + c.receipt + '.json'];
+    if (what === 'damaged') app.fs.files['proposals/' + c.receipt + '.json'] = { t: '{ "kind": "receipt"', m: Date.now() };
+    if (what !== 'none') await refresh(app, 300);
+    assert.ok(/data-act="finish"/.test(app.html()), what + ': set-up: the open run offers its end');
+    for (let n = 1; n <= 2; n++) {
+      app.click('use-copy', 'run-OTHER.json'); await app.tick(400);
+      assert.strictEqual(app.fs.files[runPath(app)].t, before, what + ' ' + n + ': run.json is as it was');
+      assert.ok(app.fs.files[c.copy], what + ' ' + n + ': the copy stays');
+      assert.ok(/data-act="finish"/.test(app.html()), what + ' ' + n + ': on screen the run is still open');
+    }
+  }
+});
+rule('Use copy of an ended copy over a run that already ended with another outcome is refused: the outcome and the receipt stay', async () => {
+  const app = await setup(); await added(app, 'Post the release notes');
+  await end(app);
+  const r0 = theRun(app), text0 = app.fs.files[runPath(app)].t, copy = runPath(app).replace('run.json', 'run-OTHER.json');
+  const o = JSON.parse(text0); o.ended.outcome = 'Stopped early'; o.state = 'stopped'; o.rev = (o.rev || 0);
+  await app.fs.write(copy, JSON.stringify(o, null, 2));
+  const r1 = JSON.parse(text0); r1.rev = (r1.rev || 0) + 1; await app.fs.write(runPath(app), JSON.stringify(r1, null, 2));
+  const before = app.fs.files[runPath(app)].t;
+  await refresh(app, 300); app.click('open-run', r0.process + '/' + r0.id); await app.tick(80);
+  for (let n = 1; n <= 2; n++) {
+    app.click('use-copy', 'run-OTHER.json'); await app.tick(400);
+    assert.strictEqual(app.fs.files[runPath(app)].t, before, n + ': run.json is as it was');
+    assert.strictEqual(theRun(app).ended.outcome, 'Cancelled', n + ': the outcome stays');
+    assert.ok(app.fs.files[copy], n + ': the copy stays');
+  }
+});
+
 run();

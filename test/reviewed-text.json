@@ -425,8 +425,8 @@
       "reviewed": "GB: one bounded closure over every dependency run in the evidence pack; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "63edc99b5e74d69b10993ba2f800f08a5fdcdf1cd67c7f57ffd167077a677174",
-      "reviewed": "GA: every end of a living run guards its receipt; Use copy and restore carry the receipt guard; a child the folder still refers to that is missing refuses the end"
+      "sha256": "955af8f925081742c4cc70ae0cdd02f7f8d4fad57f45a7601250bd8b50f44dcb",
+      "reviewed": "IA: recovery checks the copy's receipt on the trial before the live run changes, guards every ended living run it adopts, and a throwing change is put back"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

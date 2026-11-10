@@ -37518,7 +37518,9 @@ PF.examples = (function () {
        it moved out of run.json (logB, logA, mine), so putting it back never touches a line any other change wrote or moved. */
     var wrapped = function (r, m, me, now) {
       target = r; before = copy(r); logB = (r.log || []).slice(); var ov0 = (r._overflow || []).slice();
-      var out = fn(r, m, me, now);
+      var out;
+      /* A change that throws part way is put back by identity before the error goes on: nothing it set stays in memory. */
+      try { out = fn(r, m, me, now); } catch (e) { after = copy(r); logA = (r.log || []).slice(); mine = (r._overflow || []).filter(function (x) { return ov0.indexOf(x) < 0; }); back(r, before, after, false); logBack(r); after = null; throw e; }
       after = copy(r); logA = (r.log || []).slice(); mine = (r._overflow || []).filter(function (x) { return ov0.indexOf(x) < 0; });
       return out;
     };
@@ -44051,18 +44053,19 @@ PF.examples = (function () {
           /* The run about to be saved must read back as a run this copy can change: tried on a copy of it first, in the field
              order the save writes (R.testLast), so one that wouldn't is never saved, this run stays as it is and the conflict
              copy is kept. */
-          var ending = !run.ended;
           var trial = JSON.parse(snapshot(run)); keep(trial);
           /* Read back as the save writes it: without this window's own bookkeeping (a full log's lines on their way to the
              history, trial._overflow), as repo.saveRun's stripMeta leaves it. */
           var bare = Object.create(null); Object.keys(trial).forEach(function (k) { if (k.charAt(0) !== '_') bare[k] = trial[k]; });
           var back = R.sanitize(JSON.parse(JSON.stringify(R.testLast(bare))));
           if (!back || back._unrunnable) throw new Error('Keeping that copy would save a run this copy of Flightdeck can\'t read back' + (back && back._unrunnable ? ' (' + String(back._unrunnable).slice(0, 200) + ')' : '') + ', so nothing was replaced.');
+          /* A copy that leaves the run ended and living (whether this run had ended or not) keeps it as Ending does: with its
+             receipt, checked here on the trial before the live run is touched, then asked again on the folder read again before
+             every write of this save (rcptFresh, receiptStill), on the run as it was before that end. */
+          var guard = trial.ended && trial.living ? recoverReceipt(trial) : null;
           keep(run);
           if (extra.length) run._overflow = (run._overflow || []).concat(extra);
-          /* A copy that ends a living run ends it as Ending does: with its receipt, asked again on the folder read again before
-             every write of this save (rcptFresh, receiptStill), on the run as it was before that end. */
-          if (ending && run.ended && run.living) rcx.receipt = recoverReceipt(run);
+          if (guard) rcx.receipt = guard;
           /* redo: a save that fails (not only one the guard drops) of a copy that keeps living work puts it back here by
              identity (loopEdit), never left as an unsaved change a later save (a Pause) would write unguarded; the copy stays
              in the folder. A copy without to-dos stays for Try again, as in 3.0. */
