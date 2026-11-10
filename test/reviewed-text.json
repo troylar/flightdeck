@@ -25,8 +25,8 @@
       "reviewed": "readers expect and name every dependency of a spread; a failed dependency holds before a spread is called absent; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "de76ca8c37df56b2b7c1007729d4b8c90d5db045c52eb9a5e4eb45f86e7666f8",
-      "reviewed": "Round 6 XA: one coverage input builder for the CLI and the app; the loop write guard asks it"
+      "sha256": "e2ba020be00bce8d4d2443315d375db17527fcddc65f0a6d9eebfa8fbbf0173e",
+      "reviewed": "Round 6 XB: expected scope provenance from every reference to an item"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -337,8 +337,8 @@
       "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
     },
     "src/core/spreads.js": {
-      "sha256": "f048130ae3575d6d9457eab3e7227769ec7aef69d8db5a39045506d7f8e56f4b",
-      "reviewed": "Round 6 XA: one coverage input builder for the CLI and the app; the loop write guard asks it"
+      "sha256": "07f450d9b86ef31557963275288c75ec646785e42d5ef55fe84e601ad3e8bc69",
+      "reviewed": "Round 6 XB: expected scope provenance from every reference to an item"
     },
     "src/core/staging.js": {
       "sha256": "d01a3204178bd0b055c05524916f55774c4404cca10f86fbb10a2ca675bd6b07",

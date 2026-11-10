@@ -791,8 +791,8 @@ const WA_DEPS = [
   ['the application living.head names, absent', (S0) => { const x = dropRec(S0.W, S0.head); return { path: 'proposals/' + x.id + '.json', back: () => S0.W.recs.push(x) }; }],
   ['the decision the application saw, absent', (S0) => { const x = dropRec(S0.W, S0.dec.id); return { path: 'proposals/' + x.id + '.json', back: () => S0.W.recs.push(x) }; }],
   ['an item\'s run its request was filed on, absent', (S0) => { const i = S0.W.kids.indexOf(S0.k2); S0.W.kids.splice(i, 1); return { path: 'runs/validate-story/' + S0.k2.id + '/run.json', back: () => S0.W.kids.splice(i, 0, S0.k2) }; }],
-  ['an item\'s run whose last read failed (the app keeps the old copy)', (S0) => { const L0 = S0.W.loops; S0.W.loops = () => Object.assign(L0(), { unreadRun: (c) => c === S0.k2 ? 'EIO' : '' }); return { path: null, back: () => { S0.W.loops = L0; } }; }],
-  ['an item\'s run the reader couldn\'t read (the CLI has no copy)', (S0) => { const i = S0.W.kids.indexOf(S0.k2), L0 = S0.W.loops; S0.W.kids.splice(i, 1); S0.W.loops = () => Object.assign(L0(), { runsUnread: ['runs/validate-story/' + S0.k2.id + '/run.json'] }); return { path: null, back: () => { S0.W.kids.splice(i, 0, S0.k2); S0.W.loops = L0; } }; }]
+  ['an item\'s run whose last read failed (the app keeps the old copy)', (S0) => { const L0 = S0.W.loops; S0.W.loops = () => Object.assign(L0(), { unreadRun: (c) => c === S0.k2 ? { path: 'runs/validate-story/' + c.id + '/run.json', kind: 'unreadable', why: 'EIO' } : null }); return { path: null, back: () => { S0.W.loops = L0; } }; }],
+  ['an item\'s run the reader couldn\'t read (the CLI has no copy)', (S0) => { const i = S0.W.kids.indexOf(S0.k2), L0 = S0.W.loops; S0.W.kids.splice(i, 1); S0.W.loops = () => Object.assign(L0(), { failed: ['runs/validate-story/' + S0.k2.id + '/run.json'] }); return { path: null, back: () => { S0.W.kids.splice(i, 0, S0.k2); S0.W.loops = L0; } }; }]
 ];
 for (const [kind, lose] of WA_DEPS) {
   rule('WA: ' + kind + ': coverage is incomplete, its loop is held, the collector names it, and no stop is asked, decided or applied', () => {
@@ -869,5 +869,34 @@ rule('XA: one input builder: a run whose version is missing, unread or not check
     assert.ok(cov.spreads[0].missing.some(m => m.path === path0), how + ': ' + JSON.stringify(cov.spreads[0].missing));
   }
   same(S.coverage(W.r, W.view(), S.inputs(base)).spreads[0].complete, true, 'nothing failed: complete');
+});
+/* Review round 6 (XB): what is expected comes from every reference to an item, not only the scope a spread was reviewed
+   against: an item a later scope record brought in, whose run or request still names it, isn't lost when that record goes. */
+rule('XB: a later scope record that brought an item in, missing while its run and request name it: incomplete, no stop; back, it is owed', () => {
+  const W = world([101]); W.kid(101, { cleared: true });
+  const add = W.spreadAdd('Security sign-off', { tool: 'release-helper', version: '1.0', key: 'xb-1' }); W.decide(W.r, add.id, 'person-morgan'); W.land(W.r);
+  const sp = spreadOf(W);
+  W.scopes.push(scope('s2', [101, 102], [W.scopes[0].id]));
+  const k2 = W.kid(102); W.request(k2, sp);
+  same(W.one().items.filter(i => i.owed).map(i => i.key), ['ABC-102'], 'set-up: ABC-102 joined and owes it');
+  const later = W.scopes.pop();
+  const C = W.one();
+  same(C.complete, false, 'incomplete, never empty');
+  assert.ok(C.missing.length && C.missing.every(m => m.path), JSON.stringify(C.missing));
+  assert.ok((W.mark().loops.each || []).length, 'its loop is held');
+  const body = { op: 'spread-stop', spread: sp.id, reason: 'Covered elsewhere', owed: [] };
+  const P = T.prepare(W.r, { body, by: { tool: 'release-helper', version: '1.0', key: 'xb-st' }, records: W.recs, unread: W.unread, people: PEOPLE, at: AT, app: '4.0.0', loops: W.loops(), runs: W.runs() });
+  assert.ok(P.why, 'no stop with owed [] is prepared');
+  W.scopes.push(later);
+  same(W.one().items.filter(i => i.owed).map(i => i.key), ['ABC-102'], 'back: still owed');
+});
+rule('XB: a recorded removal of a later item still removes it, with its run and request still naming it', () => {
+  const W = world([101]); W.kid(101, { cleared: true });
+  W.spreadAdd(); W.land(W.r);
+  W.scopes.push(scope('s2', [101, 102], [W.scopes[0].id]));
+  const k2 = W.kid(102); W.request(k2, spreadOf(W));
+  loopChange(W, 'xb-ex', { op: 'exclude', item: { key: 'ABC-102' }, reason: 'Ships in 4.2' });
+  const C = W.one();
+  same([C.complete, C.items.filter(i => i.owed).map(i => i.key)], [true, []]);
 });
 run();

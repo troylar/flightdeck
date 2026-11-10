@@ -101,11 +101,27 @@ PF.spreads = (function () {
       why = why || nm + ': a scope record it was reviewed against (' + id + ') can\'t be read here, so who owes it isn\'t known.';
     });
     if (why) return why;
-    var known = Object.create(null); (V.ledger.items || []).forEach(function (i) { known[i.uid] = true; });
-    var named = (s.scope.open || []).concat(s.scope.cleared || [], s.included || [], s.state === 'stopped' && s.stop ? s.stop.owed || [] : []);
-    var lost = named.filter(function (p) { return !known[p.uid]; });
-    if (lost.length) return nm + ': ' + lost.length + (lost.length === 1 ? ' item it names isn\'t' : ' items it names aren\'t') + ' in its loop\'s scope records here (' + lost[0].uid + '), so who owes it isn\'t known.';
+    /* XB: a scope record of the loop explains every item anything names: the scope it was reviewed against, includes, its
+       stop, bindings, the runs of its loop, the requests that fulfil it and the loop's approvals (each with the items it
+       recorded). An item named and not explained is a scope record that isn't here, so coverage is incomplete; a recorded
+       removal still explains it. */
     var child = String(V.fields && V.fields.process || ''), have = Object.create(null);
+    var mine0 = function (c) { return !!c && !!c.parent && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === s.loopStep; };
+    var known = Object.create(null); (V.ledger.items || []).forEach(function (i) { known[i.uid] = true; });
+    var refs = [], ref = function (uid, by) { if (typeof uid === 'string' && uid) refs.push({ uid: uid, by: by }); };
+    (s.scope.open || []).concat(s.scope.cleared || []).forEach(function (p) { ref(p.uid, 'the scope it was reviewed against'); });
+    (s.included || []).forEach(function (p) { ref(p.uid, 'an include'); });
+    if (s.state === 'stopped' && s.stop) (s.stop.owed || []).forEach(function (p) { ref(p.uid, 'its stop'); });
+    Object.keys(s.binds || {}).forEach(function (k) { ref(k.slice(0, k.lastIndexOf('#')), 'a binding'); });
+    (o.runs || []).forEach(function (c) { if (mine0(c) && c.parent.item) ref(c.parent.item.uid, 'runs/' + c.process + '/' + c.id + '/run.json'); });
+    deps.records.forEach(function (x) { if (x.fulfills && x.fulfills.spread === s.id) ref(x.fulfills.uid, 'proposals/' + (x._file || x.id + '.json')); });
+    var la = r.steps && r.steps[s.loopStep];
+    [la && la.loop].concat(((la && la.history) || []).map(function (h) { return h && h.loop; })).forEach(function (ap) { ((ap && ap.items) || []).forEach(function (i) { ref(i && i.uid, 'an approval of its loop'); }); });
+    var lost = refs.filter(function (x) { return !known[x.uid]; });
+    if (lost.length) {
+      if (!C.missing.some(function (m) { return m.path === 'proposals'; })) C.missing.push({ path: 'proposals', kind: 'nofile', why: 'No scope record of spread "' + s.text + '"\'s loop here puts ' + lost[0].uid + ' in it, and ' + lost[0].by + ' names it.' });
+      return nm + ': ' + lost[0].uid + ' is named by ' + lost[0].by + ', but no scope record here puts it in the loop, so who owes it isn\'t known.';
+    }
     (o.runs || []).forEach(function (c) { if (c) have[c.process + '/' + c.id] = true; });
     deps.records.forEach(function (x) {
       if (!x.fulfills || x.fulfills.spread !== s.id || !x.run || x.run.process !== child) return;
