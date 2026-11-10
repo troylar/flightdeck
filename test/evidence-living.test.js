@@ -274,10 +274,15 @@ rule('A dependency run changed between the checked read and the bytes packed, at
   let n = 0;
   const swap = (x) => { const b = x.files.get(W.kidPath).toString('utf8'); const c = b.charAt(i) === 'Q' ? 'R' : 'Q'; x.files.set(W.kidPath, Buffer.from(b.slice(0, i) + c + b.slice(i + 1))); };
   const fsx = new BytesFS(W.files, { hooks: { blob: (p, x) => { if (p === W.kidPath && !n++) swap(x); } } });
-  const { res } = await pack(W.PF, fsx, W.key);
+  const { zip, res } = await pack(W.PF, fsx, W.key);
   assert.ok(n >= 1, 'set-up: the bytes changed before the capture');
-  assert.strictEqual(res.status, 'partial', JSON.stringify(res.col.unresolved));
-  assert.ok(res.col.unresolved.some(u => u.indexOf(W.kidPath) >= 0 && /changed/.test(u)), JSON.stringify(res.col.unresolved));
+  /* The change is seen (RC: discovery's own read is held to its bytes): captured again, so what is packed is what was judged,
+     or the pack is partial naming it. Never complete with bytes other than the ones judged. */
+  if (res.status === 'complete') {
+    const e = unzip(zip), man = manifestOf(zip), f = man.files.filter((x) => x.path === W.kidPath)[0];
+    assert.ok(res.col.attempts > 1, 'captured again: ' + res.col.attempts);
+    assert.ok(f && e[f.pack].equals(fsx.files.get(W.kidPath)), 'the bytes packed are the run as it is now');
+  } else assert.ok(res.col.unresolved.some(u => u.indexOf(W.kidPath) >= 0 && /changed/.test(u)), JSON.stringify(res.col.unresolved));
 });
 
 rule('A pending request the receipt names as seen, deleted later, leaves the pack partial by its path; Python refuses a complete claim without it', async () => {
@@ -599,6 +604,32 @@ rule('A conflict copy or a new child arriving beside a dependency during capture
   assert.ok(m >= 1, 'set-up: the child arrived during capture');
   const named = (L2.deps || []).some((d) => d.key === K.process + '/late-kid1') || two.res.col.unresolved.some((u) => u.indexOf('late-kid1') >= 0 || u.indexOf('runs/' + K.process) >= 0);
   assert.ok(named || two.res.status === 'partial', 'the new child is in the closure, or the pack is partial: ' + two.res.status + ' ' + JSON.stringify(two.res.col.unresolved));
+});
+/* RC: the discovery listings are kept and listed again on every path, a run with no to-dos yet included, and every run
+   discovery read is held to its bytes, one it left out (another parent's child) included. */
+rule('A first request arriving during capture on a run with no to-dos yet is never missing from a complete pack', async () => {
+  const W = await made({ todos: 0, end: false }), PF = W.PF, T = PF.todos, r0 = PF.run.sanitize(JSON.parse(W.files[W.runPath]));
+  const q = T.buildProposal({ run: { process: r0.process, id: r0.id }, producer: { name: 'notes-bot', version: '1.0' }, key: 'k-first1', seen: [], at: new Date().toISOString(), body: { op: 'add', text: 'The first one', target: { phase: 'review' }, placement: T.placementFor(PF.run.mapOf(r0), { phase: 'review' }) } });
+  const qp = 'proposals/' + q.id + '.json';
+  /* It arrives right after the checked read listed proposals/ (as that read sizes the one file there). */
+  let n = 0;
+  const files = Object.assign({}, W.files, { 'proposals/plan-other.json': JSON.stringify({ kind: 'plan', id: 'plan-other', process: 'other', title: 'Another plan' }) });
+  const fsx = new BytesFS(files, { hooks: { stat: (p, x) => { if (/^proposals\//.test(p) && !n++) x.files.set(qp, Buffer.from(T.text(q))); } } });
+  const { zip, res } = await pack(PF, fsx, W.key);
+  assert.ok(n >= 1, 'set-up: it arrived after the listing');
+  const packed = manifestOf(zip).files.some((f) => f.path === qp);
+  assert.ok(packed || (res.status === 'partial' && res.col.unresolved.some((u) => /proposals/.test(u))), 'packed, or the pack is partial naming proposals/: ' + res.status + ' ' + JSON.stringify(res.col.unresolved));
+});
+rule('A run discovery left out (another parent\'s child) that becomes this run\'s child during capture is never missed', async () => {
+  const W = await loopMade(), K = JSON.parse(W.files[W.kidPath]), other = Object.assign({}, K, { id: 'other-kid', parent: Object.assign({}, K.parent, { id: 'someone-else' }) });
+  const op = 'runs/' + K.process + '/other-kid/run.json', mine = JSON.stringify(Object.assign({}, other, { parent: K.parent }), null, 2);
+  const files = Object.assign({}, W.files, { [op]: JSON.stringify(other, null, 2) });
+  let n = 0;
+  const fsx = new BytesFS(files, { hooks: { blob: (p, x) => { if (p === W.kidPath && !n++) x.files.set(op, Buffer.from(mine)); } } });
+  const { zip, res } = await pack(W.PF, fsx, W.key);
+  assert.ok(n >= 1, 'set-up: its parent changed during capture');
+  const L = manifestOf(zip).runs[0].living, named = (L.deps || []).some((d) => d.key === K.process + '/other-kid');
+  assert.ok(named || (res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf('other-kid') >= 0)), 'in the closure, or named: ' + res.status + ' ' + JSON.stringify(res.col.unresolved));
 });
 /* PF: whether a run's work is verified is worked out from the packed originals, never from the manifest alone: a run.json that
    names a work head or a receipt, or a packed to-do record on the run, needs the manifest's living section. */

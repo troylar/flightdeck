@@ -26298,6 +26298,8 @@ PF.repo = (function () {
     /* The listings those reads made (the first of each folder, as kind:name), kept: the checks at the end list each folder
        again and compare (recheck), so what arrived in proposals/, beside a dependency run or among a loop's children after its
        read is a change, never missed. */
+    /* Every run discovery read (a loop child, kept or left out as another parent's), by the SHA-256 of the bytes read. */
+    var seenHashes = Object.create(null);
     var lists = Object.create(null), listKey = function (items) { return (items || []).map(function (i) { return i.kind + ':' + i.name; }).sort(); };
     var lro = readOnlyView({
       list: function (p, o) { return ro.list(p, o).then(function (items) { if (!(p in lists)) lists[p] = listKey(items); return items; }); }, stat: function (p, o) { return ro.stat(p, o); }, blob: function (p, o) { return ro.blob(p, o); },
@@ -26342,6 +26344,7 @@ PF.repo = (function () {
           return limited(items.filter(function (i) { return i.kind === 'dir' && /^[a-z0-9-]{1,40}$/i.test(i.name); }).map(function (i) { return i.name; }).sort(), 4, function (cid) {
             var k = cp + '/' + cid;
             return (got[k] ? Promise.resolve(got[k]) : depRun(cp, cid).then(function (x) { got[k] = x; return x; })).then(function (x) {
+              if (x.run) seenHashes['runs/' + k + '/run.json'] = x.run._fileHash || '';
               /* Which run it is a child of can't be told: named for this run whatever it is (key '': always said). */
               if (x.bad) { out.bad.push({ key: '', path: x.bad.path, kind: x.bad.kind, why: x.bad.why }); return; }
               var c = x.run;
@@ -26355,6 +26358,8 @@ PF.repo = (function () {
       var self = p.self;
       if (!self) return Promise.resolve();
       return proposalsRead().then(function (Pr) {
+        /* What discovery listed and read is checked again at the end on every path, a run with no to-dos yet included. */
+        p.discovery = { lists: lists, hashes: seenHashes };
         /* Whether the run has to-do records at all is only known from this read: one that fails is named, living or not yet. */
         if (Pr.failed) { p.living = { head: self.living ? self.living.head : '', chain: [], receipt: null, missing: ['proposals/ ' + Pr.failed + ', so the run\'s work can\'t be packed.'], recs: {}, listing: null, deps: [], runTexts: {} }; return; }
         /* A record that can't be read but names this run (a malformed request, say) is part of its work too, living or not. */
@@ -26385,7 +26390,7 @@ PF.repo = (function () {
           D = ask();
           if (D.over) throw new Error(D.over);
           if (D.toRead.length) throw new Error('The runs the work of ' + self.process + '/' + self.id + ' depends on weren\'t all read, so no pack was made.');
-          var L = p.living = { head: self.living ? self.living.head : '', chain: D.chain, receipt: D.receipt ? { id: self.living.receipt || '', state: D.receipt.state, why: D.receipt.why } : null, missing: D.missing.slice(), recs: {}, recTexts: {}, lists: Object.assign({}, lists), deps: [], runTexts: {} };
+          var L = p.living = { head: self.living ? self.living.head : '', chain: D.chain, receipt: D.receipt ? { id: self.living.receipt || '', state: D.receipt.state, why: D.receipt.why } : null, missing: D.missing.slice(), recs: {}, recTexts: {}, deps: [], runTexts: {} };
           var byFile = Object.create(null);
           Pr.todos.concat(Pr.scopes).forEach(function (x) { if (x && x._file) byFile[x._file] = x; });
           D.files.forEach(function (f) { var path = 'proposals/' + f.file; L.recs[path] = byFile[f.file] || null; L.recTexts[path] = recHashes[f.file] || ''; add(path, { role: 'living', label: f.label }); });
@@ -26458,16 +26463,25 @@ PF.repo = (function () {
             }));
           }).then(function (x) {
             if (x[0].concat(x[1]).sort().join('/') !== p.decListing.join('/')) note('corrections/' + p.process, 'a decision on corrections was added or removed', p.key);
-            /* A living run's work rests on proposals/: a to-do record added or removed there is a change. */
-            /* A living run's work rests on what its reads listed (proposals/, each dependency run's folder, each loop's child
-               folder): each listed again; anything added or removed there is a change. */
-            if (p.living && p.living.lists) return limited(Object.keys(p.living.lists).sort(), 8, function (dir) {
-              var was = p.living.lists[dir];
+            /* A run's work rests on what discovery listed (proposals/, each dependency run's folder, each loop's child folder),
+               whether or not it is living yet: each listed again; anything added or removed there is a change. Each run
+               discovery read, one it left out included, is read again and compared by its SHA-256. */
+            if (!p.discovery) return;
+            var D0 = p.discovery;
+            return limited(Object.keys(D0.hashes).sort(), 8, function (rp) {
+              var was = D0.hashes[rp];
+              return statOf(rp).then(function (z) {
+                if (z == null) { note(rp, rp + ' was removed', p.key); return; }
+                if (z > recordMax) { note(rp, rp + ' changed', p.key); return; }
+                return ro.read(rp).then(function (f) { if (!f || fileHash(f.text) !== was) note(rp, rp + ' changed', p.key); }, function (e) { note(rp, rp + ' couldn\'t be read again (' + why(e) + ')', p.key); });
+              });
+            }).then(function () { return limited(Object.keys(D0.lists).sort(), 8, function (dir) {
+              var was = D0.lists[dir];
               return ro.list(dir).then(function (it) {
                 var nowL = listKey(it), add = nowL.filter(function (n) { return was.indexOf(n) < 0; }), gone = was.filter(function (n) { return nowL.indexOf(n) < 0; });
                 if (add.length || gone.length) note(dir, dir + '/: ' + add.map(function (n) { return n.slice(n.indexOf(':') + 1) + ' was added'; }).concat(gone.map(function (n) { return n.slice(n.indexOf(':') + 1) + ' was removed'; })).join(', '), p.key);
               }, function (e) { note(dir, dir + '/ couldn\'t be listed again (' + why(e) + ')', p.key); });
-            });
+            }); });
           }).then(function () {
             (p.changes || []).forEach(function (c) { note(c.path, c.what, p.key); });
           });
@@ -26642,7 +26656,7 @@ PF.repo = (function () {
           attempt++;
           paths.forEach(function (pth) { forget(pth); delete decHash[pth]; });
           Object.keys(rc.runs).forEach(function (k) { var base = 'runs/' + k + '/'; Object.keys(done).forEach(function (pth) { if (pth.indexOf(base) === 0) forget(pth); }); });
-          procCache = {}; decHash = {}; propsOnce = null; lists = Object.create(null);
+          procCache = {}; decHash = {}; propsOnce = null; lists = Object.create(null); seenHashes = Object.create(null);
           /* Every attempt starts as the first did: sizes and the cap checked before anything new is read. */
           return preEstimate(keysAll).then(function () { return planAll(keysAll); }).then(fullEstimate).then(round);
         });

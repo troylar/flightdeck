@@ -25,8 +25,8 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "edc9b75ae27ea2ea171d32073253b20c259952a78abd3ecd009d0a1a68dfc193",
-      "reviewed": "repo.js and design.md: closure reads reserve their memory before they start; no instruction text, writes or deletes changed"
+      "sha256": "1d6811c2c70ae641db1711b3c5bf211c856e1e496806139060e303e3c4b1ad93",
+      "reviewed": "repo.js and design.md: discovery listings and every run discovery read are checked again on every path; no instruction text, writes or deletes changed"
     },
     "docs/evidence.md": {
       "sha256": "8828d4ade3981b60bb45d9f25431de63af40dd49e2385a68bcb06d34ddf5e56c",
@@ -421,8 +421,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "c6c2c7a137bd3890be079acd4fa0a78f7df2587562e27d3f315e6fc26997bf4b",
-      "reviewed": "repo.js and design.md: closure reads reserve their memory before they start; no instruction text, writes or deletes changed"
+      "sha256": "29c5fd6dd7464c00b4673dffb13b0a546ac7007eb51b653fc8a7c73776b3bb15",
+      "reviewed": "repo.js and design.md: discovery listings and every run discovery read are checked again on every path; no instruction text, writes or deletes changed"
     },
     "src/ui/app.js": {
       "sha256": "dec06bb6a11661bd0c9972e8f72a648cd952a2682c51e89ecda809c617bf0d12",
