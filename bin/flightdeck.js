@@ -1150,6 +1150,23 @@ function writeRequest(dir, name, text, hooks) {
   return writeOnce(dir, ['proposals'], name, text, hooks);
 }
 /* The same, for any one folder of the team folder (parts): a report in reports/<process>/ too. */
+/* What is under proposals/<name> when writeOnce found it taken: read back through the folder's own read adapter, so never
+   through a link (or a folder swapped for one) and never past cap bytes, before parse(text, bytes) is asked what it is. Gives
+   { record } (parse's answer, null when it isn't a record) or { problem: { path, kind, why } }, the path for the problem
+   ledger: the caller then says nothing is known about it (exit 4), never already. Every collision retry reads this way. */
+async function takenAt(dir, name, cap, parse) {
+  const ra = readAdapter(dir, { maxBytes: cap }), p = 'proposals/' + name;
+  let f = null;
+  try { f = await ra.read(p, { maxBytes: cap }); } catch (e) {
+    const q = adapterProblems(ra).filter((x) => x.path === p)[0];
+    return { problem: q || { path: p, kind: 'unreadable', why: 'It couldn\'t be read back (' + (e && e.message || String(e)) + '), so whether it is this one isn\'t known.' } };
+  }
+  if (!f) return { problem: { path: p, kind: 'vanished', why: 'It was there when this was written and gone when it was read back. Try again.' } };
+  let rec = null; try { rec = parse(f.text, Buffer.byteLength(f.text, 'utf8')); } catch (e) { rec = null; }
+  return { record: rec || null };
+}
+/* takenAt for a to-do or fact record: through PF.todos.cleanFile, the one reader for them, at its own size limit. */
+function takenRecord(PF, dir, name) { return takenAt(dir, name, PF.todos.LIMITS.bytes, (t, n) => { const v = PF.todos.cleanFile(JSON.parse(t), name, n); return v.ok ? v.record : null; }); }
 function writeOnce(dir, parts, name, text, hooks) {
   const rel = parts.join('/') + '/';
   const home = folders(dir, parts, true), target = path.join(home, name), data = Buffer.from(text, 'utf8');
@@ -2887,7 +2904,8 @@ async function spreadMain(argv) {
         let res;
         try { res = writeOnce(dir, ['proposals'], P.name, T.text(P.file)); } catch (e) { it.status = 'failed'; it.why = UNCERTAIN + ' (' + (e && e.message || String(e)) + ')'; failed++; continue; }
         if (res === 'written') { it.status = 'requested'; written++; continue; }
-        let there = null; try { const tx = fs.readFileSync(path.join(dir, 'proposals', P.name), 'utf8'), tv = PF.todos.cleanFile(JSON.parse(tx), P.name, Buffer.byteLength(tx, 'utf8')); there = tv.ok ? tv.record : null; } catch (e) { there = null; }
+        const tk = await takenRecord(PF, dir, P.name), there = tk.record || null;
+        if (tk.problem) { more.push(tk.problem); it.status = 'failed'; it.why = tk.problem.why; failed++; continue; }
         if (there && !T.askDiffers(there, { process: P.file.run.process, id: P.file.run.id }, { op: 'add', text: C.text, target: P.record.target, owner: undefined, fulfills: P.record.fulfills }).length) { it.status = 'already'; already++; }
         else { it.status = 'failed'; it.why = there ? 'A different request is already filed under this obligation\'s name.' : UNCERTAIN; failed++; }
       }
@@ -2940,7 +2958,8 @@ async function spreadMain(argv) {
     let res;
     try { res = writeOnce(dir, ['proposals'], P.name, T.text(P.file)); } catch (e) { return failOut('failed', UNCERTAIN + ' (' + (e && e.message || String(e)) + ')', problems()); }
     if (res !== 'written') {
-      let there = null; try { const tx = fs.readFileSync(path.join(dir, 'proposals', P.name), 'utf8'), tv = PF.todos.cleanFile(JSON.parse(tx), P.name, Buffer.byteLength(tx, 'utf8')); there = tv.ok ? tv.record : null; } catch (e) { there = null; }
+      const tk = await takenRecord(PF, dir, P.name), there = tk.record || null;
+      if (tk.problem) { more.push(tk.problem); return done(Object.assign(data('requested'), { status: 'held', preview: 'Something is under this request\'s name (' + file + ') that can\'t be read back, so whether it is this request isn\'t known. Check folder availability, then try again with the same key.' }), EXIT.partial); }
       if (!there) return failOut('failed', UNCERTAIN, problems());
       if (T.askDiffers(there, r, Object.assign({}, body, sub === 'add' ? { scope: there.scope, spread: there.spread } : {}, sub === 'stop' ? { owed: there.owed } : {})).length) return failOut('key-taken', 'This key already names a different request (' + file + '). Read it (flightdeck spread list) before choosing a new key. Nothing was written.', problems());
       return done(Object.assign(data('requested'), { status: 'already', preview: 'Already requested. Nothing written.' }));
@@ -3082,18 +3101,20 @@ async function factMain(argv) {
     const say = () => title + (dryRun ? ' — preview only; no files written.' : ' — synced.') + '\n\n' + (dryRun ? 'Would file ' + count('would-file') : 'Filed ' + count('filed')) + ' of ' + items.length + (items.length === 1 ? ' fact' : ' facts') + (count('already') ? '; ' + count('already') + ' already filed' : '') + (count('failed') ? '; ' + count('failed') + ' not filed (see why)' : '') + '. Facts never change work: a to-do is resolved only by an ordinary request (flightdeck todo suggest-done).';
     if (dryRun) return done({ run: { process: proc, id: runId }, status: 'would-sync', facts: items, partial: false, preview: say() });
     let failed = 0;
-    plan.forEach((x, k) => {
+    for (let k = 0; k < plan.length; k++) {
+      const x = plan[k];
       const it = items[k];
-      if (x.P.status === 'already') return;
+      if (x.P.status === 'already') continue;
       let res;
-      try { res = writeOnce(dir, ['proposals'], x.P.name, PF.todos.text(x.P.file)); } catch (e) { it.status = 'failed'; it.why = UNCERTAIN.replace('the request', 'the fact') + ' (' + (e && e.message || String(e)) + ')'; failed++; return; }
-      if (res === 'written') { it.status = 'filed'; return; }
+      try { res = writeOnce(dir, ['proposals'], x.P.name, PF.todos.text(x.P.file)); } catch (e) { it.status = 'failed'; it.why = UNCERTAIN.replace('the request', 'the fact') + ' (' + (e && e.message || String(e)) + ')'; failed++; continue; }
+      if (res === 'written') { it.status = 'filed'; continue; }
       /* Filed meanwhile under the same name: the same observation is already; any other is not this one. */
-      let there = null; try { const tx = fs.readFileSync(path.join(dir, 'proposals', x.P.name), 'utf8'), tv = PF.todos.cleanFile(JSON.parse(tx), x.P.name, Buffer.byteLength(tx, 'utf8')); there = tv.ok ? tv.record : null; } catch (e) { there = null; }
+      const tk = await takenRecord(PF, dir, x.P.name), there = tk.record || null;
+      if (tk.problem) { more.push(tk.problem); it.status = 'failed'; it.why = tk.problem.why; failed++; continue; }
       const again = there ? FX.prepare(r, { obs: x.b, by: { tool: tool.name, version: tool.version }, records: records.concat([there]), unread, items: viewOf(x.b.loopStep).rollup.items, at, app: eng.version, now: NOW }) : null;
-      if (again && again.status === 'already') { it.status = 'already'; return; }
+      if (again && again.status === 'already') { it.status = 'already'; continue; }
       it.status = 'failed'; it.why = there ? 'A different record is already filed under this key.' : UNCERTAIN.replace('the request', 'the fact'); failed++;
-    });
+    }
     return done({ run: { process: proc, id: runId }, status: failed ? 'partial' : 'synced', facts: items, partial: failed > 0, preview: say() }, failed ? EXIT.partial : undefined);
   } catch (e) { return failOut('failed', (e && e.message || String(e)) + nothing, problems()); }
 }
@@ -3204,7 +3225,7 @@ async function todoMain(argv) {
     /* suggest-done (4.0 slice 4): a done on one fact's evidence, as PF.facts.supportFor checks it now. Its name comes from the
        to-do's opening and what the evidence says, so asking again (any tool, any time, a re-sync that only moved the time)
        is the same request: already, once filed, whatever became of it. */
-    const suggestDone = () => {
+    const suggestDone = async () => {
       const FX = PF.facts, x = V.byTodo[val['--todo']], sid0 = { run: { process: proc, id: runId } };
       /* What is already under a suggestion's name is this one only when it is this run's done on this to-do, on evidence;
          asked of what was read first and of what is found there after a create that lost a race alike. */
@@ -3243,7 +3264,8 @@ async function todoMain(argv) {
       try { res = writeOnce(dir, ['proposals'], P.name, T.text(P.file)); } catch (e) { return failOut('failed', UNCERTAIN + ' (' + (e && e.message || String(e)) + ')', problems()); }
       if (res !== 'written') {
         /* Its name is its evidence: the same suggestion filed meanwhile is already; anything else there is refused. */
-        let there = null; try { const tx = fs.readFileSync(path.join(dir, 'proposals', P.name), 'utf8'), tv = PF.todos.cleanFile(JSON.parse(tx), P.name, Buffer.byteLength(tx, 'utf8')); there = tv.ok ? tv.record : null; } catch (e) { there = null; }
+        const tk = await takenRecord(PF, dir, P.name), there = tk.record || null;
+        if (tk.problem) { extra.push(tk.problem); return held('Something is under this suggestion\'s name (' + file + ') that can\'t be read back, so whether it is this suggestion isn\'t known.'); }
         if (!there) return failOut('failed', UNCERTAIN, problems());
         if (!ours(there)) return failOut('key-taken', 'A different record is already filed under this suggestion\'s name (' + file + '). Nothing was written.', problems());
         return done(Object.assign(data('requested'), { status: 'already', preview: 'Already suggested on this evidence. Nothing written.' }));
@@ -3292,7 +3314,8 @@ async function todoMain(argv) {
     try { res = writeOnce(dir, ['proposals'], P.name, T.text(P.file)); } catch (e) { return failOut('failed', UNCERTAIN + ' (' + (e && e.message || String(e)) + ')', problems()); }
     if (res !== 'written') {
       /* Taken meanwhile: the same ask is already; another one under this key is refused. */
-      let there = null; try { const tx = fs.readFileSync(path.join(dir, 'proposals', P.name), 'utf8'), tv = PF.todos.cleanFile(JSON.parse(tx), P.name, Buffer.byteLength(tx, 'utf8')); there = tv.ok ? tv.record : null; } catch (e) { there = null; }
+      const tk = await takenRecord(PF, dir, P.name), there = tk.record || null;
+      if (tk.problem) { extra.push(tk.problem); return done(Object.assign(data('requested'), { status: 'held', preview: 'Something is under this request\'s name (' + file + ') that can\'t be read back, so whether it is this request isn\'t known. Nothing more was written. Check folder availability, then retry with the same key.' }), EXIT.partial); }
       if (!there) return failOut('failed', UNCERTAIN, problems());
       if (T.askDiffers(there, r, body).length) return failOut('key-taken', 'This key already names a different request (' + file + '). Read it (flightdeck todo list) before choosing a new key. Nothing was written.', problems());
       return done(Object.assign(data('requested'), { status: 'already', preview: 'Already requested. Nothing written.' }));
@@ -3345,7 +3368,8 @@ async function loopMain(argv) {
   const ra = readAdapter(dir, { maxBytes: READ_MAX }), L = repo.ledger(repo.readOnly(ra, 'Reading a loop'));
   let childProc = '';
   const relevant = (p) => p === '' || /^proposals(\/|$)/.test(p) || p === 'people.json' || p.indexOf('runs/' + proc + '/' + runId) === 0 || (!!childProc && p.indexOf('runs/' + childProc) === 0) || p === 'runs' || p === 'runs/' + proc;
-  const problems = () => { const all = L.problems(), seen = {}; all.forEach((x) => { seen[x.path + '\u0000' + x.kind] = true; }); adapterProblems(ra).forEach((x) => { if (!seen[x.path + '\u0000' + x.kind]) all.push(x); }); return all.filter((x) => relevant(x.path)); };
+  const more = [];
+  const problems = () => { const all = L.problems(), seen = {}; all.forEach((x) => { seen[x.path + '\u0000' + x.kind] = true; }); adapterProblems(ra).forEach((x) => { if (!seen[x.path + '\u0000' + x.kind]) all.push(x); }); return all.filter((x) => relevant(x.path)).concat(more); };
   const done = (data) => { const e = A.envelope(eng.version, new Date().toISOString(), problems(), data, C2); return out(e, e.complete ? 0 : EXIT.partial); };
   try {
     const one = await repo.readRunOnly(L.fs, proc, runId);
@@ -3499,7 +3523,8 @@ async function loopMain(argv) {
       try { resA = writeOnce(dir, ['proposals'], id + '.json', LP.text(fa)); } catch (e) { return failOut('failed', UNCERTAIN + ' (' + (e && e.message || String(e)) + ')', problems()); }
       if (resA !== 'written') {
         /* Taken meanwhile: read what is there; the same request is already, another one under this key is refused. */
-        let there = null; try { there = JSON.parse(fs.readFileSync(path.join(dir, 'proposals', id + '.json'), 'utf8')); } catch (e) { there = null; }
+        const tk = await takenAt(dir, id + '.json', LP.LIMITS.bytes, (t) => JSON.parse(t)), there = tk.record || null;
+        if (tk.problem) { more.push(tk.problem); return done(Object.assign(dataA('requested'), { status: 'held', preview: 'Something is under this request\'s name (' + file + ') that can\'t be read back, so whether it is this request isn\'t known. Check folder availability, then try again with the same key.' }), EXIT.partial); }
         if (!there) return failOut('failed', UNCERTAIN, problems());
         if (JSON.stringify(there.changes) !== JSON.stringify(fa.changes) || JSON.stringify(there.loop) !== JSON.stringify(fa.loop)) return failOut('key-taken', 'This key already names a different request (' + file + '). Read that request (flightdeck loop read) before choosing a new key. Nothing was written.', problems());
         return done(Object.assign(dataA('requested'), { status: 'already', preview: 'Already requested. Nothing written.' }));
@@ -3566,7 +3591,8 @@ async function loopReview(eng, o) {
     try { res = writeOnce(o.dir, ['proposals'], f.name, LP.text(f.file)); } catch (e) { return o.failOut('failed', UNCERTAIN, o.problems()); }
     if (res !== 'written') {
       /* The name was taken meanwhile: read what is there, and call it the same decision only if it is. */
-      let there = null; try { there = JSON.parse(fs.readFileSync(path.join(o.dir, 'proposals', f.name), 'utf8')); } catch (e) { there = null; }
+      const tk = await takenAt(o.dir, f.name, LP.LIMITS.bytes, (t) => JSON.parse(t)), there = tk.record || null;
+      if (tk.problem) return o.failOut('failed', 'Something is under this decision\'s name (proposals/' + f.name + ') that can\'t be read back, so whether it is this decision isn\'t known (' + tk.problem.why + ')' + (all === 'written' && files.indexOf(f) > 0 ? ' Some of this decision was written before it.' : ' Nothing was written.'), o.problems().concat([tk.problem]), EXIT.partial);
       const same = there && there.op === f.file.op && there.by === f.file.by && (there.reason || '') === (f.file.reason || '') && JSON.stringify((there.items || []).slice().sort()) === JSON.stringify(f.file.items.slice().sort());
       if (!same) return o.failOut('key-taken', 'This key already names a different decision (proposals/' + f.name + '). Read the loop (flightdeck loop read) before choosing a new key.' + (all === 'written' && files.indexOf(f) > 0 ? ' Some of this decision was written before it.' : ' Nothing was written.'), o.problems());
       all = 'already';

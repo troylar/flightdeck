@@ -13,16 +13,16 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "339c840993f664cfe8157201e0a2152f00494941e2abc26ecb3ff42141254942",
-      "reviewed": "fact sync refuses a key twice in one batch before writing; checked for direct writes and unconditional deletes"
+      "sha256": "748b2154215a38b40a05bac356eda6885dfaf7686eccf5dcdaf0edfa4c9a2c53",
+      "reviewed": "takenAt: every collision read-back goes through the read adapter, bounded; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "cf0a7c0289f08fc6d138b4feaddbdc118b45af451a7732e5ee68c9480c752b38",
       "reviewed": "slice 4 commit 3: facts core (facts.js: records, reduction, freshness, support, de-duplication), todos hooks (fact dispatch, done support, now), Python checker parity; pure code, no direct writes or unconditional deletes"
     },
     "docs/apps.md": {
-      "sha256": "972c5223803086e8bd9e8fe186e526aafb22c4083b875368b914cb197c5be2ad",
-      "reviewed": "one recordName classifier notices and holds a req-*.json link in any case; checked for direct writes and unconditional deletes"
+      "sha256": "2d80a16557c4125d666d7c12f8ead458e54d07f0d469e389b8c36820d3a81b82",
+      "reviewed": "apps: taken-name read-back row; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
       "sha256": "5ff0c6d4f6787c6a8e0760fc7af59160e677c157a5d66a9135421d21e9281013",
@@ -513,8 +513,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. A maintainer tool, not shipped. Not read line by line."
     },
     "tools/readers.js": {
-      "sha256": "3e7a21edc1b229e4df0858eee2a58678bb70e3acf2fa2f8de5c31ff4b634ff98",
-      "reviewed": "4.0 slice 4: facts read fields by name (no computed keys), suggest-done reads back through PF.todos.cleanFile, fact sync input listed as a raw consumer, fcMemo cleared per draw; checked for direct writes and unconditional deletes"
+      "sha256": "841d02de99e991d9d2ea9a9b68aface80f64f1440359f9c2b24b68accf200fc8",
+      "reviewed": "takenAt: every collision read-back goes through the read adapter, bounded; checked for direct writes and unconditional deletes"
     },
     "tools/scale-limits.js": {
       "sha256": "23e06ee46d6b4ff44216f92c530578f714aa05bcecd7a2b0458515287d554ec1",

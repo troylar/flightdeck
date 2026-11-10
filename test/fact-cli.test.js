@@ -391,6 +391,39 @@ rule('A suggestion filed meanwhile under its name is already only for the same r
   assert.deepStrictEqual([mine.code, mine.data && mine.data.status], [0, 'already'], JSON.stringify(mine).slice(0, 600));
 });
 
+rule('A name found taken is read back through the folder reader: a link raced in or a file over the size limit is a problem (exit 4, its path), never already', async () => {
+  const FD = require('../bin/flightdeck.js');
+  /* Between preparing and creating, the destination becomes a link to a matching record outside, or an oversized file. */
+  const race = async (re, how, argv) => {
+    const orig = fs.linkSync;
+    let raced = '';
+    fs.linkSync = function (from, to) {
+      if (!raced && re.test(path.basename(String(to)))) {
+        raced = path.basename(String(to));
+        if (how === 'link') { const away = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-fact-away-')), raced); fs.copyFileSync(from, away); fs.symlinkSync(away, to); }
+        else fs.writeFileSync(to, fs.readFileSync(from, 'utf8').replace(/\n$/, '') + ' '.repeat(T.LIMITS.bytes + 10) + '\n');
+      }
+      return orig.apply(fs, arguments);
+    };
+    try { const r = await FD.main(argv); return Object.assign(JSON.parse(r.out), { code: r.code, raced, root: argv[2] }); } finally { fs.linkSync = orig; }
+  };
+  const check = (r, what) => {
+    assert.ok(r.raced, what + ': the race ran: ' + JSON.stringify(r).slice(0, 700));
+    const st = r.data && (r.data.status === 'already' || (r.data.facts || []).some((f) => f.status === 'already'));
+    assert.ok(!st, what + ': never already: ' + JSON.stringify(r).slice(0, 500));
+    assert.deepStrictEqual([r.code, r.complete], [4, false], what + ': ' + JSON.stringify(r).slice(0, 500));
+    assert.ok(r.problems.some((p) => p.path === 'proposals/' + r.raced), what + ' names it: ' + JSON.stringify(r.problems));
+    fs.rmSync(path.join(r.root, 'proposals', r.raced));
+  };
+  for (const how of ['link', 'big']) {
+    const F0 = await folder(), x = await todo(F0);
+    check(await race(/^req-git-bot-/, how, ['fact', 'sync', F0.root, PR, '--from', input({ facts: [prs()] }), '--json', ...TOOL]), how + ' · fact sync');
+    assert.strictEqual(json('fact', 'sync', F0.root, PR, '--from', input({ facts: [prs()] }), '--json', ...TOOL).code, 0);
+    check(await race(/^req-suggest-/, how, ['todo', 'suggest-done', F0.root, PR, '--todo', x, '--fact', F.idFor('git-bot', 'prs-102-a'), '--json', ...TOOL]), how + ' · suggest-done');
+    check(await race(/^req-git-bot-/, how, ['todo', 'add', F0.root, PR, '--item', 'each/jira:10103', '--text', 'Tag the release', '--key', 'add-' + how, '--json', ...TOOL]), how + ' · todo add');
+  }
+});
+
 rule('suggest-done refuses stale, replaced, incomplete or contrary evidence, and a fact about another item; nothing written', async () => {
   const F0 = await folder(), x = await todo(F0);
   const facts = [prs({ key: 'old', observedAt: ago(30 * HOUR) }), prs({ key: 'p103', item: 'ABC-103' }), prs({ key: 'part', source: { feed: 'github' }, complete: false, reported: 2 })];
