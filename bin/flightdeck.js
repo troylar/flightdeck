@@ -977,6 +977,19 @@ async function parentVerdict(PF, L, pk, todos, people) {
 function noteDeps(L, dep) { const had = {}; L.problems().forEach((x) => { had[x.path] = true; }); dep.problems.forEach((x) => { if (!had[x.path]) { had[x.path] = true; L.note(x.path, x.kind, x.why); } }); }
 /* The checked publication reader the screen gives a loop (procOf): a process's versions as loadAll indexed them. */
 function procOfFrom(d) { return (id) => { const e = ((d && d.processes) || []).filter((p) => p.process === id)[0], i = e && e.index; return i ? { latest: i.latest, all: i.all || [], clashes: i.clashes || [], broken: i.broken || [] } : null; }; }
+/* EC: the processes the loops of a process's living runs start (their {for.each} steps' process:), read from the runs' own
+   files without the ledger; one that can't be read says nothing here (the main read names it). */
+async function loopKidProcs(PF, fs, proc) {
+  const out = new Set();
+  let items = []; try { items = await fs.list('runs/' + proc); } catch (e) { items = []; }
+  for (const it of items || []) {
+    if (it.kind !== 'dir') continue;
+    let r = null; try { const f = await fs.read('runs/' + proc + '/' + it.name + '/run.json'); r = f ? PF.run.sanitize(JSON.parse(f.text)) : null; } catch (e) { r = null; }
+    if (!r || !r.living || r._unrunnable) continue;
+    try { PF.map.steps(PF.run.mapOf(r)).forEach((x) => { if (x.step.type !== 'for.each') return; const k = String(PF.run.fieldsOf(r, x.step).process || ''); if (/^[a-z0-9][a-z0-9-]{0,59}$/.test(k)) out.add(k); }); } catch (e) { /* named by the main read */ }
+  }
+  return [...out].sort();
+}
 function dependsOn(fs, prefixes) {
   const ok = covers(prefixes);
   const v = {};
@@ -1104,8 +1117,11 @@ async function readData(eng, adapter, req) {
     }
     /* Each command reads only what its output depends on (needs()), so every problem the ledger holds is one that output
        depends on, and all of them are reported: there's no scope to fall behind what's read. */
-    relevant = covers(needs(req));
-    const d = await repo.loadAll(dependsOn(L.fs, needs(req)), { readOnly: true, explain: true, deep: true, contract2: two });
+    /* EC: runs --process <a parent's process> reads what each living parent's spreads depend on too, whatever the filter
+       leaves out: its loops' stories' runs and their versions (found from the parents' own run files before the read). */
+    const want = needs(req).concat(two && req.cmd === 'runs' && req.proc ? (await loopKidProcs(PF, repo.readOnly(adapter, 'Reading for other apps'), req.proc)).filter((p) => p !== req.proc).reduce((o, p) => o.concat(['runs/' + p, 'publications/' + p]), []) : []);
+    relevant = covers(want);
+    const d = await repo.loadAll(dependsOn(L.fs, want), { readOnly: true, explain: true, deep: true, contract2: two });
     if (!two) { d.processes = A.v1Processes(d.processes); d.runs = d.runs.map(A.v1Run).filter(Boolean); }
     take(folderProblems(PF, d));
     /* Every run judged as run judges it, against its own version (runs reads the versions; followups doesn't need them). */

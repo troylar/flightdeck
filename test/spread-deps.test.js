@@ -173,4 +173,37 @@ for (const filter of Object.keys(BC_FILTERS)) {
     assert.deepStrictEqual(off, [], filter);
   });
 }
+/* Review round 11 (EC): runs --process <the parent's process> loads the listed parent's spread dependencies (its stories'
+   runs and their versions) before coverage, whatever the filter leaves out: a story's run absent or EIO, or its version
+   missing or EIO, exits 4 naming it with the parent's to-dos held; healthy, the parent reads exactly as in the full list. */
+const EC_BREAK = {
+  'a story\'s run absent': [() => 'runs/' + KID + '/run.json', MODES.absent],
+  'a story\'s run EIO': [() => 'runs/' + KID + '/run.json', MODES.unreadable],
+  'its version missing': [(root) => files(root).find(f => /^publications\/validate-story\/[^/]+\/publication\.json$/.test(f)), MODES.absent],
+  'its version EIO': [(root) => files(root).find(f => /^publications\/validate-story\/[^/]+\/publication\.json$/.test(f)), MODES.unreadable]
+};
+rule('EC: runs --process <parent> loads its stories\' runs and versions first: absent, EIO, version missing or EIO; healthy reads as the full list', async () => {
+  const off = [], args = ['--process', PR.split('/')[0]], prOf = (r) => (r.data && r.data.runs || []).filter(x => x.process + '/' + x.id === PR)[0];
+  {
+    const { root } = await world();
+    const full = json('runs', root, '--contract', '2', '--json'), one = json('runs', root, ...args, '--contract', '2', '--json');
+    if (full.code !== 0 || one.code !== 0) off.push('healthy · exit ' + full.code + '/' + one.code + ' ' + JSON.stringify(one.problems));
+    else if (JSON.stringify(prOf(full)) !== JSON.stringify(prOf(one))) off.push('healthy · differs: ' + JSON.stringify(prOf(one)).slice(0, 300) + ' vs ' + JSON.stringify(prOf(full)).slice(0, 300));
+  }
+  for (const how of Object.keys(EC_BREAK)) {
+    if (/EIO/.test(how) && process.getuid && process.getuid() === 0) continue;
+    const { root } = await world();
+    const [where, brk] = EC_BREAK[how], f = where(root), undo = brk(root, f);
+    const before = state(root), r = json('runs', root, ...args, '--contract', '2', '--json');
+    const named = (r.problems || []).some(p => names(p, f));
+    if (r.code !== 4 || !named) off.push(how + ' · exit ' + r.code + (named ? '' : ' · not named: ' + JSON.stringify((r.problems || []).map(p => p.path))));
+    const four = r.code === 4, incomplete = r.complete === false, paths = (r.problems || []).length > 0 && (r.problems || []).every(p => p.path);
+    if (four !== incomplete || incomplete !== paths) off.push(how + ' · exit ' + r.code + ', complete ' + r.complete + ', ' + (r.problems || []).length + ' problems');
+    const pr = prOf(r);
+    if (pr && pr.todoCounts && pr.todoCounts.held !== true) off.push(how + ' · todoCounts ' + JSON.stringify(pr.todoCounts));
+    if (JSON.stringify(before) !== JSON.stringify(state(root))) off.push(how + ' · wrote');
+    if (undo) undo();
+  }
+  assert.deepStrictEqual(off, []);
+});
 run();
