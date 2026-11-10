@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "db6d6a8379fb38a98d2cf6f536fe182b586658f2de0d2aadb0e8a1d4b2b5d2d6",
-      "reviewed": "BB: approval writes reread their loops' runs"
+      "sha256": "7a3fda76b79812432e048f77dcd2e6c6cc248283ae863143a50056bf43817a9e",
+      "reviewed": "BC: one parent path for every runs filter"
     },
     "build.py": {
       "sha256": "1dce012e7269422f84c2c2aeb7b327b242a28e4990a5c5c95a22dc98228122dc",

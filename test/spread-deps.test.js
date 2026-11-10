@@ -126,4 +126,51 @@ rule('AC: filtered runs, with the parent present, are complete and count the sto
     assert.deepStrictEqual([r.code, r.complete, r.problems, kidOf(r).todoCounts], [0, true, [], kidOf(full).todoCounts], args.join(' '));
   }
 });
+/* Review round 10 (BC): every filter runs accepts judges each listed story's parent dependencies before the problems are
+   collected, then filters: the parent absent, unreadable (EIO), malformed, newer, or its applied work (the application its
+   living.head names) missing. A filter that lists the story exits 4 naming the parent's path, incomplete, with the story's
+   to-dos held; one that lists no story depending on it (planned) still keeps exit 4, an incomplete envelope and a path
+   together. [args, whether the story is ended first] */
+const BC_FILTERS = {
+  'no filter': [[], false],
+  '--process validate-story': [['--process', 'validate-story'], false],
+  '--status running': [['--status', 'running'], false],
+  '--status ended': [['--status', 'ended'], true],
+  '--status all': [['--status', 'all'], false],
+  '--status planned': [['--status', 'planned'], false],
+  '--process validate-story --status ended': [['--process', 'validate-story', '--status', 'ended'], true]
+};
+const BC_PARENT = {
+  absent: (root) => ['runs/' + PR + '/run.json', MODES.absent],
+  EIO: (root) => ['runs/' + PR + '/run.json', MODES.unreadable],
+  malformed: (root) => ['runs/' + PR + '/run.json', MODES.malformed],
+  newer: (root) => ['runs/' + PR + '/run.json', newer],
+  'missing application': (root) => ['proposals/' + jsonOf(root, 'runs/' + PR + '/run.json').living.head + '.json', MODES.absent]
+};
+for (const filter of Object.keys(BC_FILTERS)) {
+  rule('BC: runs ' + filter + ' judges a listed story\'s parent first: absent, EIO, malformed, newer, missing application', async () => {
+    const [args, end] = BC_FILTERS[filter], off = [];
+    for (const how of Object.keys(BC_PARENT)) {
+      if (how === 'EIO' && process.getuid && process.getuid() === 0) continue;
+      const { root } = await world();
+      if (end) { const kf = 'runs/' + KID + '/run.json', k = jsonOf(root, kf), at = new Date().toISOString(); k.ended = { outcome: 'Completed', by: 'person-avery', at }; k.state = 'completed'; fs.writeFileSync(path.join(root, kf), JSON.stringify(k, null, 2)); }
+      const base = json('runs', root, ...args, '--contract', '2', '--json');
+      const listed = (r) => (r.data && r.data.runs || []).filter(x => x.process + '/' + x.id === KID)[0];
+      if (base.code !== 0) { off.push(how + ' · set-up: exit ' + base.code + ' ' + JSON.stringify(base.problems)); continue; }
+      const [f, brk] = BC_PARENT[how](root), undo = brk(root, f);
+      const before = state(root), r = json('runs', root, ...args, '--contract', '2', '--json');
+      const four = r.code === 4, incomplete = r.complete === false, paths = (r.problems || []).length > 0 && (r.problems || []).every(p => p.path);
+      if (four !== incomplete || incomplete !== paths) off.push(how + ' · exit ' + r.code + ', complete ' + r.complete + ', ' + (r.problems || []).length + ' problems');
+      if (listed(base)) {
+        const named = (r.problems || []).some(p => names(p, f));
+        if (r.code !== 4 || !named) off.push(how + ' · exit ' + r.code + (named ? '' : ' · not named: ' + JSON.stringify((r.problems || []).map(p => p.path))));
+        const kr = listed(r);
+        if (kr && kr.todoCounts && kr.todoCounts.held !== true) off.push(how + ' · todoCounts ' + JSON.stringify(kr.todoCounts));
+      } else if (filter !== '--status planned') off.push(how + ' · set-up: the story isn\'t listed');
+      if (JSON.stringify(before) !== JSON.stringify(state(root))) off.push(how + ' · wrote');
+      if (undo) undo();
+    }
+    assert.deepStrictEqual(off, [], filter);
+  });
+}
 run();

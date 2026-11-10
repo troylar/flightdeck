@@ -1157,30 +1157,23 @@ async function readData(eng, adapter, req) {
       const list = matching.filter(tested), leftOut = two ? matching.length - list.length : 0;
       /* YD: what each listed run's spreads depend on and couldn't be read is this list's problem too, named by its path. */
       if (two) { const had = {}; L.problems().forEach((x) => { had[x.path] = true; }); list.forEach((r) => ((r._todos && r._todos.missing) || []).forEach((x) => { if (x && x.path && !had[x.path]) { had[x.path] = true; L.note(x.path, x.kind || 'unreadable', x.why); } })); }
-      /* ZD: each parent a listed run's requests fulfil is expected and judged as that run's own reader judges it: missing, or
-         named by the folder's read and the run judge (unreadable, malformed, newer, its version); the listed run's to-dos are
-         then held. */
-      if (two) for (const r of list) {
-        const pks = {}; PF.todos.recordsFor(d.todos || [], r).forEach((x) => { if (x && x.fulfills && x.fulfills.run && typeof x.fulfills.run.process === 'string' && typeof x.fulfills.run.id === 'string') pks[x.fulfills.run.process + '/' + x.fulfills.run.id] = true; });
-        for (const pk of Object.keys(pks).sort()) {
-          const dir = 'runs/' + pk, pr = d.runs.filter((c) => c.process + '/' + c.id === pk)[0];
-          let bad;
-          /* AC: a parent the list's filter left out (another process) is read and judged on its own, whatever is listed, and
-             its paths count. */
-          if (req.proc && pk.split('/')[0] !== req.proc) {
-            const v = await parentVerdict(PF, L, pk, d.todos || [], d.people);
-            v.problems.forEach((x) => { if (!L.problems().some((y) => y.path === x.path)) L.note(x.path, x.kind, x.why); });
-            const named = covers([dir].concat(v.run && typeof v.run.folder === 'string' ? [PF.run.pubDir(v.run).replace(/\/$/, '')] : []).concat(v.problems.map((x) => String(x.path).replace(/\/$/, '')))), was = relevant;
-            relevant = (q) => was(q) || named(q);
-            bad = v.problems;
-          } else {
-            bad = ledger().filter((x) => x.path === dir || String(x.path).indexOf(dir + '/') === 0 || (pr && typeof pr.folder === 'string' && String(x.path).indexOf(PF.run.pubDir(pr).replace(/\/$/, '')) === 0));
-            if (!pr && !bad.length) { L.note(dir + '/run.json', 'nofile', 'A request of ' + r.process + '/' + r.id + ' fulfils a spread on ' + pk + ', which isn\'t in the folder.'); bad = [{ path: dir + '/run.json' }]; }
-            /* The parent's own applied work that can't be read (its living.head, its chain) holds it as the story's reader does. */
-            if (!bad.length && pr && pr._todos && (pr._todos.missing || []).length) bad = pr._todos.missing.slice(0, 1);
-            if (!bad.length && pr && newerRun(PF, pr)) bad = [{ path: dir + '/run.json' }];
+      /* ZD, AC, BC: each parent a listed run's requests fulfil is expected and judged as that run's own reader judges it
+         (parentVerdict: its file, its format, its pinned version and its applied work), the same one way whatever the filter
+         (process, status or none), before the problems are collected; its paths count and the listed run's to-dos are held. */
+      if (two) {
+        const verdicts = {};
+        for (const r of list) {
+          const pks = {}; PF.todos.recordsFor(d.todos || [], r).forEach((x) => { if (x && x.fulfills && x.fulfills.run && typeof x.fulfills.run.process === 'string' && typeof x.fulfills.run.id === 'string') pks[x.fulfills.run.process + '/' + x.fulfills.run.id] = true; });
+          for (const pk of Object.keys(pks).sort()) {
+            if (!verdicts[pk]) {
+              const v = verdicts[pk] = await parentVerdict(PF, L, pk, d.todos || [], d.people);
+              v.problems.forEach((x) => { if (!L.problems().some((y) => y.path === x.path)) L.note(x.path, x.kind, x.why); });
+              const named = covers(['runs/' + pk].concat(v.run && typeof v.run.folder === 'string' ? [PF.run.pubDir(v.run).replace(/\/$/, '')] : []).concat(v.problems.map((x) => String(x.path).replace(/\/$/, '')))), was = relevant;
+              relevant = (q) => was(q) || named(q);
+            }
+            const bad = verdicts[pk].problems;
+            if (bad.length && r._todos) r._todos.missing = (r._todos.missing || []).concat([{ path: bad[0].path, kind: 'unreadable', why: 'Its parent ' + pk + ' can\'t be read here.' }]);
           }
-          if (bad.length && r._todos) r._todos.missing = (r._todos.missing || []).concat([{ path: bad[0].path, kind: 'unreadable', why: 'Its parent ' + pk + ' can\'t be read here.' }]);
         }
       }
       const plans = st === 'all' || st === 'planned' ? d.plans.filter((p) => mine(p.process)) : [];
