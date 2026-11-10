@@ -264,12 +264,14 @@ const PATHS = {
 };
 /* Inside the guard: from its read of the run (readRunOnly on the parent's process) until the next write or removal, or until
    its proposals read is done with none of its reads still under way. */
+/* The guard's async context: entered where its first read (the run's) is asked, so every read it makes after, in
+   whatever helper, carries it; a Refresh started elsewhere doesn't. */
 const GUARD = new (require('async_hooks').AsyncLocalStorage)();
 function guardWatch(app, name) {
   const R = app.PF.repo, ro = R.readRunOnly, rp = R.readPlans, fs0 = app.fs, read = fs0.read, list = fs0.list, write = fs0.write, remove = fs0.remove;
   const st = { on: false, win: 0, seen: Object.create(null), log: [], hook: null, ops: 0, sawAfter: false, busy: 0, plans: false, pass: 0 };
   const settle = () => { if (st.on && st.plans && !st.busy) st.on = false; };
-  R.readRunOnly = function (fs, proc, id) { if (proc === 'release-readiness' && !st.on) { st.on = true; st.win++; st.plans = false; } const a = arguments; return st.on ? GUARD.run(true, () => ro.apply(this, a)) : ro.apply(this, a); };
+  R.readRunOnly = function (fs, proc, id) { if (proc === 'release-readiness' && !st.on) { st.on = true; st.win++; st.plans = false; GUARD.enterWith(true); } const a = arguments; return st.on ? GUARD.run(true, () => ro.apply(this, a)) : ro.apply(this, a); };
   /* The window also closes once its proposals read is done and no read of it is still under way (a write-free last step). */
   R.readPlans = function () { const mine = st.on, a = arguments; const done = (x) => { if (mine) { st.plans = true; settle(); } return x; }; return (mine ? GUARD.run(true, () => rp.apply(this, a)) : rp.apply(this, a)).then(done, (e) => { done(); throw e; }); };
   const wrap = (op, real) => function (p) {
