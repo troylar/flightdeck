@@ -556,6 +556,17 @@ rule('The export reads proposals/ and the runs its work depends on within the si
   const ctl = await W.PF.repo.exportEvidence(new BytesFS(W.files), { run: W.key }, { sink: () => {}, now: () => Date.now(), tz: 'UTC', maxFile: MAX });
   assert.strictEqual(ctl.status, 'complete', 'the control holds: ' + JSON.stringify(ctl.col.unresolved));
 });
+/* RB: the closure's reads reserve what they may hold before each starts, so reads in flight together never take the pack past
+   its memory: a read that doesn't fit is refused by name, and the pack is partial. */
+rule('Closure reads in flight together stay within the memory a pack may use: each reserves before it starts', async () => {
+  for (const [n, size, cap] of [[4, 200000, 1048576], [8, 80000, 524288]]) {
+    const W = await loopMade(), files = Object.assign({}, W.files);
+    for (let i = 0; i < n; i++) files['proposals/plan-pad' + i + '.json'] = ' '.repeat(size) + JSON.stringify({ kind: 'plan', id: 'plan-pad' + i, process: 'release-readiness', title: 'Padded ' + i });
+    const res = await W.PF.repo.exportEvidence(new BytesFS(files), { run: W.key }, { sink: () => {}, now: () => Date.now(), tz: 'UTC', cap });
+    assert.ok(res.col.retained && res.col.retained.peak <= cap, n + ' reads of ' + size + ' bytes: peak ' + (res.col.retained && res.col.retained.peak) + ' within ' + cap);
+    assert.ok(res.status === 'complete' || res.col.unresolved.length, 'a pack that isn\'t complete says why');
+  }
+});
 /* PE: the listings the export verifies are the ones its checked reads made (proposals/, each dependency run's folder, each
    loop's child-process folder), listed again at the end: a request, a conflict copy or a child arriving meanwhile is never
    missed by a pack that says it is complete. */

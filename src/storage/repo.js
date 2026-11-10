@@ -3233,14 +3233,17 @@ PF.repo = (function () {
         return ro.stat(p).then(function (st) {
           if (!st) return null;
           if (st.size > recordMax) throw new Error(p + ' is ' + E.size(st.size) + ', over ' + E.size(recordMax) + ', the most one file can be in a pack made here, so it wasn\'t read');
-          if (retained.now + st.size > retained.limit) { retained.full = true; throw new Error(p + ' wasn\'t read: the pack reached the most it may hold in memory here (' + E.size(retained.limit) + ')'); }
+          /* What its text may take (two bytes a character, never more characters than bytes) is reserved before the read
+             starts, so reads in flight together never pass the budget; a read that fails gives its reservation back. */
+          var want = st.size * 2;
+          if (retained.now + want > retained.limit) { retained.full = true; throw new Error(p + ' wasn\'t read: the pack reached the most it may hold in memory here (' + E.size(retained.limit) + ')'); }
+          hold(want);
           return ro.read(p, o).then(function (f) {
-            if (!f || f.text == null) return f;
-            var n = String(f.text).length;
-            if (n > recordMax) throw new Error(p + ' grew past ' + E.size(recordMax) + ' while it was read, so it wasn\'t read');
-            hold(Math.max(st.size, n * 2));
+            var n = f && f.text != null ? String(f.text).length : 0;
+            if (n * 2 > want) { retained.now -= want; throw new Error(p + ' grew while it was read, so it wasn\'t read'); }
+            if (!f || f.text == null) retained.now -= want;
             return f;
-          });
+          }, function (e) { retained.now -= want; throw e; });
         });
       }
     });
