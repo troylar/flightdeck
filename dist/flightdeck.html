@@ -35936,17 +35936,19 @@ PF.examples = (function () {
   }
   /* cx.readable: a to-do write (asking, deciding, delegating, landing) also stops once the run's own file couldn't be read
      on the last check, so nothing is decided or applied against a copy this window couldn't read again. */
-  function guardOk(cx) {
+  /* d: the data to judge from (an approval snapshot's), else what this window has read. */
+  function guardOk(cx, d) {
+    d = d || data;
     if (!cx || cx.g !== gen || cx.fs !== state.fs || cx.me !== state.me) return false;
-    if (cx.todo && !todoStill(cx.todo)) return false;
+    if (cx.todo && !todoStill(cx.todo, d)) return false;
     if (!cx.run) return true;
     var r = findRun(cx.run);
     if (!r || runSig(r) !== cx.sig) return false;
     if (cx.readable && runUnread(r)) return false;
     if (cx.view && viewSig(r, cx.step) !== cx.vsig) return false;
-    if (cx.view && loopUnread(r, cx.step)) return false;
+    if (cx.view && loopUnread(r, cx.step, d)) return false;
     if (cx.holds && holdsNow(r, cx.holds)) return false;
-    return !(cx.q && cx.step && PF.loop.askerWhy(r, loopView(r, cx.step), cx.q, data.people));
+    return !(cx.q && cx.step && PF.loop.askerWhy(r, loopView(r, cx.step), cx.q, d.people));
   }
   /* Round 9 (AB): an approval write (Pass, Waive, a loop's approval) asks again, at the write, what holds its phase, from the
      folder as this window reads it now: every loop's run and version read fresh, its spreads' coverage and to-do holds
@@ -36037,6 +36039,10 @@ PF.examples = (function () {
          revision): a run handed to another session, or saved by anyone, since then is never written over or judged from
          this window's copy. */
       if (!r._fileHash || one.run._fileHash !== r._fileHash || (one.run.rev || 0) !== (r.rev || 0)) return false;
+      /* Round 15 (SB): who may approve, read with the run and checked (people.json's verdict): one that can't be read, or
+         isn't one this copy reads, refuses; the judgment asks authority of these people, never the cached ones. */
+      if (one.peopleWhy || !one.people) return false;
+      snap.people = one.people;
       snap.parent = one.run;
       /* 2. The loops' runs, listed fresh, one process after another. */
       var chain = Promise.resolve(true);
@@ -36051,8 +36057,9 @@ PF.examples = (function () {
               reads = reads.then(function (fine) {
                 if (!fine) return false;
                 return PF.repo.readRunOnly(src, kp, id).then(function (k) {
-                  /* A run there that can't be read whole may be one of the loop's: it holds the approval. */
-                  if (!clean(k)) return false;
+                  /* A run there that can't be read whole may be one of the loop's: it holds the approval. So does people.json
+                     unreadable when read with it (SB): who may approve is one input, read wherever it is read. */
+                  if (!clean(k) || k.peopleWhy) return false;
                   if (!steps.some(function (x) { return isKid(k.run, x); })) return true;
                   if (!pubFits(k.run, k.pub)) return false;
                   snap.kids.push(k.run);
@@ -36104,12 +36111,12 @@ PF.examples = (function () {
     };
     var was = pick(data.scopes, data.todos), now = pick(res.scopes, res.todos), a = Object.keys(was).sort(), b = Object.keys(now).sort();
     if (JSON.stringify(a) !== JSON.stringify(b) || !a.every(function (k) { return was[k] === now[k]; })) return false;
-    if (!guardOk(cx)) return false;
-    /* The holds, worked out again from the snapshot alone: the run as this write would leave it (its own copy, with the
-       snapshot's marks), the loops' runs as read, and the records as read. */
+    /* The holds and authority, worked out again from the snapshot alone: the run as this write would leave it (this window's
+       copy of the run read fresh, with the snapshot's marks), the loops' runs, the records and the people as read. */
     var cur = findRun(rk); if (!cur) return false;
     var mine; try { mine = JSON.parse(JSON.stringify(cur)); } catch (e) { return false; }
-    var d = Object.assign({}, data, { runs: [mine].concat(snap.kids), scopes: res.scopes || [], scopesUnread: res.scopesUnread || [], todos: res.todos || [], todosUnread: res.todosUnread || [] });
+    var d = Object.assign({}, data, { runs: [mine].concat(snap.kids), people: snap.people, scopes: res.scopes || [], scopesUnread: res.scopesUnread || [], todos: res.todos || [], todosUnread: res.todosUnread || [] });
+    if (!guardOk(cx, d)) return false;
     if ([mine].concat(snap.kids).some(function (c) { return c.living && c.living.head && !PF.todos.recordsFor(d.todos, c).some(function (x) { return x.id === c.living.head; }); })) return false;
     markLoops([mine].concat(snap.kids), d);
     return !heldOn(mine, h);
@@ -36131,11 +36138,11 @@ PF.examples = (function () {
      and unread files as this window reads them now, PF.todos.keepHead still keeps exactly the head it kept (t.head) of the one
      it was given (t.from), dropping the same (t.dropped): authority, revokes, unread and held records all asked again. A
      landing is keeping one application past the run's head. The roles are asked as the run (t.key) has them now as well. */
-  function todoStill(t) {
+  function todoStill(t, d) {
     if (!t.pre) return true;
     var pre; try { pre = R.sanitize(JSON.parse(t.pre)); } catch (e) { return false; }
     if (!pre || pre._unrunnable) return false;
-    var ok = function (run) { var kh = PF.todos.keepHead(run, { living: t.from ? { head: t.from } : null }, spInputs()); return kh.head === t.head && kh.dropped === (t.dropped || ''); };
+    var ok = function (run) { var kh = PF.todos.keepHead(run, { living: t.from ? { head: t.from } : null }, spInputsOf(d || data)); return kh.head === t.head && kh.dropped === (t.dropped || ''); };
     if (!ok(pre)) return false;
     /* Asked again with the roles the run has now (the durable head stays the one before): a role reassigned meanwhile takes
        its holder's authority with it. */
