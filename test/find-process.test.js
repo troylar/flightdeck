@@ -953,7 +953,10 @@ const D10_JOIN_OK = [
   { file: 'manage.js', has: 'return \'Old copy from \' + afWaiting(', why: 'the versions go through afWaiting, which shows the first 3 and "and N more"' },
   { file: 'overlays.js', has: 'ids = now.map(function (x) { return x.run.process', why: NOT_TEXT + ': a batch\'s request ids, at most the 50 one click accepts' },
   { file: 'run.js', has: 'C.notices.slice(0, 10).map(esc).join', why: 'the first 10 and "And N more"' },
-  { file: 'app.js', has: 'failed.slice(0, 5).map(function (f) { return f.why; }).join', why: 'the first 5 reasons; how many couldn\'t be saved is said in full' }
+  { file: 'app.js', has: 'failed.slice(0, 5).map(function (f) { return f.why; }).join', why: 'the first 5 reasons; how many couldn\'t be saved is said in full' },
+  { file: 'app.js', has: '/^req-keep-/.test(m); }).slice(0, 3).map(', why: 'the first 3 missing keep records a promote is held on' },
+  { file: 'app.js', has: 'var seen = (p.all || []).concat(p.broken || [])', why: NOT_TEXT + ': the version folders listed, compared with a listing again inside the keep guard' },
+  { file: 'app.js', has: 'var now = (items || []).filter(function (v) { return v.kind === \'dir\' && PF.publish.versionOf(v.name); })', why: NOT_TEXT + ': the version folders listed again, compared inside the keep guard' }
 ];
 /* Every .join( in the views and app.js whose separator isn't '', with its line number and file. */
 function joins(src) {
