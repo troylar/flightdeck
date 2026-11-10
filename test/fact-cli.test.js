@@ -231,6 +231,22 @@ rule('An interruption between two records leaves the first standing; the next sy
   assert.deepStrictEqual([s2.code, s2.data.facts.map(f => f.status), ls(root).length], [0, ['already', 'filed'], n0 + 1]);
 });
 
+/* PD: two observations of one slot in a batch, the first not written: the second, which saw it, isn't filed either, so the
+   receipt says both failed and the identical retry files both. */
+rule('PD: a record whose predecessor in the batch wasn\'t written isn\'t filed; the identical retry files both', async () => {
+  const { root } = await folder(), file = input({ facts: [prs({ observedAt: ago(5 * HOUR), entries: [{ id: '17', text: 'Fix the login', state: 'open' }] }), prs({ key: 'prs-102-b' })] });
+  const first = path.join(root, 'proposals', F.idFor('git-bot', 'prs-102-a') + '.json'), second = path.join(root, 'proposals', F.idFor('git-bot', 'prs-102-b') + '.json');
+  fs.mkdirSync(first, { recursive: true });
+  const s = json('fact', 'sync', root, PR, '--from', file, '--json', ...TOOL);
+  assert.deepStrictEqual([s.code, s.data.status, s.data.partial, s.data.facts.map(f => f.status)], [4, 'partial', true, ['failed', 'failed']], JSON.stringify(s).slice(0, 800));
+  assert.ok(!fs.existsSync(second), 'the second isn\'t filed');
+  assert.ok(/prs-102-a|fact 1/.test(s.data.facts[1].why || ''), 'it says why: ' + s.data.facts[1].why);
+  fs.rmdirSync(first);
+  const s2 = json('fact', 'sync', root, PR, '--from', file, '--json', ...TOOL);
+  assert.deepStrictEqual([s2.code, s2.data && s2.data.status, s2.data && s2.data.facts.map(f => f.status)], [0, 'synced', ['filed', 'filed']], JSON.stringify(s2).slice(0, 800));
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(second, 'utf8')).seen, [F.idFor('git-bot', 'prs-102-a')], 'the second saw the first');
+});
+
 rule('A record that can\'t be read holds sync and suggest-done (exit 4) and writes nothing', async () => {
   const F0 = await folder(), x = await todo(F0);
   assert.strictEqual(json('fact', 'sync', F0.root, PR, '--from', input({ facts: [prs()] }), '--json', ...TOOL).code, 0);

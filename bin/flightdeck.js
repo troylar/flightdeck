@@ -3250,19 +3250,25 @@ async function factMain(argv) {
     const say = () => title + (dryRun ? ' — preview only; no files written.' : ' — synced.') + '\n\n' + (dryRun ? 'Would file ' + count('would-file') : 'Filed ' + count('filed')) + ' of ' + items.length + (items.length === 1 ? ' fact' : ' facts') + (count('already') ? '; ' + count('already') + ' already filed' : '') + (count('failed') ? '; ' + count('failed') + ' not filed (see why)' : '') + '. Facts never change work: a to-do is resolved only by an ordinary request (flightdeck todo suggest-done).';
     if (dryRun) return done({ run: { process: proc, id: runId }, status: 'would-sync', facts: items, partial: false, preview: say() });
     let failed = 0;
+    /* PD: a record of this batch not confirmed written (by id, with its label): nothing that saw it is filed after it, so no
+       record ever names a predecessor that isn't there, and the identical retry files them all, in order. */
+    const unconfirmed = Object.create(null);
     for (let k = 0; k < plan.length; k++) {
       const x = plan[k];
       const it = items[k];
       if (x.P.status === 'already') continue;
+      const fail = (why) => { it.status = 'failed'; it.why = why; unconfirmed[x.P.id] = 'fact ' + (x.i + 1) + ' (' + x.b.key + ')'; failed++; };
+      const after = (x.P.record.seen || []).filter((id) => unconfirmed[id])[0];
+      if (after) { fail('Not filed: it follows ' + unconfirmed[after] + ', which wasn\'t confirmed written. Sync again to file both, in order.'); continue; }
       let res;
-      try { res = writeOnce(dir, ['proposals'], x.P.name, PF.todos.text(x.P.file)); } catch (e) { it.status = 'failed'; it.why = UNCERTAIN.replace('the request', 'the fact') + ' (' + (e && e.message || String(e)) + ')'; failed++; continue; }
+      try { res = writeOnce(dir, ['proposals'], x.P.name, PF.todos.text(x.P.file)); } catch (e) { fail(UNCERTAIN.replace('the request', 'the fact') + ' (' + (e && e.message || String(e)) + ')'); continue; }
       if (res === 'written') { it.status = 'filed'; continue; }
       /* Filed meanwhile under the same name: the same observation is already; any other is not this one. */
       const tk = await takenRecord(PF, dir, x.P.name), there = tk.record || null;
-      if (tk.problem) { more.push(tk.problem); it.status = 'failed'; it.why = tk.problem.why; failed++; continue; }
+      if (tk.problem) { more.push(tk.problem); fail(tk.problem.why); continue; }
       const again = there ? FX.prepare(r, { obs: x.b, by: { tool: tool.name, version: tool.version }, records: records.concat([there]), unread, items: viewOf(x.b.loopStep).rollup.items, at, app: eng.version, now: NOW }) : null;
       if (again && again.status === 'already') { it.status = 'already'; continue; }
-      it.status = 'failed'; it.why = there ? 'A different record is already filed under this key.' : UNCERTAIN.replace('the request', 'the fact'); failed++;
+      fail(there ? 'A different record is already filed under this key.' : UNCERTAIN.replace('the request', 'the fact'));
     }
     return done({ run: { process: proc, id: runId }, status: failed ? 'partial' : 'synced', facts: items, partial: failed > 0, preview: say() }, failed ? EXIT.partial : undefined);
   } catch (e) { return failOut('failed', (e && e.message || String(e)) + nothing, problems()); }
