@@ -11275,7 +11275,7 @@ PF.corrections = (function () {
   var MEMBERS_MAX = 500;
   function decideWhy(g) {
     if (!g || !g.keep || (g.members || []).length <= MEMBERS_MAX) return '';
-    return 'This correction has ' + g.members.length + ' keeps, more than the ' + MEMBERS_MAX + ' one decision can name, so nothing was decided. Ask whoever kept some of these wordings to withdraw theirs until ' + MEMBERS_MAX + ' or fewer remain, then decide it.';
+    return 'This correction has ' + g.members.length + ' keeps, more than the ' + MEMBERS_MAX + ' one decision can name, so nothing was decided. Withdraw keeps no decision names (whoever kept one, or the checklist\'s owner while it is over) until ' + MEMBERS_MAX + ' or fewer remain, then decide it.';
   }
   function decision(g, by, status, reason, at, opts) {
     opts = opts || {};
@@ -24851,6 +24851,20 @@ PF.repo = (function () {
     if (!/^req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24}(\.status-[a-z0-9][a-z0-9-]{0,39}-[0-9a-f]{8})?\.json$/.test(name)) return Promise.reject(new Error('That isn\'t the name of a scope record.'));
     return saveChecked(fs, 'proposals/' + name, PF.loop.text(file), null, opts);
   }
+  /* Withdrawing one keep (4.0 slice 5, OB): its record is removed only after opts.fresh read the folder again and opts.still
+     allowed it on that read; refused, nothing is removed ({ dropped: true }). A removal that says it failed may still have
+     happened: only a file still there is a failure. */
+  function withdrawKeep(fs, name, opts) {
+    if (!/^req-keep-[a-z0-9-]{1,80}\.json$/.test(String(name))) return Promise.reject(new Error('That isn\'t the name of a keep.'));
+    if (!opts || typeof opts.fresh !== 'function' || typeof opts.still !== 'function') return Promise.reject(new Error('A keep is withdrawn only under its guard.'));
+    var path = 'proposals/' + name;
+    return Promise.resolve().then(function () { return opts.fresh(fs); }).then(function (ok) {
+      if (ok === false || !opts.still()) return { dropped: true };
+      return fs.remove(path).then(function () { return { ok: true }; }, function (e) {
+        return fs.read(path).then(function (left) { if (left) throw e; return { ok: true }; }, function () { throw e; });
+      });
+    });
+  }
   /* A plan made in the app is a new file this window creates once (expect null: "doesn't exist yet"), so it never replaces one. */
   function savePlan(fs, plan, opts) {
     if (!/^plan-[a-z0-9-]{1,100}$/.test(plan.id)) return Promise.reject(new Error('A plan ID is plan- followed by lowercase letters, numbers and dashes.'));
@@ -26282,7 +26296,7 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readTodos: readTodos, readKept: readKept, readEvidence: readEvidence, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, saveScope: saveScope, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readTodos: readTodos, readKept: readKept, withdrawKeep: withdrawKeep, readEvidence: readEvidence, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, saveScope: saveScope, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();
 
 </script>
@@ -28067,6 +28081,22 @@ PF.vk = (function () {
       var alts = g.alternatives || [];
       h += '<p class="small fx-keep">Kept for next time from ' + (g.members.length === 1 ? (g.first.keep.source.spread ? 'a spread' : 'a to-do') : g.members.length + ' to-dos and spreads') + '.' + (alts.length > 1 ? ' ' + alts.length + ' wordings; review and apply one, or write your own:' : '') + '</p>';
       if (alts.length > 1) h += '<ol class="small fx-alts">' + alts.slice(0, 50).map(function (a) { return '<li>' + esc(a.text) + ' <span class="small">(' + a.members.length + ')</span></li>'; }).join('') + '</ol>' + (alts.length > 50 ? '<p class="small">and ' + (alts.length - 50) + ' more.</p>' : '');
+      /* A place pushed past what one decision names (two computers at once, OB): said, with each keep no decision names, its
+         author's and, while it is over, the checklist owner's to withdraw. Nothing is applied or decided until it is within. */
+      var MAX = C.MEMBERS_MAX, n = g.members.length, named = Object.create(null);
+      (ctx.data.corrDecisions || []).forEach(function (d) { if (d && d.process === p.id && d.group === g.id) (d.members || []).forEach(function (m) { named[m] = true; }); });
+      /* Your own keeps here that no decision names: each withdrawn on its own. */
+      var mineFree = n > MAX || !st.me ? [] : g.members.filter(function (m) { return m.by === st.me && !named[m.id]; });
+      if (mineFree.length) h += K.list(st, 'keep-mine-' + g.id, mineFree, { noun: 'keep',
+        draw: function (shown) { return '<ul class="small fx-mine">' + shown.map(function (m) { return '<li id="' + esc('kmy-' + K.domKey(m.id)) + '" tabindex="-1">You kept: ' + esc(m.change.text) + ' <button class="mini" data-act="keep-withdraw" data-id="' + esc(m.id) + '" data-process="' + esc(p.id) + '">Withdraw</button></li>'; }).join('') + '</ul>'; },
+        keyOf: function (m) { return m.id; }, focusOf: function (key) { return K.byId('kmy-' + K.domKey(key)); } });
+      if (n > MAX) {
+        var ow = ctx.keepOwnerWhy ? ctx.keepOwnerWhy(g, p.id) : 'no', free = g.members.filter(function (m) { return !named[m.id]; }).slice().reverse();
+        h += '<div class="notice warn fx-over" role="note"><span>This place has ' + n.toLocaleString('en-US') + ' keeps, more than the ' + MAX + ' one decision can name, so nothing is applied or decided until ' + (n - MAX) + ' ' + (n - MAX === 1 ? 'is' : 'are') + ' withdrawn. Each keep no decision names can be withdrawn by whoever kept it, or by the checklist\'s owner while the place is over.</span></div>';
+        h += K.list(st, 'keep-over-' + g.id, free, { noun: 'keep',
+          draw: function (shown) { return '<ul class="small fx-over-list">' + shown.map(function (m) { var can = !!st.me && (m.by === st.me || !ow); return '<li id="' + esc('kov-' + K.domKey(m.id)) + '" tabindex="-1">' + esc(m.change.text) + ' · ' + esc(nameOf(ctx, m.by)) + (can ? ' <button class="mini" data-act="keep-withdraw" data-id="' + esc(m.id) + '" data-process="' + esc(p.id) + '">Withdraw</button>' : '') + '</li>'; }).join('') + '</ul>'; },
+          keyOf: function (m) { return m.id; }, focusOf: function (key) { return K.byId('kov-' + K.domKey(key)); } });
+      }
     }
     ms.forEach(function (x) { h += V.attachments(ctx, x.m.id, x.m.files, x.m.fileInfo, 'corr', ctx.findRun && ctx.findRun(x.m.runKey || x.m.process + '/' + x.m.run), x.m.note); });
     /* The runs behind it, with names inside: a count of runs, never a vote. */
@@ -37848,6 +37878,59 @@ PF.examples = (function () {
         return w ? 'this version includes what was kept for next time' + (K.unclassified ? ' (a decision on its corrections can\'t be read, so it can\'t be told apart)' : '') + '. ' + w : '';
       } });
   }
+  /* One place's keeps are counted and filed one at a time (OB): in this window by a queue per place, and across this
+     computer's windows by a Web Lock of the same name, so the count inside the guard always sees the one filed before it.
+     Two computers can't be locked against each other: a place pushed past 500 that way stays recoverable (keepWithdraw). */
+  var placeQueue = Object.create(null);
+  function keepPlace(rec) {
+    var m = null; try { m = rec && rec.anchor ? PF.learn.members([rec], [], rec.template.process)[0] : null; } catch (e) { m = null; }
+    return 'flightdeck:keep-place:' + fsKey() + ':' + (m ? U.hash(PF.learn.groupKey(m)) : String(rec && rec.id || ''));
+  }
+  function placeLock(name, fn) {
+    var p = (placeQueue[name] || Promise.resolve()).then(function () { return LOCKS ? lock(name, fn) : fn(); });
+    placeQueue[name] = p.then(function () {}, function () {});
+    return p;
+  }
+  /* Withdrawing one keep (OB): its record is removed, under the write guard on everything read again right before: the file
+     is still that keep, no decision names it (one that does is withdrawn or decided with its whole correction), and the
+     person is its author, or the checklist's active owner while its place holds more than 500. Anything that can't be read
+     refuses it. */
+  function keepWithdraw(kid, pid) {
+    if (!state.me || !kid || !pid) return;
+    var rec = (data.todos || []).filter(function (k) { return k && k.kind === 'keep' && k.id === kid; })[0];
+    if (!rec) { say('That keep isn\'t here anymore. Nothing was withdrawn.', 'warn'); render(); return; }
+    var name = rec._file || kid + '.json', path = 'proposals/' + name, text = null, R = null, proc = null, fail = '', endBusy = busyStart(), sg = gen, MAX = PF.corrections.MEMBERS_MAX;
+    var kg = writeGuard({
+      fresh: function (fx) {
+        text = null; R = null; proc = null; fail = '';
+        return fx.read(path).then(function (f) { text = f ? f.text : null; }, function (e) { fail = path + ' couldn\'t be read again right before it was removed (' + (e && e.message || e) + ').'; })
+          .then(function () { return repo.readKept(fx, function () { return repo.readProcess(fx, pid).then(function (p) { proc = p; }, function () { proc = null; }); }); })
+          .then(function (x) { R = x; return true; }, function (e) { fail = fail || 'what was kept for next time couldn\'t be read again right before it was removed (' + (e && e.message || e) + ').'; return true; });
+      },
+      who: function (ppl, me) {
+        if (fail) return fail;
+        if (text == null) return 'it isn\'t in the folder now.';
+        var k = null; try { k = JSON.parse(text); } catch (e) { k = null; }
+        if (!k || k.kind !== 'keep' || k.id !== kid) return path + ' isn\'t that keep now.';
+        if (!R) return 'what was kept for next time couldn\'t be read again.';
+        if ((R.keepUnread || []).length) return 'a record kept for next time can\'t be read now (proposals/' + R.keepUnread[0].file + '), so how many are kept at this place can\'t be counted.';
+        if ((R.decUnread || []).some(function (u) { return u && u.process === pid; })) return 'a decision on its checklist\'s corrections can\'t be read now, so whether one names this keep can\'t be told.';
+        if ((R.decisions || []).some(function (d) { return d.process === pid && (d.members || []).indexOf(kid) >= 0; })) return 'a decision on its correction names it, so it is withdrawn or decided with the whole correction, never alone.';
+        var kr = (R.keeps || []).filter(function (x) { return x && x.id === kid; })[0];
+        if (!kr) return path + ' isn\'t a keep that can be read now.';
+        if (kr.by && kr.by.person === me) return '';
+        var g = PF.corrections.groups(PF.learn.members(R.keeps, [], pid)).filter(function (x) { return x.members.some(function (m) { return m.id === kid; }); })[0];
+        if (!g || g.members.length <= MAX) return 'only whoever kept it can withdraw it. Its checklist\'s owner withdraws keeps only while a place holds more than ' + MAX + '.';
+        return PF.learn.ownerWhy({ keep: true, members: [] }, proc && !proc.unlisted ? proc : null, ppl, me, false);
+      } });
+    placeLock(keepPlace(rec), function () { return repo.withdrawKeep(state.fs, name, { fresh: kg.fresh, still: kg.still }); }).then(function (res) {
+      endBusy(); if (sg !== gen) return;
+      if (res && res.dropped) { say('Nothing was withdrawn: ' + kg.why(), 'warn'); render(); return; }
+      data.todos = (data.todos || []).filter(function (x) { return !(x && x.kind === 'keep' && x.id === kid); });
+      fixMemo = Object.create(null); lastAll = -Infinity;
+      say('Withdrawn: that keep is no longer suggested for next time.', 'good'); render();
+    }, function (err) { endBusy(); if (sg !== gen) return; say('Couldn\'t withdraw it: ' + (err && err.message || err) + ' It may or may not have been removed; read the folder again.', 'bad'); render(); });
+  }
   function keepWrite(r, source) {
     if (!r || !state.me) return;
     var rk = r.process + '/' + r.id, sig = JSON.stringify([fsKey(), rk, state.me, source]), kept = state.keepTry && state.keepTry.sig === sig ? state.keepTry.K : null;
@@ -37886,7 +37969,7 @@ PF.examples = (function () {
         return !A.why && A.status === 'new' && A.id === K.id && PF.todos.text(A.file) === text;
       }
     });
-    repo.saveScope(cx.fs, K.name, K.file, { fresh: kg.fresh, still: kg.still }).then(function (res) {
+    placeLock(keepPlace(K.record), function () { return repo.saveScope(cx.fs, K.name, K.file, { fresh: kg.fresh, still: kg.still }); }).then(function (res) {
       endBusy(); if (sg !== gen) return;
       if (res && res.dropped && !late && /people\.json/.test(kg.why())) late = kg.why();
       if (res && res.dropped) { say(late ? 'Nothing was kept: ' + late + ' Keep it again once it can be read.' : 'Nothing was kept: the folder, the person or the run changed before it was written. Keep it again if it still matters.', 'warn'); render(); return; }
@@ -42786,6 +42869,7 @@ PF.examples = (function () {
     'td-evidence': function (id, b) { detourAccept(id, b && b.dataset.run); },
     'td-back': function (id, b) { var d = loopMem().detour, t = b && b.dataset.todo; loopMem().ret = { runKey: id, todo: t || (d && d.runKey === id ? d.todo : ''), child: state.runKey }; openRun(id); render(); },
     keep: function (id, b) { var r = ctx.run(); if (!r || !id) return; keepWrite(r, b && b.dataset.kind === 'spread' ? { spread: id } : { todo: id }); },
+    'keep-withdraw': function (id, b) { keepWithdraw(id, b && b.dataset.process); },
     'keep-open': function (id, b) {
       var pid = b && b.dataset.process; if (!pid || !id) return;
       ACTIONS['open-process'](pid); state.fixFilter = 'all'; (state.disc = state.disc || {})['fx:' + pid] = true; state.focus = 'fx-h';

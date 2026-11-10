@@ -54,12 +54,14 @@ async function race(name, make, o) {
   const settle = o.settle || 400;
   const dry = await make(), dfs = dry.app.fs, ds = instrument(dfs);
   ds.armed = true; dry.act(); await dry.app.tick(settle); ds.armed = false;
-  const mineWrites = ds.writes.filter((w) => w.m === 'write' && dry.mine(w.p));
+  /* o.removes: the path's writes include removals (withdrawing a keep removes its record). */
+  const mineW = (c) => (w) => (w.m === 'write' || (c.removes && w.m === 'remove')) && c.mine(w.p);
+  const mineWrites = ds.writes.filter(mineW(dry));
   assert.ok(mineWrites.length, name + ': set-up: the path writes when nothing changes (reads: ' + ds.log.length + ')');
   /* The reads up to the path's last write: each is a step to pause. */
   const lastW = ds.writes.lastIndexOf(mineWrites[mineWrites.length - 1]) + 1;
   /* o.near: only the reads within that many before one of the path's writes (a path that starts with a whole folder read). */
-  const writeAt = ds.writes.map((w, i) => (w.m === 'write' && dry.mine(w.p) ? i + 1 : 0)).filter(Boolean);
+  const writeAt = ds.writes.map((w, i) => (mineW(dry)(w) ? i + 1 : 0)).filter(Boolean);
   const all = ds.log.filter((x) => x.writes < lastW);
   const steps = o.near ? all.filter((x, i) => writeAt.some((w) => x.writes < w && all.slice(i + 1).filter((y) => y.writes < w).length < o.near)) : all;
   /* An ownership transfer (a valid newer version owned by someone else) is a fifth change where the path has an owner. */
@@ -94,8 +96,8 @@ async function race(name, make, o) {
     await app.tick(settle);
     st.armed = false;
     const label = name + ' · paused ' + c.s.sig + ' #' + c.s.n + ' · ' + c.how;
-    const landed = st.writes.slice(at).filter((w) => w.m === 'write' && ctx.mine(w.p)).map((w) => w.p)
-      .filter((p, i, a) => a.indexOf(p) === i && textOf(was, p) !== null && textOf(was, p) !== before[p])
+    const landed = st.writes.slice(at).filter(mineW(ctx)).map((w) => w.p)
+      .filter((p, i, a) => a.indexOf(p) === i && (textOf(was, p) !== null ? textOf(was, p) !== before[p] : before[p] != null))
       .filter((p) => !(ctx.allowed && ctx.allowed(p, before, was)));
     assert.deepStrictEqual(landed, [], label + ': written after the pause');
     /* A version or stage folder is whole or absent: never files without its record. */

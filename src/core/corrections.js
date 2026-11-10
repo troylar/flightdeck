@@ -273,7 +273,7 @@ PF.corrections = (function () {
   var MEMBERS_MAX = 500;
   function decideWhy(g) {
     if (!g || !g.keep || (g.members || []).length <= MEMBERS_MAX) return '';
-    return 'This correction has ' + g.members.length + ' keeps, more than the ' + MEMBERS_MAX + ' one decision can name, so nothing was decided. Ask whoever kept some of these wordings to withdraw theirs until ' + MEMBERS_MAX + ' or fewer remain, then decide it.';
+    return 'This correction has ' + g.members.length + ' keeps, more than the ' + MEMBERS_MAX + ' one decision can name, so nothing was decided. Withdraw keeps no decision names (whoever kept one, or the checklist\'s owner while it is over) until ' + MEMBERS_MAX + ' or fewer remain, then decide it.';
   }
   function decision(g, by, status, reason, at, opts) {
     opts = opts || {};

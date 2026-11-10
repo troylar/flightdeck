@@ -25,8 +25,8 @@
       "reviewed": "MD: keep commands judge the source run and its version; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "d35d559ae01a6218791d303ee118cc3a13033b0c02519fc33faacd5d043e9275",
-      "reviewed": "OA: positive proof for non-owner publish of kept content; checked for direct writes and unconditional deletes"
+      "sha256": "932f4a006e10a5c307809390815aa7dc3dbe051bcf67e09e4c425d026552c334",
+      "reviewed": "OB: per-place keep queue and Web Lock; guarded keep withdrawal removes one record only under writeGuard after fresh reads; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -221,8 +221,8 @@
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "src/core/corrections.js": {
-      "sha256": "7913a9713230303b1fc535cf412a05647fdc2ae87061332e3471cf7d569ed063",
-      "reviewed": "JE: keep members counted by runKey; checked for direct writes and unconditional deletes"
+      "sha256": "a787b14c98ee7dfa20af1be4c7be5ff7f68a48cd62637d73387b46aeba3f3e96",
+      "reviewed": "OB: per-place keep queue and Web Lock; guarded keep withdrawal removes one record only under writeGuard after fresh reads; checked for direct writes and unconditional deletes"
     },
     "src/core/detours.js": {
       "sha256": "3c1c680e8d52f3833c13e4149dffdf0ddb5f88c310f5a5ab7342520f98d9bdb6",
@@ -417,12 +417,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "6a55e17ac702417bb54715d390afb179a3ab44d15011488bf673750e16c89c85",
-      "reviewed": "MC: evidence compares the whole pin, keeps plan link refusals, holds on a proposals read failure; checked for direct writes and unconditional deletes"
+      "sha256": "b3d974013c5da961124d309af210adaacdea34959d0acd9f3be798b9bfe3356d",
+      "reviewed": "OB: per-place keep queue and Web Lock; guarded keep withdrawal removes one record only under writeGuard after fresh reads; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "4c472a83af8d77324b010d29eeffc509290db25584ac0cf46449e9cd0698f1db",
-      "reviewed": "OA: positive proof for non-owner publish of kept content; checked for direct writes and unconditional deletes"
+      "sha256": "6842932c11517cd2dec04c7c4cf6a086467fb7bfa71002d180fc748068b4bf07",
+      "reviewed": "OB: per-place keep queue and Web Lock; guarded keep withdrawal removes one record only under writeGuard after fresh reads; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
@@ -489,8 +489,8 @@
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "src/ui/views/process.js": {
-      "sha256": "aa4b6d544d11dff2948eef04c32d9e88d75a47d4ede7e23a1f9377c926b78d80",
-      "reviewed": "4.0 slice 5 keep for next time: PF.learn keep records, todo keep and spread keep (written once through writeOnce), the app's Keep for next time (repo.saveScope under the run guard), owner-only keep decisions, checker keep_why, docs and skills; checked for direct writes and unconditional deletes: none"
+      "sha256": "736fc6df3cb471ee688372463fa7b444252118f128f325bc564f8a492e0b7828",
+      "reviewed": "OB: per-place keep queue and Web Lock; guarded keep withdrawal removes one record only under writeGuard after fresh reads; checked for direct writes and unconditional deletes"
     },
     "src/ui/views/reports.js": {
       "sha256": "5b1f9581d45a53bcb915ce479f4bef70ecb0e3c9132ae498baba4835a955f875",

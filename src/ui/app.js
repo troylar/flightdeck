@@ -3723,6 +3723,59 @@
         return w ? 'this version includes what was kept for next time' + (K.unclassified ? ' (a decision on its corrections can\'t be read, so it can\'t be told apart)' : '') + '. ' + w : '';
       } });
   }
+  /* One place's keeps are counted and filed one at a time (OB): in this window by a queue per place, and across this
+     computer's windows by a Web Lock of the same name, so the count inside the guard always sees the one filed before it.
+     Two computers can't be locked against each other: a place pushed past 500 that way stays recoverable (keepWithdraw). */
+  var placeQueue = Object.create(null);
+  function keepPlace(rec) {
+    var m = null; try { m = rec && rec.anchor ? PF.learn.members([rec], [], rec.template.process)[0] : null; } catch (e) { m = null; }
+    return 'flightdeck:keep-place:' + fsKey() + ':' + (m ? U.hash(PF.learn.groupKey(m)) : String(rec && rec.id || ''));
+  }
+  function placeLock(name, fn) {
+    var p = (placeQueue[name] || Promise.resolve()).then(function () { return LOCKS ? lock(name, fn) : fn(); });
+    placeQueue[name] = p.then(function () {}, function () {});
+    return p;
+  }
+  /* Withdrawing one keep (OB): its record is removed, under the write guard on everything read again right before: the file
+     is still that keep, no decision names it (one that does is withdrawn or decided with its whole correction), and the
+     person is its author, or the checklist's active owner while its place holds more than 500. Anything that can't be read
+     refuses it. */
+  function keepWithdraw(kid, pid) {
+    if (!state.me || !kid || !pid) return;
+    var rec = (data.todos || []).filter(function (k) { return k && k.kind === 'keep' && k.id === kid; })[0];
+    if (!rec) { say('That keep isn\'t here anymore. Nothing was withdrawn.', 'warn'); render(); return; }
+    var name = rec._file || kid + '.json', path = 'proposals/' + name, text = null, R = null, proc = null, fail = '', endBusy = busyStart(), sg = gen, MAX = PF.corrections.MEMBERS_MAX;
+    var kg = writeGuard({
+      fresh: function (fx) {
+        text = null; R = null; proc = null; fail = '';
+        return fx.read(path).then(function (f) { text = f ? f.text : null; }, function (e) { fail = path + ' couldn\'t be read again right before it was removed (' + (e && e.message || e) + ').'; })
+          .then(function () { return repo.readKept(fx, function () { return repo.readProcess(fx, pid).then(function (p) { proc = p; }, function () { proc = null; }); }); })
+          .then(function (x) { R = x; return true; }, function (e) { fail = fail || 'what was kept for next time couldn\'t be read again right before it was removed (' + (e && e.message || e) + ').'; return true; });
+      },
+      who: function (ppl, me) {
+        if (fail) return fail;
+        if (text == null) return 'it isn\'t in the folder now.';
+        var k = null; try { k = JSON.parse(text); } catch (e) { k = null; }
+        if (!k || k.kind !== 'keep' || k.id !== kid) return path + ' isn\'t that keep now.';
+        if (!R) return 'what was kept for next time couldn\'t be read again.';
+        if ((R.keepUnread || []).length) return 'a record kept for next time can\'t be read now (proposals/' + R.keepUnread[0].file + '), so how many are kept at this place can\'t be counted.';
+        if ((R.decUnread || []).some(function (u) { return u && u.process === pid; })) return 'a decision on its checklist\'s corrections can\'t be read now, so whether one names this keep can\'t be told.';
+        if ((R.decisions || []).some(function (d) { return d.process === pid && (d.members || []).indexOf(kid) >= 0; })) return 'a decision on its correction names it, so it is withdrawn or decided with the whole correction, never alone.';
+        var kr = (R.keeps || []).filter(function (x) { return x && x.id === kid; })[0];
+        if (!kr) return path + ' isn\'t a keep that can be read now.';
+        if (kr.by && kr.by.person === me) return '';
+        var g = PF.corrections.groups(PF.learn.members(R.keeps, [], pid)).filter(function (x) { return x.members.some(function (m) { return m.id === kid; }); })[0];
+        if (!g || g.members.length <= MAX) return 'only whoever kept it can withdraw it. Its checklist\'s owner withdraws keeps only while a place holds more than ' + MAX + '.';
+        return PF.learn.ownerWhy({ keep: true, members: [] }, proc && !proc.unlisted ? proc : null, ppl, me, false);
+      } });
+    placeLock(keepPlace(rec), function () { return repo.withdrawKeep(state.fs, name, { fresh: kg.fresh, still: kg.still }); }).then(function (res) {
+      endBusy(); if (sg !== gen) return;
+      if (res && res.dropped) { say('Nothing was withdrawn: ' + kg.why(), 'warn'); render(); return; }
+      data.todos = (data.todos || []).filter(function (x) { return !(x && x.kind === 'keep' && x.id === kid); });
+      fixMemo = Object.create(null); lastAll = -Infinity;
+      say('Withdrawn: that keep is no longer suggested for next time.', 'good'); render();
+    }, function (err) { endBusy(); if (sg !== gen) return; say('Couldn\'t withdraw it: ' + (err && err.message || err) + ' It may or may not have been removed; read the folder again.', 'bad'); render(); });
+  }
   function keepWrite(r, source) {
     if (!r || !state.me) return;
     var rk = r.process + '/' + r.id, sig = JSON.stringify([fsKey(), rk, state.me, source]), kept = state.keepTry && state.keepTry.sig === sig ? state.keepTry.K : null;
@@ -3761,7 +3814,7 @@
         return !A.why && A.status === 'new' && A.id === K.id && PF.todos.text(A.file) === text;
       }
     });
-    repo.saveScope(cx.fs, K.name, K.file, { fresh: kg.fresh, still: kg.still }).then(function (res) {
+    placeLock(keepPlace(K.record), function () { return repo.saveScope(cx.fs, K.name, K.file, { fresh: kg.fresh, still: kg.still }); }).then(function (res) {
       endBusy(); if (sg !== gen) return;
       if (res && res.dropped && !late && /people\.json/.test(kg.why())) late = kg.why();
       if (res && res.dropped) { say(late ? 'Nothing was kept: ' + late + ' Keep it again once it can be read.' : 'Nothing was kept: the folder, the person or the run changed before it was written. Keep it again if it still matters.', 'warn'); render(); return; }
@@ -8661,6 +8714,7 @@
     'td-evidence': function (id, b) { detourAccept(id, b && b.dataset.run); },
     'td-back': function (id, b) { var d = loopMem().detour, t = b && b.dataset.todo; loopMem().ret = { runKey: id, todo: t || (d && d.runKey === id ? d.todo : ''), child: state.runKey }; openRun(id); render(); },
     keep: function (id, b) { var r = ctx.run(); if (!r || !id) return; keepWrite(r, b && b.dataset.kind === 'spread' ? { spread: id } : { todo: id }); },
+    'keep-withdraw': function (id, b) { keepWithdraw(id, b && b.dataset.process); },
     'keep-open': function (id, b) {
       var pid = b && b.dataset.process; if (!pid || !id) return;
       ACTIONS['open-process'](pid); state.fixFilter = 'all'; (state.disc = state.disc || {})['fx:' + pid] = true; state.focus = 'fx-h';

@@ -300,6 +300,56 @@ rule('A keep checks the 500 limit on the keep records read again at the write: o
   assert.ok(/500/.test(txt(app.html())), 'said why: ' + (txt(app.html()).match(/Nothing was kept[^.]*\.[^.]*\./) || [])[0]);
 });
 
+/* OB: filing a keep counts and writes one place at a time in a window, and a group pushed past 500 anyway (two computers)
+   stays recoverable: its owner sees the overflow and withdraws members no decision names, as their author can; Apply stays
+   refused until it is back within the limit. */
+async function keeps499(app, id) {
+  const PF = app.PF, people = JSON.parse(app.fs.files['people.json'].t), d0 = await PF.repo.loadAll(app.fs, {}), r0 = PF.run.sanitize(theRun(app)), recs = [];
+  for (let i = 0; i < 499; i++) { const K = PF.learn.prepare(r0, { source: { todo: id }, text: 'Wording ' + i, by: { person: 'person-blake' }, records: d0.todos.concat(recs), unread: [], people, at: new Date().toISOString(), app: '4.0.0' }); assert.ok(!K.why, K.why); recs.push(Object.assign(K.record, { _file: K.name })); app.fs.files['proposals/' + K.name] = { t: PF.todos.text(K.file), m: Date.now() }; }
+  return recs;
+}
+rule('Two keeps clicked at once in one window count one at a time: the second sees the first and stops at 500', async () => {
+  const app = await setup(), id = await added(app, 'Post the release notes'), id2 = await added(app, 'Email the release notes');
+  await keeps499(app, id); await refresh(app, 1500);
+  assert.strictEqual(app.files('proposals/req-keep-').length, 499, 'set-up: 499 keeps');
+  app.click('keep', id, { kind: 'todo' }); app.click('keep', id2, { kind: 'todo' }); await app.tick(1200);
+  assert.strictEqual(app.files('proposals/req-keep-').length, 500, 'one filed, the other refused at the limit');
+  assert.ok(/500/.test(txt(app.html())), 'said why');
+});
+rule('A group over 500 stays recoverable: its owner sees the overflow and withdraws members no decision names; Apply stays refused until then', async () => {
+  const app = await setup(), id = await added(app, 'Post the release notes'), PF = app.PF;
+  const recs = await keeps499(app, id), people = JSON.parse(app.fs.files['people.json'].t), r0 = PF.run.sanitize(theRun(app));
+  /* Two more filed at once on other computers: 501. */
+  const base = (await PF.repo.loadAll(app.fs, {})).todos.filter(x => x.kind !== 'keep');
+  for (const w of ['Late wording A', 'Late wording B']) { const K = PF.learn.prepare(r0, { source: { todo: id }, text: w, by: { person: 'person-casey' }, records: base, unread: [], people, at: new Date().toISOString(), app: '4.0.0' }); assert.ok(!K.why, K.why); const rec = Object.assign(K.record, { _file: K.name }); recs.push(rec); base.push(rec); app.fs.files['proposals/' + K.name] = { t: PF.todos.text(K.file), m: Date.now() }; }
+  assert.strictEqual(app.files('proposals/req-keep-').length, 501, 'set-up: 501 keeps');
+  app.choose('person-morgan'); await app.tick(80); await refresh(app, 1500); await openPage(app);
+  const h = txt(app.html());
+  assert.ok(/501 keeps/.test(h) && /withdraw/i.test(h), 'the owner is told about the overflow: ' + (h.match(/[^.]*501 keeps[^.]*\./) || [])[0]);
+  const late = recs.filter(k => k.by.person === 'person-casey');
+  assert.ok(new RegExp('data-act="keep-withdraw"[^>]*data-id="' + late[0].id + '"').test(app.html()), 'each member no decision names can be withdrawn');
+  /* Apply is refused while it is over. */
+  const g = await (async () => { const d = await PF.repo.loadAll(app.fs, {}); return PF.corrections.forProcess(d.runs, 'release-notes', d.corrDecisions, null, PF.learn.members(d.todos, d.runs, 'release-notes'))[0]; })();
+  assert.strictEqual(g.members.length, 501, 'set-up: one group of 501');
+  assert.ok(/500/.test(PF.corrections.decideWhy(g)), 'decided nothing while over');
+  /* Someone who is neither the owner nor its author withdraws nothing. */
+  app.choose('person-avery'); await app.tick(80); await openPage(app);
+  app.click('keep-withdraw', late[0].id, { process: 'release-notes' }); await app.tick(400);
+  assert.strictEqual(app.files('proposals/req-keep-').length, 501, 'nothing withdrawn by someone else');
+  /* The owner withdraws another's, down to 500; its author withdraws theirs whenever no decision names it; the owner withdraws
+     nothing more once the group is within the limit. */
+  app.choose('person-morgan'); await app.tick(80); await openPage(app);
+  app.click('keep-withdraw', late[0].id, { process: 'release-notes' }); await app.tick(400);
+  assert.strictEqual(app.files('proposals/req-keep-').length, 500, 'the owner withdrew one, down to 500');
+  assert.ok(!app.fs.files['proposals/' + late[0]._file], 'that keep is gone');
+  app.choose('person-casey'); await app.tick(80); await refresh(app, 1500); await openPage(app);
+  app.click('keep-withdraw', late[1].id, { process: 'release-notes' }); await app.tick(400);
+  assert.strictEqual(app.files('proposals/req-keep-').length, 499, 'its author withdrew theirs: ' + (txt(app.html()).match(/Nothing was withdrawn[^.]*\.[^.]*\./) || [])[0]);
+  app.choose('person-morgan'); await app.tick(80); await refresh(app, 1500); await openPage(app);
+  app.click('keep-withdraw', recs[0].id, { process: 'release-notes' }); await app.tick(400);
+  assert.strictEqual(app.files('proposals/req-keep-').length, 499, 'the owner withdraws nothing once it is within the limit');
+});
+
 rule('Promoting a staged version that includes a keep is the active owner\'s too', async () => {
   const { app } = await appliedKeep();
   await openPage(app);
@@ -463,6 +513,12 @@ rule('Every keep write path is guarded after every read and right before every w
   if (want('withdraw')) out.withdraw = await race('withdraw', async () => {
     const { app, gid } = await kept();
     return { app, act: () => app.click('corr-withdraw', gid, { process: 'release-notes' }), mine: corr, who: 'person-avery', other: 'person-casey' };
+  });
+  /* OB: withdrawing one keep removes its record, under the same guard. */
+  if (want('withdraw-keep')) out['withdraw-keep'] = await race('withdraw-keep', async () => {
+    const app = await setup(), id = await added(app, 'Post the release notes'); app.click('keep', id, { kind: 'todo' }); await app.tick(120); await refresh(app, 300);
+    const k = keeps(app)[0]; assert.ok(k, 'set-up: a keep'); await openPage(app);
+    return { app, act: () => app.click('keep-withdraw', k.id, { process: 'release-notes' }), mine: proposals, removes: true, who: 'person-avery', other: 'person-casey' };
   });
   if (want('decide')) out.decide = await race('decide', async () => {
     const { app, gid } = await kept('person-morgan'); await openPage(app);
