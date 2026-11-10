@@ -1347,4 +1347,26 @@ rule('EA: witnessRefs covers every field of the scope record schema that can car
   if (!wr(odd, src).doubt) off.push('an unknown field isn\'t a doubt');
   same(off, []);
 });
+/* Review round 13 (GC): a byte-identical copy of a scope record ("<request> (1).json") is the same record, as the causal
+   reducer counts it, in either order; a copy that says something else still holds the loop. */
+for (const copyFirst of [false, true]) rule('GC: an identical copy of a record made after the stop changes nothing' + (copyFirst ? ' (the copy read first)' : ' (the copy read second)'), () => {
+  const W = world([101]); W.kid(101, { cleared: true });
+  W.spreadAdd(); W.land(W.r);
+  W.ask(W.r, stopBody(W, []), { person: 'person-morgan' }); W.land(W.r);
+  same(spreadOf(W).state, 'stopped', 'set-up: stopped');
+  const A = scope4('gc-after', [101, 104], [W.scopes[0].id], W.r.living.head), B = JSON.parse(JSON.stringify(A)); B._file = A.id + ' (1).json';
+  W.scopes.push(A);
+  same(owedOf(W), [true, []], 'set-up: ABC-104 arrived after the stop');
+  W.scopes.pop();
+  if (copyFirst) W.scopes.push(B, A); else W.scopes.push(A, B);
+  same(owedOf(W), [true, []]);
+});
+rule('GC: a copy of a record made after the stop that says something else still holds the loop', () => {
+  const W = world([101]); W.kid(101, { cleared: true });
+  W.spreadAdd(); W.land(W.r);
+  W.ask(W.r, stopBody(W, []), { person: 'person-morgan' }); W.land(W.r);
+  const A = scope4('gc-differ', [101, 104], [W.scopes[0].id], W.r.living.head), B = JSON.parse(JSON.stringify(A)); B._file = A.id + ' (1).json'; B.observation.items = B.observation.items.slice(0, 1);
+  W.scopes.push(A, B);
+  same(W.one().complete, false);
+});
 run();

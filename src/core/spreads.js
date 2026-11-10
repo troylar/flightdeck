@@ -112,9 +112,10 @@ PF.spreads = (function () {
      doubt) owes. */
   function stoppedOwes(s, V, T, o) {
     /* Only this loop's records (round 11, EA): another loop's record sharing an id never stands in for one of these. Two
-       copies of one that differ hold the loop (PF.loop.causal), so nothing reaches here then; any copy left owes. */
+       copies of one that differ hold the loop (PF.loop.causal) and owe here; identical copies (round 13, GC) are one record,
+       by the same rule (PF.loop.sameRecord). */
     var chain = T.chain || [], at = chain.indexOf(s.stop.application), by = Object.create(null), twice = Object.create(null);
-    (V.records || []).forEach(function (x) { if (!x || !x.id) return; if (by[x.id] && by[x.id] !== x) twice[x.id] = true; by[x.id] = x; });
+    (V.records || []).forEach(function (x) { if (!x || !x.id) return; if (by[x.id] && !PF.loop.sameRecord(by[x.id], x)) twice[x.id] = true; by[x.id] = x; });
     var items = Object.create(null); (V.ledger.items || []).forEach(function (x) { items[x.uid] = x; });
     var after = function (rec) {
       if (twice[rec]) return false;

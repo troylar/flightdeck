@@ -44,14 +44,17 @@ PF.loop = (function () {
   function uidOf(source, it) { return it && it.id ? source + ':' + it.id : source + ':key:' + String((it && it.key) || ''); }
   /* Each record's ancestors (every record it saw, transitively), and the causal order. A record that names one this copy
      can't read is held, with everything after it that saw it: nothing of theirs is applied. */
+  /* Two copies of one record say the same thing when everything but the reader's own fields ('_') and 'created' matches.
+     The one equality rule for copies: causal and the stopped-spread check (spreads.js) both use it. */
+  function recordBody(r) { var o = Object.create(null); Object.keys(r).forEach(function (k) { if (k[0] !== '_' && k !== 'created') o[k] = r[k]; }); return JSON.stringify(canon(o)); }
+  function sameRecord(a, b) { return a === b || recordBody(a) === recordBody(b); }
   function causal(records) {
     var by = Object.create(null), order = [], held = [], anc = Object.create(null), split = Object.create(null);
     /* OneDrive copies of one record (the same id): counted once when they say the same thing; when they differ, which is
        meant isn't known, so the record is held, with everything after it. */
-    function body(r) { var o = Object.create(null); Object.keys(r).forEach(function (k) { if (k[0] !== '_' && k !== 'created') o[k] = r[k]; }); return JSON.stringify(canon(o)); }
     records.forEach(function (r) {
       if (!r || typeof r.id !== 'string') return;
-      if (!by[r.id]) by[r.id] = r; else if (body(by[r.id]) !== body(r)) split[r.id] = true;
+      if (!by[r.id]) by[r.id] = r; else if (!sameRecord(by[r.id], r)) split[r.id] = true;
     });
     /* Round 10: ancestors as one bit set per record (indexed in id order), visited without recursion, and ordered by Kahn's
        rule with ties by id, so a long history or a wide frontier reduces in about linear time. */
@@ -1145,7 +1148,7 @@ PF.loop = (function () {
   /* The records about one loop instance. */
   function recordsFor(records, loop) { return (records || []).filter(function (r) { return r.loop && r.loop.process === loop.process && r.loop.run === loop.run && r.loop.step === loop.step; }); }
 
-  return { headFor: headFor, askerWhy: askerWhy, seenFor: seenFor, page: page, settleIn: settleIn, pageWords: pageWords, fileWhy: fileWhy, KINDS: KINDS, kindOf: kindOf, nounOf: nounOf, count: count, feedWhy: feedWhy, httpLink: httpLink, cleanItem: cleanItem, cleanChanges: cleanChanges, FEED: FEED, NOUN: NOUN, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
+  return { headFor: headFor, askerWhy: askerWhy, seenFor: seenFor, page: page, settleIn: settleIn, pageWords: pageWords, fileWhy: fileWhy, KINDS: KINDS, kindOf: kindOf, nounOf: nounOf, count: count, feedWhy: feedWhy, httpLink: httpLink, cleanItem: cleanItem, cleanChanges: cleanChanges, FEED: FEED, NOUN: NOUN, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, sameRecord: sameRecord, reduce: reduce,
     idFor: idFor, isScope: isScope, witnessRefs: witnessRefs, WITNESS_SCHEMA: WITNESS_SCHEMA, CHANGE_FIELDS: CHANGE_FIELDS, claims: claims, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
     rollup: rollup, view: view, markStale: markStale, rowId: rowId, choiceWhy: choiceWhy, resolveWhy: resolveWhy, resolvedBy: resolvedBy, planWhy: planWhy, sendBackWhy: sendBackWhy, again: again, appliedIn: appliedIn, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();

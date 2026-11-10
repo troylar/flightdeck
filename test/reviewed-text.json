@@ -25,8 +25,8 @@
       "reviewed": "Round 6 XD: sync dry-run partial status from preparation refusals"
     },
     "docs/design.md": {
-      "sha256": "7a417b0f01a33ff88f70d41da045b2cc317bee2a05f5b18eb1046797aa462a83",
-      "reviewed": "FB: approval rereads scope and to-do records"
+      "sha256": "7b4feb90bcd97fda83e93a22a452588670121b6e58177990f90aa7f3b962ecaf",
+      "reviewed": "GC: identical scope copies are one record (PF.loop.sameRecord)"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -257,8 +257,8 @@
       "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
     },
     "src/core/loop.js": {
-      "sha256": "d0a5e84dc087e478dd260b4f39aca96a1cc99ab32d86eced22d7f52a42588727",
-      "reviewed": "FA: decision references resolved as the reducer does"
+      "sha256": "6b6e2fbdd6992a2febd66622c64e09764381f7f53455a698b5aa428760f08586",
+      "reviewed": "GC: identical scope copies are one record (PF.loop.sameRecord)"
     },
     "src/core/map.js": {
       "sha256": "f9eae33f6635cd1b3983fc1c71eb7a3b3c8dc1c70ca3ef8ce8807d5228165d2f",
@@ -337,8 +337,8 @@
       "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
     },
     "src/core/spreads.js": {
-      "sha256": "3c3e36f8c3ca432c4abe42acef49cc0835fa58718f90c21ba82c49b782611082",
-      "reviewed": "EA: schema-driven witness references over alias history"
+      "sha256": "93d0639f701e69a1d9edc28efee9f60c5cd6b5d89b158f63f4376f95cce473ca",
+      "reviewed": "GC: identical scope copies are one record (PF.loop.sameRecord)"
     },
     "src/core/staging.js": {
       "sha256": "d01a3204178bd0b055c05524916f55774c4404cca10f86fbb10a2ca675bd6b07",
