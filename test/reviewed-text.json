@@ -14,7 +14,7 @@
     },
     "bin/flightdeck.js": {
       "sha256": "db6d6a8379fb38a98d2cf6f536fe182b586658f2de0d2aadb0e8a1d4b2b5d2d6",
-      "reviewed": "AC: filtered runs judge the listed stories' parents"
+      "reviewed": "BB: approval writes reread their loops' runs"
     },
     "build.py": {
       "sha256": "1dce012e7269422f84c2c2aeb7b327b242a28e4990a5c5c95a22dc98228122dc",
@@ -25,8 +25,8 @@
       "reviewed": "Round 6 XD: sync dry-run partial status from preparation refusals"
     },
     "docs/design.md": {
-      "sha256": "06bb1ab3be5bbbe44a80314ae90642abf5dcbe5d3a9ad41a88962b7fe523365f",
-      "reviewed": "BA: stop rule by witness union, pair-keyed"
+      "sha256": "1088350716c3f50ea585d659a2bfb5c6c72525c72e76d4008a5a72a4efce1071",
+      "reviewed": "BB: approval writes reread their loops' runs"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -405,12 +405,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "2d4de6c53b769a5f810a16d2277f22f63bcf4ffd7b9ee5115bcea46ca83e9b14",
-      "reviewed": "Round 7 YA: stops are causal (cut, 4.0 scope head); checker mirrors; no direct writes or deletes added"
+      "sha256": "c08d10c44612f1ee570ff4f3b516b218cacf088fab60e8ac1e09b3125da95c13",
+      "reviewed": "BB: approval writes reread their loops' runs"
     },
     "src/ui/app.js": {
-      "sha256": "ec9f442ff115a81715bcffb53dda3278d9ca062394f339387d680dc481c44668",
-      "reviewed": "AB: approval writes recheck the phase holds"
+      "sha256": "b267511c033e3e9899f609d1762c844db1202b4f09c39a5cffc2ca561382c07c",
+      "reviewed": "BB: approval writes reread their loops' runs"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

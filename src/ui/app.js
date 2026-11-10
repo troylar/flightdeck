@@ -3016,11 +3016,63 @@
   function holdsNow(r, h) {
     markLoops([r].concat((data.runs || []).filter(function (x) { return x !== r && x.id !== r.id; })));
     var map; try { map = R.mapOf(r); } catch (e) { return true; }
+    return holdPhases(map, h).some(function (pi) {
+      var p = map.phases[pi]; if (!p) return true;
+      if (R.phaseHeld(r, map, pi)) return true;
+      return p.steps.some(function (x) { return x.type === 'for.each' && ((r._loopStale && Object.prototype.hasOwnProperty.call(r._loopStale, x.id)) || (r._loopUnread && Object.prototype.hasOwnProperty.call(r._loopUnread, x.id))); });
+    });
+  }
+  /* Round 10 (BB): the phases a run (a conflict or browser copy) approves: its gate passed or waived, or a loop in it done. */
+  function approvedPhases(c) {
+    var out = [];
+    try {
+      var m = R.mapOf(c);
+      m.phases.forEach(function (p, i) {
+        var g = p.gate && c.gates && c.gates[p.gate.id];
+        if ((g && (g.s === 'passed' || g.s === 'waived')) || p.steps.some(function (x) { return x.type === 'for.each' && c.steps && c.steps[x.id] && c.steps[x.id].s === 'done'; })) out.push(i);
+      });
+    } catch (e) { return []; }
+    return out;
+  }
+  /* Round 10 (BB): the phases a hold check covers: h.phase, the phase holding loop step h.step, or every one in h.phases. */
+  function holdPhases(map, h) {
+    if (h.phases) return h.phases.slice();
     var pi = h.phase != null ? +h.phase : -1;
     if (h.step) map.phases.forEach(function (p, i) { if (p.steps.some(function (x) { return x.id === h.step; })) pi = i; });
-    var p = map.phases[pi]; if (!p) return true;
-    if (R.phaseHeld(r, map, pi)) return true;
-    return p.steps.some(function (x) { return x.type === 'for.each' && ((r._loopStale && Object.prototype.hasOwnProperty.call(r._loopStale, x.id)) || (r._loopUnread && Object.prototype.hasOwnProperty.call(r._loopUnread, x.id))); });
+    return [pi];
+  }
+  /* Round 10 (BB): before every approval write (candidate, final, a retry, and each write of a recovery), each run of the
+     loops in the phase is read again from the folder as the command line reads it (readRunOnly, with its version's verdict).
+     It must be there, read cleanly, run on a version that checks out, and be exactly the copy the holds were worked out from
+     (its fingerprint); then the holds are asked again (guardOk, holdsNow) on that same snapshot. Anything else holds it.
+     Resolves true or false; never throws. */
+  function freshHolds(cx, fs) {
+    var rk = cx && (cx.run || cx.holdRun), r = rk ? findRun(rk) : null, h = cx && cx.holds;
+    if (!h) return Promise.resolve(true);
+    if (!r) return Promise.resolve(false);
+    var map; try { map = R.mapOf(r); } catch (e) { return Promise.resolve(false); }
+    var kids = [], bad = false;
+    holdPhases(map, h).forEach(function (pi) {
+      var p = map.phases[pi]; if (!p) { bad = true; return; }
+      p.steps.forEach(function (x) {
+        if (x.type !== 'for.each') return;
+        (data.runs || []).forEach(function (c) { if (c && c.parent && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === x.id) kids.push(c); });
+      });
+    });
+    if (bad) return Promise.resolve(false);
+    var src = fs || cx.fs;
+    return Promise.all(kids.map(function (c) {
+      return PF.repo.readRunOnly(src, c.process, c.id).then(function (one) {
+        if (!one || !one.found || one.nofile || !one.run || (one.bad && one.bad.length) || one.run._unrunnable) return false;
+        if (!one.pub || !one.pub.ok || one.pub._readFailed) return false;
+        return !!c._fileHash && one.run._fileHash === c._fileHash;
+      }, function () { return false; });
+    })).then(function (oks) {
+      if (!oks.every(Boolean) || !guardOk(cx)) return false;
+      /* A recovery's guard names no run (the copy may take it over): its holds are asked of the run as it is now. */
+      if (cx.run) return true;
+      var now = findRun(rk); return !!now && !holdsNow(now, h);
+    }, function () { return false; });
   }
   /* A loop write (round 6, XA) stops while the run or any run of that loop isn't read fresh, by the same inputs coverage reads
      (PF.spreads.inputs): a result that reads as none only because its run or version couldn't be read is never a change. */
@@ -3090,6 +3142,8 @@
     /* opts.redo: a change derived from the folder (a to-do's landing) whose save fails is put back, never kept for Try again:
        the next read derives it again, with its authority asked again on the run as it is then. */
     var extra = { still: function () { if (guardOk(cx)) return true; undo(); return false; }, dropUndone: function () { return undone; } };
+    /* Round 10 (BB): an approval write reads its loops' runs again before each write, and is put back by identity when held. */
+    if (cx && cx.holds) extra.recheck = function (fs) { return freshHolds(cx, fs).then(function (ok) { if (!ok) undo(); return ok; }); };
     if (opts && opts.redo) extra.undoFailed = function () { undo(); return undone; };
     return { fn: wrapped, opts: Object.assign({}, opts || {}, extra) };
   }
@@ -9300,7 +9354,14 @@
       /* The guard captured at the click, with the to-dos it keeps (todoStill, as a landing's) asked before every write; when it
          fails, the kept copy is put back in this window (loopEdit) and the copy stays. */
       var rc = state.recoverCx, rcx = Object.assign({}, rc && rc.key === key ? rc.cx : loopGuard());
-      return repo.keepDisplaced(fs, cur, WRITER).then(function (where) {
+      /* Round 10 (BB): a copy that has a phase's gate passed or waived, or a loop approved, is kept only past the same phase
+         hold guard as Pass, read fresh before the backup, before each write of the run and before the copy is removed. A
+         refusal keeps the copy. */
+      var ph = approvedPhases(c);
+      if (ph.length) { rcx.holds = { phases: ph }; rcx.holdRun = key; if (rc && rc.key === key) rc.cx.holds = rcx.holds, rc.cx.holdRun = key; }
+      var held = function () { say('The copy wasn\'t kept: a run of a loop it approves, or its version, can\'t be read here now, or holds its stage. The copy is still there; choose Refresh, then try again.', 'warn'); return false; };
+      return freshHolds(rcx, fs).then(function (ok) { return ok ? repo.keepDisplaced(fs, cur, WRITER) : null; }).then(function (where) {
+        if (where === null) return held();
         if (g !== gen) return false;
         var ed = loopEdit(rcx, key, function (run, map, me, now) {
           var extra = c._overflow || [];
@@ -9326,7 +9387,7 @@
       }).then(function (ok) {
         if (!ok || g !== gen) return;
         state.copyView = null;
-        return cleanup(fs, cur).then(function () { if (g === gen) return refreshRun(); }, function (e) { if (g === gen) say('Kept the copy, but couldn\'t remove it: ' + e.message, 'warn'); });
+        return freshHolds(rcx, fs).then(function (fine) { if (!fine) { held(); return Promise.reject(Object.assign(new Error('held'), { held: true })); } return cleanup(fs, cur); }).then(function () { if (g === gen) return refreshRun(); }, function (e) { if (g === gen && !(e && e.held)) say('Kept the copy, but couldn\'t remove it: ' + e.message, 'warn'); });
       });
     }).catch(function (e) { if (g === gen) say('Couldn\'t keep that copy: ' + e.message, 'bad'); }).then(done);
   }

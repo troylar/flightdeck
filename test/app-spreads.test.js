@@ -255,4 +255,18 @@ rule('AB: Pass on a fulfilled spread\'s loop, held at its write while a story\'s
   backToParent(app); await app.tick(80);
   assert.ok(/data-act="pass"/.test(app.html()), 'read again: Ready, the tentative pass put back');
 });
+/* Review round 10 (BB): the same on a fulfilled spread's loop. */
+const BB = require('./app-approval-bb');
+const bbSpread = {
+  prep: async () => { const app = await setup(); await landedSpread(app); await fulfilled(app, ['ABC-102', 'ABC-103']); backToParent(app); await app.tick(80); return app; },
+  kid: (app) => kidOf(app, 'ABC-102'),
+  reread: async (app) => { for (let i = 0; i < 3; i++) await refresh(app, 300); backToParent(app); await app.tick(80); }
+};
+for (const how of Object.keys(BB.WRITES)) rule('BB: ' + how + ' on a fulfilled spread\'s loop rereads its stories\' runs at every write: absent, EIO or version EIO writes nothing', async () => {
+  const { cases, off } = await BB.matrix(bbSpread, how);
+  assert.deepStrictEqual([cases, off], [6, []]);
+});
+rule('BB: Use copy of a fulfilled spread\'s parent after Refresh detected a story\'s run EIO keeps nothing, and the copy stays', async () => {
+  assert.deepStrictEqual(await BB.useCopyAfterEio(bbSpread), []);
+});
 run();

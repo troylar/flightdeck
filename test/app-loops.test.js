@@ -1124,4 +1124,20 @@ rule('AB: Pass or Waive held at its write while a story\'s run or its version st
   }
   assert.deepStrictEqual(off, []);
 });
+/* Review round 10 (BB): an approval write reads its loop's runs again before every write, with no Refresh in between:
+   {Pass, Waive, loop approve} x {a story's run absent, EIO, its publication EIO} x {waiting at the parent read, after the
+   candidate}. Nothing is written and the tentative change is put back. Use copy after Refresh detected an EIO keeps nothing. */
+const BB = require('./app-approval-bb');
+const bbLoop = {
+  prep: async () => { const app = await setup(); await cleared(app); app.click('refresh'); await app.tick(200); return app; },
+  kid: (app) => kidPaths(app)[0],
+  reread: async (app) => { for (let i = 0; i < 2; i++) { app.click('refresh'); await app.tick(400); } }
+};
+for (const how of Object.keys(BB.WRITES)) rule('BB: ' + how + ' on a plain loop rereads its stories\' runs at every write: absent, EIO or version EIO writes nothing', async () => {
+  const { cases, off } = await BB.matrix(bbLoop, how);
+  assert.deepStrictEqual([cases, off], [6, []]);
+});
+rule('BB: Use copy of a plain loop\'s parent after Refresh detected a story\'s run EIO keeps nothing, and the copy stays', async () => {
+  assert.deepStrictEqual(await BB.useCopyAfterEio(bbLoop), []);
+});
 run();

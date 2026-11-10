@@ -155,11 +155,13 @@ test/checker-todos.test.js -
 test/app-reports.test.js -
 test/app-teamvalues.test.js -
 test/app-results.test.js -
-test/app-loops.test.js -
+test/app-loops.test.js 0/2
+test/app-loops.test.js 1/2
 test/app-todos.test.js -
 test/app-todos-ui.test.js -
 test/app-todos-inbox.test.js -
-test/app-spreads.test.js -
+test/app-spreads.test.js 0/2
+test/app-spreads.test.js 1/2
 test/app-spread-deps.test.js 0/4
 test/app-spread-deps.test.js 1/4
 test/app-spread-deps.test.js 2/4

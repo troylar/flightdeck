@@ -1248,6 +1248,13 @@ PF.repo = (function () {
       if (copy.test === true) { var tst = copy.stage; delete copy.test; delete copy.stage; copy.test = true; copy.stage = tst; }
       return { copy: copy, dir: dir, text: JSON.stringify(copy, null, 2), cand: dir + 'candidate-' + writer + '-' + saveId + '.json' };
     }
+    /* opts.recheck(fs) (round 10, BB): an asynchronous guard awaited before the first write (candidate or conflict copy) and
+       again before the final one. false, or a rejection, writes nothing more (e.dropped). */
+    function recheck() {
+      if (typeof opts.recheck !== 'function') return Promise.resolve();
+      var drop = function () { var e = new Error('dropped'); e.dropped = true; return e; };
+      return Promise.resolve().then(function () { return opts.recheck(fs); }).then(function (ok) { if (ok === false) throw drop(); }, function (err) { var e = drop(); e.cause = err; throw e; });
+    }
     /* The publication record may have arrived (by sync) after the run was loaded; a newer format makes the run read-only. */
     function checkAndWrite() {
     return pubProblem(fs, run, null, opts.strict).then(function (why) {
@@ -1259,6 +1266,8 @@ PF.repo = (function () {
       if (typeof opts.prewrite !== 'function') return f;
       var drop = function () { var e = new Error('dropped'); e.dropped = true; return e; };
       return Promise.resolve().then(function () { return opts.prewrite(fs); }).then(function (ok) { if (ok === false) throw drop(); return f; }, function (err) { var e = drop(); e.cause = err; throw e; });
+    }).then(function (f) {
+      return recheck().then(function () { return f; });
     }).then(function (f) {
       var e;
       /* opts.still: asked after every read, right before the first write; false writes nothing (e.dropped). */
@@ -1280,7 +1289,7 @@ PF.repo = (function () {
           e = new Error('changed'); e.disk = disk;
           var keep = 'runs/' + run.process + '/' + run.id + '/run.conflict-' + writer + '-' + Date.now() + '.json';
           /* Archived history is a record of what happened whichever version wins, so it's written first. */
-          return archiveOverflow(fs, run, writer).then(function () { if (typeof opts.still === 'function' && !opts.still()) { var d = new Error('dropped'); d.dropped = true; throw d; } return fs.write(keep, JSON.stringify(stripMeta(run), null, 2)); })
+          return archiveOverflow(fs, run, writer).then(recheck).then(function () { if (typeof opts.still === 'function' && !opts.still()) { var d = new Error('dropped'); d.dropped = true; throw d; } return fs.write(keep, JSON.stringify(stripMeta(run), null, 2)); })
             .then(function () { forgetRun(fs, run); e.keptAs = keep; throw e; }, function () { throw e; });
         }
       }
@@ -1294,6 +1303,7 @@ PF.repo = (function () {
       var again = function () { if (typeof opts.still === 'function' && !opts.still()) { var d = new Error('dropped'); d.dropped = true; d.kept = cand; throw d; } };
       return fs.write(cand, text)
         .then(function () { again(); return archiveOverflow(fs, run, writer); })
+        .then(function () { again(); return recheck().then(null, function (d) { d.kept = cand; throw d; }); })
         .then(function () { again(); return fs.write(path, text); })
         .then(function () {
           forgetRun(fs, run);
