@@ -289,6 +289,41 @@ rule('A child run changed after the receipt is written (a time, its state, its f
   }
   assert.strictEqual(misses.length, 0, misses.join('\n'));
 });
+/* LE: every run the receipt depends on is judged before each ending-save write, as the export judges it: the runs this run's
+   to-dos were done on (evidence) and the runs whose spread one of its requests fulfills, besides its loop children. */
+async function withDeps() {
+  const app = await setup(); await added(app, 'Post the notes');
+  const PF = app.PF, T = PF.todos, base = theRun(app), r = PF.run.sanitize(JSON.parse(JSON.stringify(base)));
+  const clone = (id) => { const o = JSON.parse(JSON.stringify(base)); o.id = id; delete o.living; delete o.ended; o.state = 'running'; if (Array.isArray(o.features)) o.features = o.features.filter(f => f !== 'living-runs'); app.fs.files['runs/release-notes/' + id + '/run.json'] = { t: JSON.stringify(o, null, 2), m: Date.now() }; };
+  clone('evrun1'); clone('dep-1');
+  const d = await PF.repo.loadAll(app.fs, {}), V = T.view(r, { records: d.todos || [], people: JSON.parse(app.fs.files['people.json'].t) });
+  const td = Object.keys(V.byTodo || {})[0];
+  assert.ok(td, 'set-up: a to-do');
+  const ev = { plan: 'plan-ev-' + 'a'.repeat(24), run: { process: 'release-notes', id: 'evrun1' }, answer: 'Yes', result: '' };
+  const q1 = T.buildProposal({ run: { process: r.process, id: r.id }, id: PF.detours.requestId(td, ev), by: 'person-avery', seen: V.heads.slice(0, 50), at: new Date().toISOString(), body: { op: 'done', todo: td, evidence: ev }, app: '4.0.0' });
+  const body = { op: 'add', text: 'Covered', target: { phase: 'draft' }, placement: T.placementFor(PF.run.mapOf(r), { phase: 'draft' }), fulfills: { run: { process: 'release-notes', id: 'dep-1' }, spread: 'sp-' + 'c'.repeat(24), uid: 'jira.issue:key:ABC-1', attempt: 1 } };
+  const q2 = T.buildProposal({ run: { process: r.process, id: r.id }, producer: { name: 'notes-bot', version: '1.0' }, key: 'k-le1', seen: [], at: new Date().toISOString(), body });
+  for (const q of [q1, q2]) await app.fs.write('proposals/' + q.id + '.json', T.text(q));
+  await refresh(app, 400);
+  app.click('open-run', r.process + '/' + r.id); await app.tick(80);
+  return app;
+}
+rule('An evidence run or a fulfilled run changed after the receipt is written ends nothing, named by its path (with the control)', async () => {
+  const misses = [];
+  for (const [what, path] of [['control', ''], ['evidence run', 'runs/release-notes/evrun1/run.json'], ['fulfilled run', 'runs/release-notes/dep-1/run.json']]) {
+    const app = await withDeps(), fs = app.fs, write = fs.write.bind(fs), before = app.fs.files[runPath(app)].t;
+    let hit = false;
+    fs.write = (p, t, o) => write(p, t, o).then((x) => { if (/^proposals\/req-receipt-/.test(p) && !hit) { hit = true; if (path) { const k = JSON.parse(app.fs.files[path].t); k.title = 42; app.fs.files[path] = { t: JSON.stringify(k, null, 2), m: Date.now() }; } } return x; });
+    app.click('end', 'Cancelled'); await app.tick(400);
+    fs.write = write;
+    const ended = !!theRun(app).ended;
+    if (!hit) misses.push(what + ': no receipt was written');
+    else if (!path && !ended) misses.push('control: it didn\'t end: ' + txt(app.html()).slice(0, 600));
+    else if (path && ended) misses.push(what + ': it ended');
+    else if (path && (app.fs.files[runPath(app)].t !== before || txt(app.html()).indexOf(path) < 0)) misses.push(what + ': not named by its path, or the run changed');
+  }
+  assert.strictEqual(misses.length, 0, misses.join('\n'));
+});
 /* An ended living copy of the run (its receipt in the folder) next to run.json as it was before the end. */
 async function endedCopy(app, change) {
   const before = app.fs.files[runPath(app)].t;
