@@ -134,4 +134,58 @@ rule('A keep whose person changes before it is written is never written, and is 
   assert.ok(!/Suggest for next time/.test(txt(app.html())), 'never said');
 });
 
+/* A loop whose items run validate-story, with a spread on it: what a spread's keep rests on is that child's publication. */
+const KID = ['---', 'process: validate-story', 'title: Validate a story', 'owner: person-avery', 'context: issue, disposition:choice(cleared|needs-work)', 'result: disposition', '---', '',
+  '## Assess · DO-CONFIRM {#assess}', '- [!] {decide} Record the validation result {#verdict}', '  options: cleared, needs-work', '  sets: disposition=decision', ''].join('\n');
+const PARENT = ['---', 'process: release-readiness', 'title: Release 4.1', 'owner: person-avery', '---', '',
+  '## Stories · DO-CONFIRM {#stories}', '- [!] {for.each} Validate every release story {#each}', '  process: validate-story', '  items: jira.issue', '  pass: issue=item:key', '  accepts: cleared', '',
+  '## Ship · READ-DO {#ship}', '- [!] {confirm} Ship it {#ship1}', ''].join('\n');
+async function loopSetup() {
+  const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(80); app.choose('person-avery'); await app.tick();
+  const PF = app.PF, people = JSON.parse(app.fs.files['people.json'].t), now = new Date().toISOString();
+  const put = (md, id, rand) => {
+    const b = PF.publish.build(md, { people, ...require('./harness').exampleSetup(PF), by: 'person-avery', changes: 'First', existing: [], now, rand, app: '4.0.0' });
+    assert.ok(!b.blockers, JSON.stringify(b.blockers));
+    Object.keys(b.files).forEach(k => { app.fs.files['publications/' + id + '/' + b.folder + '/' + k] = { t: b.files[k], m: Date.now() }; });
+  };
+  put(KID, 'validate-story', 'vs000001'); put(PARENT, 'release-readiness', 'rr000001');
+  app.click('refresh'); await app.tick(80);
+  app.click('start', 'release-readiness'); await app.settle();
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
+  app.set('loop-add-each', 'ABC-101, ABC-102'); app.click('loop-add', 'each'); await app.tick(150); app.set('loop-add-each', ''); await app.tick();
+  const parent = () => { const p = app.files('runs/release-readiness/').find(x => /run\.json$/.test(x)); return JSON.parse(app.fs.files[p].t); };
+  const d = await PF.repo.loadAll(app.fs, {}), r = d.runs.find(x => x.process === 'release-readiness');
+  const procOf = (id) => { const x = d.processes.filter(p => p.process === id)[0]; return x ? { latest: x.index.latest, all: x.index.all, clashes: x.index.clashes, broken: [] } : null; };
+  const LV = PF.loop.view(r, 'each', { records: d.scopes, runs: d.runs, procOf }), childMap = PF.pins.childTarget(r, PF.map.findStep(PF.run.mapOf(r), 'each').step, procOf).pub.map;
+  const P = PF.todos.prepare(r, { body: { op: 'spread-add', loopStep: 'each', text: 'Security sign-off', child: { beforeGate: 'assess-confirm' }, scope: PF.spreads.snapshot(LV) }, by: { tool: 'release-helper', version: '1.0', key: 'sp-000001' }, records: d.todos, unread: d.todosUnread, people, at: new Date().toISOString(), app: '4.0.0', childMap });
+  assert.ok(!P.why, P.why);
+  await app.fs.write('proposals/' + P.name, PF.todos.text(P.file));
+  await refresh(app, 300);
+  app.click('td-inbox', ''); await app.tick(20);
+  const b = /data-act="td-accept" data-id="([^"]+)" data-run="([^"]+)" data-fp="([^"]+)"/.exec(app.overlay() || '');
+  assert.ok(b, 'set-up: the spread waits for a decision');
+  app.click('td-accept', b[1], { run: b[2], fp: b[3] }); await app.tick(80);
+  app.click('close-overlay'); await app.tick();
+  for (let i = 0; i < 4; i++) await refresh(app, 300);
+  app.click('open-run', 'release-readiness/' + parent().id); await app.tick(80);
+  const sp = /data-act="keep" data-kind="spread" data-id="([^"]+)"/.exec(app.html());
+  assert.ok(sp, 'set-up: the spread can be kept');
+  return { app, spread: sp[1] };
+}
+
+rule('A spread\'s keep is held when its checklist\'s publication can\'t be read at the write, even with a copy read before', async () => {
+  const { app, spread } = await loopSetup();
+  const fs = app.fs, read = fs.read.bind(fs), blob = fs.blob ? fs.blob.bind(fs) : null;
+  const n = keeps(app).length;
+  fs.read = (p, o) => /^publications\/validate-story\//.test(p) ? Promise.reject(Object.assign(new Error('EIO: i/o error'), { code: 'EIO' })) : read(p, o);
+  if (blob) fs.blob = (p) => /^publications\/validate-story\//.test(p) ? Promise.reject(Object.assign(new Error('EIO: i/o error'), { code: 'EIO' })) : blob(p);
+  app.click('keep', spread, { kind: 'spread' }); await app.tick(200);
+  assert.strictEqual(keeps(app).length, n, 'nothing kept');
+  assert.ok(/Nothing was kept/.test(txt(app.html())) && /validate-story/.test(txt(app.html())), 'said, naming the checklist: ' + (txt(app.html()).match(/Nothing was kept[^.]*\.[^.]*\./) || [])[0]);
+  fs.read = read; if (blob) fs.blob = blob;
+  app.click('keep', spread, { kind: 'spread' }); await app.tick(200);
+  assert.strictEqual(keeps(app).length, n + 1, 'kept once it reads');
+  assert.strictEqual(keeps(app)[0].template.process, 'validate-story');
+});
+
 run();

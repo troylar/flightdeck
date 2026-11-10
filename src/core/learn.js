@@ -162,10 +162,21 @@ PF.learn = (function () {
     var name = String(PF.run.fieldsOf(r, x.step).process || '');
     if (!name) return { why: 'loop ' + loopStep + ' names no checklist for its items' };
     var c = procOf ? PF.pins.childTarget(r, x.step, procOf) : { why: 'the checklist its items run can\'t be read here' };
+    if (!c.pub && procOf) { var rf = readFailure(r, x.step, name, procOf(name)); if (rf) return { held: rf }; }
     if (!c.pub || c.legacy) return { why: 'the checklist its items run (' + name + ') can\'t be used here: ' + String(c.why || 'it isn\'t published').replace(/\.$/, '') };
     var i = c.pub.info, t = c.pin ? { process: name, folder: c.pin.folder, version: c.pin.version, mapHash: c.pin.mapHash || i.mapHash, typesHash: c.pin.typesHash || i.typesHash } : { process: name, folder: i.folder, version: i.version, mapHash: i.mapHash, typesHash: i.typesHash };
     if (!templateOk(t)) return { why: 'the checklist its items run (' + name + ') has no exact version here' };
     return { template: t, map: c.pub.map };
+  }
+  /* Why the checklist a loop's items run can't be read at all ('' when it can): its folder that can't be listed, or the
+     version that counts (the pinned one, or any while none is pinned) failing to read. A read failure is never a reason to
+     place a keep elsewhere or call it needing placement: the keep is held, naming the path and its kind. */
+  function readFailure(r, step, name, proc) {
+    if (!proc) return '';
+    if (proc.unlisted) return 'The checklist its items run can\'t be read here: publications/' + name + '/ (unreadable): ' + String(proc.unlisted).replace(/\.$/, '') + '.';
+    var pin = r.pins && isMap(r.pins.children) && Object.prototype.hasOwnProperty.call(r.pins.children, step.id) ? r.pins.children[step.id] : null;
+    var bad = (proc.all || []).concat(proc.broken || []).filter(function (p) { return p && p._readFailed && (!pin || p.folder === pin.folder); })[0];
+    return bad ? 'The checklist its items run can\'t be read here: publications/' + name + '/' + bad.folder + '/ (unreadable): ' + String(bad.why || 'it didn\'t read').replace(/\.$/, '') + '.' : '';
   }
   /* A place inside a checklist (map): o.place { phase } (the end of a phase) or { after } (after a step). */
   function placeIn(map, place) {
@@ -183,6 +194,7 @@ PF.learn = (function () {
     if (source.spread) {
       var sp = T.bySpread[source.spread];
       var c = childOf(r, map, sp.loopStep, o.procOf);
+      if (c.held) return { why: c.held, held: true };
       if (c.why) return { needs: 'It is a requirement on every item of a loop, so it belongs to the checklist those items run, but ' + c.why + '.' };
       tpl = c.template; tmap = c.map;
       var gp = PF.spreads.phaseOfGate(tmap, sp.child.beforeGate);
@@ -192,6 +204,7 @@ PF.learn = (function () {
       var x = T.byTodo[source.todo], t = x.target;
       if (t.item) {
         var ci = childOf(r, map, t.item.loopStep, o.procOf);
+        if (ci.held) return { why: ci.held, held: true };
         if (ci.why) return { needs: 'It is work on one item of a loop, so it belongs to the checklist the items run, but ' + ci.why + '.' };
         tpl = ci.template; tmap = ci.map;
         if (!place) return { needs: 'It is work on one item of loop ' + t.item.loopStep + ', so it belongs to ' + tpl.process + ', but the to-do doesn\'t say where in that checklist it goes. Say where with --phase or --after.', template: tpl };
@@ -239,6 +252,7 @@ PF.learn = (function () {
       else if (o.place.phase != null) { if (typeof o.place.phase !== 'string' || !STEP.test(o.place.phase)) return { why: 'Say the phase it goes at the end of by its id.' }; place = { phase: o.place.phase }; }
     }
     var W = route(r, map, T, source, { procOf: o.procOf, place: place });
+    if (W.held) return { why: W.why + ' Nothing is kept until it can be read.', held: true };
     if (W.why) return { why: W.why };
     var needs = W.needs || '';
     if (needs.length > LIMITS.needs) needs = 'Where it goes in the checklist can\'t be told here.';

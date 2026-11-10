@@ -113,6 +113,26 @@ rule('A child checklist that can\'t be read here leaves the keep needing placeme
   assert.ok(/can.t be used here|can.t be read/.test(K.record.needs), K.record.needs);
 });
 
+rule('A child publication that fails to read holds the keep, naming its path and kind; never Needs placement', () => {
+  const W = world(), td = W.todo('Check the screenshots', { item: { loopStep: 'each', uid: uid(101), attempt: 1 } });
+  const failed = { ok: false, why: 'EACCES: permission denied', folder: W.kp.folder, process: 'validate-story', _readFailed: true };
+  W.procOf = (id) => id === 'validate-story' ? { latest: null, all: [], clashes: [], broken: [failed] } : W.procs[id] || null;
+  const n = W.recs.length;
+  for (const extra of [{ place: { after: 'read' } }, {}]) {
+    const K = W.keep({ todo: td }, extra);
+    assert.ok(K.held && !K.record, 'held, nothing to file: ' + JSON.stringify(K));
+    assert.ok(K.why.indexOf('publications/validate-story/' + W.kp.folder + '/') >= 0 && /unreadable/.test(K.why), K.why);
+  }
+  W.procOf = (id) => id === 'validate-story' ? { latest: null, all: [], clashes: [], broken: [], unlisted: 'publications/validate-story/ can\'t be listed: EIO' } : W.procs[id] || null;
+  const U = W.keep({ todo: td }, { place: { after: 'read' } });
+  assert.ok(U.held && /publications\/validate-story\//.test(U.why), U.why);
+  W.ask({ op: 'spread-add', loopStep: 'each', text: 'Security sign-off', child: { beforeGate: 'assess-confirm' }, scope: { open: [{ uid: uid(101), attempt: 1 }], cleared: [], fingerprint: '0123456789abcdef' } }, { childMap: W.kp.map });
+  W.land();
+  const before = L.keepsOf(W.recs).length, S = W.keep({ spread: W.view().spreads[0].id });
+  assert.ok(S.held && S.why.indexOf('publications/validate-story/') >= 0, 'a spread too: ' + JSON.stringify(S));
+  same([L.keepsOf(W.recs).length, before, n >= 0], [0, 0, true], 'no keep was filed');
+});
+
 rule('A draft phase emptied since the run takes the kept step at its end, once a person confirms; the next version proves it', () => {
   const W = world(), td = W.todo('Write the notes', { phase: 'notes' });
   W.kept({ todo: td });
@@ -158,7 +178,7 @@ rule('Keeps for one place join one group; different wording stays as alternative
   const gs = W.groups('release-readiness');
   assert.strictEqual(gs.length, 1, 'one group per checklist and place');
   const g = gs[0];
-  same([g.members.length, L.alternatives(g).map(a => [a.text, a.members.length])], [3, [['Post the release notes', 2], ['Email the release notes', 1]]]);
+  same([g.members.length, L.alternatives(g).map(a => [a.text, a.members.length]).sort()], [3, [['Email the release notes', 1], ['Post the release notes', 2]]], 'each wording once, with its sources');
   const rv = C.review(g, W.pp.md);
   assert.strictEqual(rv.state, 'changed', 'two wordings: the owner chooses');
   assert.ok(/2 wordings/.test(rv.reason), rv.reason);

@@ -20007,10 +20007,21 @@ PF.learn = (function () {
     var name = String(PF.run.fieldsOf(r, x.step).process || '');
     if (!name) return { why: 'loop ' + loopStep + ' names no checklist for its items' };
     var c = procOf ? PF.pins.childTarget(r, x.step, procOf) : { why: 'the checklist its items run can\'t be read here' };
+    if (!c.pub && procOf) { var rf = readFailure(r, x.step, name, procOf(name)); if (rf) return { held: rf }; }
     if (!c.pub || c.legacy) return { why: 'the checklist its items run (' + name + ') can\'t be used here: ' + String(c.why || 'it isn\'t published').replace(/\.$/, '') };
     var i = c.pub.info, t = c.pin ? { process: name, folder: c.pin.folder, version: c.pin.version, mapHash: c.pin.mapHash || i.mapHash, typesHash: c.pin.typesHash || i.typesHash } : { process: name, folder: i.folder, version: i.version, mapHash: i.mapHash, typesHash: i.typesHash };
     if (!templateOk(t)) return { why: 'the checklist its items run (' + name + ') has no exact version here' };
     return { template: t, map: c.pub.map };
+  }
+  /* Why the checklist a loop's items run can't be read at all ('' when it can): its folder that can't be listed, or the
+     version that counts (the pinned one, or any while none is pinned) failing to read. A read failure is never a reason to
+     place a keep elsewhere or call it needing placement: the keep is held, naming the path and its kind. */
+  function readFailure(r, step, name, proc) {
+    if (!proc) return '';
+    if (proc.unlisted) return 'The checklist its items run can\'t be read here: publications/' + name + '/ (unreadable): ' + String(proc.unlisted).replace(/\.$/, '') + '.';
+    var pin = r.pins && isMap(r.pins.children) && Object.prototype.hasOwnProperty.call(r.pins.children, step.id) ? r.pins.children[step.id] : null;
+    var bad = (proc.all || []).concat(proc.broken || []).filter(function (p) { return p && p._readFailed && (!pin || p.folder === pin.folder); })[0];
+    return bad ? 'The checklist its items run can\'t be read here: publications/' + name + '/' + bad.folder + '/ (unreadable): ' + String(bad.why || 'it didn\'t read').replace(/\.$/, '') + '.' : '';
   }
   /* A place inside a checklist (map): o.place { phase } (the end of a phase) or { after } (after a step). */
   function placeIn(map, place) {
@@ -20028,6 +20039,7 @@ PF.learn = (function () {
     if (source.spread) {
       var sp = T.bySpread[source.spread];
       var c = childOf(r, map, sp.loopStep, o.procOf);
+      if (c.held) return { why: c.held, held: true };
       if (c.why) return { needs: 'It is a requirement on every item of a loop, so it belongs to the checklist those items run, but ' + c.why + '.' };
       tpl = c.template; tmap = c.map;
       var gp = PF.spreads.phaseOfGate(tmap, sp.child.beforeGate);
@@ -20037,6 +20049,7 @@ PF.learn = (function () {
       var x = T.byTodo[source.todo], t = x.target;
       if (t.item) {
         var ci = childOf(r, map, t.item.loopStep, o.procOf);
+        if (ci.held) return { why: ci.held, held: true };
         if (ci.why) return { needs: 'It is work on one item of a loop, so it belongs to the checklist the items run, but ' + ci.why + '.' };
         tpl = ci.template; tmap = ci.map;
         if (!place) return { needs: 'It is work on one item of loop ' + t.item.loopStep + ', so it belongs to ' + tpl.process + ', but the to-do doesn\'t say where in that checklist it goes. Say where with --phase or --after.', template: tpl };
@@ -20084,6 +20097,7 @@ PF.learn = (function () {
       else if (o.place.phase != null) { if (typeof o.place.phase !== 'string' || !STEP.test(o.place.phase)) return { why: 'Say the phase it goes at the end of by its id.' }; place = { phase: o.place.phase }; }
     }
     var W = route(r, map, T, source, { procOf: o.procOf, place: place });
+    if (W.held) return { why: W.why + ' Nothing is kept until it can be read.', held: true };
     if (W.why) return { why: W.why };
     var needs = W.needs || '';
     if (needs.length > LIMITS.needs) needs = 'Where it goes in the checklist can\'t be told here.';
@@ -37307,14 +37321,23 @@ PF.examples = (function () {
     if (kept && kept.id === K.id) K = kept;
     state.keepTry = { sig: sig, K: K };
     var cx = loopGuard({ run: rk, readable: true }), text = PF.todos.text(K.file), endBusy = busyStart(), sg = gen;
+    /* The checklist another one's keep rests on (a loop's items' checklist) is read again right before the write, never
+       taken from the copy read before: one that can't be read now holds the keep. */
+    var gov = K.record.template && K.record.template.process !== r.process ? K.record.template.process : '', govProc = null, late = '';
+    var fresh = gov ? function () {
+      return repo.readProcess(cx.fs, gov).then(function (p) { govProc = p; if (!p) late = 'the checklist ' + gov + ' isn\'t published in this folder now.'; return !!p; },
+        function (e) { late = 'publications/' + gov + '/ couldn\'t be read again right before it was (' + (e && e.message || e) + ').'; return false; });
+    } : null;
     var still = function () {
       if (!guardOk(cx)) return false;
-      var A = ask(findRun(rk), K.record.at);
+      if (gov && !govProc) return false;
+      var A = PF.learn.prepare(findRun(rk), { source: source, by: { person: state.me }, records: data.todos || [], unread: data.todosUnread || [], people: data.people, procOf: gov ? function (id) { return id === gov ? govProc : ctx.procOf(id); } : ctx.procOf, at: K.record.at, app: APP_VERSION, now: tdNow() });
+      if (A.why && A.held) late = A.why;
       return !A.why && A.status === 'new' && A.id === K.id && PF.todos.text(A.file) === text;
     };
-    repo.saveScope(cx.fs, K.name, K.file, { still: still }).then(function (res) {
+    repo.saveScope(cx.fs, K.name, K.file, { fresh: fresh, still: still }).then(function (res) {
       endBusy(); if (sg !== gen) return;
-      if (res && res.dropped) { say('Nothing was kept: the folder, the person or the run changed before it was written. Keep it again if it still matters.', 'warn'); render(); return; }
+      if (res && res.dropped) { say(late ? 'Nothing was kept: ' + late + ' Keep it again once it can be read.' : 'Nothing was kept: the folder, the person or the run changed before it was written. Keep it again if it still matters.', 'warn'); render(); return; }
       if (res && res.conflict && res.theirs !== text) { say('Something else is already saved under this keep\'s name. Nothing was written; read the folder again, then keep it again.', 'bad'); render(); return; }
       state.keepTry = null;
       var rec = K.record; rec._file = K.name;

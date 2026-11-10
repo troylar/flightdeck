@@ -25,8 +25,8 @@
       "reviewed": "keeps named by their wording too: another wording is another alternative; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "a53c3565f7e87a0e5bce205458d0d34a9c9a930e9744fe37465ce3556613d445",
-      "reviewed": "a wording kept after a keep group was applied waits for review; checked for direct writes and unconditional deletes"
+      "sha256": "971d9ebcffd8f5fc134499a83a0f15e42b21d2d33f870317bc8f1affcacd180e",
+      "reviewed": "a keep whose governing child publication can't be read is held, reread in the save guard; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -257,8 +257,8 @@
       "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/learn.js": {
-      "sha256": "fab7f8ee95f8c13b8e4c244c5ee3b8a233d1d4c97e3668c068a6b57bf41f54de",
-      "reviewed": "a wording kept after a keep group was applied waits for review; checked for direct writes and unconditional deletes"
+      "sha256": "e69c548c477f2000fa82f7356801e1687bba4d0ccab1dd42bed8604f2f01c7b9",
+      "reviewed": "a keep whose governing child publication can't be read is held, reread in the save guard; checked for direct writes and unconditional deletes"
     },
     "src/core/library.js": {
       "sha256": "5c8555ff9b8bc67aa90ea4f556bddebbe47d17ae37e296d44b815187d776bd44",
@@ -421,8 +421,8 @@
       "reviewed": "4.0 slice 5 commit 6, checklist-linked to-dos: PF.detours (pins, the evidence plan, evidence, provenance), the checklist and evidence fields in to-do records, repo.readEvidence, the app's Run this checklist, Accept and the way back, the living-run skill and command guide sections, the 4.0.0 release entry; checked for direct writes and unconditional deletes: the plan is written create-once through repo.savePlan under the run guard, a done on a run through saveScope with a fresh read before the write, nothing deleted"
     },
     "src/ui/app.js": {
-      "sha256": "ae681d5112c467f00caaa8f9908c12cb23303955dfb282fde686ab0fba7d05af",
-      "reviewed": "checklist-linked to-dos in the app (Run this checklist saves its plan through savePlan with a still guard; no direct writes or unconditional deletes) and skill baselines recorded for 4.0.0"
+      "sha256": "232aafeabc4cf6dc3fbdc0d3f31c7e2326a89f9dfbefc49a811816bfe19e66a7",
+      "reviewed": "a keep whose governing child publication can't be read is held, reread in the save guard; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

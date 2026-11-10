@@ -3527,14 +3527,23 @@
     if (kept && kept.id === K.id) K = kept;
     state.keepTry = { sig: sig, K: K };
     var cx = loopGuard({ run: rk, readable: true }), text = PF.todos.text(K.file), endBusy = busyStart(), sg = gen;
+    /* The checklist another one's keep rests on (a loop's items' checklist) is read again right before the write, never
+       taken from the copy read before: one that can't be read now holds the keep. */
+    var gov = K.record.template && K.record.template.process !== r.process ? K.record.template.process : '', govProc = null, late = '';
+    var fresh = gov ? function () {
+      return repo.readProcess(cx.fs, gov).then(function (p) { govProc = p; if (!p) late = 'the checklist ' + gov + ' isn\'t published in this folder now.'; return !!p; },
+        function (e) { late = 'publications/' + gov + '/ couldn\'t be read again right before it was (' + (e && e.message || e) + ').'; return false; });
+    } : null;
     var still = function () {
       if (!guardOk(cx)) return false;
-      var A = ask(findRun(rk), K.record.at);
+      if (gov && !govProc) return false;
+      var A = PF.learn.prepare(findRun(rk), { source: source, by: { person: state.me }, records: data.todos || [], unread: data.todosUnread || [], people: data.people, procOf: gov ? function (id) { return id === gov ? govProc : ctx.procOf(id); } : ctx.procOf, at: K.record.at, app: APP_VERSION, now: tdNow() });
+      if (A.why && A.held) late = A.why;
       return !A.why && A.status === 'new' && A.id === K.id && PF.todos.text(A.file) === text;
     };
-    repo.saveScope(cx.fs, K.name, K.file, { still: still }).then(function (res) {
+    repo.saveScope(cx.fs, K.name, K.file, { fresh: fresh, still: still }).then(function (res) {
       endBusy(); if (sg !== gen) return;
-      if (res && res.dropped) { say('Nothing was kept: the folder, the person or the run changed before it was written. Keep it again if it still matters.', 'warn'); render(); return; }
+      if (res && res.dropped) { say(late ? 'Nothing was kept: ' + late + ' Keep it again once it can be read.' : 'Nothing was kept: the folder, the person or the run changed before it was written. Keep it again if it still matters.', 'warn'); render(); return; }
       if (res && res.conflict && res.theirs !== text) { say('Something else is already saved under this keep\'s name. Nothing was written; read the folder again, then keep it again.', 'bad'); render(); return; }
       state.keepTry = null;
       var rec = K.record; rec._file = K.name;
