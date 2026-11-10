@@ -830,7 +830,7 @@ Once checked off, `todo list` shows the to-do's `checklist`, the run it rests on
 |---|---|
 | The pinned version, a run it rests on, a plan's decision or a record can't be read | `held` (exit 4), each named in `problems`: nothing was written |
 | No such checklist or version, a result it never returns, a run not started for the to-do, not completed, or a result it doesn't accept | `invalid`, with why |
-| `--key` with `suggest-done`, both `--fact` and `--evidence-run`, `--accepts` without `--checklist`, `--checklist` on anything but `add` | `usage` |
+| `--key` with `suggest-done`, both `--fact` and `--evidence-run`, `--accepts` without `--checklist`, an empty `--accepts` or one with an empty entry (never read as "any result"), `--checklist` on anything but `add` | `usage` |
 | No such run | exit 5 |
 
 ## Writing step types (for AI assistants)

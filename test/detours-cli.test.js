@@ -110,6 +110,9 @@ rule('todo add --checklist pins the exact version and the results it accepts; a 
   bad(['--checklist', 'nope@' + F.kp.info.folder], 'invalid', /no checklist nope/);
   bad(['--checklist', 'smoke-test@v9-zzzzzzzz'], 'invalid', /no version v9-zzzzzzzz/);
   bad(['--checklist', F.pin, '--accepts', 'pass,maybe'], 'invalid', /never returns maybe/);
+  bad(['--checklist', F.pin, '--accepts', ',,'], 'usage', /--accepts names/);
+  bad(['--checklist', F.pin, '--accepts', ''], 'usage', /--accepts names/);
+  bad(['--checklist', F.pin, '--accepts', 'pass, ,fail'], 'usage', /--accepts names/);
   bad(['--checklist', 'smoke-test'], 'usage', /<process>@<version folder>/);
   bad(['--accepts', 'pass'], 'usage', /--accepts goes with --checklist/);
   const dn = json('todo', 'done', F.root, PR, '--key', 'k-x', '--todo', 'td-' + '0'.repeat(24), '--checklist', F.pin, '--json', ...TOOL);

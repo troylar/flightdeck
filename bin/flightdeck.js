@@ -3307,6 +3307,8 @@ async function todoMain(argv) {
     if (val['--attempt'] != null && val['--item'] == null) return usage('--attempt goes with --item.');
     if (val['--checklist'] != null && sub !== 'add') return usage('--checklist goes with add: it names the checklist whose run settles a new to-do.');
     if (val['--accepts'] != null && val['--checklist'] == null) return usage('--accepts goes with --checklist.');
+    /* Given, it restricts: an empty list or an empty entry is refused, never read as "any result". */
+    if (val['--accepts'] != null && String(val['--accepts']).split(',').some((a) => !a.trim())) return usage('--accepts names one or more results, separated by commas, none of them empty: like --accepts pass or --accepts pass,cleared.');
     if (val['--checklist'] != null && !/^[a-z0-9][a-z0-9-]{0,59}@v[1-9][0-9]{0,8}-[a-z0-9]{1,40}$/.test(val['--checklist'])) return usage('say the checklist as <process>@<version folder>, like smoke-test@v3-k3m9p2q8 (flightdeck versions shows them).');
   } else if (Object.keys(val).length) return usage('list takes only the team folder, the run and --json.');
   let dir;
