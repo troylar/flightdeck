@@ -25,12 +25,12 @@
       "reviewed": "slice 6: pending and unreadable records shown before living; receipt head ''"
     },
     "docs/design.md": {
-      "sha256": "3b59806ff205713dc3a113bafb4efc97543f4b96709e835b304c7c382a8d7fe6",
-      "reviewed": "LB: evidence plans held to their checked hashes"
+      "sha256": "3ea6fd803f8e8094f92cb13295ff727ddca4fa06634ce4e3d4fdde9267e9a85b",
+      "reviewed": "LC: dependency versions bound and packed"
     },
     "docs/evidence.md": {
-      "sha256": "2e1e42409ed1e8c6f1604fef8bcce02c45fe5b7858c37e8c4d65fc0bb6fe3560",
-      "reviewed": "LD: a failed proposals read is named before living"
+      "sha256": "8828d4ade3981b60bb45d9f25431de63af40dd49e2385a68bcb06d34ddf5e56c",
+      "reviewed": "LC: dependency versions bound and packed"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
@@ -421,8 +421,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "5116bebcf5d24bcc88d7e72184a8f3f650af28d52b2b3d35a4549f7b3c7d39eb",
-      "reviewed": "LB: evidence plans held to their checked hashes"
+      "sha256": "bf785712a0c358ff555f432fd0a8b7823451f89d3acd52f23e1edfb117d02adb",
+      "reviewed": "LC: dependency versions bound and packed"
     },
     "src/ui/app.js": {
       "sha256": "813c5c73f708fe91a6f093f148b9d7bda601318f5c12d120a018b6b6a4a123d3",

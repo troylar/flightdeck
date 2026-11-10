@@ -91,15 +91,18 @@ PF.repo = (function () {
     });
   }
   /* One version folder, verified as a refresh does: its checklist, step types and record, then its screenshots. */
-  function readVersion(fs, proc, folder) {
-    var base = 'publications/' + proc + '/' + folder + '/';
+  /* keep: the texts judged stay on the result (_texts, not enumerable), so what is packed later can be held to them. */
+  function readVersion(fs, proc, folder, keep) {
+    var base = 'publications/' + proc + '/' + folder + '/', texts = null;
     return Promise.all(['map.md', 'types.json', 'publication.json'].map(function (n) { return fs.read(base + n); })).then(function (r) {
-      return verifyExact(fs, base, folder, { 'map.md': r[0] && r[0].text, 'types.json': r[1] && r[1].text, 'publication.json': r[2] && r[2].text });
+      texts = { 'map.md': r[0] && r[0].text, 'types.json': r[1] && r[1].text, 'publication.json': r[2] && r[2].text };
+      return verifyExact(fs, base, folder, texts);
     }).then(function (res) {
       res.folder = folder; res.process = proc;
       return checkImages(fs, base, res);
-    });
+    }).then(function (res) { if (keep) kept(res, texts); return res; });
   }
+  function kept(res, texts) { try { Object.defineProperty(res, '_texts', { value: texts, enumerable: false }); } catch (e) { /* frozen: nothing kept */ } return res; }
   /* A version verified as the app verifies it: a /2 version by the SHA-256 of the exact bytes of its checklist and step
      types (P.exactOf), read only when it is /2. Every reader of a version in a folder goes through this. */
   function verifyExact(fs, base, folder, texts, vo) {
@@ -849,9 +852,9 @@ PF.repo = (function () {
         /* The run's version, verified here so a failure is named, not taken as "nothing to say" (pubProblem's answer). */
         var r = out.run;
         /* A test run's version is its stage (2.1), read by the stage rules. */
-        if (r && isTestRun(r) && typeof r.folder === 'string' && P.STAGE.test(r.folder) && /^[a-z0-9][a-z0-9-]{0,59}$/.test(r.process)) return readStage(fs, r.process, r.folder).then(function (res) { out.pub = res; }, function (e) { out.pub = { ok: false, why: why(e), folder: r.folder, process: r.process, _readFailed: true }; }).then(function () { return out; });
+        if (r && isTestRun(r) && typeof r.folder === 'string' && P.STAGE.test(r.folder) && /^[a-z0-9][a-z0-9-]{0,59}$/.test(r.process)) return readStage(fs, r.process, r.folder, true).then(function (res) { out.pub = res; }, function (e) { out.pub = { ok: false, why: why(e), folder: r.folder, process: r.process, _readFailed: true }; }).then(function () { return out; });
         if (!r || typeof r.folder !== 'string' || !P.versionOf(r.folder) || !/^[a-z0-9][a-z0-9-]{0,59}$/.test(r.process)) return out;
-        return readVersion(fs, r.process, r.folder).then(function (res) { out.pub = res; }, function (e) { out.pub = { ok: false, why: why(e), folder: r.folder, process: r.process, _readFailed: true }; }).then(function () { return out; });
+        return readVersion(fs, r.process, r.folder, true).then(function (res) { out.pub = res; }, function (e) { out.pub = { ok: false, why: why(e), folder: r.folder, process: r.process, _readFailed: true }; }).then(function () { return out; });
       });
     });
   }
@@ -1568,11 +1571,13 @@ PF.repo = (function () {
   /* One stage folder, verified by the stage rules and its screenshots. Anything short of a verified stage is incomplete. */
   /* A stage is its folder's process's: one whose record or checklist names another process (copied in by hand) is
      unusable, named, so no test run or version is ever written for the wrong process. */
-  function readStage(fs, proc, folder) {
-    var base = 'staged/' + proc + '/' + folder + '/';
+  function readStage(fs, proc, folder, keep) {
+    var base = 'staged/' + proc + '/' + folder + '/', texts = null;
     return Promise.all(['map.md', 'types.json', 'publication.json'].map(function (n) { return fs.read(base + n); })).then(function (r) {
-      return verifyExact(fs, base, folder, { 'map.md': r[0] && r[0].text, 'types.json': r[1] && r[1].text, 'publication.json': r[2] && r[2].text }, { stage: true });
+      texts = { 'map.md': r[0] && r[0].text, 'types.json': r[1] && r[1].text, 'publication.json': r[2] && r[2].text };
+      return verifyExact(fs, base, folder, texts, { stage: true });
     }).then(function (res) {
+      if (keep) kept(res, texts);
       if (res.ok && res.info.process !== proc) res = { ok: false, why: 'It\'s a stage of ' + String(res.info.process) + ', in ' + proc + '\'s folder. Edited by hand: nothing runs from it here.', info: res.info, unusable: true };
       else if (res.ok && res.map.meta.process !== proc) res = { ok: false, why: 'Its checklist is for ' + String(res.map.meta.process) + ', not ' + proc + '. Edited by hand: nothing runs from it here.', info: res.info, unusable: true };
       return res;
@@ -2646,7 +2651,7 @@ PF.repo = (function () {
     var jp = PF.appjson.judgeRun(c, one.pub)[0];
     if (jp) return { bad: { key: key, path: String(jp.path), kind: jp.kind, why: String(jp.why) } };
     if (c._unrunnable) return { bad: { key: key, path: path, kind: 'unusable', why: String(c._unrunnable) } };
-    return { run: c };
+    return { run: c, pub: one.pub || null };
   }
   function readLoopChildren(fs, self) {
     var map = null; try { map = R.mapOf(self); } catch (e) { map = null; }
@@ -3291,6 +3296,9 @@ PF.repo = (function () {
             if (x.problem || !known[k]) return;
             L.runTexts[path] = known[k]._fileHash || '';
             add(path, LBL[x.role] || LBL.child);
+            /* The version its verdict read, packed and held to those same bytes. */
+            var pv = got[k] && got[k].pub, vt = pv && pv._texts;
+            if (vt) ['map.md', 'types.json', 'publication.json'].forEach(function (n) { if (typeof vt[n] !== 'string') return; var vp = R.pubDir(known[k]) + n; L.runTexts[vp] = fileHash(vt[n]); add(vp, { role: 'dependency version', label: 'The version a run the work depends on ran' }); });
           });
           return keepClaims(p, add, Pr);
         });

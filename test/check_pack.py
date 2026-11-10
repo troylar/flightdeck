@@ -3,7 +3,7 @@ manifest.json's SHA-256 for every payload file and SHA256SUMS for payload plus m
 application chain from the packed run.json's living.head through each application's previous, and checks the receipt the run
 names says the run's work head and outcome: a pack that calls a run's work complete must hold all of it, and a pack missing
 any of it must say it is partial. Run with python3 -I."""
-import hashlib, json, os, re, sys, zipfile
+import hashlib, json, os, re, shutil, sys, tempfile, zipfile
 
 # The shipped checker's own record reader (Python, independent of the app): a packed receipt is read by its rules.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "example-folder", ".flightdeck", "skills", "_flightdeck"))
@@ -283,6 +283,40 @@ def check_living(z, man):
                     out.update(hit or ["?/" + ch["run"]])
         return out
 
+    def version_why(run):
+        """The version a dependency run ran, as packed: its three files there and, for a published version, verified by the
+        shipped checker's rules (check_publication) and matching the run; '' when it holds."""
+        folder, proc = run.get("folder"), run.get("process")
+        if not isinstance(folder, str) or not isinstance(proc, str):
+            return "it names no version"
+        test = run.get("test") is True
+        base = ("staged/" if test else "publications/") + proc + "/" + folder + "/"
+        names = ("map.md", "types.json", "publication.json")
+        if any(base + n not in by_path for n in names):
+            return base + " isn't all in the pack"
+        if test:
+            try:
+                info = load(base + "publication.json")
+            except ValueError:
+                info = None
+            return "" if isinstance(info, dict) else base + "publication.json isn't a publication record"
+        tmp = tempfile.mkdtemp(prefix="flightdeck-pack-")
+        try:
+            vdir = os.path.join(tmp, folder)
+            os.mkdir(vdir)
+            for n in names:
+                with open(os.path.join(vdir, n), "wb") as f:
+                    f.write(z.read(by_path[base + n]))
+            state, why, info = CF.check_publication(vdir, folder)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        # A screenshot is verified by the app when the run is judged and isn't packed with a dependency's version.
+        if state != "complete" and not (state == "syncing" and why.startswith("screenshot ")):
+            return base + ": " + why
+        if info.get("mapHash") != run.get("mapHash") or info.get("folder") != folder:
+            return base + " isn't the version the run ran"
+        return ""
+
     # Each evidence plan packed reads as a plan, by the shipped checker's rules (PF.plans.planWhy), under its own name.
     plans_bad = []
     for f in man["files"]:
@@ -345,6 +379,9 @@ def check_living(z, man):
                 tw = times_why(dep_run)
                 if tw:
                     sys.exit("living: " + r["key"] + " says its work is complete, but " + k + ", a run it depends on, has times the app can't read (" + tw + ")")
+                vw = version_why(dep_run)
+                if vw:
+                    sys.exit("living: " + r["key"] + " says its work is complete, but the version of " + k + ", a run it depends on, doesn't hold (" + vw + ")")
                 sw = schema_why(dep_run)
                 if sw:
                     sys.exit("living: " + r["key"] + " says its work is complete, but " + k + ", a run it depends on, holds what the app wouldn't read as written (" + sw + ")")

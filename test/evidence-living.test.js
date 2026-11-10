@@ -580,4 +580,23 @@ rule('An evidence plan changed between the checked read and the bytes packed, at
   assert.strictEqual(misses.length, 0, misses.join('\n'));
 });
 
+/* LC: the version behind each dependency's verdict is packed and held to the bytes judged: one changed during capture is named. */
+rule('A dependency\'s version is packed with the bytes its verdict read: a publication.json changed during capture leaves the pack partial', async () => {
+  const W = await loopMade(), k = JSON.parse(W.files[W.kidPath]), dir = 'publications/' + k.process + '/' + k.folder + '/', pub = dir + 'publication.json';
+  const full = await pack(W.PF, new BytesFS(W.files), W.key);
+  assert.strictEqual(full.res.status, 'complete', JSON.stringify(full.res.col.unresolved));
+  const paths = manifestOf(full.zip).files.map(f => f.path);
+  ['map.md', 'types.json', 'publication.json'].forEach(n => assert.ok(paths.indexOf(dir + n) >= 0, dir + n + ' is packed: ' + JSON.stringify(paths)));
+  if (PY) { const c = checkPack(full.zip); assert.ok(c.ok, c.out); }
+  let n = 0;
+  const fsx = new BytesFS(W.files, { hooks: { blob: (p, x) => { if (p === pub && !n++) { const b = x.files.get(p).toString('utf8'); x.files.set(p, Buffer.from('[' + b.slice(1))); } } } });
+  const { res } = await pack(W.PF, fsx, W.key);
+  assert.ok(n >= 1, 'set-up: the bytes changed before the capture');
+  assert.strictEqual(res.status, 'partial', JSON.stringify(res.col.unresolved));
+  assert.ok(res.col.unresolved.some(u => u.indexOf(pub) >= 0 && /changed/.test(u)), JSON.stringify(res.col.unresolved));
+  if (!PY) return;
+  const bad = checkPack(await repacked(W.PF, full.zip, (e, man, f) => { const x = f(pub); e[x.pack] = Buffer.from('[' + e[x.pack].toString('utf8').slice(1)); }));
+  assert.ok(!bad.ok && bad.out.indexOf(W.kidKey) >= 0, bad.out);
+});
+
 run();
