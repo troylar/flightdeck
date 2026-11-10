@@ -605,11 +605,17 @@ PF.run = (function () {
   }
   /* Why a phase's gate is held by to-dos, or null: its own work, and an item's open or disputed work in any of its loops, so
      neither passing nor waiving the phase (an optional loop's included) gets past work that isn't resolved. */
+  /* A loop's run or version that couldn't be read holds the phase too (round 8, ZB: r._loopUnread, set by the reader on every
+     read, never saved), with or without to-dos: its approval stays as recorded, and the gate waits until they read again. */
   function phaseHeld(r, map, pi) {
-    var H = todoHolds(r), p = map.phases[pi];
-    if (!H || !p) return null;
-    var why = H.all.concat(own(H.phases, p.id) ? H.phases[p.id] : []);
-    p.steps.forEach(function (s) { if (s.type === 'for.each' && own(H.loops, s.id)) why = why.concat(H.loops[s.id]); });
+    var H = todoHolds(r), p = map.phases[pi], U = r && !r.ended ? r._loopUnread : null;
+    if ((!H && !U) || !p) return null;
+    var why = H ? H.all.concat(own(H.phases, p.id) ? H.phases[p.id] : []) : [];
+    p.steps.forEach(function (s) {
+      if (s.type !== 'for.each') return;
+      if (H && own(H.loops, s.id)) why = why.concat(H.loops[s.id]);
+      if (U && own(U, s.id)) why = why.concat(U[s.id]);
+    });
     return why.length ? why : null;
   }
   function loopHeld(r, sid) {

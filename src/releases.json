@@ -51,7 +51,7 @@
         "area": "Loops",
         "title": "A loop's approval stays put while a story's run can't be read",
         "before": "In 3.0, when a story's run or the version it runs on couldn't be read, the loop read that story's result as none and sent its approval back for review.",
-        "now": "The approval stays as it is and the loop's gate waits until the run and its version read again. If nothing changed, it stays approved; if the result changed, it goes back for review then. This applies to every loop, with or without spreads or to-dos.",
+        "now": "The approval stays as it is, and the gate of the loop's phase waits (it can't be passed or waived) until the run and its version read again. If nothing changed, it stays approved and the gate can be passed; if the result changed, it goes back for review then. This applies to every loop, with or without spreads or to-dos.",
         "where": "A run's loop"
       }
     ]

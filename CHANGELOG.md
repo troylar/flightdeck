@@ -17,7 +17,7 @@ Living runs: to-dos a run takes on while it runs.
 ### Improved
 
 - **Move every computer to 4.0 before anyone adds to-dos to a run** (Updating). A run that has taken on to-dos, and the to-do records in proposals/, use a format only Flightdeck 4.0 reads. Copies before 4.0 show them by name and never change them, and check_folder.py names the version they need. A run without to-dos reads and saves as before. *Where:* Runs, proposals/, check_folder.py
-- **A loop's approval stays put while a story's run can't be read** (Loops). The approval stays as it is and the loop's gate waits until the run and its version read again. If nothing changed, it stays approved; if the result changed, it goes back for review then. This applies to every loop, with or without spreads or to-dos. *Where:* A run's loop
+- **A loop's approval stays put while a story's run can't be read** (Loops). The approval stays as it is, and the gate of the loop's phase waits (it can't be passed or waived) until the run and its version read again. If nothing changed, it stays approved and the gate can be passed; if the result changed, it goes back for review then. This applies to every loop, with or without spreads or to-dos. *Where:* A run's loop
 
 ## 3.0.1 · Nov 9, 2026
 

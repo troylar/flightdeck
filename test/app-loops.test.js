@@ -1043,25 +1043,47 @@ rule('Round 10 (1, 2): every save, backup or archive of a run.json in the app go
 });
 /* Compat (a deliberate 4.0.0 change, named in its release notes): a plain 3.0 loop, with no spreads and no to-dos, keeps its
    approval while a run of the loop or its version can't be read. 3.0 read the story's result as none and sent the approval
-   back; 4.0 holds instead, and a fresh read that shows nothing changed leaves it approved. */
-rule('Compat (4.0.0 change): a 3.0 loop\'s approval stays put, never sent back, while a story\'s run or its version can\'t be read', async () => {
-  for (const what of ['the story\'s version', 'the story\'s run']) {
+   back; 4.0 holds instead: the phase's gate waits (never Ready), Pass and Waive write nothing, and a fresh read that shows
+   nothing changed leaves it approved and its gate passable again (round 8, ZB). */
+rule('Compat (4.0.0 change): a 3.0 loop\'s approval stays put and its gate waits, never passed or waived, while a story\'s run or its version can\'t be read', async () => {
+  const WAYS = {
+    'the story\'s version, absent': (app) => { const kept = {}; app.files('publications/validate-story/').forEach(p => { kept[p] = app.fs.files[p]; delete app.fs.files[p]; }); return () => Object.assign(app.fs.files, kept); },
+    'the story\'s run, absent': (app) => { const p = kidPaths(app)[0], kept = app.fs.files[p]; delete app.fs.files[p]; return () => { app.fs.files[p] = kept; }; },
+    'the story\'s run, EIO': (app) => { const p = kidPaths(app)[0], read = app.fs.read; app.fs.read = (q, o) => q === p ? Promise.reject(new Error('EIO')) : read.call(app.fs, q, o); return () => { app.fs.read = read; }; }
+  };
+  const off = [];
+  let n = 0;
+  for (const what of Object.keys(WAYS)) {
     const app = await setup();
     app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
     app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(150);
     await clear(app, kidPaths(app)[0]);
     app.click('refresh'); await app.tick(200);
     app.click('loop-approve', 'each'); await app.tick(150);
-    const r0 = parentRun(app);
+    const r0 = parentRun(app), gid = app.PF.run.mapOf(app.PF.run.sanitize(r0)).phases[0].gate.id;
     assert.strictEqual(r0.steps.each.s, 'done', what + ': set-up: approved');
     assert.ok(!r0.living && !(r0.features || []).includes('living-runs'), what + ': set-up: a plain 3.0 loop');
-    const gone = what === 'the story\'s run' ? [kidPaths(app)[0]] : app.files('publications/validate-story/');
-    const kept = {}; gone.forEach(p => { kept[p] = app.fs.files[p]; delete app.fs.files[p]; });
-    app.click('refresh'); await app.tick(400);
-    assert.strictEqual(parentRun(app).steps.each.s, 'done', what + ': unread: the approval stays put');
-    Object.assign(app.fs.files, kept);
-    app.click('refresh'); await app.tick(400);
-    assert.strictEqual(parentRun(app).steps.each.s, 'done', what + ': read again, nothing changed: still approved');
+    const gateOf = () => (parentRun(app).gates || {})[gid] || null, canPass = () => /data-act="pass"/.test(app.html());
+    assert.ok(canPass(), what + ': set-up: the gate is Ready');
+    const undo = WAYS[what](app);
+    for (let i = 0; i < 2; i++) { app.click('refresh'); await app.tick(400); }
+    if (parentRun(app).steps.each.s !== 'done') off.push(what + ': the approval was sent back');
+    if (canPass()) off.push(what + ': the gate is still Ready');
+    const before = app.fs.files[app.files('runs/release-readiness/').find(p => /run\.json$/.test(p))].t;
+    app.click('pass', '0'); await app.tick(150);
+    app.click('pick', gid, { kind: 'waive' }); await app.tick(); app.set('pick-input', 'Agreed with the team'); app.click('waive', '0'); await app.tick(150);
+    if (gateOf()) off.push(what + ': the gate was ' + gateOf().s + ' while the story couldn\'t be read');
+    if (app.fs.files[app.files('runs/release-readiness/').find(p => /run\.json$/.test(p))].t !== before) off.push(what + ': the run was written');
+    if (/id="pick-input"/.test(app.html())) { app.click('unpick'); await app.tick(); }
+    undo();
+    for (let i = 0; i < 2; i++) { app.click('refresh'); await app.tick(400); }
+    if (parentRun(app).steps.each.s !== 'done') off.push(what + ': read again, nothing changed: not approved');
+    if (!canPass()) off.push(what + ': read again: the gate isn\'t Ready');
+    /* Read again, it can be passed (or waived) as before. */
+    if (n++ % 2 === 0) { app.click('pass', '0'); await app.tick(150); }
+    else { app.click('pick', gid, { kind: 'waive' }); await app.tick(); app.set('pick-input', 'Agreed with the team'); app.click('waive', '0'); await app.tick(150); }
+    if (!gateOf() || ['passed', 'waived'].indexOf(gateOf().s) < 0) off.push(what + ': read again: the gate couldn\'t be ' + (n % 2 ? 'passed' : 'waived'));
   }
+  assert.deepStrictEqual(off, []);
 });
 run();

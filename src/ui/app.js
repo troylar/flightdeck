@@ -6423,6 +6423,14 @@
     PF.loop.markStale(runs || [], { records: data.scopes, unread: data.scopesUnread || [], procOf: ctx.procOf });
     /* Living runs (4.0): what open or disputed to-dos hold, read-only, on every read (r._todos). */
     PF.todos.markHolds(runs || [], { records: data.todos || [], unread: data.todosUnread || [], people: data.people, loops: spLoops() });
+    /* Round 8 (ZB): a loop whose run or version can't be read fresh holds its phase's gate (r._loopUnread, never saved), so
+       Pass and Waive wait while its approval stays as recorded. */
+    (runs || []).forEach(function (r) {
+      if (!r || r.ended || r._unrunnable || !r.steps) { if (r) delete r._loopUnread; return; }
+      var out = null;
+      Object.keys(r.steps).forEach(function (id) { var a = r.steps[id]; if (a && a.s === 'done' && a.loop && loopUnread(r, id)) { out = out || Object.create(null); out[id] = ['A run of this loop or the version it runs on can\'t be read here, so the gate waits until it reads again.']; } });
+      if (out) r._loopUnread = out; else delete r._loopUnread;
+    });
   }
   function mutate(fn, opts) { return mutateRun(state.runKey, gen, function (r, m, me, now) { markLoops([r].concat((data.runs || []).filter(function (x) { return x.id !== r.id; }))); return fn(r, m, me, now); }, opts); }
   /* Change one run, named by its key, in the folder generation the action started in. An action that finishes after the
