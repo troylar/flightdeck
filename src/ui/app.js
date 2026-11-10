@@ -3750,25 +3750,22 @@
     if (!state.me || !kid || !pid) return;
     var rec = (data.todos || []).filter(function (k) { return k && k.kind === 'keep' && k.id === kid; })[0];
     if (!rec) { say('That keep isn\'t here anymore. Nothing was withdrawn.', 'warn'); render(); return; }
-    var name = rec._file || kid + '.json', path = 'proposals/' + name, text = null, R = null, proc = null, fail = '', endBusy = busyStart(), sg = gen, MAX = PF.corrections.MEMBERS_MAX;
+    var name = rec._file || kid + '.json', path = 'proposals/' + name, R = null, proc = null, fail = '', endBusy = busyStart(), sg = gen, MAX = PF.corrections.MEMBERS_MAX;
     var kg = writeGuard({
       fresh: function (fx) {
-        text = null; R = null; proc = null; fail = '';
-        return fx.read(path).then(function (f) { text = f ? f.text : null; }, function (e) { fail = path + ' couldn\'t be read again right before it was removed (' + (e && e.message || e) + ').'; })
-          .then(function () { return repo.readKept(fx, function () { return repo.readProcess(fx, pid).then(function (p) { proc = p; }, function () { proc = null; }); }); })
+        R = null; proc = null; fail = '';
+        /* The keep itself is the checked reader's (repo.readKept): its record under this file name, never a parse of its own. */
+        return repo.readKept(fx, function () { return repo.readProcess(fx, pid).then(function (p) { proc = p; }, function () { proc = null; }); })
           .then(function (x) { R = x; return true; }, function (e) { fail = fail || 'what was kept for next time couldn\'t be read again right before it was removed (' + (e && e.message || e) + ').'; return true; });
       },
       who: function (ppl, me) {
         if (fail) return fail;
-        if (text == null) return 'it isn\'t in the folder now.';
-        var k = null; try { k = JSON.parse(text); } catch (e) { k = null; }
-        if (!k || k.kind !== 'keep' || k.id !== kid) return path + ' isn\'t that keep now.';
         if (!R) return 'what was kept for next time couldn\'t be read again.';
         if ((R.keepUnread || []).length) return 'a record kept for next time can\'t be read now (proposals/' + R.keepUnread[0].file + '), so how many are kept at this place can\'t be counted.';
         if ((R.decUnread || []).some(function (u) { return u && u.process === pid; })) return 'a decision on its checklist\'s corrections can\'t be read now, so whether one names this keep can\'t be told.';
         if ((R.decisions || []).some(function (d) { return d.process === pid && (d.members || []).indexOf(kid) >= 0; })) return 'a decision on its correction names it, so it is withdrawn or decided with the whole correction, never alone.';
-        var kr = (R.keeps || []).filter(function (x) { return x && x.id === kid; })[0];
-        if (!kr) return path + ' isn\'t a keep that can be read now.';
+        var kr = (R.keeps || []).filter(function (x) { return x && x.id === kid && x._file === name; })[0];
+        if (!kr) return path + ' isn\'t that keep in the folder now.';
         if (kr.by && kr.by.person === me) return '';
         var g = PF.corrections.groups(PF.learn.members(R.keeps, [], pid)).filter(function (x) { return x.members.some(function (m) { return m.id === kid; }); })[0];
         if (!g || g.members.length <= MAX) return 'only whoever kept it can withdraw it. Its checklist\'s owner withdraws keeps only while a place holds more than ' + MAX + '.';

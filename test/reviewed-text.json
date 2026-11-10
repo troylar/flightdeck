@@ -421,8 +421,8 @@
       "reviewed": "OC: whole-pin verdict and plan copy names via the loader's rule; read-only; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "405b353c3a7b4965924f989c8831d89408da6ae0a5cd179d68ceabd2fddc9323",
-      "reviewed": "OC: whole-pin verdict and plan copy names via the loader's rule; read-only; checked for direct writes and unconditional deletes"
+      "sha256": "3b3c3b846fa25a7261a047456e981aa38475f45437d59b80aaca3693798ff4f9",
+      "reviewed": "withdraw reads the keep only through the checked reader; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
