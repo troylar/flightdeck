@@ -2641,15 +2641,25 @@ PF.repo = (function () {
     var add = function (e, rec) { if (e && e.run && typeof e.run.process === 'string' && typeof e.run.id === 'string' && PROC.test(e.run.process) && RUN.test(e.run.id)) { want[e.run.process + '/' + e.run.id] = e.run; if (rec) named[e.run.process + '/' + e.run.id] = true; } };
     (records || []).forEach(function (x) { if (!x) return; add(x.evidence, true); add(x.effect && x.effect.evidence, true); add(x.application && x.application.effect && x.application.effect.evidence, true); });
     (also || []).forEach(function (r) { add({ run: r }); });
+    /* The evidence plans the records name: each one's refused or torn file or decision, or its absence, is a problem too. */
+    var planIds = [], addPlan = function (e) { if (e && typeof e.plan === 'string' && /^plan-ev-[a-f0-9]{24}$/.test(e.plan) && planIds.indexOf(e.plan) < 0) planIds.push(e.plan); };
+    (records || []).forEach(function (x) { if (!x) return; addPlan(x.evidence); addPlan(x.effect && x.effect.evidence); addPlan(x.application && x.application.effect && x.application.effect.evidence); });
     var problems = [], file = function (k) { return 'runs/' + k + '/run.json'; };
-    var problem = function (k, kind, why) { if (named[k] && !problems.some(function (q) { return q.path === file(k) && q.kind === kind; })) problems.push({ path: file(k), kind: kind, why: why }); };
+    var problemAt = function (k, path, kind, why) { if ((k == null || named[k]) && !problems.some(function (q) { return q.path === path && q.kind === kind; })) problems.push({ path: path, kind: kind, why: why }); };
+    var problem = function (k, kind, why) { problemAt(k, file(k), kind, why); };
     var holds = (got.torn || []).filter(function (u) { return !u.link && !u.deep; }).map(function (u) { return { path: u.path, _file: u._file, kind: 'unreadable' }; })
       .concat((got.refused || []).map(function (x) { return { path: x.path, _file: String(x.path).slice('proposals/'.length), kind: x.kind, needs: x.needs || '' }; }));
     var plans = groupPlans((got.plans || []).map(function (p) { return Object.assign({}, p); }), got.statuses || [], holds), keys = Object.keys(want).sort(), runs = [], unreadRuns = [];
     return keys.reduce(function (pr, k) {
       return pr.then(function () {
         return readRunOnly(fs, want[k].process, want[k].id).then(function (one) {
-          if (one.found && one.run) { runs.push(one.run); return; }
+          /* A run that reads is judged as runs judges it (PF.appjson.judgeRun): newer, damaged, conflicted or not matching
+             its version, it is unread here, with each problem named, never evidence. */
+          if (one.found && one.run) {
+            var jp = PF.appjson.judgeRun(one.run, one.pub);
+            if (!jp.length) { runs.push(one.run); return; }
+            unreadRuns.push(k); jp.forEach(function (q) { problemAt(k, q.path, q.kind, q.why); }); return;
+          }
           if (!one.found || one.nofile) { problem(k, 'missing', 'The run a to-do\'s evidence names isn\'t in the team folder, so what rests on it can\'t be checked.'); if (one.found) unreadRuns.push(k); return; }
           unreadRuns.push(k);
           var mine = (one.bad || []).filter(function (b) { return b && typeof b.path === 'string' && b.path.indexOf('runs/' + k + '/') === 0; });
@@ -2657,7 +2667,17 @@ PF.repo = (function () {
           else problem(k, 'unreadable', 'This run couldn\'t be read, so what rests on it can\'t be checked.');
         }, function (e) { unreadRuns.push(k); problem(k, errKind(e), why(e)); });
       });
-    }, Promise.resolve()).then(function () { return { runs: runs, unreadRuns: unreadRuns, plans: plans, problems: problems, paths: keys.map(function (k) { return 'runs/' + k; }) }; });
+    }, Promise.resolve()).then(function () {
+      var ev = { runs: runs, unreadRuns: unreadRuns, plans: plans, holds: holds, problems: problems, paths: keys.map(function (k) { return 'runs/' + k; }) };
+      planIds.sort().forEach(function (id) {
+        var held = PF.detours.planHeld(ev, id);
+        if (held.length) held.forEach(function (q) { problemAt(null, q.path, q.kind, q.why); });
+        else if (!plans.some(function (p) { return p && p.id === id; })) problemAt(null, 'proposals/' + id + '.json', 'missing', 'The evidence plan a to-do\'s done names isn\'t in the team folder, so what rests on it can\'t be checked.');
+      });
+      /* Every path a problem names is one the caller depends on. */
+      problems.forEach(function (q) { if (ev.paths.indexOf(q.path) < 0) ev.paths.push(q.path); });
+      return ev;
+    });
   }
   function readPlans(fs, bad, only, two) {
     var refused = [], torn = [];

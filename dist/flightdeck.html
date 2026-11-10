@@ -20295,10 +20295,30 @@ PF.detours = (function () {
   function findRun(ev, process, id) { return (ev.runs || []).filter(function (y) { return y && y.process === process && y.id === id; })[0] || null; }
   function unreadRun(ev, process, id) { return (ev.unreadRuns || []).indexOf(process + '/' + id) >= 0; }
   function planIn(ev, id) { return (ev.plans || []).filter(function (p) { return p && p.id === id; })[0] || null; }
+  /* What can't be read of one evidence plan, as problems ({ path, kind, why }): its own file or a decision on it refused or torn
+     (ev.holds, readEvidence), a decision held (_statusHeld), or copies that differ. [] when all of it reads. */
+  function planHeld(ev, id) {
+    var out = [], seen = Object.create(null), push = function (path, kind, why) { if (!seen[path + '\u0000' + kind]) { seen[path + '\u0000' + kind] = true; out.push({ path: path, kind: kind, why: why }); } };
+    var why = 'This file is part of a to-do\'s evidence plan (' + id + ') and can\'t be read, so which run it started isn\'t known.';
+    (ev && ev.holds || []).forEach(function (h) { var f = String(h._file || ''); if (f === id + '.json' || f.indexOf(id + '.') === 0) push(h.path, h.kind === 'newer' ? 'newer' : h.kind === 'unreadable' ? 'unreadable' : 'malformed', why); });
+    var p = ev ? planIn(ev, id) : null;
+    if (p) {
+      (p._statusHeld || []).forEach(function (h) { push(h.path, h.kind === 'newer' ? 'newer' : h.kind === 'unreadable' ? 'unreadable' : 'malformed', why); });
+      if (p._copiesDiffer) (p._files || []).forEach(function (f) { push('proposals/' + f, 'malformed', 'This is one of several copies of a to-do\'s evidence plan (' + id + ') that differ, so which is meant isn\'t known.'); });
+    }
+    return out;
+  }
+  /* The evidence-plan problems of a run's checklist-linked to-dos (a view's to-dos): what run, next and todo list name. */
+  function planProblems(r, todos, ev) {
+    var out = [];
+    (todos || []).forEach(function (x) { if (x && x.checklist) planHeld(ev, planOf(r, x)).forEach(function (q) { if (!out.some(function (o) { return o.path === q.path && o.kind === q.kind; })) out.push(q); }); });
+    return out;
+  }
   /* The runs a to-do's evidence plan started, or why that can't be known: { plan, starts } | { why, held? }. */
   function startsOf(r, x, ev) {
     if (!ev) return { why: 'The run it rests on can\'t be checked here.', held: true };
     var c = x.checklist, id = planOf(r, x), p = planIn(ev, id);
+    if (!p && planHeld(ev, id).length) return { why: 'Its plan (' + id + ') can\'t be read, so which run it started isn\'t known.', held: true };
     if (!p) return { why: 'No run of ' + c.process + ' was started for this to-do yet (Run this checklist).' };
     if ((p._statusHeld || []).length || p._copiesDiffer) return { why: 'Its plan (' + id + ') has a decision or a copy that can\'t be read, so which run it started isn\'t known.', held: true };
     if (p.process !== c.process || !p.pin || p.pin.folder !== c.folder) return { why: 'Its plan (' + id + ') isn\'t for ' + c.process + ' ' + c.folder + '.' };
@@ -20360,7 +20380,7 @@ PF.detours = (function () {
   function evidenceWords(e) { return 'the run ' + e.run.process + '/' + e.run.id + (e.result ? ' (' + e.result + ')' : ''); }
 
   return { LIMITS: LIMITS, cleanChecklist: cleanChecklist, cleanEvidence: cleanEvidence, planId: planId, planOf: planOf, requestId: requestId, requestKey: requestKey, pinFor: pinFor, planFor: planFor,
-    startsOf: startsOf, evidenceFor: evidenceFor, evidenceWhy: evidenceWhy, provenance: provenance, returnOf: returnOf, evidenceWords: evidenceWords };
+    planHeld: planHeld, planProblems: planProblems, startsOf: startsOf, evidenceFor: evidenceFor, evidenceWhy: evidenceWhy, provenance: provenance, returnOf: returnOf, evidenceWords: evidenceWords };
 })();
 
 /* Reports from other apps (docs/apps.md, docs/design.md section 26): a tool that did a step's work says so in a report, a file
@@ -21236,6 +21256,63 @@ PF.appjson = (function () {
     if (/^Still syncing|^Files don't match/.test(why)) return { kind: 'still-syncing', why: why };
     return { kind: 'malformed', why: why || 'This version can\'t be read.' };
   }
+  /* ---- One run's verdict (runs, run and next, and every evidence read, CLI and app alike) ---- */
+  /* A run this copy can only list by name: saved by a newer Flightdeck (its format, fields this copy doesn't know, or its own
+     frozen checklist and step types using features this copy can't read). A run on a version that's only unusable here
+     still reads; its version is named instead. */
+  function newerRun(r) {
+    var why = r._unrunnable || '';
+    if (!why) return false;
+    if (r.snapshot === '' || why.indexOf(R.NEWER) === 0) return true;
+    return why.indexOf(P.NEWER) === 0 && !!P.unrunnable(r.snapshot, r.types);
+  }
+  /* Which times R.sanitize couldn't read (r._badTimes), in words, or ''. */
+  function badTimesWhy(b) {
+    if (!b) return '';
+    var names = { created: 'the start', ended: 'the end', pauses: 'an earlier pause', paused: 'the pause under way', log: 'a log entry' };
+    return Object.keys(b).map(function (k) { return k === 'log' && Array.isArray(b.log) && b.log.length > 1 ? b.log.length + ' log entries' : names[k] || k; }).join(', ');
+  }
+  /* Whether a place where the file and what the app reads differ is already named: the same place, one inside the other, or
+     another entry of the same list (dropping one entry shifts the rest). */
+  function explained(p, named) {
+    var base = function (x) { return x.replace(/\[\d+\].*$/, ''); }, starts = function (a, b) { return a.indexOf(b) === 0; };
+    return named.some(function (e) { return p === e || starts(p, e + '.') || starts(p, e + '[') || starts(e, p + '.') || starts(e, p + '[') || (/\[/.test(p) && /\[/.test(e) && base(p) === base(e)); });
+  }
+  function runProblems(r) {
+    var out = [], key = r.process + '/' + r.id, dir = 'runs/' + key + '/', isNewer = newerRun(r);
+    if (isNewer) out.push({ path: dir + 'run.json', kind: 'newer', why: '"' + r.title + '" (' + key + '): ' + r._unrunnable });
+    /* Times sanitize couldn't read, and every other record it dropped, cut or replaced: one problem for the file, naming each. */
+    var bt = isNewer ? '' : badTimesWhy(r._badTimes), fixed = isNewer ? [] : (r._repairs || []).map(function (x) { return x.at + ' (' + x.what + ')'; }), parts = [];
+    if (bt) parts.push('Some times in this file couldn\'t be read (' + bt + ').');
+    if (fixed.length) parts.push('Records this copy dropped or changed: ' + fixed.slice(0, 20).join(', ') + (fixed.length > 20 ? ', and ' + (fixed.length - 20) + ' more' : '') + '.');
+    /* The safety net: anywhere else sanitize's result differs from the file (R.unexplained), not already named above. */
+    var named = (r._repairs || []).map(function (x) { return x.at; }).concat(Object.keys(r._badTimes || {}));
+    var other = isNewer ? [] : (r._drift || []).filter(function (p) { return !explained(p, named); });
+    if (other.length) parts.push('Other places this copy reads differently from the file: ' + other.slice(0, 20).join(', ') + (other.length > 20 ? ', and ' + (other.length - 20) + ' more' : '') + '.');
+    if (parts.length) out.push({ path: dir + 'run.json', kind: 'malformed', why: parts.join(' ') + ' The run is shown as the app shows it, without them.' });
+    if (r._conflicts && r._conflicts.length) out.push({ path: dir, kind: 'conflict', why: 'Conflict copies or lost saves beside this run: ' + r._conflicts.join(', ') + '. A person resolves them in the app.' });
+    return out;
+  }
+  /* One run, judged the same way by runs, run and next, so a summary never says other than the run itself: its version
+     (pub: what readVersion or the version list found; a version that isn't in the folder reads as missing files, as
+     readVersion finds it; null when the command doesn't read versions) decides why it's read-only, as the app decides it
+     (unusable here, or changed since the run started: R's own reason comes first), then every problem of the run file
+     and of that version. Sets r._unrunnable; returns the problems. */
+  function judgeRun(r, pub) {
+    /* A test run's version is its stage (2.1): staged/<process>/<stage>/, whose proposed number is the run's version. */
+    var test = R.isTest(r) && typeof r.folder === 'string' && P.STAGE.test(r.folder);
+    var out = [], valid = typeof r.folder === 'string' && (test || !!P.versionOf(r.folder)) && /^[a-z0-9][a-z0-9-]{0,59}$/.test(r.process);
+    var dir = R.pubDir(r);
+    if (pub && valid && !pub._readFailed) {
+      var info = pub.ok && test ? { folder: pub.info.folder, mapHash: pub.info.mapHash, version: pub.info.stage.proposed } : pub.info;
+      var why = pub.unusable ? pub.why : pub.ok ? PF.repo.runMismatch(r, info) : '';
+      if (why && !r._unrunnable) r._unrunnable = why;
+      if (!pub.ok) { var x = pubProblem(pub); out.push({ path: dir, kind: x.kind, why: x.why }); }
+      /* The version is fine; the run doesn't match it. Named at the run, so the version is never taken as unreadable. */
+      else if (why) out.push({ path: 'runs/' + r.process + '/' + r.id + '/run.json', kind: 'unusable', why: 'This run doesn\'t match its version ' + r.folder + ' (its checklist or version number differs from the version\'s record), so the app opens it read-only.' });
+    }
+    return out.concat(runProblems(r));
+  }
   function version(p, clashes) {
     var info = p.info || {}, v = typeof info.version === 'number' ? info.version : P.versionOf(p.folder);
     return { folder: s(p.folder), version: typeof v === 'number' ? v : null, publishedAt: orNull(info.publishedAt), publishedBy: orNull(info.publishedBy),
@@ -21572,7 +21649,7 @@ PF.appjson = (function () {
   }
 
   return { CONTRACT: CONTRACT, CONTRACT2: CONTRACT2, WRITE1: WRITE1, reportOut: reportOut, targets: targets, SCHEMA2: SCHEMA2, process2: process2, next2: next2, runs2: runs2, followUps2: followUps2, run2: run2, summary2: summary2, CONTRACT_OF: contractOf, VERSIONS: VERSIONS, NOTE: NOTE, KINDS: KINDS, SCHEMA: SCHEMA, opt: opt, map: map, conforms: conforms, envelope: envelope, failure: failure, names: names,
-    v1Pub: v1Pub, v1Processes: v1Processes, v1Run: v1Run, pubProblem: pubProblem, processes: processes, process: process, runs: runs, run: run, next: next, followUps: followUps, summary: summary, request: request };
+    v1Pub: v1Pub, v1Processes: v1Processes, v1Run: v1Run, pubProblem: pubProblem, newerRun: newerRun, runProblems: runProblems, judgeRun: judgeRun, processes: processes, process: process, runs: runs, run: run, next: next, followUps: followUps, summary: summary, request: request };
 })();
 
 /* Proposals: an AI assistant's change to a draft, written once as a file, that a person applies in Flightdeck. Their attempts
@@ -25194,15 +25271,25 @@ PF.repo = (function () {
     var add = function (e, rec) { if (e && e.run && typeof e.run.process === 'string' && typeof e.run.id === 'string' && PROC.test(e.run.process) && RUN.test(e.run.id)) { want[e.run.process + '/' + e.run.id] = e.run; if (rec) named[e.run.process + '/' + e.run.id] = true; } };
     (records || []).forEach(function (x) { if (!x) return; add(x.evidence, true); add(x.effect && x.effect.evidence, true); add(x.application && x.application.effect && x.application.effect.evidence, true); });
     (also || []).forEach(function (r) { add({ run: r }); });
+    /* The evidence plans the records name: each one's refused or torn file or decision, or its absence, is a problem too. */
+    var planIds = [], addPlan = function (e) { if (e && typeof e.plan === 'string' && /^plan-ev-[a-f0-9]{24}$/.test(e.plan) && planIds.indexOf(e.plan) < 0) planIds.push(e.plan); };
+    (records || []).forEach(function (x) { if (!x) return; addPlan(x.evidence); addPlan(x.effect && x.effect.evidence); addPlan(x.application && x.application.effect && x.application.effect.evidence); });
     var problems = [], file = function (k) { return 'runs/' + k + '/run.json'; };
-    var problem = function (k, kind, why) { if (named[k] && !problems.some(function (q) { return q.path === file(k) && q.kind === kind; })) problems.push({ path: file(k), kind: kind, why: why }); };
+    var problemAt = function (k, path, kind, why) { if ((k == null || named[k]) && !problems.some(function (q) { return q.path === path && q.kind === kind; })) problems.push({ path: path, kind: kind, why: why }); };
+    var problem = function (k, kind, why) { problemAt(k, file(k), kind, why); };
     var holds = (got.torn || []).filter(function (u) { return !u.link && !u.deep; }).map(function (u) { return { path: u.path, _file: u._file, kind: 'unreadable' }; })
       .concat((got.refused || []).map(function (x) { return { path: x.path, _file: String(x.path).slice('proposals/'.length), kind: x.kind, needs: x.needs || '' }; }));
     var plans = groupPlans((got.plans || []).map(function (p) { return Object.assign({}, p); }), got.statuses || [], holds), keys = Object.keys(want).sort(), runs = [], unreadRuns = [];
     return keys.reduce(function (pr, k) {
       return pr.then(function () {
         return readRunOnly(fs, want[k].process, want[k].id).then(function (one) {
-          if (one.found && one.run) { runs.push(one.run); return; }
+          /* A run that reads is judged as runs judges it (PF.appjson.judgeRun): newer, damaged, conflicted or not matching
+             its version, it is unread here, with each problem named, never evidence. */
+          if (one.found && one.run) {
+            var jp = PF.appjson.judgeRun(one.run, one.pub);
+            if (!jp.length) { runs.push(one.run); return; }
+            unreadRuns.push(k); jp.forEach(function (q) { problemAt(k, q.path, q.kind, q.why); }); return;
+          }
           if (!one.found || one.nofile) { problem(k, 'missing', 'The run a to-do\'s evidence names isn\'t in the team folder, so what rests on it can\'t be checked.'); if (one.found) unreadRuns.push(k); return; }
           unreadRuns.push(k);
           var mine = (one.bad || []).filter(function (b) { return b && typeof b.path === 'string' && b.path.indexOf('runs/' + k + '/') === 0; });
@@ -25210,7 +25297,17 @@ PF.repo = (function () {
           else problem(k, 'unreadable', 'This run couldn\'t be read, so what rests on it can\'t be checked.');
         }, function (e) { unreadRuns.push(k); problem(k, errKind(e), why(e)); });
       });
-    }, Promise.resolve()).then(function () { return { runs: runs, unreadRuns: unreadRuns, plans: plans, problems: problems, paths: keys.map(function (k) { return 'runs/' + k; }) }; });
+    }, Promise.resolve()).then(function () {
+      var ev = { runs: runs, unreadRuns: unreadRuns, plans: plans, holds: holds, problems: problems, paths: keys.map(function (k) { return 'runs/' + k; }) };
+      planIds.sort().forEach(function (id) {
+        var held = PF.detours.planHeld(ev, id);
+        if (held.length) held.forEach(function (q) { problemAt(null, q.path, q.kind, q.why); });
+        else if (!plans.some(function (p) { return p && p.id === id; })) problemAt(null, 'proposals/' + id + '.json', 'missing', 'The evidence plan a to-do\'s done names isn\'t in the team folder, so what rests on it can\'t be checked.');
+      });
+      /* Every path a problem names is one the caller depends on. */
+      problems.forEach(function (q) { if (ev.paths.indexOf(q.path) < 0) ev.paths.push(q.path); });
+      return ev;
+    });
   }
   function readPlans(fs, bad, only, two) {
     var refused = [], torn = [];

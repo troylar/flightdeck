@@ -13,20 +13,20 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "1d29cc9eb045f23c290e8630a07c8da953f1a1c8919fd8885e77a2343d2241fa",
-      "reviewed": "empty --accepts refused; checked for direct writes and unconditional deletes"
+      "sha256": "0541ac96af007f7aa1caf8e186b38ea06ee4579d7975fe6a00325d616111f5a6",
+      "reviewed": "DC: evidence runs judged by the shared run verdict (PF.appjson.judgeRun, moved from the CLI), evidence plan and decision refusals and an absent plan are problems; no writes added; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "e641a0f9f4655b4634b9d2661fe4e4b97222f23ece79f5917e6c99f174218087",
       "reviewed": "4.0 slice 5 commit 6, checklist-linked to-dos: PF.detours (pins, the evidence plan, evidence, provenance), the checklist and evidence fields in to-do records, repo.readEvidence, the app's Run this checklist, Accept and the way back, the living-run skill and command guide sections, the 4.0.0 release entry; checked for direct writes and unconditional deletes: the plan is written create-once through repo.savePlan under the run guard, a done on a run through saveScope with a fresh read before the write, nothing deleted"
     },
     "docs/apps.md": {
-      "sha256": "dbb6b40f1a4c5bbddf2af1b5a679880edf6ad108568227e06ad30e5fb230e898",
-      "reviewed": "empty --accepts refused; checked for direct writes and unconditional deletes"
+      "sha256": "7a493f7ad413fd1e2a91914763964895197a835e3ba5ae858dfa85673aeec667",
+      "reviewed": "DC: evidence runs judged by the shared run verdict (PF.appjson.judgeRun, moved from the CLI), evidence plan and decision refusals and an absent plan are problems; no writes added; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "c0339654bd3e96cf5222ba2b25db63ed456f7dea5dd1585674475cec642d29fb",
-      "reviewed": "DB: forPublish lists a reopened keep group's reviewed subgroup; no writes added; checked for direct writes and unconditional deletes"
+      "sha256": "156b3dbce75caa2f9f92d7b9bf242c1a830a81ad6a46f5539bf8de411efd49b2",
+      "reviewed": "DC: evidence runs judged by the shared run verdict (PF.appjson.judgeRun, moved from the CLI), evidence plan and decision refusals and an absent plan are problems; no writes added; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -201,8 +201,8 @@
       "reviewed": "keeps named by their wording too: another wording is another alternative; checked for direct writes and unconditional deletes"
     },
     "src/core/appjson.js": {
-      "sha256": "dac0c1621469ee94f00b2774b9dfd1f73cd69356414b61fba79bcd5863234fe2",
-      "reviewed": "evidence that is missing or unreadable is every reader's problem, kind missing added; checked for direct writes and unconditional deletes"
+      "sha256": "0c42bcafde0d158aa78c8f8ffada3e83d610adbcdcd84dc17db2b46687394868",
+      "reviewed": "DC: evidence runs judged by the shared run verdict (PF.appjson.judgeRun, moved from the CLI), evidence plan and decision refusals and an absent plan are problems; no writes added; checked for direct writes and unconditional deletes"
     },
     "src/core/attach.js": {
       "sha256": "0e75bc0c0d748fe10aaf5657662e4ce8679c27f9d10d85c1e34891b1c9d58df0",
@@ -225,8 +225,8 @@
       "reviewed": "DB: forPublish lists a reopened keep group's reviewed subgroup; no writes added; checked for direct writes and unconditional deletes"
     },
     "src/core/detours.js": {
-      "sha256": "6d91497e815fe83ea687a537764f06e546ea94fa21d7a36d94969d1a19ca3624",
-      "reviewed": "4.0 slice 5 commit 6, checklist-linked to-dos: PF.detours (pins, the evidence plan, evidence, provenance), the checklist and evidence fields in to-do records, repo.readEvidence, the app's Run this checklist, Accept and the way back, the living-run skill and command guide sections, the 4.0.0 release entry; checked for direct writes and unconditional deletes: the plan is written create-once through repo.savePlan under the run guard, a done on a run through saveScope with a fresh read before the write, nothing deleted"
+      "sha256": "bc21e23aa03fdf9c5de8d81889304faa90b7d6b0b73b5e9c321adf4dd3459f48",
+      "reviewed": "DC: evidence runs judged by the shared run verdict (PF.appjson.judgeRun, moved from the CLI), evidence plan and decision refusals and an absent plan are problems; no writes added; checked for direct writes and unconditional deletes"
     },
     "src/core/envelope.js": {
       "sha256": "55710b76ab73ab450583c0d6262a25ac9b05004dd8cce86cdf67c8810f46dbd2",
@@ -417,8 +417,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "a39af93d109b237b5b0c060a7f2253dca7e3ee6a34f9bb4a113ed2d660f61b0b",
-      "reviewed": "publishing or promoting a version that includes a keep is the active owner's; checked for direct writes and unconditional deletes"
+      "sha256": "584780473258f57fd5943cb7171d90d0ae9710845a1d44b144fbdb8bd70b1c6b",
+      "reviewed": "DC: evidence runs judged by the shared run verdict (PF.appjson.judgeRun, moved from the CLI), evidence plan and decision refusals and an absent plan are problems; no writes added; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "b243f0daec0888827eac37196aaa9d2734c9d070a987d966df264c2dedbaad69",

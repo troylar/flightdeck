@@ -205,4 +205,36 @@ rule('Evidence a pending request rests on, missing or unreadable, is every reade
   }
 });
 
+rule('Evidence that reads but isn\'t trusted, and an evidence plan or decision that can\'t be read, is every reader\'s problem as runs judges it: exit 4 and incomplete, always together', async () => {
+  const cases = {
+    newer: (F, S) => { const f = runFile(F.root, 'smoke-test/k1'), o = JSON.parse(fs.readFileSync(f, 'utf8')); o.format = 'preflight-run/99'; fs.writeFileSync(f, JSON.stringify(o)); },
+    unknown: (F, S) => { const f = runFile(F.root, 'smoke-test/k1'), o = JSON.parse(fs.readFileSync(f, 'utf8')); o.zzUnknown = 1; fs.writeFileSync(f, JSON.stringify(o)); },
+    snapshot: (F, S) => { const f = runFile(F.root, 'smoke-test/k1'), o = JSON.parse(fs.readFileSync(f, 'utf8')); o.snapshot = 42; fs.writeFileSync(f, JSON.stringify(o)); },
+    decision: (F, S) => { fs.writeFileSync(path.join(F.root, 'proposals', S.plan.id + '.status-sk1-d.json'), '{ torn'); },
+    plan: (F, S) => { fs.writeFileSync(path.join(F.root, 'proposals', S.plan.id + '.json'), '{ torn'); },
+    absent: (F, S) => { fs.rmSync(path.join(F.root, 'proposals', S.plan.id + '.json')); fs.rmSync(path.join(F.root, 'proposals', S.plan.id + '.status-sk1-d.json')); }
+  };
+  for (const how of Object.keys(cases)) {
+    const F = await folder(), L = await linked(F, 'pass'), S = await started(F, L, 'k1', 'pass');
+    const s = json('todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--json', ...TOOL);
+    assert.strictEqual(s.code, 0, JSON.stringify(s));
+    cases[how](F, S);
+    const runPath = 'runs/smoke-test/k1/run.json', runs = json('runs', F.root, '--contract', '2', '--json');
+    /* What runs says of the run is the verdict; a plan or decision is named at its own file. */
+    const want = how === 'decision' ? { path: 'proposals/' + S.plan.id + '.status-sk1-d.json', kinds: ['unreadable', 'malformed'] }
+      : how === 'plan' ? { path: 'proposals/' + S.plan.id + '.json', kinds: ['unreadable', 'malformed'] }
+        : how === 'absent' ? { path: 'proposals/' + S.plan.id + '.json', kinds: ['missing'] }
+          : { path: runPath, kinds: (runs.problems || []).filter(q => q.path === runPath).map(q => q.kind) };
+    assert.ok(want.kinds.length, how + ': set-up: runs names the run: ' + JSON.stringify(runs.problems));
+    const readers = { run: json('run', F.root, PR, '--contract', '2', '--json'), next: json('next', F.root, PR, '--contract', '2', '--json'), 'todo list': json('todo', 'list', F.root, PR, '--json'),
+      'suggest-done --dry-run': json('todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--dry-run', '--json', ...TOOL) };
+    Object.keys(readers).forEach((k) => {
+      const x = readers[k], hit = (x.problems || []).filter(q => q.path === want.path && want.kinds.indexOf(q.kind) >= 0);
+      assert.strictEqual(x.code === 4, x.complete === false, k + ' (' + how + '): exit ' + x.code + ' with complete ' + x.complete);
+      if (k === 'suggest-done --dry-run') return;
+      assert.deepStrictEqual([k, how, x.code, x.complete, hit.length], [k, how, 4, false, 1], k + ' (' + how + '): ' + JSON.stringify(x.problems));
+    });
+  }
+});
+
 run();

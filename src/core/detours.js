@@ -99,10 +99,30 @@ PF.detours = (function () {
   function findRun(ev, process, id) { return (ev.runs || []).filter(function (y) { return y && y.process === process && y.id === id; })[0] || null; }
   function unreadRun(ev, process, id) { return (ev.unreadRuns || []).indexOf(process + '/' + id) >= 0; }
   function planIn(ev, id) { return (ev.plans || []).filter(function (p) { return p && p.id === id; })[0] || null; }
+  /* What can't be read of one evidence plan, as problems ({ path, kind, why }): its own file or a decision on it refused or torn
+     (ev.holds, readEvidence), a decision held (_statusHeld), or copies that differ. [] when all of it reads. */
+  function planHeld(ev, id) {
+    var out = [], seen = Object.create(null), push = function (path, kind, why) { if (!seen[path + '\u0000' + kind]) { seen[path + '\u0000' + kind] = true; out.push({ path: path, kind: kind, why: why }); } };
+    var why = 'This file is part of a to-do\'s evidence plan (' + id + ') and can\'t be read, so which run it started isn\'t known.';
+    (ev && ev.holds || []).forEach(function (h) { var f = String(h._file || ''); if (f === id + '.json' || f.indexOf(id + '.') === 0) push(h.path, h.kind === 'newer' ? 'newer' : h.kind === 'unreadable' ? 'unreadable' : 'malformed', why); });
+    var p = ev ? planIn(ev, id) : null;
+    if (p) {
+      (p._statusHeld || []).forEach(function (h) { push(h.path, h.kind === 'newer' ? 'newer' : h.kind === 'unreadable' ? 'unreadable' : 'malformed', why); });
+      if (p._copiesDiffer) (p._files || []).forEach(function (f) { push('proposals/' + f, 'malformed', 'This is one of several copies of a to-do\'s evidence plan (' + id + ') that differ, so which is meant isn\'t known.'); });
+    }
+    return out;
+  }
+  /* The evidence-plan problems of a run's checklist-linked to-dos (a view's to-dos): what run, next and todo list name. */
+  function planProblems(r, todos, ev) {
+    var out = [];
+    (todos || []).forEach(function (x) { if (x && x.checklist) planHeld(ev, planOf(r, x)).forEach(function (q) { if (!out.some(function (o) { return o.path === q.path && o.kind === q.kind; })) out.push(q); }); });
+    return out;
+  }
   /* The runs a to-do's evidence plan started, or why that can't be known: { plan, starts } | { why, held? }. */
   function startsOf(r, x, ev) {
     if (!ev) return { why: 'The run it rests on can\'t be checked here.', held: true };
     var c = x.checklist, id = planOf(r, x), p = planIn(ev, id);
+    if (!p && planHeld(ev, id).length) return { why: 'Its plan (' + id + ') can\'t be read, so which run it started isn\'t known.', held: true };
     if (!p) return { why: 'No run of ' + c.process + ' was started for this to-do yet (Run this checklist).' };
     if ((p._statusHeld || []).length || p._copiesDiffer) return { why: 'Its plan (' + id + ') has a decision or a copy that can\'t be read, so which run it started isn\'t known.', held: true };
     if (p.process !== c.process || !p.pin || p.pin.folder !== c.folder) return { why: 'Its plan (' + id + ') isn\'t for ' + c.process + ' ' + c.folder + '.' };
@@ -164,5 +184,5 @@ PF.detours = (function () {
   function evidenceWords(e) { return 'the run ' + e.run.process + '/' + e.run.id + (e.result ? ' (' + e.result + ')' : ''); }
 
   return { LIMITS: LIMITS, cleanChecklist: cleanChecklist, cleanEvidence: cleanEvidence, planId: planId, planOf: planOf, requestId: requestId, requestKey: requestKey, pinFor: pinFor, planFor: planFor,
-    startsOf: startsOf, evidenceFor: evidenceFor, evidenceWhy: evidenceWhy, provenance: provenance, returnOf: returnOf, evidenceWords: evidenceWords };
+    planHeld: planHeld, planProblems: planProblems, startsOf: startsOf, evidenceFor: evidenceFor, evidenceWhy: evidenceWhy, provenance: provenance, returnOf: returnOf, evidenceWords: evidenceWords };
 })();

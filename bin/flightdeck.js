@@ -765,65 +765,14 @@ const PART_PATH = { people: 'people.json', drafts: 'maps/drafts/', publications:
 const PROC_ID = /^[a-z0-9][a-z0-9-]{0,59}$/, RUN_KEY = /^([a-z0-9][a-z0-9-]{0,59})\/([a-z0-9-]{1,40})$/i;
 
 function fileWhy(w) { return 'This file ' + String(w || 'couldn\'t be read') + '.'; }
-/* A run this copy can only list by name: saved by a newer Flightdeck (its format, fields this copy doesn't know, or its own
-   frozen checklist and step types using features this copy can't read). A run on a version that's only unusable here
-   still reads; its version is named instead. */
-function newerRun(PF, r) {
-  const why = r._unrunnable || '';
-  if (!why) return false;
-  if (r.snapshot === '' || why.indexOf(PF.run.NEWER) === 0) return true;
-  return why.indexOf(PF.publish.NEWER) === 0 && !!PF.publish.unrunnable(r.snapshot, r.types);
-}
-function runProblems(PF, r) {
-  const out = [], key = r.process + '/' + r.id, dir = 'runs/' + key + '/';
-  if (newerRun(PF, r)) out.push({ path: dir + 'run.json', kind: 'newer', why: '"' + r.title + '" (' + key + '): ' + r._unrunnable });
-  /* Times sanitize couldn't read, and every other record it dropped, cut or replaced: one problem for the file, naming each. */
-  const isNewer = newerRun(PF, r), bt = isNewer ? '' : badTimesWhy(r._badTimes), fixed = isNewer ? [] : (r._repairs || []).map((x) => x.at + ' (' + x.what + ')'), parts = [];
-  if (bt) parts.push('Some times in this file couldn\'t be read (' + bt + ').');
-  if (fixed.length) parts.push('Records this copy dropped or changed: ' + fixed.slice(0, 20).join(', ') + (fixed.length > 20 ? ', and ' + (fixed.length - 20) + ' more' : '') + '.');
-  /* The safety net: anywhere else sanitize's result differs from the file (R.unexplained), not already named above. */
-  const named = (r._repairs || []).map((x) => x.at).concat(Object.keys(r._badTimes || {}));
-  const other = isNewer ? [] : (r._drift || []).filter((p) => !explained(p, named));
-  if (other.length) parts.push('Other places this copy reads differently from the file: ' + other.slice(0, 20).join(', ') + (other.length > 20 ? ', and ' + (other.length - 20) + ' more' : '') + '.');
-  if (parts.length) out.push({ path: dir + 'run.json', kind: 'malformed', why: parts.join(' ') + ' The run is shown as the app shows it, without them.' });
-  if (r._conflicts && r._conflicts.length) out.push({ path: dir, kind: 'conflict', why: 'Conflict copies or lost saves beside this run: ' + r._conflicts.join(', ') + '. A person resolves them in the app.' });
-  return out;
-}
-/* Whether a place where the file and what the app reads differ is already named: the same place, one inside the other, or
-   another entry of the same list (dropping one entry shifts the rest). */
-function explained(p, named) {
-  const base = (x) => x.replace(/\[\d+\].*$/, '');
-  return named.some((e) => p === e || p.startsWith(e + '.') || p.startsWith(e + '[') || e.startsWith(p + '.') || e.startsWith(p + '[') || (/\[/.test(p) && /\[/.test(e) && base(p) === base(e)));
-}
+/* One run's verdict, shared with the app's evidence reads (PF.appjson.judgeRun, docs/apps.md): newer, damaged, conflicted,
+   or not matching its version. */
+const newerRun = (PF, r) => PF.appjson.newerRun(r);
+const runProblems = (PF, r) => PF.appjson.runProblems(r);
+const judgeRun = (PF, r, pub) => PF.appjson.judgeRun(r, pub);
 /* A follow-up decision whose file says something cleanDecision doesn't keep as written (_drift, reading for other apps). */
 function decisionDrift(d) {
   return d && d._drift && d._drift.length ? { path: 'followups/' + d.process + '/' + d._file, kind: 'malformed', why: 'This decision isn\'t read as written: ' + d._drift.slice(0, 20).join(', ') + '.' } : null;
-}
-/* Which times R.sanitize couldn't read (r._badTimes), in words, or ''. */
-function badTimesWhy(b) {
-  if (!b) return '';
-  const names = { created: 'the start', ended: 'the end', pauses: 'an earlier pause', paused: 'the pause under way', log: 'a log entry' };
-  return Object.keys(b).map((k) => (k === 'log' && Array.isArray(b.log) && b.log.length > 1 ? b.log.length + ' log entries' : names[k] || k)).join(', ');
-}
-/* One run, judged the same way by runs, run and next, so a summary never says other than the run itself: its version
-   (pub: what readVersion or the version list found; a version that isn't in the folder reads as missing files, as
-   readVersion finds it; null when the command doesn't read versions) decides why it's read-only, as the app decides it
-   (unusable here, or changed since the run started: R's own reason comes first), then every problem of the run file
-   and of that version. Sets r._unrunnable; returns the problems. */
-function judgeRun(PF, r, pub) {
-  /* A test run's version is its stage (2.1): staged/<process>/<stage>/, whose proposed number is the run's version. */
-  const test = PF.run.isTest(r) && typeof r.folder === 'string' && PF.publish.STAGE.test(r.folder);
-  const A = PF.appjson, out = [], valid = typeof r.folder === 'string' && (test || !!PF.publish.versionOf(r.folder)) && /^[a-z0-9][a-z0-9-]{0,59}$/.test(r.process);
-  const dir = PF.run.pubDir(r);
-  if (pub && valid && !pub._readFailed) {
-    const info = pub.ok && test ? { folder: pub.info.folder, mapHash: pub.info.mapHash, version: pub.info.stage.proposed } : pub.info;
-    const why = pub.unusable ? pub.why : pub.ok ? PF.repo.runMismatch(r, info) : '';
-    if (why && !r._unrunnable) r._unrunnable = why;
-    if (!pub.ok) { const x = A.pubProblem(pub); out.push({ path: dir, kind: x.kind, why: x.why }); }
-    /* The version is fine; the run doesn't match it. Named at the run, so the version is never taken as unreadable. */
-    else if (why) out.push({ path: 'runs/' + r.process + '/' + r.id + '/run.json', kind: 'unusable', why: 'This run doesn\'t match its version ' + r.folder + ' (its checklist or version number differs from the version\'s record), so the app opens it read-only.' });
-  }
-  return out.concat(runProblems(PF, r));
 }
 /* A version folder that isn't in the folder, as readVersion would find it: none of its files there. */
 function missingVersion(PF, r) { const v = PF.publish.verify(r.folder, { 'map.md': null, 'types.json': null, 'publication.json': null }, null, PF.run.isTest(r) ? { stage: true } : null); v.folder = r.folder; v.process = r.process; return v; }
@@ -987,6 +936,8 @@ async function readData(eng, adapter, req) {
           (ev.problems || []).forEach((q) => L.note(q.path, q.kind, q.why));
           const un = markTodos(PF, [r], gp, one.people, !!(one.peopleWhy || pw), loopIn, ev), was = relevant, mine = {};
           un.filter((u) => u.run ? u.run.process === m[1] && u.run.id === m[2] : !!r.living).concat(evidenceUnread(PF, r, r._tdv, un)).forEach((u) => { if (u.file !== 'people.json' && !mine['proposals/' + u.file]) { mine['proposals/' + u.file] = true; L.note('proposals/' + u.file, u.kind === 'newer' || u.kind === 'unreadable' ? u.kind : 'malformed', u.kind === 'newer' ? u.why : fileWhy(u.why)); } });
+          /* The evidence plans of its checklist-linked to-dos: one that can't be read is this command's problem too. */
+          PF.detours.planProblems(r, r._tdv ? r._tdv.todos : [], ev).forEach((q) => { mine[q.path] = true; L.note(q.path, q.kind, q.why); });
           relevant = (p) => was(p) || !!mine[p] || evp.some((q) => p === q || String(p).indexOf(q + '/') === 0);
         } else if (r.living) { const was = relevant; relevant = (p) => was(p) || p === 'proposals'; }
       }
@@ -3351,6 +3302,7 @@ async function todoMain(argv) {
     /* A record another run's evidence needs that can't be read is this command's problem too, named. */
     const noteUnread = (list) => list.forEach((u) => { const p = 'proposals/' + u.file; if (u.file !== 'people.json' && !extra.some((e) => e.path === p)) extra.push({ path: p, kind: u.kind === 'newer' ? 'newer' : 'malformed', why: u.kind === 'newer' ? u.why : fileWhy(u.why) }); });
     noteUnread(evidenceUnread(PF, r, V, deps.unread));
+    PF.detours.planProblems(r, V.todos, ev).forEach((q) => { also.push(q.path); if (!problems().some((x) => x.path === q.path && x.kind === q.kind)) extra.push(q); });
     const runEvidenceOf = (x) => (x && x.evidence ? { plan: x.evidence.plan, run: x.evidence.run, answer: x.evidence.answer, result: x.evidence.result, words: PF.detours.evidenceWords(x.evidence) } : null);
     const evidenceOf = (x) => { if (!x || !x.support) return null; const s = x.support; return { fact: s.fact, domain: s.domain, source: s.source, words: PF.facts.TITLE[s.domain] + ' from ' + [s.source.feed, s.source.site, s.source.account].filter(Boolean).join(' · ') + ' (' + s.fact + ')' }; };
     if (sub === 'list') {
