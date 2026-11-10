@@ -276,6 +276,18 @@ rule('A publication claiming a kept step it doesn\'t make, or before the run\'s 
   assert.ok(!gi.landed && gi.proofless, '"It\'s in v2" for a version that doesn\'t make it is unconfirmed');
 });
 
+rule('Keeps are counted by the run they came from, process and id: two checklists\' runs with the same id are two runs', () => {
+  const k = (id, run, runKey) => ({ id, keep: true, process: 'release-readiness', run, runKey, target: { phase: 'ship' }, change: { op: 'add', text: 'Post the notes' }, by: 'person-blake' });
+  const gk = PF.learn.groupKey;
+  PF.learn.groupKey = () => 'one-place';
+  try {
+    const g = C.groups([k('a', 'r-1', 'release-alpha/r-1'), k('b', 'r-1', 'release-beta/r-1')])[0];
+    assert.strictEqual(g.runs, 2, 'two runs');
+    const o = C.groups([{ id: 'c', process: 'release-readiness', run: 'r-1', target: { step: 's1' }, change: { op: 'wording', text: 'x' }, from: 'y', by: 'p' }, { id: 'd', process: 'release-readiness', run: 'r-1', target: { step: 's1' }, change: { op: 'wording', text: 'x' }, from: 'y', by: 'p' }])[0];
+    assert.strictEqual(o.runs, 1, 'an ordinary group counts as before');
+  } finally { PF.learn.groupKey = gk; }
+});
+
 rule('A keep decision over the 500 members a decision names is refused, never truncated; an ordinary group is as before', () => {
   const mem = (n) => Array.from({ length: n }, (_, i) => ({ id: 'c' + String(i).padStart(5, '0'), by: 'person-blake', change: { text: 'Wording ' + i } }));
   const g = (n, keep) => ({ id: 'g-1', process: 'release-readiness', keep: !!keep, members: mem(n) });

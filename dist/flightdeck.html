@@ -11234,7 +11234,7 @@ PF.corrections = (function () {
       g.members.push(c);
     });
     out.forEach(function (g) {
-      var runs = Object.create(null); g.members.forEach(function (c) { runs[c.run] = 1; });
+      var runs = Object.create(null); g.members.forEach(function (c) { runs[c.keep && c.runKey ? c.runKey : c.run] = 1; });
       g.runs = Object.keys(runs).length; g.first = g.members[0];
       if (g.keep) g.alternatives = PF.learn.alternatives(g); g.authors = g.members.map(function (c) { return c.by; }).filter(function (b, i, a) { return a.indexOf(b) === i; });
     });
