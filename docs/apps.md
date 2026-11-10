@@ -820,7 +820,7 @@ flightdeck todo suggest-done <team folder> <process>/<run> --todo <to-do id> --e
 
 `--checklist` names an exact version folder (`flightdeck versions` lists them), never "the latest". Without `--accepts`, any run of it that completes counts. In Flightdeck, Run this checklist on the to-do makes its plan (one per to-do and opening: asking again opens the same plan) and opens the start; the plan's start names the run it started.
 
-`suggest-done --evidence-run` names one run that plan started, as `<process>/<run id>`; when more than one was started, it is the one you name, never a guess. There is no `--key`: the to-do and that run as it stands name the request, so asking again is `already`. It is checked again whenever it is read and before it is applied: a run reopened, corrected or ended again since is held, even if it ends with the same result; ask again on the run as it is then. A person decides it (or a delegation covers it), as any done.
+`suggest-done --evidence-run` names one run that plan started, as `<process>/<run id>`; when more than one was started, it is the one you name, never a guess. There is no `--key`: the to-do and that run as it stands name the request, so asking again is `already`, even once it was applied and the to-do is done. It is checked again whenever it is read and before it is applied: a run reopened, corrected or ended again since is held, even if it ends with the same result; ask again on the run as it is then. A person decides it (or a delegation covers it), as any done.
 
 Once checked off, `todo list` shows the to-do's `checklist`, the run it rests on (`evidence`: `plan`, `run`, `answer`, `result`, `words`) and `provenance`: what became of that run since, or null. A change is said, never undone.
 

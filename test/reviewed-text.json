@@ -13,16 +13,16 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "0f696970e1d8e06df0e9bae110de6ef979077fcccbeb67aabedc45365284b9e9",
-      "reviewed": "evidence that is missing or unreadable is every reader's problem, kind missing added; checked for direct writes and unconditional deletes"
+      "sha256": "65587487276222aa86e26780773d6d6850a8dc733323964bf7cef93ff56a9e7f",
+      "reviewed": "the identical evidence request stays already after it was applied; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "e641a0f9f4655b4634b9d2661fe4e4b97222f23ece79f5917e6c99f174218087",
       "reviewed": "4.0 slice 5 commit 6, checklist-linked to-dos: PF.detours (pins, the evidence plan, evidence, provenance), the checklist and evidence fields in to-do records, repo.readEvidence, the app's Run this checklist, Accept and the way back, the living-run skill and command guide sections, the 4.0.0 release entry; checked for direct writes and unconditional deletes: the plan is written create-once through repo.savePlan under the run guard, a done on a run through saveScope with a fresh read before the write, nothing deleted"
     },
     "docs/apps.md": {
-      "sha256": "f664483efbf89e321849325e3cbc66e7634578037ea3f27d2e38197d82bd7872",
-      "reviewed": "evidence that is missing or unreadable is every reader's problem, kind missing added; checked for direct writes and unconditional deletes"
+      "sha256": "2edad8969bc966fc8d8c20d92284bb02b19c3cfd4bb44b2272281212aee2029c",
+      "reviewed": "the identical evidence request stays already after it was applied; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
       "sha256": "6b5a05b527501bad8d524c8e112932f535fdb9474c7318d4d4ff489be982119a",

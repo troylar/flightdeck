@@ -168,6 +168,8 @@ rule('A run it rests on that can\'t be read holds the ask and the request (exit 
   let l = json('todo', 'list', F.root, PR, '--json');
   const t = l.data.todos[0];
   assert.deepStrictEqual([l.code, t.state, t.checklist && t.checklist.process, t.provenance], [0, 'done', 'smoke-test', null], JSON.stringify(t));
+  const n = ls(F.root).length, again = json('todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--json', ...TOOL);
+  assert.deepStrictEqual([again.code, again.data && again.data.status, again.data && again.data.request.id, ls(F.root).length], [0, 'already', s.data.request.id, n], 'the same request, applied, is still already: ' + JSON.stringify(again.error || again.data));
   const c = S.run; c.steps.call.at = '2026-11-10T12:00:00.000Z'; c.steps.call.values.decision = 'fail'; c.details.verdict = 'fail'; c.ended.at = '2026-11-10T12:00:00.000Z';
   fs.writeFileSync(runFile(F.root, 'smoke-test/k1'), JSON.stringify(c, null, 2));
   l = json('todo', 'list', F.root, PR, '--json');

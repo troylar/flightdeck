@@ -3420,12 +3420,20 @@ async function todoMain(argv) {
       if (!x) return (V.broken || V.unread.length || V.held.length) ? held('The to-do can\'t be read in order yet.') : failOut('invalid', 'That to-do isn\'t in this run.' + nothing, problems());
       if (problems().length) return held('Part of the team folder this depends on couldn\'t be read.');
       if (x.checklist && x.checklist.process !== ER[1]) return failOut('invalid', 'This to-do is settled by a run of ' + x.checklist.process + ', not ' + ER[1] + '.' + nothing, problems());
+      const alreadyOut = (sid) => { const q0 = T.requestsOf(V).filter((q) => q.id === sid)[0]; return done(Object.assign(sid0, { status: 'already', request: { id: sid, file: 'proposals/' + sid + '.json' }, preview: 'Already asked on this run (' + (q0 ? T.WORDS[q0.status] || q0.status : x.state !== 'open' ? 'the to-do is ' + String(T.STATE_WORDS[x.state] || x.state).toLowerCase() + ' now' : 'not read in order yet') + '). Nothing written.' })); };
+      /* The identical request (the same evidence, so the same name) is already, whatever became of its to-do since: it is
+         recognized before the to-do's state is judged, so a retry after it was applied never reads as a new refusal. */
+      if (x.state !== 'open') {
+        const E0 = DT.evidenceFor(r, Object.assign({}, x, { state: 'open' }), ER[2], ev), sid1 = E0.evidence ? DT.requestId(x.id, E0.evidence) : '';
+        const had = sid1 ? (got.todos || []).filter((y) => y.id === sid1)[0] : null;
+        if (had && ours(had)) return alreadyOut(sid1);
+      }
       const E = DT.evidenceFor(r, x, ER[2], ev);
       if (E.held) return held(E.why);
       if (E.why) return failOut('invalid', E.why + nothing, problems());
       const sid = DT.requestId(x.id, E.evidence), sfile = 'proposals/' + sid + '.json', taken = (got.todos || []).filter((y) => y.id === sid)[0];
       if (taken && !ours(taken)) return failOut('key-taken', 'A different record is already filed under this request\'s name (' + sfile + ').' + nothing, problems());
-      if (taken) { const q0 = T.requestsOf(V).filter((q) => q.id === sid)[0]; return done(Object.assign(sid0, { status: 'already', request: { id: sid, file: sfile }, preview: 'Already asked on this run (' + (q0 ? T.WORDS[q0.status] || q0.status : 'not read in order yet') + '). Nothing written.' })); }
+      if (taken) return alreadyOut(sid);
       if ((got.todosUnread || []).some((u) => u.file === sid + '.json')) return held('A request on this run is in the folder but can\'t be read yet.');
       const body = { op: 'done', todo: x.id, evidence: E.evidence };
       if (val['--reason'] != null) body.reason = val['--reason'];
