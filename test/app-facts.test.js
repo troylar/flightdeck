@@ -524,4 +524,120 @@ rule('A landing or a copy kept whose conflict copy fails to write keeps nothing 
   }
 });
 
+
+/* PA: a story's to-do done on evidence filed on its parent (the loop's run): every guarded write reads that run and its pinned
+   version again, never the copy this window read last. */
+const SF = require('./app-spread-fixture');
+async function storyWorld() {
+  const app = await SF.setup(), PF = app.PF, T = PF.todos;
+  let W = await SF.now(app);
+  const kid0 = W.d.runs.find(x => x.process === 'validate-story' && x.parent.item.key === 'ABC-102'), kk = kid0.process + '/' + kid0.id;
+  const A = T.prepare(kid0, { body: { op: 'add', text: 'Merge the fix', target: { phase: 'assess' } }, by: { person: 'person-avery' }, key: 'pa-' + hex(6), records: W.d.todos, unread: W.d.todosUnread, people: W.people, at: new Date().toISOString(), app: '4.0.0', now: Date.now() });
+  assert.ok(!A.why, A.why);
+  await app.fs.write('proposals/' + A.name, T.text(A.file));
+  for (let i = 0; i < 3; i++) await refresh(app, 300);
+  W = await SF.now(app);
+  const items = PF.loop.view(W.parent, 'each', { records: W.d.scopes, runs: W.d.runs, procOf: W.procOf }).rollup.items;
+  const F = PF.facts.prepare(W.parent, { obs: { key: 'pa-prs', loopStep: 'each', item: 'ABC-102', source: BB, domain: 'prs', observedAt: ago(30000), maxAgeSeconds: 120, complete: true, reported: 1, entries: [{ id: '17', text: 'Fix the login', state: 'merged' }] },
+    by: { tool: 'git-bot', version: '1.0' }, records: W.d.todos, unread: W.d.todosUnread, items, at: new Date().toISOString(), app: '4.0.0', now: Date.now() });
+  assert.ok(!F.why, F.why);
+  await app.fs.write('proposals/' + F.name, PF.todos.text(F.file));
+  W = await SF.now(app);
+  const kid = W.d.runs.find(x => x.process + '/' + x.id === kk), x = T.view(kid, { records: T.recordsFor(W.d.todos, kid), people: W.people, now: Date.now() }).byTodo[A.preview.todo];
+  assert.ok(x && x.state === 'open', 'set-up: the story\'s to-do is open');
+  const kidPath = () => app.files('runs/validate-story/').find(p => p.indexOf('/' + kid0.id + '/') > 0 && /\/run\.json$/.test(p));
+  const grantIt = async () => {
+    const V = await SF.now(app), k = V.d.runs.find(y => y.process + '/' + y.id === kk);
+    const g = T.grantOf(k, { subject: { tool: 'git-bot' }, ops: ['done'], targets: [{ phase: 'assess' }], by: 'person-avery', key: 'g-' + hex(6), records: V.d.todos, unread: V.d.todosUnread, people: V.people, at: new Date().toISOString(), app: '4.0.0', now: Date.now() });
+    assert.ok(!g.why, g.why);
+    await app.fs.write('proposals/' + g.name, T.text(g.file));
+  };
+  const suggestIt = async () => {
+    const V = await SF.now(app), k = V.d.runs.find(y => y.process + '/' + y.id === kk), y = T.view(k, { records: T.recordsFor(V.d.todos, k), people: V.people, now: Date.now() }).byTodo[A.preview.todo];
+    const S = PF.facts.supportFor(k, y, F.id, { records: V.d.todos, unread: V.d.todosUnread, now: Date.now() });
+    assert.ok(!S.why, S.why);
+    const P = T.prepare(k, { body: { op: 'done', todo: A.preview.todo, support: S.support }, by: { tool: 'git-bot', version: '1.0' }, records: V.d.todos, unread: V.d.todosUnread, people: V.people, at: new Date().toISOString(), app: '4.0.0', now: Date.now() });
+    assert.ok(!P.why, P.why);
+    return P;
+  };
+  return { app, kk, kidPath, grantIt, suggestIt, fact: F };
+}
+/* Holds the first read of a path matching re once cond() holds. */
+function holdRead(app, re, cond) {
+  const fs = app.fs, read = fs.read.bind(fs), hold = gate(); let n = 0, on = true;
+  fs.read = (p, o) => on && n === 0 && re.test(p) && (!cond || cond()) ? (n++, hold.p.then(() => read(p, o))) : read(p, o);
+  return { hold, seen: () => n, off: () => { on = false; } };
+}
+/* The evidence's run made unreadable, with no Refresh: its run.json gone or answering an error, or its pinned version gone. */
+function breakEvidence(app, how) {
+  const rp = SF.parentPath(app);
+  if (how === 'gone') { delete app.fs.files[rp]; return; }
+  if (how === 'eio') { const read = app.fs.read.bind(app.fs); app.fs.read = (p, o) => p === rp ? Promise.reject(new Error('EIO: the folder answered an error')) : read(p, o); return; }
+  if (how === 'pin') app.files('publications/release-readiness/').forEach((p) => { delete app.fs.files[p]; });
+}
+const storyFiles = (app, kk) => { const o = {}; app.files('runs/' + kk + '/').forEach(p => { o[p] = app.fs.files[p].t; }); return o; };
+const kindsOf = (app, id) => app.files('proposals/').filter((p) => p.indexOf(id + '.status-') >= 0).map((p) => JSON.parse(app.fs.files[p].t).kind);
+rule('PA: the run a story\'s evidence is on, or its pinned version, gone or unreadable while a decision, an application or a landing is held writes no decision, application, candidate or run.json; with nothing changed each writes', async () => {
+  for (const point of ['decision', 'application', 'run']) {
+    for (const how of ['none', 'gone', 'eio', 'pin']) {
+      const Wd = await storyWorld(), app = Wd.app, tag = point + '/' + how;
+      if (point !== 'decision') await Wd.grantIt();
+      const S = await Wd.suggestIt();
+      let h;
+      if (point === 'decision') {
+        await app.fs.write('proposals/' + S.name, app.PF.todos.text(S.file));
+        await refresh(app, 300);
+        const W = await SF.now(app), it = app.PF.todos.inbox(W.d.runs.filter(y => y.process + '/' + y.id === Wd.kk), { records: W.d.todos, unread: W.d.todosUnread, people: W.people, me: 'person-avery', now: Date.now() }).find((y) => y.id === S.id);
+        assert.ok(it, tag + ' set-up: waiting for Avery');
+        h = holdRead(app, new RegExp('^proposals/' + S.id + '\\.status-'));
+        app.click('td-accept', S.id, { run: Wd.kk, fp: it.consequence.fingerprint }); await app.tick(80);
+      } else {
+        h = point === 'application' ? holdRead(app, new RegExp('^proposals/' + S.id + '\\.status-')) : holdRead(app, /^runs\/validate-story\/.*run\.json$/, () => kindsOf(app, S.id).indexOf('application') >= 0);
+        await app.fs.write('proposals/' + S.name, app.PF.todos.text(S.file));
+        await refresh(app, 300);
+      }
+      assert.strictEqual(h.seen(), 1, tag + ' set-up: held before the write');
+      h.off();
+      const before = storyFiles(app, Wd.kk);
+      breakEvidence(app, how);
+      h.hold.open(); await app.tick(500);
+      const st = kindsOf(app, S.id), r = JSON.parse(app.fs.files[Wd.kidPath()].t);
+      const landed = !!r.living && st.indexOf('application') >= 0 && app.files('proposals/').some((p) => p === 'proposals/' + r.living.head + '.json' && p.indexOf(S.id + '.status-') >= 0);
+      if (point === 'decision') assert.strictEqual(st.filter((k) => k === 'decision').length, how === 'none' ? 1 : 0, tag + ': ' + st.join(', '));
+      if (point === 'application') assert.strictEqual(st.filter((k) => k === 'application').length, how === 'none' ? 1 : 0, tag + ': ' + st.join(', '));
+      if (point !== 'decision') assert.strictEqual(landed, how === 'none', tag + ': ' + JSON.stringify(r.living));
+      if (point === 'run' && how !== 'none') assert.deepStrictEqual(storyFiles(app, Wd.kk), before, tag + ': no candidate or run.json is written');
+    }
+  }
+});
+rule('PA: the run a story\'s evidence is on, or its pinned version, gone or unreadable while Use copy is held keeps nothing of the copy and writes no candidate or run.json; with nothing changed it is kept', async () => {
+  for (const how of ['none', 'gone', 'eio', 'pin']) {
+    const Wd = await storyWorld(), app = Wd.app, tag = 'use copy/' + how;
+    await Wd.grantIt();
+    const pre = app.fs.files[Wd.kidPath()].t, S = await Wd.suggestIt();
+    await app.fs.write('proposals/' + S.name, app.PF.todos.text(S.file));
+    await refresh(app, 300); await refresh(app, 300);
+    const head = () => JSON.parse(app.fs.files[Wd.kidPath()].t).living, isMine = (lv) => !!lv && app.files('proposals/').some((p) => p === 'proposals/' + lv.head + '.json' && p.indexOf(S.id + '.status-') >= 0);
+    assert.ok(isMine(head()), tag + ' set-up: landed');
+    const landed = app.fs.files[Wd.kidPath()].t, cp = Wd.kidPath().replace('run.json', 'run-OTHER.json');
+    await app.fs.write(cp, landed);
+    const r0 = JSON.parse(pre); r0.paused = { by: 'person-avery', at: new Date().toISOString(), reason: 'Lunch' }; r0.rev = (JSON.parse(landed).rev || 0) + 1;
+    await app.fs.write(Wd.kidPath(), JSON.stringify(r0, null, 2));
+    await refresh(app, 300);
+    app.click('open-run', Wd.kk); await app.tick(80);
+    assert.ok(/data-act="use-copy"/.test(app.html()), tag + ' set-up: the copy is offered');
+    assert.ok(!isMine(head()), tag + ' set-up: not landed here');
+    const h = holdRead(app, /^runs\/validate-story\/.*run\.json$/);
+    app.click('use-copy', 'run-OTHER.json'); await app.tick(80);
+    assert.strictEqual(h.seen(), 1, tag + ' set-up: held before the candidate');
+    h.off();
+    const before = storyFiles(app, Wd.kk);
+    breakEvidence(app, how);
+    h.hold.open(); await app.tick(600);
+    assert.strictEqual(isMine(head()), how === 'none', tag + ': ' + JSON.stringify(head()));
+    assert.strictEqual(!!app.fs.files[cp], how !== 'none', tag + ': the copy ' + (how === 'none' ? 'is removed once kept' : 'stays'));
+    if (how !== 'none') assert.deepStrictEqual(storyFiles(app, Wd.kk), before, tag + ': no candidate or run.json is written');
+  }
+});
+
 run();

@@ -25,8 +25,8 @@
       "reviewed": "Merge of feat/4.0 (slice 3 round 7) into feat/4.0-facts: both sides' texts kept, spread inputs and fact clocks combined; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "f7c98fc5656bc2ecb54db4c60e2f45bcf31b034e5b7a64f1feb263df59ea14e5",
-      "reviewed": "PC: a first suggest-done's evidence is expected before it previews or files; checked for direct writes and unconditional deletes"
+      "sha256": "7e5c402b4172a8a4c455836878b0e20c379f967272c09885ed32315c32046018",
+      "reviewed": "PA: evidence-run reread at the write; read-only (readRunOnly), checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -413,8 +413,8 @@
       "reviewed": "PB: a fact by its kind comes before loop and scope dispatch; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "a44603ed32036d8ef5dd4fb0339ad3c3a80d72600af8e2d23fbe76913d173c6c",
-      "reviewed": "ID: what a done on evidence rests on is expected, present and checked (the shared manifest); checked for direct writes and unconditional deletes"
+      "sha256": "a1292afaea36ab30854d6c42aab75c8036bffcb4f5d694b40843dd08314e5fdf",
+      "reviewed": "PA: evidence-run reread at the write; read-only (readRunOnly), checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

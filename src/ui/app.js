@@ -3040,7 +3040,7 @@
     /* t.snap: the records and people.json read again at the write (tdFresh), once they are; until then what this window read.
        Coverage's other inputs (runs, loops) are this window's (spInputs). */
     var sn = t.snap || tdData();
-    var ok = function (run) { var kh = PF.todos.keepHead(run, { living: t.from ? { head: t.from } : null }, Object.assign(spInputs(), { records: sn.records, unread: sn.unread, people: sn.people, now: tdNow() })); return kh.head === t.head && kh.dropped === (t.dropped || ''); };
+    var ok = function (run) { var kh = PF.todos.keepHead(run, { living: t.from ? { head: t.from } : null }, Object.assign(spFresh(t.snap), { records: sn.records, unread: sn.unread, people: sn.people, now: tdNow() })); return kh.head === t.head && kh.dropped === (t.dropped || ''); };
     if (!ok(pre)) return false;
     /* Asked again with the roles the run has now (the durable head stays the one before): a role reassigned meanwhile takes
        its holder's authority with it. */
@@ -3380,8 +3380,45 @@
     return repo.readTodos(rfs).then(function (s) {
       if (!bound()) return null;
       var d = { todos: s.records, todosUnread: s.unread }; todoBodies(d);
-      return { records: d.todos || [], unread: d.todosUnread || [], people: s.people || data.people };
+      var snap = { records: d.todos || [], unread: d.todosUnread || [], people: s.people || data.people };
+      return tdEvidenceFresh(rfs, snap.records).then(function (ev) { if (!bound()) return null; snap.ev = ev; return snap; });
     }, function () { return null; });
+  }
+  /* PA: the runs a suggestion's evidence is on (a story's loop run), read again with their pinned versions at the write, as
+     the CLI's readDeps reads them: { problems: { key: problem } } by run, each key read (null for one read whole). */
+  function tdEvidenceFresh(fs, records) {
+    var want = Object.create(null);
+    records.forEach(function (x) {
+      if (!x || x.op !== 'done' || !x.support || !x.run) return;
+      var r = findRun(x.run.process + '/' + x.run.id), p = r && r.parent;
+      if (p && p.item && typeof p.process === 'string' && typeof p.id === 'string') want[p.process + '/' + p.id] = p;
+    });
+    var keys = Object.keys(want), out = { problems: Object.create(null) };
+    return Promise.all(keys.map(function (k) {
+      var p = want[k], rf = 'runs/' + k + '/run.json';
+      out.problems[k] = null;
+      var put = function (x) { if (!out.problems[k]) out.problems[k] = x; };
+      return repo.readRunOnly(fs, p.process, p.id).then(function (one) {
+        (one && one.bad || []).forEach(function (b) { put({ path: b.path, kind: b.kind || 'unreadable', why: b.why }); });
+        var r = one && one.run;
+        if (!r) { put({ path: rf, kind: 'nofile', why: 'A suggestion here rests on facts of ' + k + ', which isn\'t in the folder.' }); return; }
+        if (r._unrunnable) { put({ path: rf, kind: 'newer', why: 'A suggestion here rests on facts of ' + k + ', which can\'t be read by this copy.' }); return; }
+        var pub = one.pub;
+        if (!pub) return;
+        if (!pub.ok) { put({ path: R.pubDir(r), kind: 'unreadable', why: 'The version ' + k + ' runs on can\'t be read here' + (pub.why ? ': ' + pub.why : '') + '.' }); return; }
+        if (!R.isTest(r) && repo.runMismatch(r, pub.info)) put({ path: rf, kind: 'unusable', why: 'Run ' + k + ' doesn\'t match its version ' + r.folder + '.' });
+      }, function (e) { put({ path: rf, kind: 'unreadable', why: String(e && e.message || e) }); });
+    })).then(function () { return out; });
+  }
+  /* Coverage's inputs with the evidence runs as read again at the write (tdFresh's snap.ev): the window's read for the rest. */
+  function spFresh(sn) {
+    var base = spInputs(), ev = sn && sn.ev;
+    if (!ev) return base;
+    var un = base.loops.unreadRun;
+    return Object.assign({}, base, { loops: Object.assign({}, base.loops, { unreadRun: function (c) {
+      var k = c && c.process + '/' + c.id;
+      return k && Object.prototype.hasOwnProperty.call(ev.problems, k) ? ev.problems[k] : un(c);
+    } }) });
   }
   /* A run's facts (PF.facts.view), worked out once per read of the folder; how they stand is judged at tdNow(). */
   var fcMemo = null;
@@ -3490,7 +3527,7 @@
   /* Retry state is settled only in the folder and read it was kept in (m, captured when the write was asked). */
   function tdSettled(slot, m) { var keep = (m || loopMem()).tdKeep; if (keep) delete keep[slot]; }
   /* The decision write guard (PF.todos.decideStill), asked with the folder and the clock as they are at the write: '' or why. */
-  function tdDecisionStill(key, o, made, snap) { var sn = snap || tdData(); return PF.todos.decideStill(findRun(key), Object.assign(spInputs(), o, { records: sn.records, unread: sn.unread, people: sn.people, now: tdNow() }), made); }
+  function tdDecisionStill(key, o, made, snap) { var sn = snap || tdData(); return PF.todos.decideStill(findRun(key), Object.assign(spFresh(snap), o, { records: sn.records, unread: sn.unread, people: sn.people, now: tdNow() }), made); }
   function tdWrite(r, made, words, slot, tok, recheck) {
     var mem = loopMem(), un = runUnread(r);
     if (un) { mem.tdSaid = un + ' Nothing was written.'; render(); return Promise.resolve(false); }
@@ -3711,9 +3748,9 @@
   /* Whether a request read now, on the run as this window has it now, still prepares the application it prepared (plan). */
   function todoPlanStill(key, id, plan, snap) {
     var r1 = findRun(key); if (!r1 || r1._unrunnable) return false;
-    var sn = snap || tdData(), V1 = null; try { V1 = PF.todos.view(r1, { records: sn.records, unread: sn.unread, people: sn.people, runs: data.runs || [], loops: spLoops(), now: tdNow() }); } catch (e) { V1 = null; }
+    var sn = snap || tdData(), V1 = null; try { V1 = PF.todos.view(r1, { records: sn.records, unread: sn.unread, people: sn.people, runs: data.runs || [], loops: spFresh(snap).loops, now: tdNow() }); } catch (e) { V1 = null; }
     var q1 = V1 && !V1.broken ? V1.requests[id] : null; if (!q1) return false;
-    var p1 = PF.todos.applyPlan(r1, V1, q1, Object.assign(spInputs(), { records: sn.records, unread: sn.unread, people: sn.people, now: tdNow() })), a = plan.write || plan.settle || null, b = p1.write || p1.settle || null;
+    var p1 = PF.todos.applyPlan(r1, V1, q1, Object.assign(spFresh(snap), { records: sn.records, unread: sn.unread, people: sn.people, now: tdNow() })), a = plan.write || plan.settle || null, b = p1.write || p1.settle || null;
     return !!a && !!b && JSON.stringify(a) === JSON.stringify(b);
   }
   function todoCarry(r, V, q, cx) {
