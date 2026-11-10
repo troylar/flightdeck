@@ -13,6 +13,8 @@ const KID = ['---', 'process: validate-story', 'title: Validate a story', 'owner
 const PARENT = ['---', 'process: release-readiness', 'title: Release 4.1', 'owner: person-avery', '---', '',
   '## Stories · DO-CONFIRM {#stories}', '- [!] {for.each} Validate every release story {#each}', '  process: validate-story', '  items: jira.issue', '  pass: issue=item:key', '  accepts: cleared', '',
   '## Ship · READ-DO {#ship}', '- [!] {confirm} Ship it {#ship1}', ''].join('\n');
+/* The parent with a step beside the loop, open to check while the loop runs. */
+const PARENT_TELL = PARENT.replace('  accepts: cleared\n', '  accepts: cleared\n- [!] {confirm} Tell the team {#tell}\n');
 const HOUR = 3600000;
 const BB = { feed: 'bitbucket', site: 'git.example.com' }, JIRA = { feed: 'jira' };
 /* A clock the test moves forward (skew), for the app's Date. */
@@ -31,7 +33,7 @@ async function setup(o) {
     Object.keys(b.files).forEach(k => { app.fs.files['publications/' + id + '/' + b.folder + '/' + k] = { t: b.files[k], m: Date.now() }; });
   };
   put(KID, 'validate-story', 'vs000001');
-  put(PARENT, 'release-readiness', 'rr000001');
+  put(o.parent || PARENT, 'release-readiness', 'rr000001');
   app.click('refresh'); await app.tick(80);
   app.click('start', 'release-readiness'); await app.settle();
   app.chooseApprovers().submitForm('start-form'); await app.tick(120);
@@ -349,6 +351,44 @@ rule('A blocker, unreadable evidence, the evidence replaced by an open PR, or th
         assert.ok(!/data-act="retry-save"/.test(app.html()), tag + ': the landing is put back, never kept for Try again');
         if (at === 'after candidate') assert.strictEqual(historyOf(app), hist0, tag + ': nothing archived');
       } else if (at !== 'before final') assert.ok(historyOf(app).length > hist0.length, tag + ' set-up: the landing archived its oldest line');
+    }
+  }
+});
+
+/* LB: every log line the run had, in run.json or its history (the oldest move there past 300). */
+const logLines = (app) => {
+  const r = parentRun(app), out = new Set(r.log.map((l) => l.at + '|' + l.by + '|' + l.what));
+  historyOf(app).split('\n').filter(Boolean).forEach((t) => { const x = JSON.parse(t); if (x.kind === 'log') out.add(x.at + '|' + x.by + '|' + x.what); });
+  return out;
+};
+const blocker = (app) => fact(app, 'blk-1', { observedAt: ago(10000), source: JIRA, domain: 'blockers', complete: true, reported: 1, entries: [{ id: 'B-1', text: 'Waiting on legal', state: 'open' }] });
+rule('A landing put back while a Pause, a note or a step check was made meanwhile loses no log line (run.json and the history together keep every one) and the other change is saved', async () => {
+  for (const at of ['before candidate', 'after candidate', 'after archive', 'before final']) {
+    for (const edit of ['pause', 'note', 'check']) {
+      const app = await setup({ parent: PARENT_TELL }), x = await todo(app), f = await fact(app, 'prs-1', { observedAt: ago(30000), maxAgeSeconds: 120 }), g = await grant(app), tag = at + '/' + edit;
+      await fullLog(app);
+      app.click('open-run', parentRun(app).process + '/' + parentRun(app).id); await app.tick(80);
+      const S = await suggest(app, x, f.id);
+      const h = holdAt(app, at);
+      await app.fs.write('proposals/' + S.name, app.PF.todos.text(S.file));
+      await refresh(app, 300);
+      assert.strictEqual(h.seen(), 1, tag + ' set-up: held at that write');
+      h.off();
+      const orig = logLines(app);
+      await blocker(app);
+      if (edit === 'pause') { app.click('pick', 'run', { kind: 'pause' }); await app.tick(); app.set('pick-input', 'Waiting'); app.click('pause', 'run'); }
+      if (edit === 'note') { app.click('select', 'tell'); await app.tick(); app.set('note-text', 'A note meanwhile'); app.click('add-note', 'tell'); }
+      if (edit === 'check') app.click('toggle', 'tell');
+      await app.tick(40);
+      h.hold.open(); await app.tick(600);
+      const r = parentRun(app), landed = !!r.living && apps(app, S.id).some((p) => p === 'proposals/' + r.living.head + '.json');
+      assert.strictEqual(landed, false, tag + ': nothing lands');
+      const now1 = logLines(app), lost = [...orig].filter((k) => !now1.has(k));
+      assert.deepStrictEqual(lost, [], tag + ': no log line lost');
+      if (edit === 'pause') assert.ok(r.paused, tag + ': the pause is saved');
+      if (edit === 'note') assert.ok(app.files('runs/release-readiness/').some((p) => app.fs.files[p].t.includes('A note meanwhile')), tag + ': the note is saved');
+      if (edit === 'check') assert.ok(r.steps && r.steps.tell && r.steps.tell.s === 'done', tag + ': the check is saved: ' + JSON.stringify(r.steps));
+      assert.ok(g);
     }
   }
 });

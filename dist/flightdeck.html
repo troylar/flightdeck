@@ -36199,12 +36199,20 @@ PF.examples = (function () {
      drops the save, what only this change touched is put back in this window, so a change made meanwhile (a pause) saves
      alone and never carries it. Returns { fn, opts } for mutateRun. */
   function loopEdit(cx, key, fn, opts) {
-    var before = null, after = null, undone = false, target = null, g0 = gen, fs0 = state.fs, ov0 = 0;
+    var before = null, after = null, undone = false, target = null, g0 = gen, fs0 = state.fs, logB = [], logA = [], mine = [];
     var copy = function (r) { var c = Object.create(null); Object.keys(r).forEach(function (k) { if (k[0] !== '_') c[k] = r[k]; }); return JSON.parse(JSON.stringify(c)); };
-    var wrapped = function (r, m, me, now) { target = r; before = copy(r); ov0 = (r._overflow || []).length; var out = fn(r, m, me, now); after = copy(r); return out; };
+    /* The log and the history it moves lines to are kept by identity: the lines and records this change added, and the lines
+       it moved out of run.json (logB, logA, mine), so putting it back never touches a line any other change wrote or moved. */
+    var wrapped = function (r, m, me, now) {
+      target = r; before = copy(r); logB = (r.log || []).slice(); var ov0 = (r._overflow || []).slice();
+      var out = fn(r, m, me, now);
+      after = copy(r); logA = (r.log || []).slice(); mine = (r._overflow || []).filter(function (x) { return ov0.indexOf(x) < 0; });
+      return out;
+    };
     var back = function (cur, b, a, deep) {
       var keys = Object.create(null); Object.keys(b).concat(Object.keys(a)).forEach(function (k) { keys[k] = true; });
       Object.keys(keys).forEach(function (k) {
+        if (!deep && k === 'log') return;
         var bj = JSON.stringify(b[k]), aj = JSON.stringify(a[k]);
         if (bj === aj) return;
         if (JSON.stringify(cur[k]) === aj) { if (k in b) cur[k] = JSON.parse(bj); else delete cur[k]; return; }
@@ -36218,7 +36226,25 @@ PF.examples = (function () {
     };
     /* Bound to the very run object it changed, in the folder and generation it changed it in (round 11): never a run found by
        key, which in another folder can be another run of the same name. */
-    var undo = function () { if (undone || !after || !target) return; undone = true; if (gen !== g0 || state.fs !== fs0 || findRun(key) !== target) return; back(target, before, after, false); if (target._overflow && target._overflow.length > ov0) target._overflow.length = ov0; bump(target.id); };
+    var undo = function () { if (undone || !after || !target) return; undone = true; if (gen !== g0 || state.fs !== fs0 || findRun(key) !== target) return; back(target, before, after, false); logBack(target); bump(target.id); };
+    /* The log put back by identity: the lines this change added are taken out; every line it moved out of run.json comes back,
+       unless the history already holds it (its record was archived), and its record leaves the history queue. Past the log's
+       limit the oldest go to the history queue, never dropped. Lines and records of any other change stay as they are. */
+    var logBack = function (cur) {
+      var ov = cur._overflow || (cur._overflow = []), added = logA.filter(function (l) { return logB.indexOf(l) < 0; });
+      var rest = (cur.log || []).filter(function (l) { return added.indexOf(l) < 0; }), used = [];
+      var restore = logB.filter(function (l) { return logA.indexOf(l) < 0 && rest.indexOf(l) < 0; }).map(function (l) {
+        var rec = null;
+        for (var i = 0; i < mine.length; i++) if (used.indexOf(i) < 0 && mine[i].kind === 'log' && mine[i].at === l.at && mine[i].by === l.by && mine[i].what === l.what) { used.push(i); rec = mine[i]; break; }
+        return { line: l, rec: rec };
+      }).filter(function (x) { return !x.rec || ov.indexOf(x.rec) >= 0; });
+      var room = Math.max(0, R.LOG_MAX - rest.length), over = Math.max(0, restore.length - room);
+      restore.forEach(function (x, n) {
+        if (n < over) { if (!x.rec) ov.push({ kind: 'log', at: x.line.at, by: x.line.by, what: x.line.what, id: PF.util.randomId(10) }); return; }
+        if (x.rec) ov.splice(ov.indexOf(x.rec), 1);
+      });
+      cur.log = restore.slice(over).map(function (x) { return x.line; }).concat(rest);
+    };
     /* opts.redo: a change derived from the folder (a to-do's landing) whose save fails is put back, never kept for Try again:
        the next read derives it again, with its authority asked again on the run as it is then. */
     var extra = { still: function () { if (guardOk(cx)) return true; undo(); return false; }, dropUndone: function () { return undone; } };
