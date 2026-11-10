@@ -17033,7 +17033,7 @@ PF.loop = (function () {
         }
         if (rec.op !== 'accept' && rec.op !== 'keep') return;
         (rec.items || []).forEach(function (uid) {
-          var x = byUid[uid] || byKey[uid];
+          var x = resolveRef(uid, byUid, byKey);
           if (!x) return;
           if (rec.op === 'accept' && !(x.state === 'proposed' && x.proposal === rec.proposal) && !(x.verdict && (x.verdict.contrary || !c.saw(rec.id, x.verdict.record)))) { note(x, rec, 'accept-stale'); return; }
           verdict(x, rec, rec.op, rec.reason);
@@ -17083,6 +17083,18 @@ PF.loop = (function () {
     if (it.key) { out.push('k:' + it.key); if (!it.id) out.push('u:' + uidOf(source, { key: it.key })); }
     return out;
   }
+  /* Round 12 (FA): how a decision's item reference (a string) names an item, the one function the reducer resolves it with
+     and witnessRefs reads it with. lookup: what the reducer tries, in order (an item's uid, then its key: a bare key is a
+     reference too); also: what else it could name (a key-only uid's key), so a witness counts for that item as well. */
+  function refAliases(u) {
+    var m = /^[^:]+:key:(.*)$/.exec(String(u));
+    return { lookup: ['u:' + u, 'k:' + u], also: m ? ['k:' + m[1]] : [] };
+  }
+  function resolveRef(u, byUid, byKey) {
+    var al = refAliases(u).lookup;
+    for (var i = 0; i < al.length; i++) { var x = al[i].charAt(0) === 'u' ? byUid[al[i].slice(2)] : byKey[al[i].slice(2)]; if (x) return x; }
+    return null;
+  }
   /* Every (item aliases, attempt) a cleaned scope record refers to, read field by field through WITNESS_SCHEMA:
      { refs: [{ aliases, attempt (0: none, so every attempt), field: '<table>.<field>' }], doubt }. */
   function witnessRefs(rec, source) {
@@ -17098,7 +17110,7 @@ PF.loop = (function () {
         if (how === 'item') { one = v; field = table + '.' + k; }
         else if (how === 'attempt') attempt = +v || 0;
         else if (how === 'items') (Array.isArray(v) ? v : []).forEach(function (it) { walkItem(it); var al = itemAliases(source, it); if (al.length) refs.push({ aliases: al, attempt: 0, field: table + '.' + k, path: path }); });
-        else if (how === 'uids') (Array.isArray(v) ? v : []).forEach(function (u) { if (typeof u !== 'string') { doubt = true; return; } var m = /^[^:]+:key:(.*)$/.exec(u); refs.push({ aliases: ['u:' + u].concat(m ? ['k:' + m[1]] : []), attempt: 0, field: table + '.' + k, path: path }); });
+        else if (how === 'uids') (Array.isArray(v) ? v : []).forEach(function (u) { if (typeof u !== 'string') { doubt = true; return; } var ra = refAliases(u); refs.push({ aliases: ra.lookup.concat(ra.also), attempt: 0, field: table + '.' + k, path: path }); });
         else if (Array.isArray(v)) v.forEach(function (x) { walk(x, how, path.concat([table + '.' + k])); });
         else if (v != null) walk(v, how, path.concat([table + '.' + k]));
       });

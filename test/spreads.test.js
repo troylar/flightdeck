@@ -1146,7 +1146,10 @@ for (const route of Object.keys(AA_ROUTES)) for (const before of [true, false]) 
    the result is the same in every id order, and it is exactly what the rule says. */
 /* Round 11 (EA) adds: a choice and a plan selection naming attempt 2, a key-only reference, a key change (the same id under
    another key), and a record of another loop sharing the item and a record id. */
-const BA_KINDS = ['add', 'observe', 'remove', 'exclude', 'restore', 'plan', 'choose', 'select', 'keyonly', 'rekey', 'cross'], BA_WHEN = ['before', 'concurrent', 'hidden', 'after'];
+const BA_KINDS = ['add', 'observe', 'remove', 'exclude', 'restore', 'plan', 'choose', 'select', 'keyonly', 'rekey', 'cross'];
+/* Round 12 (FA): keep and accept decisions naming the item by its uid, its key-only uid and its bare key. */
+const BA_DECS = ['keep:uid', 'keep:keyuid', 'keep:key', 'accept:uid', 'accept:keyuid', 'accept:key'];
+const BA_WHEN = ['before', 'concurrent', 'hidden', 'after'];
 const baRecord = (kind, key, seen, head) => {
   const it = { key: 'ABC-104', id: '10104' };
   if (kind === 'add') return scope4(key, null, seen, head, [{ op: 'add', item: it }]);
@@ -1158,9 +1161,16 @@ const baRecord = (kind, key, seen, head) => {
   if (kind === 'keyonly') return scope4(key, null, seen, head, [{ op: 'add', item: { key: 'ABC-104' } }]);
   if (kind === 'rekey') return scope4(key, null, seen, head, [{ op: 'add', item: { key: 'ABC-904', id: '10104' } }]);
   if (kind === 'cross') return scopeIn(LOOP_OTHER, key, seen, head, [{ op: 'add', item: it }]);
+  if (BA_DECS.includes(kind)) return baDecision(kind, key, seen);
   return plan4(key, 104, 2, seen, head);
 };
 /* Another loop of the same run (round 11, EA): its records never count for this one, even one sharing a record id. */
+/* A decision has no parent head, so it is never after the stop. Its proposal is a record id that needn't be here. */
+const BA_REF = { uid: 'jira:10104', keyuid: 'jira:key:ABC-104', key: 'ABC-104' };
+function baDecision(kind, key, seen) {
+  const [op, ref] = kind.split(':'), d = LP.buildDecision({ proposal: LP.idFor('release-helper', 'dp-' + key), loop: LOOPT, op, items: [BA_REF[ref]], seen: seen || [], by: 'person-morgan', writer: 'w' + PF.sha256.hex(key).slice(0, 8), rev: PF.sha256.hex('r' + key).slice(0, 8), now: AT, app: '4.0.0' });
+  const v = LP.cleanDecision(JSON.parse(LP.text(d.file)), d.name); assert.ok(v.ok, v.why); return v.record;
+}
 const LOOP_OTHER = { process: 'release-readiness', run: 'r-41', step: 'other' };
 function scopeIn(loop, key, seen, head, changes) {
   const c = LP.cleanIntent({ loop, observation: null, changes }, key, { name: 'release-helper', version: '1.0' });
@@ -1172,7 +1182,7 @@ function scopeIn(loop, key, seen, head, changes) {
    selection name attempt 2 only; a removal by a complete observation and another loop's record name none. */
 const baNames = (kind) => kind === 'remove' || kind === 'cross' ? [] : ['plan', 'choose', 'select'].includes(kind) ? ['2'] : ['*'];
 /* Which issue a record names, as its aliases (round 11): the same item when any alias links them, through any record. */
-const baAliases = (kind) => kind === 'keyonly' ? ['k:ABC-104', 'u:jira:key:ABC-104'] : kind === 'rekey' ? ['u:jira:10104', 'k:ABC-904'] : kind === 'remove' || kind === 'cross' ? [] : ['u:jira:10104', 'k:ABC-104'];
+const baAliases = (kind) => BA_DECS.includes(kind) ? (({ uid: ['u:jira:10104', 'k:jira:10104'], keyuid: ['u:jira:key:ABC-104', 'k:jira:key:ABC-104', 'k:ABC-104'], key: ['u:ABC-104', 'k:ABC-104'] })[kind.split(':')[1]]) : kind === 'keyonly' ? ['k:ABC-104', 'u:jira:key:ABC-104'] : kind === 'rekey' ? ['u:jira:10104', 'k:ABC-904'] : kind === 'remove' || kind === 'cross' ? [] : ['u:jira:10104', 'k:ABC-104'];
 function baSame(events, kind, row) {
   const up = {}, find = (x) => { while (up[x]) x = up[x]; return x; }, join = (x, y) => { x = find(x); y = find(y); if (x !== y) up[x] = y; };
   events.forEach(([k]) => { const al = baAliases(k); for (let j = 1; j < al.length; j++) join(al[0], al[j]); });
@@ -1220,7 +1230,7 @@ function baCase(events, order, tag) {
     if (i.uid === uid(101) && a === 1) return;
     if (listed.includes(pk)) { want.push(i.key + '#' + a); return; }
     const wit = events.filter(([kind]) => (baNames(kind).includes(String(a)) || baNames(kind).includes('*')) && baSame(events, kind, i));
-    if (!(wit.length && wit.every(([, when]) => when === 'after'))) want.push(i.key + '#' + a);
+    if (!(wit.length && wit.every(([k, when]) => when === 'after' && !BA_DECS.includes(k)))) want.push(i.key + '#' + a);
   });
   return { complete: C.complete, got, want: want.sort(), req };
 }
@@ -1231,6 +1241,8 @@ BA_KINDS.forEach(k1 => BA_WHEN.forEach(w1 => BA_KINDS.forEach(k2 => BA_WHEN.forE
 let seed = 7; const rnd = (n) => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
 for (let i = 0; i < 160; i++) BA_HISTORIES.push([0, 1, 2].map(() => [BA_KINDS[rnd(6)], BA_WHEN[rnd(4)]]));
 /* Round 11 (EA): alias histories, choices, selections and other loops' records, in triples over every kind, all six orders. */
+/* Round 12 (FA): every decision kind at every time, alone and with every other kind at every time, both orders. */
+BA_DECS.forEach(k => BA_WHEN.forEach(w => { BA_HISTORIES.push([[k, w]]); BA_KINDS.forEach(k2 => BA_WHEN.forEach(w2 => BA_HISTORIES.push([[k, w], [k2, w2]]))); }));
 for (let i = 0; i < 120; i++) BA_HISTORIES.push([0, 1, 2].map((j) => [j === 0 ? ['choose', 'select', 'keyonly', 'rekey', 'cross'][rnd(5)] : BA_KINDS[rnd(BA_KINDS.length)], BA_WHEN[rnd(4)]]));
 const BA_CHUNK = 60;
 for (let c = 0; c * BA_CHUNK < BA_HISTORIES.length; c++) {
@@ -1259,7 +1271,8 @@ for (let c = 0; c * BA_CHUNK < BA_HISTORIES.length; c++) {
     same(off.slice(0, 12).concat(off.length > 12 ? ['and ' + (off.length - 12) + ' more'] : []), []);
   });
 }
-/* 44 single events, 1,936 pairs in 2 orders, 280 triples in 6: 44 + 3,872 + 1,680 = 5,596 cases. */
+/* 44 single events, 1,936 pairs in 2 orders, 280 triples in 6, and (round 12) 24 decisions alone and 1,056 decision pairs in 2:
+   44 + 3,872 + 1,680 + 24 + 2,112 = 7,732 cases. */
 rule('BA: the generated histories are at least 2,000 cases', () => { const n = BA_HISTORIES.reduce((t, ev) => t + perms(ev.length).length, 0); assert.ok(n >= 2000, String(n)); });
 /* Round 11 (EA): the reproductions, kept by name. */
 const eaAll = (ev, tag) => { const off = []; perms(ev.length).forEach((order) => { const res = baCase(ev, order, tag + order.join('')); if (res.skip) { off.push(order.join('') + ': skipped: ' + res.skip); return; } if (!res.complete || JSON.stringify(res.got) !== JSON.stringify(res.want)) off.push(order.join('') + ': owed ' + JSON.stringify(res.got) + ', the rule says ' + JSON.stringify(res.want)); }); return off; };
@@ -1315,6 +1328,14 @@ rule('EA: witnessRefs covers every field of the scope record schema that can car
   const d = LP.buildDecision({ proposal: plan, loop: LOOPT, op: 'keep', items: ['jira:10104'], seen: [], by: 'person-morgan', writer: 'w1', rev: 'abcdef01', now: AT, app: '4.0.0' });
   const dv = LP.cleanDecision(JSON.parse(LP.text(d.file)), d.name); assert.ok(dv.ok, dv.why);
   const dr = wr(dv.record, src); if (dr.doubt || !dr.refs.some(r => r.aliases.includes('u:jira:10104'))) off.push('decision items: ' + JSON.stringify(dr));
+  /* Round 12 (FA): keep and accept, naming the item by its uid, its key-only uid or its bare key: each reference has every
+     alias the reducer could resolve it by (byUid, then byKey). */
+  for (const op of ['keep', 'accept']) for (const [ref, want] of [['jira:10104', ['u:jira:10104']], ['jira:key:ABC-104', ['u:jira:key:ABC-104', 'k:ABC-104']], ['ABC-104', ['u:ABC-104', 'k:ABC-104']]]) {
+    const d2 = LP.buildDecision({ proposal: plan, loop: LOOPT, op, items: [ref], seen: [], by: 'person-morgan', writer: 'w1', rev: 'abcdef02', now: AT, app: '4.0.0' });
+    const v2 = LP.cleanDecision(JSON.parse(LP.text(d2.file)), d2.name); if (!v2.ok) { off.push(op + ' ' + ref + ': ' + v2.why); continue; }
+    const w2 = wr(v2.record, src), al = [].concat(...w2.refs.map(r => r.aliases));
+    if (w2.doubt || want.some(x => !al.includes(x)) || !al.includes('k:' + ref)) off.push(op + ' ' + ref + ': aliases ' + JSON.stringify(al));
+  }
   dr.refs.forEach(r => { used[r.field] = true; (r.path || []).forEach(k => { used[k] = true; }); });
   /* Every carrying field in the schema was used by some record above. */
   const carrying = [];

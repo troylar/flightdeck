@@ -25,8 +25,8 @@
       "reviewed": "Round 6 XD: sync dry-run partial status from preparation refusals"
     },
     "docs/design.md": {
-      "sha256": "909fb2496fb152fd23316ea856f171a9ff78133fa326909e7058218bfa65b80a",
-      "reviewed": "EA: schema-driven witness references over alias history"
+      "sha256": "be5597a3d29b67107de83a7fb44e95548ce603aaaa239891398e82c5fc0d58f1",
+      "reviewed": "FA: decision references resolved as the reducer does"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -257,8 +257,8 @@
       "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
     },
     "src/core/loop.js": {
-      "sha256": "bf415be8dde09169fda7cbc02f4fee2613973252748c4a5a472f89471b5d16e5",
-      "reviewed": "EA: schema-driven witness references over alias history"
+      "sha256": "d0a5e84dc087e478dd260b4f39aca96a1cc99ab32d86eced22d7f52a42588727",
+      "reviewed": "FA: decision references resolved as the reducer does"
     },
     "src/core/map.js": {
       "sha256": "f9eae33f6635cd1b3983fc1c71eb7a3b3c8dc1c70ca3ef8ce8807d5228165d2f",
