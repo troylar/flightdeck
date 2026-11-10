@@ -25,8 +25,8 @@
       "reviewed": "JD: the 501st keep at one place is refused in PF.learn.prepare; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "512c1e40ad662209cc29fcd7af6cbad1b9e1e88df7d08fc1924df3c5493c2c32",
-      "reviewed": "JA: Keep this one sets up the save-chain guard and reads evidence then people.json before the backup; checked for direct writes and unconditional deletes"
+      "sha256": "3ee2f03f41d2babdb5789e328e022d82bc42b43cbd2ee760cf78ac4c6bb47513",
+      "reviewed": "JB: promote classifies listed corrections whose keep is gone from retained decisions; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -421,8 +421,8 @@
       "reviewed": "HB: one judged evidence verdict (publication read failures, runs via readEvidence, explicit evidence runs, the app view's judge); checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "2da6a5e826beb8ab435ba9cf26a025ca884cf8c39193ecb75f7809d5c3b1372a",
-      "reviewed": "JA: Keep this one sets up the save-chain guard and reads evidence then people.json before the backup; checked for direct writes and unconditional deletes"
+      "sha256": "3509c21664b71195ac623d1873537269ba9d4c5df3c711e470b1bf8e67cde4cb",
+      "reviewed": "JB: promote classifies listed corrections whose keep is gone from retained decisions; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

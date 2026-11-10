@@ -35898,7 +35898,9 @@ PF.examples = (function () {
       return repo.readStage(sfs, pid, folder).then(function (sv) {
         var listed = sv && sv.info && Array.isArray(sv.info.corrections) ? sv.info.corrections : [];
         if (keepUnreadWhy(pid, listed)) return { refused: keepUnreadWhy(pid, listed) };
-        var kp = keepPubGroup(pid, listed);
+        var km = keepMissing(pid, listed);
+        if (km && km.why) return { refused: km.why };
+        var kp = keepPubGroup(pid, listed) || (km && km.owner) || null;
         if (!kp) return promote(still);
         if (keepPubWhy(kp, pid)) return { refused: keepPubWhy(kp, pid) };
         var kg = keepGuard(kp, pid, false, { me: by, fs: sfs, gen: pg });
@@ -37600,7 +37602,23 @@ PF.examples = (function () {
     if (!listed.concat(decided).some(function (id) { return !known[id]; })) return '';
     return 'Nothing was published: a record kept for next time can\'t be read (proposals/' + un[0].file + '), so whether this version includes one, and who may publish it, can\'t be told. Check Folder health, then try again.';
   }
-  function keepPubWhy(g, pid) { var w = g ? keepOwnerWhy(g, pid) : ''; return w ? 'Nothing was published: this version includes what was kept for next time. ' + w : ''; }
+  /* A correction a stage lists that isn't among this checklist's corrections now (its keep or its run gone) is classified from
+     its retained decisions: one that named keeps (members) is a keep whose record is missing, a held dependency ({ why });
+     one with decisions naming none is an ordinary correction, as before (null); one with no decision at all can't be told,
+     so the checklist's active owner is required ({ owner: group }), never left unguarded. */
+  function keepMissing(pid, ids) {
+    var known = Object.create(null); (ctx.corrections(pid) || []).forEach(function (g) { if (g) known[g.id] = true; });
+    var decs = (data.corrDecisions || []).filter(function (d) { return d && d.process === pid; }), owner = null;
+    var listed = (ids || []).map(function (x) { return typeof x === 'string' ? x : x && x.id; }).filter(Boolean);
+    for (var i = 0; i < listed.length; i++) {
+      var id = listed[i]; if (known[id]) continue;
+      var mine = decs.filter(function (d) { return d.group === id || d.suggestion === id; });
+      if (mine.some(function (d) { return (d.members || []).some(function (m) { return /^req-keep-/.test(m); }); })) return { why: 'Nothing was published: this version includes what was kept for next time, and a record it rests on isn\'t in the folder now (' + mine[0].members.filter(function (m) { return /^req-keep-/.test(m); }).slice(0, 3).map(function (m) { return 'proposals/' + m + '.json'; }).join(', ') + '), so who may publish it can\'t be told. Check Folder health, then try again.' };
+      if (!mine.length && !owner) owner = { id: id, keep: true, members: [], unclassified: true };
+    }
+    return owner ? { owner: owner } : null;
+  }
+  function keepPubWhy(g, pid) { var w = g ? keepOwnerWhy(g, pid) : ''; return w ? 'Nothing was published: ' + (g.unclassified ? 'this version lists a correction that isn\'t in the folder now and has no decision to tell whether it was kept for next time. ' : 'this version includes what was kept for next time. ') + w : ''; }
   /* The write guard every write slice 5 added takes (4.0): bound at the click to the folder, the read (generation) and the
      person; fresh(fs) runs the path's own reads (o.fresh(fs)) and then reads people.json again, awaited after every other read and
      right before every write; still() asks, on that read, the same folder, generation and person, that person listed and

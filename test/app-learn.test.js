@@ -177,6 +177,27 @@ rule('A keep record that can\'t be read holds publishing and promoting a version
   assert.ok(/can.t be read/.test(txt(app.html())), 'said why: ' + txt(app.html()).slice(0, 600));
 });
 
+rule('A stage listing a keep whose record was deleted holds the promote; one whose correction can\'t be classified at all needs the owner', async () => {
+  for (const how of ['keep', 'keep and decisions']) {
+    const { app } = await appliedKeep();
+    await openPage(app);
+    app.set('change-note', 'Post the notes'); app.click('stage-draft', 'release-notes'); await app.tick(300);
+    const st = app.files('staged/release-notes/').filter(f => /publication\.json$/.test(f)), folder = JSON.parse(app.fs.files[st[0]].t).folder, n = versions(app);
+    assert.ok((JSON.parse(app.fs.files[st[0]].t).corrections || []).length, 'set-up: the stage includes the keep');
+    app.files('proposals/req-keep-').forEach(f => { delete app.fs.files[f]; });
+    const decs = Object.keys(app.fs.files).filter(f => { try { return JSON.parse(app.fs.files[f].t).kind === 'correction-decision'; } catch (e) { return false; } });
+    assert.ok(decs.length, 'set-up: a decision on the keep');
+    if (how !== 'keep') decs.forEach(f => { delete app.fs.files[f]; });
+    app.choose('person-avery'); await app.tick(80); await refresh(app, 300); await openPage(app);
+    app.click('promote-stage', folder); await app.tick(300);
+    assert.strictEqual(versions(app), n, how + ' deleted: nothing promoted by someone else');
+    assert.ok(/kept for next time/.test(txt(app.html())), how + ': said why: ' + txt(app.html()).slice(0, 400));
+    app.choose('person-morgan'); await app.tick(80); await refresh(app, 300); await openPage(app);
+    app.click('promote-stage', folder); await app.tick(300);
+    assert.strictEqual(versions(app), how === 'keep' ? n : n + 1, how === 'keep' ? 'a missing keep is held, for the owner too' : 'unclassified: the owner promotes it');
+  }
+});
+
 rule('Promoting a staged version that includes a keep is the active owner\'s too', async () => {
   const { app } = await appliedKeep();
   await openPage(app);
