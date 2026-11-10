@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "51f5dfcdeaa2f1522b9fddb06250ce4dc49353a3ff6958b2034a4ea393ccc718",
-      "reviewed": "PD: a fact whose batch predecessor wasn't written isn't filed; checked for direct writes and unconditional deletes"
+      "sha256": "29e3f93f1df7335515dad1fec559ade1c86e41b649e664f8ee264a8dd1aa28b5",
+      "reviewed": "PC: a first suggest-done's evidence is expected before it previews or files; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "cf0a7c0289f08fc6d138b4feaddbdc118b45af451a7732e5ee68c9480c752b38",
@@ -25,8 +25,8 @@
       "reviewed": "Merge of feat/4.0 (slice 3 round 7) into feat/4.0-facts: both sides' texts kept, spread inputs and fact clocks combined; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "fc7c55274cb316d39158e725e168732ca739d0c63742df31bcc9114124e74e68",
-      "reviewed": "PD: a fact whose batch predecessor wasn't written isn't filed; checked for direct writes and unconditional deletes"
+      "sha256": "f7c98fc5656bc2ecb54db4c60e2f45bcf31b034e5b7a64f1feb263df59ea14e5",
+      "reviewed": "PC: a first suggest-done's evidence is expected before it previews or files; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",

@@ -939,6 +939,8 @@ async function readDeps(PF, L, r, o) {
      decided or applied, is expected like a parent a request fulfils: its file, its format and its pinned version. */
   let EV = null; try { EV = got ? T.view(r, { records: T.recordsFor(got.todos || [], r), unread: [], people: o.people }) : null; } catch (e) { EV = null; }
   if (EV) T.requestsOf(EV).forEach((q) => { if (!q.support || q.status === 'applied' || q.status === 'declined') return; const it = PF.facts.itemOfTodo(r, EV.byTodo[q.todo]); if (it && !self(it.run)) parents[key(it.run)] = true; });
+  /* o.suggest: the to-do a suggestion is about to be asked on (todo suggest-done, PC): its evidence run is expected too. */
+  if (EV && o.suggest) { const it = PF.facts.itemOfTodo(r, EV.byTodo[o.suggest]); if (it && !self(it.run)) parents[key(it.run)] = true; }
   const parentRuns = [];
   /* Each parent a request of this run fulfils: its run file, and every record its applied work names (living.head, its chain),
      expected and named when missing. */
@@ -3362,7 +3364,8 @@ async function todoMain(argv) {
     if (typeof r.folder === 'string') ownPub = (r.test === true ? 'staged/' : 'publications/') + r.process + '/' + r.folder;
     (one.bad || []).forEach((b) => { if (!extra.some((y) => y.path === b.path)) extra.push({ path: b.path, kind: b.kind || 'unreadable', why: fileWhy(b.why) }); });
     judgeRun(PF, r, one.pub).forEach((x) => { if (!extra.some((y) => y.path === x.path)) extra.push(x); });
-    const dep = await readDeps(PF, L, r, { people: one.people, unknown: true });
+    /* PC: a first suggestion's evidence run is expected before anything is previewed or filed, as an existing one's is. */
+    const dep = await readDeps(PF, L, r, { people: one.people, unknown: true, suggest: sub === 'suggest-done' ? val['--todo'] : null });
     if (dep.coverage) depCovers = dep.covers;
     if (!dep.got) return failOut('failed', 'The proposals/ folder couldn\'t be read, so the run\'s to-dos can\'t be.' + nothing, problems().concat(dep.problems));
     const got = dep.got;
@@ -3401,6 +3404,10 @@ async function todoMain(argv) {
       const held = (why) => done(Object.assign(sid0, { status: 'held', preview: why + ' Nothing was written. Check folder availability, then try again.' }), EXIT.partial);
       if (!x) return (V.broken || V.unread.length || V.held.length) ? held('The to-do can\'t be read in order yet.') : failOut('invalid', 'That to-do isn\'t in this run.' + nothing, problems());
       const it = FX.itemOfTodo(r, x), FV = it ? FX.view(it.run, deps) : null, fr = FV ? FV.byId[val['--fact']] : null;
+      /* What the proposed support rests on (PC), from the same manifest as a filed one's: the run the facts are on, its pinned
+         version, and every fact the named one saw. The named fact itself missing is the caller's mistake, said below. */
+      if (x) PF.facts.expected(r, { support: { fact: val['--fact'] } }, x, { records: deps.records, unread: deps.unread, runs: [r].concat(dep.runs, dep.parentRuns), unreadRun: dep.inputs(L.problems().concat(extra), { people }).loops.unreadRun })
+        .filter((m) => m.path !== 'proposals/' + val['--fact'] + '.json').forEach((m) => { if (!extra.some((y) => y.path === m.path) && !L.problems().some((y) => y.path === m.path)) extra.push(m); });
       /* Anything it depends on that can't be read holds it first, an earlier receipt included: whether it still stands isn't known. */
       if (FV) noteUnread(FV.unread);
       if (problems().length) return held('Part of the team folder this depends on couldn\'t be read.');

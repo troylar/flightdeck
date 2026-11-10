@@ -247,6 +247,38 @@ rule('PD: a record whose predecessor in the batch wasn\'t written isn\'t filed; 
   assert.deepStrictEqual(JSON.parse(fs.readFileSync(second, 'utf8')).seen, [F.idFor('git-bot', 'prs-102-a')], 'the second saw the first');
 });
 
+/* PC: the first suggestion on a story's to-do, with no suggestion filed before it: what its evidence rests on (the facts'
+   run, its pinned version, a fact the named one saw) is expected before anything is previewed or filed. */
+rule('PC: a first suggest-done holds (exit 4, the path named, nothing written) while what its evidence rests on can\'t be read', async () => {
+  const pubOf = (root) => { const d = path.join(root, 'publications', 'release-readiness'); return path.join(d, fs.readdirSync(d).filter(n => n[0] !== '.')[0], 'publication.json'); };
+  const CASES = {
+    'the facts\' run, absent': (root) => { fs.rmSync(path.join(root, 'runs', 'release-readiness', 'r-41'), { recursive: true }); return 'runs/release-readiness/r-41/run.json'; },
+    'the facts\' run, malformed': (root) => { fs.writeFileSync(runFile(root, PR), '{"truncated":'); return 'runs/release-readiness/r-41/run.json'; },
+    'the facts\' run, newer': (root) => { const j = JSON.parse(fs.readFileSync(runFile(root, PR), 'utf8')); j.format = 'preflight-run/9'; fs.writeFileSync(runFile(root, PR), JSON.stringify(j)); return 'runs/release-readiness/r-41/run.json'; },
+    'its version, absent': (root) => { const f = pubOf(root); fs.rmSync(path.dirname(f), { recursive: true }); return path.relative(root, path.dirname(f)).split(path.sep).join('/'); },
+    'its version, malformed': (root) => { const f = pubOf(root); fs.writeFileSync(f, '{"truncated":'); return path.relative(root, path.dirname(f)).split(path.sep).join('/'); },
+    'a fact it saw, absent': (root) => { const f = 'proposals/' + F.idFor('git-bot', 'prs-102-a') + '.json'; fs.unlinkSync(path.join(root, f)); return f; }
+  };
+  const off = [];
+  for (const [label, brk] of Object.entries(CASES)) {
+    const F0 = await folder(), KID = 'validate-story/k102';
+    assert.strictEqual(json('todo', 'add', F0.root, KID, '--phase', 'assess', '--text', 'Merge the fix', '--key', 'kid-td', '--json', ...TOOL).code, 0);
+    assert.strictEqual(await decideAll(F0.d, KID, 'person-avery'), 1);
+    await land(F0.d, KID);
+    const x = json('todo', 'list', F0.root, KID, '--json').data.todos[0].id;
+    assert.strictEqual(json('fact', 'sync', F0.root, PR, '--from', input({ facts: [prs({ observedAt: ago(5 * HOUR), entries: [{ id: '17', text: 'Fix the login', state: 'open' }] })] }), '--json', ...TOOL).code, 0);
+    assert.strictEqual(json('fact', 'sync', F0.root, PR, '--from', input({ facts: [prs({ key: 'prs-102-b' })] }), '--json', ...TOOL).code, 0);
+    const fid = F.idFor('git-bot', 'prs-102-b'), ask = (...more) => json('todo', 'suggest-done', F0.root, KID, '--todo', x, '--fact', fid, ...more, '--json', ...TOOL);
+    assert.deepStrictEqual([ask('--dry-run').code, ask('--dry-run').data.status], [0, 'would-request'], label + ': set-up');
+    const at = brk(F0.root), n = ls(F0.root).length;
+    for (const more of [['--dry-run'], []]) {
+      const r = ask(...more), named = (r.problems || []).some(p => { const q = String(p.path || '').replace(/\/$/, ''); return q === at.replace(/\/$/, '') || at.indexOf(q + '/') === 0; });
+      if (r.code !== 4 || !(r.data && r.data.status === 'held') || r.complete !== false || !named || ls(F0.root).length !== n) off.push(label + (more.length ? ' (dry run)' : '') + ': exit ' + r.code + ', ' + (r.data ? r.data.status : r.error && r.error.kind + ' ' + r.error.why) + ', ' + JSON.stringify((r.problems || []).map(p => p.path)) + ', files ' + (ls(F0.root).length - n));
+    }
+  }
+  assert.deepStrictEqual(off, []);
+});
+
 rule('A record that can\'t be read holds sync and suggest-done (exit 4) and writes nothing', async () => {
   const F0 = await folder(), x = await todo(F0);
   assert.strictEqual(json('fact', 'sync', F0.root, PR, '--from', input({ facts: [prs()] }), '--json', ...TOOL).code, 0);
