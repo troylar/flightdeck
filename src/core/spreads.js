@@ -35,7 +35,8 @@ PF.spreads = (function () {
       (i.status === 'cleared' || i.status === 'exception' ? cleared : open).push(p);
       ids.push([i.uid, p.attempt, i.status, i.result || '', i.run || '']);
     });
-    return { open: open, cleared: cleared, fingerprint: hex(['scope', V && V.loop ? V.loop.step : '', ids]).slice(0, 16) };
+    var seen = ((V && V.ledger && V.ledger.heads) || []).slice().sort(cmpStr);
+    return { open: open, cleared: cleared, fingerprint: hex(['scope', V && V.loop ? V.loop.step : '', ids]).slice(0, 16), seen: seen };
   }
   /* The phase of a checklist whose gate is gateId, or null. */
   function phaseOfGate(map, gateId) { var out = null; (map && map.phases || []).forEach(function (p) { if (p.gate && p.gate.id === gateId) out = p; }); return out; }
@@ -55,13 +56,18 @@ PF.spreads = (function () {
       return views[k];
     };
     (T.spreads || []).forEach(function (s) {
-      var C = { complete: false, scope: [], id: s.id, text: s.text, loopStep: s.loopStep, child: s.child, owner: s.owner || '', state: s.state, stop: s.stop, request: s.request, added: s.added, items: [], unresolved: [], notices: [], counts: null, summary: '', row: '' };
+      var C = { complete: false, scope: [], missing: [], id: s.id, text: s.text, loopStep: s.loopStep, child: s.child, owner: s.owner || '', state: s.state, stop: s.stop, request: s.request, added: s.added, items: [], unresolved: [], notices: [], counts: null, summary: '', row: '' };
       out.push(C);
       var hold = function (why) { C.unresolved.push(why); };
       if (!o.loops) { hold('Spread "' + s.text + '": its loop can\'t be read here, so its coverage can\'t be checked.'); return finish(C); }
       var V = null; try { V = PF.loop.view(r, s.loopStep, { records: o.loops.records, unread: o.loops.unread, runs: o.runs, procOf: o.loops.procOf }); } catch (e) { V = null; }
       if (!V) { hold('Spread "' + s.text + '": its loop ' + s.loopStep + ' can\'t be read here.'); return finish(C); }
       if (V.ledger.held.length) { hold('Spread "' + s.text + '": a scope record of its loop can\'t be read yet, so who owes it isn\'t known.'); return finish(C); }
+      /* What it depends on, expected from what it recorded and what refers to it, each present and checked here: the scope
+         records its scope was reviewed against, every item it names in its loop's scope, the runs its items' requests were
+         filed on, and no run of its loop whose last read failed. Anything expected and absent leaves coverage incomplete. */
+      var gap = expected(r, s, V, o, deps, C);
+      if (gap) { hold(gap); return finish(C); }
       /* Who owes it is known only from here on: before this, coverage is incomplete, never empty. */
       C.complete = true; C.noun = V.noun;
       var rows = Object.create(null); V.rollup.items.forEach(function (i) { rows[i.uid] = i; });
@@ -77,9 +83,44 @@ PF.spreads = (function () {
         owe({ uid: i.uid, attempt: a });
       });
       C.scope = Object.keys(mine).sort(); C.scope.forEach(function (id) { scope[id] = true; });
+      /* An obligation whose run or to-dos can't be read here is unknown, so coverage isn't complete either. */
+      if (C.items.some(function (i) { return i.state === 'unread'; })) C.complete = false;
       return finish(C);
     });
     return { spreads: out, scope: Object.keys(scope).sort() };
+  }
+  /* What a spread's coverage expects to find (the expected-dependency manifest), checked against what was read: '' when all
+     of it is here, else why not, with each missing file named in C.missing ({ path, kind: 'nofile', why }). */
+  function expected(r, s, V, o, deps, C) {
+    var nm = 'Spread "' + s.text + '"', why = '';
+    var present = Object.create(null); (V.records || []).forEach(function (x) { present[x.id] = true; });
+    var unreadAt = function (id) { return (o.loops.unread || []).some(function (u) { return String(u.file || '').indexOf(id) === 0; }); };
+    (s.scope.seen || []).forEach(function (id) {
+      if (present[id]) return;
+      if (!unreadAt(id)) C.missing.push({ path: 'proposals/' + id + '.json', kind: 'nofile', why: 'Spread "' + s.text + '" was reviewed against this scope record of its loop, and it isn\'t in the folder.' });
+      why = why || nm + ': a scope record it was reviewed against (' + id + ') can\'t be read here, so who owes it isn\'t known.';
+    });
+    if (why) return why;
+    var known = Object.create(null); (V.ledger.items || []).forEach(function (i) { known[i.uid] = true; });
+    var named = (s.scope.open || []).concat(s.scope.cleared || [], s.included || [], s.state === 'stopped' && s.stop ? s.stop.owed || [] : []);
+    var lost = named.filter(function (p) { return !known[p.uid]; });
+    if (lost.length) return nm + ': ' + lost.length + (lost.length === 1 ? ' item it names isn\'t' : ' items it names aren\'t') + ' in its loop\'s scope records here (' + lost[0].uid + '), so who owes it isn\'t known.';
+    var child = String(V.fields && V.fields.process || ''), have = Object.create(null);
+    (o.runs || []).forEach(function (c) { if (c) have[c.process + '/' + c.id] = true; });
+    deps.records.forEach(function (x) {
+      if (!x.fulfills || x.fulfills.spread !== s.id || !x.run || x.run.process !== child) return;
+      var k = x.run.process + '/' + x.run.id, pth = 'runs/' + k + '/run.json';
+      if (have[k] || C.missing.some(function (m) { return m.path === pth; })) return;
+      C.missing.push({ path: pth, kind: 'nofile', why: 'A request for spread "' + s.text + '" was filed on this run, and it isn\'t in the folder.' });
+      why = why || nm + ': ' + k + ', a run its requests were filed on, isn\'t here, so how it stands isn\'t known.';
+    });
+    if (why) return why;
+    var mineRun = function (c) { return !!c && !!c.parent && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === s.loopStep; };
+    var stale = o.loops.unreadRun ? (o.runs || []).filter(function (c) { return mineRun(c) && o.loops.unreadRun(c); }) : [];
+    if (stale.length) return nm + ': ' + stale[0].process + '/' + stale[0].id + ' couldn\'t be read on the last check, so how it stands isn\'t known until it is.';
+    var gone = (o.loops.runsUnread || []).filter(function (p) { return child && String(p).indexOf('runs/' + child + '/') === 0; });
+    if (gone.length) return nm + ': a run of its loop (' + gone[0] + ') can\'t be read here, so who owes it isn\'t known.';
+    return '';
   }
   /* One obligation's state: where it is fulfilled (a binding, else the one run the loop counts for that attempt) and how its
      request and to-do stand there. */

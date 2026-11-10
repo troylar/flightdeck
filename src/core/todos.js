@@ -170,15 +170,17 @@ PF.todos = (function () {
   }
   function hasPair(list, p) { return (list || []).some(function (y) { return y.uid === p.uid && y.attempt === p.attempt; }); }
   function cleanScope(v, errors) {
-    if (!isMap(v)) { errors.push('"scope" is {"open", "cleared", "fingerprint"}.'); return null; }
+    if (!isMap(v)) { errors.push('"scope" is {"open", "cleared", "fingerprint", "seen"}.'); return null; }
     var n0 = errors.length;
-    only(v, ['open', 'cleared', 'fingerprint'], '"scope"', errors);
+    only(v, ['open', 'cleared', 'fingerprint', 'seen'], '"scope"', errors);
     var o = cleanPairs(v.open, LIMITS.items, errors, '"scope" "open"'), c = cleanPairs(v.cleared, LIMITS.items, errors, '"scope" "cleared"');
     if (typeof v.fingerprint !== 'string' || !FP.test(v.fingerprint)) errors.push('"scope" "fingerprint" is the fingerprint of the scope reviewed.');
+    /* seen: the loop's scope records it was reviewed against (their heads), so one that goes missing is known by identity. */
+    if (!Array.isArray(v.seen) || v.seen.length > LIMITS.items || !v.seen.every(function (x) { return typeof x === 'string' && (REQ.test(x) || DNAME.test(x + '.json')); })) errors.push(Array.isArray(v.seen) && v.seen.length > LIMITS.items ? '"scope" "seen" names ' + v.seen.length + ' scope records; a spread names at most ' + LIMITS.items + '.' : '"scope" "seen" is the list of the loop\'s scope records it was reviewed against.');
     if (errors.length > n0 || !o || !c) return null;
     if (o.length + c.length > LIMITS.items) { errors.push('"scope" names ' + (o.length + c.length) + ' items; a spread covers at most ' + LIMITS.items + '.'); return null; }
     if (o.some(function (p) { return hasPair(c, p); })) { errors.push('"scope" names an item as both open and cleared.'); return null; }
-    return { open: o, cleared: c, fingerprint: v.fingerprint };
+    return { open: o, cleared: c, fingerprint: v.fingerprint, seen: v.seen.slice() };
   }
   function cleanChild(v, errors) {
     if (!isMap(v) || Object.keys(v).length !== 1 || typeof v.beforeGate !== 'string' || !STEP.test(v.beforeGate)) { errors.push('"child" is {"beforeGate": <a gate of the item\'s checklist>}.'); return null; }
@@ -488,7 +490,7 @@ PF.todos = (function () {
       if (visited[at]) { T.broken = { why: 'Its applications go round in a circle at ' + at + '.', record: at }; break; }
       visited[at] = true;
       var a = byId[at];
-      if (!a) { T.broken = { why: heldIds[at] ? 'The application ' + at + ' can\'t be read in order yet (' + (heldIds[at].why === 'copies' ? 'two different copies of it are in the folder' : 'it saw a record that isn\'t here') + ').' : 'The application ' + at + ' that the run names isn\'t in the folder.', record: at }; break; }
+      if (!a) { T.broken = { why: heldIds[at] ? 'The application ' + at + ' can\'t be read in order yet (' + (heldIds[at].why === 'copies' ? 'two different copies of it are in the folder' : 'it saw a record that isn\'t here') + ').' : 'The application ' + at + ' that the run names isn\'t in the folder.', record: at, missing: heldIds[at] ? '' : at }; break; }
       var ap = a.kind === 'application' ? a : a.kind === 'compound' ? a.application : null;
       if (!ap) { T.broken = { why: at + ' isn\'t an application.', record: at }; break; }
       chain.unshift(a); at = ap.previous;
@@ -503,7 +505,7 @@ PF.todos = (function () {
         isSpreadOp(e.op) ? spreadReplayWhy(T, e) :
         e.op === 'add' ? (x ? 'it adds ' + e.todo + ' again' : added >= LIMITS.todos ? 'it would add more than ' + LIMITS.todos + ' to-dos' : '') :
         !x ? 'it changes ' + e.todo + ', which was never added' : e.op === 'reopen' ? (x.state === 'open' ? e.todo + ' is already open' : '') : x.state !== 'open' ? e.todo + ' is already ' + STATE_WORDS[x.state].toLowerCase() : '';
-      if (why) { T.broken = { why: 'The application ' + a.id + ' can\'t be applied: ' + why + '.', record: a.id }; return true; }
+      if (why) { T.broken = { why: 'The application ' + a.id + ' can\'t be applied: ' + why + '.', record: a.id, missing: !p && !heldIds[pid] ? pid : '' }; return true; }
       landed[pid] = a.id;
       if (isSpreadOp(e.op)) { spreadReplay(T, e, a.id, pid, p); return false; }
       if (e.op === 'add') {
@@ -828,6 +830,7 @@ PF.todos = (function () {
   function holds(T, r, cov) {
     var H = { all: [], phases: Object.create(null), loops: Object.create(null), stale: { gate: Object.create(null), loop: Object.create(null) }, scope: { gate: Object.create(null), loop: Object.create(null) }, open: 0 };
     var map = T.map, push = function (o, k, why) { (o[k] = o[k] || []).push(why); };
+    H.missing = missingOf(T, cov);
     if (r.ended) return H;
     if (!map) { H.all.push('Its checklist can\'t be read, so its to-dos can\'t be placed.'); return H; }
     if (T.broken) H.all.push(T.broken.why);
@@ -919,6 +922,18 @@ PF.todos = (function () {
       if (after.length) H.stale.loop[sid] = ['An item\'s to-do was added, reopened or decided two ways after this approval.'];
     });
     return H;
+  }
+  /* Every record a run's to-dos and spreads expect and that isn't in the folder, by its path ({ path, kind: 'nofile', why }):
+     an application or request the chain names, a record another one saw, and what a spread's coverage expects (cov). The
+     readers name each one as a problem, whatever else they read. */
+  function missingOf(T, cov) {
+    var out = [], had = Object.create(null);
+    var put = function (x) { if (x && x.path && !had[x.path]) { had[x.path] = true; out.push(x); } };
+    var rec = function (id, why) { put({ path: 'proposals/' + id + '.json', kind: 'nofile', why: why }); };
+    if (T && T.broken && T.broken.missing) rec(T.broken.missing, 'The run\'s applied work names this record (from ' + T.broken.record + '), and it isn\'t in the folder.');
+    ((T && T.held) || []).forEach(function (h) { (h.missing || []).forEach(function (id) { rec(id, 'The record ' + h.record + ' saw this one, and it isn\'t in the folder.'); }); });
+    ((cov && cov.spreads) || []).forEach(function (C) { (C.missing || []).forEach(put); });
+    return out;
   }
   /* Every run's holds, read-only, on every read (like PF.loop.markStale). A run with no to-do records and no living marker
      is left exactly as it was. o: { records, unread, people }. */
@@ -1349,7 +1364,7 @@ PF.todos = (function () {
     return nextQueued(T, r, o) || requestsOf(T).filter(function (q) { return ((q.status === 'disputed' && q.appOnly && q.via) || (q.landed && (q.appOut || []).length)) && canCarry(r, T, q, o); })[0] || null;
   }
 
-  return { SOPS: SOPS, ALL_OPS: ALL_OPS, isSpreadOp: isSpreadOp, hasPair: hasPair, loopWhy: loopWhy, FORMAT: FORMAT, STATUS: STATUS, FEATURE: FEATURE, LIMITS: LIMITS, OPS: OPS, WORDS: WORDS, STATE_WORDS: STATE_WORDS, idFor: idFor, todoIdFor: todoIdFor, statusName: statusName, isTodo: isTodo, claims: claims, familyOf: familyOf,
+  return { SOPS: SOPS, ALL_OPS: ALL_OPS, isSpreadOp: isSpreadOp, missingOf: missingOf, hasPair: hasPair, loopWhy: loopWhy, FORMAT: FORMAT, STATUS: STATUS, FEATURE: FEATURE, LIMITS: LIMITS, OPS: OPS, WORDS: WORDS, STATE_WORDS: STATE_WORDS, idFor: idFor, todoIdFor: todoIdFor, statusName: statusName, isTodo: isTodo, claims: claims, familyOf: familyOf,
     targetKey: targetKey, placeOf: placeOf, placementWhy: placementWhy, placementFor: placementFor, effectOf: effectOf, fingerprint: fp, text: text,
     buildProposal: buildProposal, buildGrant: buildGrant, buildStatus: buildStatus, cleanFile: cleanFile, fileWhy: fileWhy, filed: filed, runOf: runOf, recordsFor: recordsFor,
     reduce: reduce, seenFor: seenFor, requestsOf: requestsOf,

@@ -2108,10 +2108,13 @@ def todo_why(o, name, nbytes=None, unchecked=None):
             err("scope")
             return None
         n0 = len(errors)
-        only(v, ["open", "cleared", "fingerprint"], "scope")
+        only(v, ["open", "cleared", "fingerprint", "seen"], "scope")
         op_, cl = clean_pairs(v.get("open"), TODO_LIMITS["items"], "scope open"), clean_pairs(v.get("cleared"), TODO_LIMITS["items"], "scope cleared")
         if not _tstr(v.get("fingerprint")) or not T_FP.match(v["fingerprint"]):
             err("scope fingerprint")
+        sn = v.get("seen")
+        if not isinstance(sn, list) or len(sn) > TODO_LIMITS["items"] or not all(_tstr(x) and (T_REQ.match(x) or T_DNAME.match(x + ".json")) for x in sn):
+            err("scope seen")
         if len(errors) > n0 or op_ is None or cl is None:
             return None
         if len(op_) + len(cl) > TODO_LIMITS["items"]:
@@ -2121,7 +2124,7 @@ def todo_why(o, name, nbytes=None, unchecked=None):
         if any((p["uid"], float(p["attempt"])) in cs for p in op_):
             err("scope both open and cleared")
             return None
-        return {"open": op_, "cleared": cl, "fingerprint": v["fingerprint"]}
+        return {"open": op_, "cleared": cl, "fingerprint": v["fingerprint"], "seen": list(sn)}
 
     def clean_child(v):
         if not isinstance(v, dict) or len(v) != 1 or not _tstr(v.get("beforeGate")) or not T_STEP.match(v["beforeGate"]):

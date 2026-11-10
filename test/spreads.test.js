@@ -768,4 +768,80 @@ rule('VB: a stop decided two ways still sends the loop\'s approval back, and set
   W.decide(W.r, st.id, 'person-morgan', 'decline'); W.mark();
   same(R.answered(W.r, step), false, 'settling it restores nothing');
 });
+/* Review round 5 (WA): coverage expects what it depends on, from what it recorded and what refers to it, and an expected
+   dependency that is absent, or present but not checked, is never "nothing there". Table-driven: every kind of dependency,
+   absent or unread, against every consumer the core gives (coverage, the holds every window marks, the problem collector,
+   asking, deciding and applying a stop). The readers' own failure modes (malformed, newer, unreadable, a link) are the CLI's
+   and the app's matrices (test/spread-cli.test.js, test/app-spreads.test.js). */
+function applied() {
+  const W = world([101, 102, 103]); W.kid(101, { cleared: true }); const k2 = W.kid(102); W.kid(103);
+  const add = W.spreadAdd('Security sign-off', { tool: 'release-helper', version: '1.0', key: 'wa-1' });
+  const dec = W.decide(W.r, add.id, 'person-morgan'); W.land(W.r);
+  const sp = spreadOf(W); assert.ok(sp && sp.state === 'active', 'set-up: applied');
+  const req = W.request(k2, sp);
+  same(W.one().items.filter(i => i.owed).map(i => i.key), ['ABC-102', 'ABC-103'], 'set-up: two owed');
+  return { W, add, dec, head: W.r.living.head, req, k2, sp, stop: (owed) => ({ op: 'spread-stop', spread: sp.id, reason: 'Covered by the platform review', owed: owed.map(n => ({ uid: uid(n), attempt: 1 })) }) };
+}
+const dropRec = (W, id) => { const i = W.recs.findIndex(x => x.id === id); assert.ok(i >= 0, 'set-up: ' + id); return W.recs.splice(i, 1)[0]; };
+/* [kind, how it goes missing or unread, the path named (or null when its own reader names it), restore] */
+const WA_DEPS = [
+  ['a scope record, absent', (S0) => { const x = S0.W.scopes.splice(0, 1)[0]; return { path: 'proposals/' + x.id + '.json', back: () => S0.W.scopes.unshift(x) }; }],
+  ['a scope record, unread', (S0) => { const x = S0.W.scopes.splice(0, 1)[0], L0 = S0.W.loops; S0.W.loops = () => Object.assign(L0(), { unread: [{ file: x._file || x.id + '.json', why: 'is newer', loop: LOOPT }] }); return { path: null, back: () => { S0.W.scopes.unshift(x); S0.W.loops = L0; } }; }],
+  ['the spread-add proposal, absent', (S0) => { const x = dropRec(S0.W, S0.add.id); return { path: 'proposals/' + x.id + '.json', back: () => S0.W.recs.push(x) }; }],
+  ['the application living.head names, absent', (S0) => { const x = dropRec(S0.W, S0.head); return { path: 'proposals/' + x.id + '.json', back: () => S0.W.recs.push(x) }; }],
+  ['the decision the application saw, absent', (S0) => { const x = dropRec(S0.W, S0.dec.id); return { path: 'proposals/' + x.id + '.json', back: () => S0.W.recs.push(x) }; }],
+  ['an item\'s run its request was filed on, absent', (S0) => { const i = S0.W.kids.indexOf(S0.k2); S0.W.kids.splice(i, 1); return { path: 'runs/validate-story/' + S0.k2.id + '/run.json', back: () => S0.W.kids.splice(i, 0, S0.k2) }; }],
+  ['an item\'s run whose last read failed (the app keeps the old copy)', (S0) => { const L0 = S0.W.loops; S0.W.loops = () => Object.assign(L0(), { unreadRun: (c) => c === S0.k2 ? 'EIO' : '' }); return { path: null, back: () => { S0.W.loops = L0; } }; }],
+  ['an item\'s run the reader couldn\'t read (the CLI has no copy)', (S0) => { const i = S0.W.kids.indexOf(S0.k2), L0 = S0.W.loops; S0.W.kids.splice(i, 1); S0.W.loops = () => Object.assign(L0(), { runsUnread: ['runs/validate-story/' + S0.k2.id + '/run.json'] }); return { path: null, back: () => { S0.W.kids.splice(i, 0, S0.k2); S0.W.loops = L0; } }; }]
+];
+for (const [kind, lose] of WA_DEPS) {
+  rule('WA: ' + kind + ': coverage is incomplete, its loop is held, the collector names it, and no stop is asked, decided or applied', () => {
+    const S0 = applied(), W = S0.W, off = [];
+    /* A stop asked while everything could be read, to be decided and applied while it can't. */
+    const st = W.ask(W.r, S0.stop([102, 103]), { tool: 'release-helper', version: '1.0', key: 'wa-st' });
+    const shown = T.inbox([W.r], Object.assign({ me: 'person-morgan' }, W.inputs())).filter(x => x.id === st.id)[0];
+    assert.ok(shown, 'set-up: the stop waits for Morgan');
+    const lost = lose(S0);
+    const cov = W.cov(), C = cov.spreads[0];
+    if (C && C.complete !== false) off.push('coverage: complete');
+    const H = W.mark();
+    if (!H || !((H.loops.each || []).length || H.all.length)) off.push('holds: the loop isn\'t held');
+    if (lost.path && !T.missingOf(W.view(), cov).some(x => x.path === lost.path && x.kind === 'nofile')) off.push('collector: ' + lost.path + ' not named (' + JSON.stringify(T.missingOf(W.view(), cov)) + ')');
+    const P = T.prepare(W.r, { body: S0.stop([]), by: { tool: 'release-helper', version: '1.0', key: 'wa-st0' }, records: W.recs, unread: W.unread, people: PEOPLE, at: AT, app: '4.0.0', loops: W.loops(), runs: W.runs() });
+    if (!P.why) off.push('prepare: a stop with owed [] was asked');
+    const d = T.decide(W.r, Object.assign({ request: st.id, op: 'accept', by: 'person-morgan', shown: shown.consequence.fingerprint, at: AT, writer: 'wx', rev: rev(), app: '4.0.0' }, W.inputs()));
+    if (!d.why) off.push('decide: the stop was accepted');
+    const V = W.view(), q = V.requests[st.id], plan = q ? T.applyPlan(W.r, V, q, W.inputs()) : { skip: 'unread' };
+    if (!plan.skip) off.push('apply: ' + JSON.stringify(plan).slice(0, 120));
+    same(off, [], kind);
+    /* When it is back, every obligation still stands. */
+    lost.back();
+    same(W.one().complete, true, kind + ': back');
+    same(W.one().items.filter(i => i.owed).map(i => i.key), ['ABC-102', 'ABC-103'], kind + ': nothing was lost');
+  });
+}
+/* The reviewers' sequence: a stop filed while the loop's only scope record is missing, then the scope record returns. */
+rule('WA: a stop filed while the scope record is missing is never applied; once it returns, both obligations still stand', () => {
+  const S0 = applied(), W = S0.W, x = W.scopes.splice(0, 1)[0];
+  same(W.one().complete, false, 'incomplete, never empty');
+  const P = T.prepare(W.r, { body: S0.stop([]), by: { tool: 'release-helper', version: '1.0', key: 'wa-st1' }, records: W.recs, unread: W.unread, people: PEOPLE, at: AT, app: '4.0.0', loops: W.loops(), runs: W.runs() });
+  assert.ok(P.why, 'no stop is prepared');
+  /* One filed anyway (a tool that didn't check) is never decided or applied while it can't be checked. */
+  const bf = T.buildProposal({ run: { process: 'release-readiness', id: 'r-41' }, producer: { name: 'other-tool', version: '1.0' }, key: 'wa-st2', seen: W.view().heads, at: AT, body: S0.stop([]) }), fd = T.filed(T.idFor('other-tool', 'wa-st2') + '.json', bf);
+  assert.ok(!fd.why, fd.why);
+  const st = W.push(fd.record);
+  W.land(W.r);
+  same(spreadOf(W).state, 'active', 'not applied');
+  W.scopes.unshift(x);
+  W.land(W.r);
+  same(W.one().items.filter(i => i.owed).map(i => i.key), ['ABC-102', 'ABC-103'], 'obligations kept');
+  assert.ok(st, 'set-up');
+});
+rule('WA: an explicitly recorded removal still works: a removed item owes nothing, and coverage is complete', () => {
+  const S0 = applied(), W = S0.W;
+  loopChange(W, 'wa-ex', { op: 'exclude', item: { key: 'ABC-103' }, reason: 'Ships in 4.2' });
+  same(W.loopView().rollup.items.filter(i => i.key === 'ABC-103').map(i => [i.required, i.status]), [[false, 'removed']], 'set-up: removed');
+  const C = W.one();
+  same([C.complete, C.items.filter(i => i.owed).map(i => i.key)], [true, ['ABC-102']]);
+});
 run();

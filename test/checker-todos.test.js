@@ -26,7 +26,7 @@ function valid() {
   /* Spreads (4.0 slice 3): a spread-add, an include, a binding, a stop, a story's request that fulfils one, and an application. */
   const bot = { name: 'notes-bot', version: '1.2' }, pair = { uid: 'jira:10101', attempt: 1 };
   const sp = T.buildProposal({ run: RUN, producer: bot, key: 's-1', seen: [], at: AT, body: { op: 'spread-add', loopStep: 'each', text: 'Security sign-off', owner: 'person-blake', reason: 'Audit', child: { beforeGate: 'assess-confirm' },
-    scope: { open: [pair], cleared: [{ uid: 'jira:key:ABC-2', attempt: 2 }], fingerprint: '0123456789abcdef' } } });
+    scope: { open: [pair], cleared: [{ uid: 'jira:key:ABC-2', attempt: 2 }], fingerprint: '0123456789abcdef', seen: [] } } });
   const inc = T.buildProposal({ run: RUN, producer: bot, key: 's-2', seen: [sp.id], at: AT, body: { op: 'spread-include', spread: sp.spread, item: { uid: 'jira:key:ABC-2', attempt: 2 } } });
   const bnd = T.buildProposal({ run: RUN, id: T.idFor('flightdeck', 's-3'), by: 'person-avery', seen: [], at: AT, body: { op: 'spread-bind', spread: sp.spread, item: pair, dest: { process: 'validate-story', id: 'k101' } } });
   const stp = T.buildProposal({ run: RUN, id: T.idFor('flightdeck', 's-4'), by: 'person-avery', seen: [], at: AT, body: { op: 'spread-stop', spread: sp.spread, reason: 'Covered elsewhere', owed: [pair] } });

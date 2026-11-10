@@ -25,8 +25,8 @@
       "reviewed": "retry without --attempt compares with the attempt first resolved; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "037c23aa808634be79cc230009e0c4f5625706772c7c6efacae837e6767d5c20",
-      "reviewed": "approvals are sticky before the first application; a needed cut marks the run living with head ''; no writes or deletes beyond the approval itself"
+      "sha256": "84dbf8c659e3e0fe3ecd2b2dda07cd1fe11e5bff60bd1511251285ac0359ce62",
+      "reviewed": "spread coverage expects what it depends on and one collector names each missing record; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -53,8 +53,8 @@
       "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "16793ddc2ca329727d69427b38cb2825a9a1861319b1224c7d1935abfbf11314",
-      "reviewed": "checker compares fulfils ids as given, in the app's order; no writes or deletes"
+      "sha256": "2200bcc8c7ffc12dd2fbdd281737399aa8e51b33323ae3b2831651e4d304d416",
+      "reviewed": "spread coverage expects what it depends on and one collector names each missing record; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
       "sha256": "197779e5fb047d6137527db0211659a2db320470f3086d61b5126d6e868b0cf8",
@@ -197,8 +197,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "05cc1a0416103240e682238b911ce2222531227a5cad04ca2aedd73be4191c8e",
-      "reviewed": "sync previews name each addition that would send an approval back; the living-run skill asks first"
+      "sha256": "778958a248e342607b13a5b372555b63109ba5e2635444c58f74f20e41342336",
+      "reviewed": "spread coverage expects what it depends on and one collector names each missing record; checked for direct writes and unconditional deletes"
     },
     "src/core/appjson.js": {
       "sha256": "d3bcd6c56e778c6eba888b38b74415cf61bc96905589d51ce8c67b319f63c676",
@@ -337,8 +337,8 @@
       "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
     },
     "src/core/spreads.js": {
-      "sha256": "56bb99e5e100bd7a4a62b26262e87f6dd55347e5a181631610a365107b8c7ab2",
-      "reviewed": "arrival notices say requested only when a request exists; included cleared items are not arrivals; no writes or deletes"
+      "sha256": "b30669565a662c3f3d87614368bc3326281561f314491741e86e1e65c7bfb449",
+      "reviewed": "spread coverage expects what it depends on and one collector names each missing record; checked for direct writes and unconditional deletes"
     },
     "src/core/staging.js": {
       "sha256": "d01a3204178bd0b055c05524916f55774c4404cca10f86fbb10a2ca675bd6b07",
@@ -353,8 +353,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "af46f416b44bda6dcbf008ed27eb817af988494e98acb0598a636d6c2e52d1cd",
-      "reviewed": "stop applications never enter approval scope; stop disputes still do; no writes or deletes"
+      "sha256": "24b6dc45aba2da84436cb80afbb1862189ccabe72a31a7aa7e33a68e0cba14e3",
+      "reviewed": "spread coverage expects what it depends on and one collector names each missing record; checked for direct writes and unconditional deletes"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",
