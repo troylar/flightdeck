@@ -2964,6 +2964,10 @@ async function spreadMain(argv) {
         '. Each run\'s own people decide; its recorder applies it.' + (reopening.length ? ' ' + (dryRun ? 'Would send' : 'Sends') + ' an approval back for review on ' + reopening.length + (reopening.length === 1 ? ' run' : ' runs') + ': ' + reopening.slice(0, 20).map((i) => (i.key || i.uid) + ' (' + i.consequence.reopens.join(', ') + ')').join(', ') + (reopening.length > 20 ? ' and ' + (reopening.length - 20) + ' more' : '') + '.' : '') + (skipped.length ? ' Not asked now: ' + skipped.slice(0, 20).map((k) => (k.key || k.uid) + ' (' + k.words.toLowerCase() + ')').join(', ') + (skipped.length > 20 ? ' and ' + (skipped.length - 20) + ' more' : '') + '.' : '') + ' ' + C.preview + '.';
       /* A preview is partial exactly when the sync would be: an obligation it couldn't ask. */
       const refusedN = items.filter((i) => i.status === 'refused').length;
+      /* YE: an obligation not asked is a problem named by its request's file, before the envelope is built: refused (unusable),
+         a write whose outcome isn't known (unreadable), or another request under its name (conflict). */
+      const unasked = (it, kind) => { if (!more.some((y) => y.path === it.file)) more.push({ path: it.file, kind, why: (it.key || it.uid) + ' on ' + it.run + ' wasn\'t asked: ' + String(it.why || 'unknown') }); };
+      items.forEach((i) => { if (i.status === 'refused') unasked(i, 'unusable'); });
       if (dryRun) return done({ run: { process: proc, id: runId }, spread: C.id, status: refusedN ? 'partial' : 'would-sync', items, skipped, partial: refusedN > 0, preview: say(0, 0, 0) }, refusedN ? EXIT.partial : undefined);
       let written = 0, already = 0, failed = 0;
       for (const it of items) {
@@ -2974,8 +2978,9 @@ async function spreadMain(argv) {
         if (res === 'written') { it.status = 'requested'; written++; continue; }
         let there = null; try { const tx = fs.readFileSync(path.join(dir, 'proposals', P.name), 'utf8'), tv = PF.todos.cleanFile(JSON.parse(tx), P.name, Buffer.byteLength(tx, 'utf8')); there = tv.ok ? tv.record : null; } catch (e) { there = null; }
         if (there && !T.askDiffers(there, { process: P.file.run.process, id: P.file.run.id }, { op: 'add', text: C.text, target: P.record.target, owner: undefined, fulfills: P.record.fulfills }).length) { it.status = 'already'; already++; }
-        else { it.status = 'failed'; it.why = there ? 'A different request is already filed under this obligation\'s name.' : UNCERTAIN; failed++; }
+        else { it.status = 'failed'; it.why = there ? 'A different request is already filed under this obligation\'s name.' : UNCERTAIN; it._conflict = !!there; failed++; }
       }
+      items.forEach((i) => { if (i.status === 'failed') unasked(i, i._conflict ? 'conflict' : 'unreadable'); delete i._conflict; });
       return done({ run: { process: proc, id: runId }, spread: C.id, status: failed ? 'partial' : 'synced', items, skipped, partial: failed > 0, preview: say(written, already, failed) }, failed ? EXIT.partial : undefined);
     }
     /* add, include, stop: one request on the parent run, under the tool's key. */

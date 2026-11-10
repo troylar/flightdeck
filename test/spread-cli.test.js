@@ -432,4 +432,27 @@ rule('YF: run --contract 2 on a run with spreads reads each proposal file once',
   assert.ok(Object.keys(counts).length > 0, 'set-up: proposals were read');
   assert.deepStrictEqual(many, []);
 });
+/* Review round 7 (YE): an obligation a sync couldn't ask (refused at capacity, or a write whose outcome isn't known) is a named
+   problem: exit 4, an incomplete envelope and a named path, always together, for the sync and its preview alike. */
+const together = (x) => { const four = x.code === 4, inc = x.complete === false, named = (x.problems || []).length > 0 && x.problems.every(p => p.path); return four === inc && inc === named; };
+rule('YE: a sync refused at capacity names the obligation\'s request, previewed and written alike', async () => {
+  const { root, d, sp } = await spread();
+  await fill(d, 'validate-story/k103', 500);
+  const p = json('spread', 'sync', root, PR, '--spread', sp.id, '--dry-run', '--json', ...TOOL), s = json('spread', 'sync', root, PR, '--spread', sp.id, '--json', ...TOOL);
+  for (const [n, x] of [['preview', p], ['sync', s]]) {
+    const it = x.data.items.filter(i => i.key === 'ABC-103')[0];
+    assert.ok(together(x), n + ': exit ' + x.code + ', complete ' + x.complete + ', ' + JSON.stringify(x.problems));
+    assert.ok((x.problems || []).some(q => q.path === it.file), n + ': names ' + it.file + ' ' + JSON.stringify(x.problems));
+  }
+});
+rule('YE: a sync whose write fails names the request it couldn\'t be sure of', async () => {
+  if (process.getuid && process.getuid() === 0) return;
+  const { root, sp } = await spread();
+  const pd = path.join(root, 'proposals'); fs.chmodSync(pd, 0o555);
+  let s; try { s = json('spread', 'sync', root, PR, '--spread', sp.id, '--json', ...TOOL); } finally { fs.chmodSync(pd, 0o755); }
+  const bad = s.data.items.filter(i => i.status === 'failed');
+  assert.ok(bad.length > 0, 'set-up: a write failed ' + JSON.stringify(s.data).slice(0, 300));
+  assert.ok(together(s), 'exit ' + s.code + ', complete ' + s.complete + ', ' + JSON.stringify(s.problems));
+  bad.forEach(i => assert.ok((s.problems || []).some(q => q.path === i.file), 'names ' + i.file));
+});
 run();
