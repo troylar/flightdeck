@@ -1677,4 +1677,35 @@ rule('A keep whose process has a run that can\'t be read leaves the pack partial
     }
   }
 });
+/* ND: each run the work depends on is named as the export names it: exactly its key, role, head, chain, receipt and
+   confirmed, typed; the receipt it names is the packed run's own (none when it has none); and a complete pack confirms
+   every one. In every role. */
+rule('Python refuses a complete pack whose dependency metadata isn\'t the export\'s or doesn\'t agree with the packed run', async () => {
+  if (!PY) return;
+  const worlds = await roleWorlds();
+  const cases = [
+    ['role []', (d) => { d.role = []; }],
+    ['a role the export never writes', (d) => { d.role = 'friend'; }],
+    ['receipt []', (d) => { d.receipt = []; }],
+    ['a receipt the run doesn\'t name', (d) => { d.receipt = 'req-receipt-' + 'a'.repeat(24); }],
+    ['receipt deleted', (d) => { delete d.receipt; }],
+    ['confirmed false', (d) => { d.confirmed = false; }],
+    ['confirmed "yes"', (d) => { d.confirmed = 'yes'; }],
+    ['confirmed deleted', (d) => { delete d.confirmed; }],
+    ['an extra key', (d) => { d.extra = 1; }],
+    ['head 42', (d) => { d.head = 42; }],
+    ['a chain of numbers', (d) => { d.chain = [1]; }]
+  ];
+  const misses = [];
+  for (const w of worlds) {
+    const full = await pack(w.PF, new BytesFS(w.files), w.key);
+    assert.strictEqual(full.res.status, 'complete', w.role + ': ' + JSON.stringify(full.res.col.unresolved));
+    assert.ok(checkPack(full.zip).ok, w.role + ' control: ' + checkPack(full.zip).out);
+    for (const [what, edit] of cases) {
+      const c = checkPack(await repacked(w.PF, full.zip, (e, man) => edit(man.runs[0].living.deps[0])));
+      if (c.ok) misses.push(w.role + ', ' + what + ': ' + c.out);
+    }
+  }
+  assert.deepStrictEqual(misses, []);
+});
 run();

@@ -62,6 +62,9 @@ RUN_FILE = re.compile(r"^runs/([^/]+)/([^/]+)/run\.json\Z")
 DEP_ROLES = ("child run", "evidence run", "fulfilled run")
 # The states PF.receipts.stateOf gives an ended living run's receipt; the manifest's living.receipt carries one.
 RECEIPT_STATES = ("confirmed", "none", "missing", "unread", "mismatch")
+# A run the work depends on, as the manifest names it (ND): exactly these fields, its role one PF.receipts.deps gives.
+DEP_KEYS = {"key", "role", "head", "chain", "receipt", "confirmed"}
+DEP_META_ROLES = ("child", "evidence", "fulfills")
 
 
 def zone(tz):
@@ -182,8 +185,9 @@ def manifest_problem(man):
             return "the receipt the living section of " + r["key"] + " names isn't the export's: an id, one of its states and a why"
         deps_seen = set()
         for d in lv.get("deps", []):
-            if not (isinstance(d, dict) and isinstance(d.get("key"), str) and KEY.match(d["key"]) and isinstance(d.get("head", ""), str)
-                    and isinstance(d.get("chain", []), list)):
+            if not (isinstance(d, dict) and set(d) == DEP_KEYS and isinstance(d["key"], str) and KEY.match(d["key"]) and d["role"] in DEP_META_ROLES
+                    and isinstance(d["head"], str) and isinstance(d["chain"], list) and all(isinstance(x, str) for x in d["chain"])
+                    and isinstance(d["receipt"], str) and isinstance(d["confirmed"], bool)):
                 return "a run the work of " + r["key"] + " depends on isn't named as the export names it"
             if d["key"] in deps_seen:
                 return "the living section of " + r["key"] + " names " + d["key"] + ", a run its work depends on, twice"
@@ -717,6 +721,18 @@ def check_living(z, man):
         if own_receipt and obj(lv.get("receipt")).get("id") != own_receipt:
             sys.exit("living: " + r["key"] + " names another receipt than its run.json")
         whole, chain, closed, good_receipt, copies = check_run(run)
+        # Each run the work depends on (ND): the receipt it names is the packed run's own ('' when it names none), one named
+        # confirmed is in the pack, and a complete pack confirms every one.
+        for d in lv.get("deps") or []:
+            dr = packed("runs/" + d["key"] + "/run.json")
+            if isinstance(dr, dict):
+                drl = obj(dr.get("living")).get("receipt")
+                if d["receipt"] != (drl if isinstance(drl, str) else ""):
+                    sys.exit("living: " + r["key"] + " names another receipt for " + d["key"] + ", a run its work depends on, than its run.json")
+            elif d["confirmed"]:
+                sys.exit("living: " + r["key"] + " says " + d["key"] + ", a run its work depends on, is confirmed, but its run.json isn't in the pack as a run")
+            if man["status"] == "complete" and not d["confirmed"]:
+                sys.exit("living: " + r["key"] + " says " + d["key"] + ", a run its work depends on, isn't confirmed, but the pack says it's complete")
         if rc is not None and rc["state"] == "confirmed" and not own_ok[0]:
             sys.exit("living: " + r["key"] + "'s receipt is said to be confirmed, but the receipt in the pack doesn't say what it ended with")
         if not lv.get("complete"):

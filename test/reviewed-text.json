@@ -29,8 +29,8 @@
       "reviewed": "ending holds every parent's observed children across guards, at any depth; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
-      "sha256": "73b79dd75afcadbd2d9752c10da2a348d7f9543d53205f447944dbbe2810fe8e",
-      "reviewed": "export: a keep's process context run whose files are gone or can't be read is named and leaves the pack partial; checked for direct writes and unconditional deletes"
+      "sha256": "2ee3ed25bea263531fd9119749601c9f4cbf41521742b3b2d2482bb8c912f01b",
+      "reviewed": "check_pack checks each dependency's exact fields, receipt and confirmed against the packed run; checked for direct writes and unconditional deletes"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
