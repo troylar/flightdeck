@@ -36279,6 +36279,9 @@ PF.examples = (function () {
            never writes over one), so only the person is asked here. */
         if ((gone || broken) && o.lenient && o.phase !== 'final') return PF.repo.readPeopleOnly(src).then(function (p) { people = p; return next(i); }, no);
         if (gone || broken) return false;
+        /* Round 19 (XB): the run's version, judged as the approval snapshot judges it: there, read whole, verified, usable,
+           and the one both this window's copy and the run read now are pinned to. */
+        if (!pubFits(r, one.pub) || !pubFits(one.run, one.pub)) return false;
         var same = !!r._fileHash && one.run._fileHash === r._fileHash && (one.run.rev || 0) === (r.rev || 0);
         if (!same && !(o.lenient && o.phase !== 'final')) return false;
         if (one.peopleWhy || !one.people) return false;
