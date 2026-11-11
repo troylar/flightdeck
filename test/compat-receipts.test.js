@@ -347,7 +347,9 @@ rule('This version: each end field with each invalid value is refused by the fou
   const CASES = [['outcome', 'Done'], ['outcome', 42], ['outcome', null], ['by', 42], ['by', X81], ['byName', 42], ['byName', X81], ['byName', true],
     ['at', 'bad'], ['at', null], ['at', '+275760-09-13T00:00:00.001Z'], ['extra', 1], ['future', true], ['the end itself', 'yes'], ['the end itself', []],
     /* EB: a receipt named without an end (null or no end at all), and an outcome that is only text when made into text. */
-    ['the end itself', null], ['the end itself', undefined], ['outcome', ['Cancelled']], ['outcome', ['Cancelled'], 'no receipt']];
+    ['the end itself', null], ['the end itself', undefined], ['outcome', ['Cancelled']], ['outcome', ['Cancelled'], 'no receipt'],
+    /* EE: living data cleanLiving refuses, at run.json with the app's reason. */
+    ['living', { head: '' }, 'living'], ['living', 42, 'living'], ['living', 'head-and-more', 'living'], ['living', 'bad receipt', 'living'], ['living', 'both heads empty', 'living']];
   const NEW = H.loadMain();
   for (const [k, v, how] of CASES) {
     const r = JSON.parse(files[rp]);

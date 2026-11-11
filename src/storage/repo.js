@@ -3415,9 +3415,10 @@ PF.repo = (function () {
           D = ask();
           if (D.over) throw new Error(D.over);
           if (D.toRead.length) throw new Error('The runs the work of ' + self.process + '/' + self.id + ' depends on weren\'t all read, so no pack was made.');
-          /* DB: the run's own end, judged as every reader judges it (PF.run.endProblem) before anything about its receipt is
-             derived: an end the readers refuse or drop leaves the work unconfirmed, named at run.json. */
-          var ep = p.selfRaw ? R.endProblem(p.selfRaw) : null, epPath = 'runs/' + self.process + '/' + self.id + '/run.json';
+          /* DB: the run's own end, judged as every reader judges it (PF.run.endProblem), then its living record (EE,
+             PF.run.livingProblem), before anything about its receipt is derived: an end or a living record the readers refuse
+             or drop leaves the work unconfirmed, named at run.json. */
+          var ep = p.selfRaw ? R.endProblem(p.selfRaw) || R.livingProblem(p.selfRaw) : null, epPath = 'runs/' + self.process + '/' + self.id + '/run.json';
           var L = p.living = { head: self.living ? self.living.head : '', chain: D.chain, receipt: D.receipt ? { id: self.living.receipt || '', state: D.receipt.state, why: D.receipt.why } : null, missing: (ep ? [epPath + ' (' + ep.kind + '): ' + ep.why] : []).concat(D.missing), recs: {}, recTexts: {}, deps: [], runTexts: {} };
           var byFile = Object.create(null);
           Pr.todos.concat(Pr.scopes).forEach(function (x) { if (x && x._file) byFile[x._file] = x; });

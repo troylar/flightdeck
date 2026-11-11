@@ -4328,8 +4328,9 @@ def draft_main(args):
 
 
 def clean_living(v):
-    """PF.todos.cleanLiving: head alone, or head and receipt, whatever order the keys were written in."""
-    if not isinstance(v, dict) or not _tstr(v.get("head")) or not (v["head"] == "" or T_REQ.match(v["head"]) or R_STATUS.match(v["head"])):
+    """PF.todos.cleanLiving: head alone (an application's id, never empty), or head and receipt, whatever order the keys were
+    written in."""
+    if not isinstance(v, dict) or not _tstr(v.get("head")) or not (T_REQ.match(v["head"]) or R_STATUS.match(v["head"])):
         return None
     ks = sorted(v.keys())
     if ks == ["head"]:
@@ -4369,6 +4370,19 @@ def iso_or_null(v):
 
 RUN_NEWER = "This run uses checklist features this copy of Flightdeck doesn't understand. Update Flightdeck to run it."
 ENDED_FIELDS = ("outcome", "by", "byName", "at")
+
+
+def living_problem(r):
+    """PF.run.livingProblem: a run/3 file's living record as newer() judges it (one clean_living refuses, or the living-runs
+    feature without it, or it without the feature), as (kind, why), or None."""
+    if not isinstance(r, dict) or r.get("format") != "preflight-run/3":
+        return None
+    lf = isinstance(r.get("features"), list) and TODO_FEATURE in r["features"]
+    if "living" in r and not clean_living(r["living"]):
+        return "newer", RUN_NEWER + " Its record of its to-dos isn't one this copy reads."
+    if ("living" in r) != lf:
+        return "newer", RUN_NEWER + " " + ("It names the living-runs feature without its record of its to-dos." if lf else "It records to-dos without naming the living-runs feature.")
+    return None
 
 
 def end_problem(r):
@@ -4417,11 +4431,11 @@ def receipt_verdict(text, read, unread):
         r = json.loads(text, parse_constant=_no_constant) if text and not json_too_deep(text) else None
     except (ValueError, RecursionError):
         r = None
-    if not isinstance(r, dict) or not isinstance(r.get("living"), dict):
+    if not isinstance(r, dict) or "living" not in r:
         return None
     # The one end validation every reader applies (end_problem), before any receipt verdict: an end the app refuses as newer
     # or drops or changes leaves run.json named, with the readers' path, kind and reason, and its receipt is never confirmed.
-    ep = end_problem(r)
+    ep = end_problem(r) or living_problem(r)
     if ep:
         key = str(r.get("process")) + "/" + str(r.get("id"))
         title = js_slice(r["title"], 200) if isinstance(r.get("title"), str) else ""
