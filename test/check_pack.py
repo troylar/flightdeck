@@ -783,6 +783,22 @@ def check_living(z, man):
                 sys.exit("living: " + r["key"] + " says its work is complete, but the pack holds two different copies of proposals/" + fid + ".json, a fact the work rests on")
             if not isinstance(rec, dict) or rec.get("kind") != "fact" or rec.get("id") != fid:
                 sys.exit("living: " + r["key"] + " says its work is complete, but proposals/" + fid + ".json, a fact the work rests on, isn't that fact")
+            # What the fact saw, in turn, each one witness under its id, within the one bound (PF.receipts.deps, NB).
+            ask, asked = [x for x in arr(rec.get("seen")) if isinstance(x, str)], set()
+            while ask:
+                sid = ask.pop(0)
+                if sid in asked:
+                    continue
+                asked.add(sid)
+                if not packed_ids(sid):
+                    sys.exit("living: " + r["key"] + " says its work is complete, but proposals/" + sid + ".json, a record the fact " + fid + " saw, isn't in the pack")
+                srec, samb = witness(sid)
+                if samb:
+                    sys.exit("living: " + r["key"] + " says its work is complete, but the pack holds two different copies of proposals/" + sid + ".json, a record the fact " + fid + " saw")
+                reached.update(packed_ids(sid))
+                if len(reached) > 5000:
+                    sys.exit("living: " + r["key"] + " rests on more records and runs than a pack holds at most (5000)")
+                ask.extend(x for x in arr(obj(srec).get("seen")) if isinstance(x, str))
         # Every original reached is one the app reads, by its own family's reader.
         for path in sorted(reached):
             why = family_why(path)

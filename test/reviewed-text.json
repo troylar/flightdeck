@@ -29,8 +29,8 @@
       "reviewed": "MA: one set of children seen per ending attempt, carried across guards; reads only; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
-      "sha256": "ccfc60e224c821ca6364987da3946d9830463c6eebb86b04b2a33db1b6e76b1e",
-      "reviewed": "check_pack checks the manifest's nested shapes: scope keys, tz and days, dependency keys, receipt metadata; checked for direct writes and unconditional deletes"
+      "sha256": "1204164a9c6b87da825c0538f80302ae93cdf9f5008689148c91da6ac2099f46",
+      "reviewed": "a fact the work rests on is followed through the records it saw, in the export and check_pack; checked for direct writes and unconditional deletes"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
@@ -313,8 +313,8 @@
       "reviewed": "loops: items: item kind, feed binding, completeness fix, nouns, unknown-kind refusal in loop.js/map.js/publish.js/types.js and check_folder.py parity; pure checks only, checked for direct writes and unconditional deletes"
     },
     "src/core/receipts.js": {
-      "sha256": "8db73d87cab2093a9f4e420af6bbd398ac2b878f02768c5ecb859d31f7275f83",
-      "reviewed": "CB: receipt copies by the receipt body in the export and check_pack"
+      "sha256": "d099657d1bca69a2da535be1b87945d1876207ec67fab4acf98a788868914113",
+      "reviewed": "a fact the work rests on is followed through the records it saw, in the export and check_pack; checked for direct writes and unconditional deletes"
     },
     "src/core/refs.js": {
       "sha256": "24b7d2b52fcd99673fcc427db286a7224af83342da19efcd561ac850d6baa441",

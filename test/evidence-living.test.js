@@ -1628,4 +1628,27 @@ rule('Python refuses days that aren\'t real or are out of order, and a root star
   }
 });
 
+/* NB: a fact a to-do record rests on is followed through what it saw (its seen), in turn, as every other record is: a
+   predecessor fact gone from the folder leaves the pack partial by its path, and Python refuses a complete claim without it. */
+rule('A fact the work rests on is followed through the facts it saw: one gone leaves the pack partial, and Python refuses a complete claim', async () => {
+  const W = await loopMade(), PF = W.PF, T = PF.todos, F = PF.facts, P = PF.run.sanitize(JSON.parse(JSON.stringify(W.run)));
+  const got = await PF.repo.readTodos(new BytesFS(W.files)), V = T.view(P, { records: got.records, people: JSON.parse(W.files['people.json']) });
+  const x = Object.keys(V.byTodo).map((k) => V.byTodo[k])[0], item = PF.loop.view(P, 'each', { records: got.scopes, runs: [P], procOf: () => null }).rollup.items[0];
+  const at = new Date().toISOString(), BB = { feed: 'bitbucket', site: 'git.example.com' };
+  const fact = (key, seen, n) => F.build({ run: P, producer: { name: 'git-bot', version: '1.0' }, key, seen, at, app: '4.0.0', loopStep: 'each', uid: item.uid, attempt: 1, source: BB, domain: 'prs', observedAt: at, maxAgeSeconds: 86400, complete: true, reported: n, fetched: n, errors: [], entries: [{ id: '1', text: 'Change 1', state: 'merged' }].concat(n > 1 ? [{ id: '2', text: 'Change 2', state: 'merged' }] : []) });
+  const f1 = fact('prs-1', [], 1), f2 = fact('prs-2', [f1.id], 2), fr = T.cleanFile(JSON.parse(T.text(f2)), f2.id + '.json').record;
+  assert.deepStrictEqual(fr.seen, [f1.id], 'set-up: the second fact saw the first');
+  const q = T.buildProposal({ run: { process: P.process, id: P.id }, producer: { name: 'git-bot', version: '1.0' }, seen: [], at, body: { op: 'done', todo: x.id, support: { fact: f2.id, content: fr.content, incarnation: x.added, source: BB, domain: 'prs' } } });
+  const f1p = 'proposals/' + f1.id + '.json', files = Object.assign({}, W.files, { [f1p]: T.text(f1), ['proposals/' + f2.id + '.json']: T.text(f2), ['proposals/' + q.id + '.json']: T.text(q) });
+  const full = await pack(PF, new BytesFS(files), W.key);
+  assert.strictEqual(full.res.status, 'complete', 'the control: ' + JSON.stringify(full.res.col.unresolved));
+  assert.ok(manifestOf(full.zip).files.some((y) => y.path === f1p), 'set-up: the first fact is packed');
+  const less = Object.assign({}, files); delete less[f1p];
+  const { res } = await pack(PF, new BytesFS(less), W.key);
+  assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(f1.id) >= 0), 'the export names it: ' + res.status + ' ' + JSON.stringify(res.col.unresolved));
+  if (!PY) return;
+  assert.ok(checkPack(full.zip).ok, 'Python accepts the control: ' + checkPack(full.zip).out);
+  const bad = checkPack(await repacked(PF, full.zip, (e, man, g) => { const y = g(f1p); delete e[y.pack]; man.files = man.files.filter((z) => z.path !== f1p); forced(man); }));
+  assert.ok(!bad.ok && bad.out.indexOf(f1.id) >= 0, 'Python refuses it: ' + bad.out);
+});
 run();
