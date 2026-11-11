@@ -25,8 +25,8 @@
       "reviewed": "QC: spread keep's final check rereads and judges the items' checklist and rebuilds from it; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "cf06393383006cf139c9e701be73460a45131ffc93e3d2033355f2d3d8599888",
-      "reviewed": "YB: whole-correction Withdraw rereads and validates keep copies before the author rule; checked for direct writes and unconditional deletes"
+      "sha256": "839888a272be189a98ed5a376e498953b3941253494c962aa2c141c6c722ba3b",
+      "reviewed": "YC: late detour Start, Try again, Decline and plan read-back are bound to the form and layer they started from; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -421,8 +421,8 @@
       "reviewed": "YA: every withdrawal delete runs the whole guard right before it removes, with each copy's bytes checked against what the window read; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "4131ba241c63a8fdc06e9c8e7c6ba734f3c613f1471d2c0293ca3c88a93e7e9a",
-      "reviewed": "YB: whole-correction Withdraw rereads and validates keep copies before the author rule; checked for direct writes and unconditional deletes"
+      "sha256": "63ec663411e4f97bd30cb992bd633f08edc9d55c61deaa27c1c6e8162bc2cf05",
+      "reviewed": "YC: late detour Start, Try again, Decline and plan read-back are bound to the form and layer they started from; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

@@ -249,6 +249,61 @@ rule('A late Run this checklist keeps its plan but never opens over a newer scre
   }
 });
 
+/* YC: every late completion of Run this checklist is bound to the form and layer it started from, not only the screen:
+   the plan's Start, Try again and Decline once another checklist's Start form is open with a name typed, and the plan's
+   read-back once a step correction is being typed on the same run. What was committed is saved and said; nothing on
+   screen is replaced or navigated away from. */
+rule('A late detour Start, Try again, Decline or plan read-back keeps what was saved but never replaces a newer form or what was typed in it', async () => {
+  const pause = (fs, m, test) => { const orig = fs[m].bind(fs); let release = null; fs[m] = (p, ...a) => (!release && test(p)) ? new Promise((res, rej) => { release = () => orig(p, ...a).then(res, rej); }) : orig(p, ...a); return { go: () => release && release(), on: () => !!release, off: () => { fs[m] = orig; } }; };
+  const another = async (app) => { app.click('start', 'release-notes'); await app.settle(); app.set('run-title', 'My typed name'); };
+  const kept = (app, label) => {
+    assert.ok(/id="start-form"/.test(app.html()) && app.html().indexOf('data-process="release-notes"') >= 0, label + ': the newer Start form is still the one on screen');
+    assert.strictEqual(app.draft('run-title'), 'My typed name', label + ': what was typed stays');
+  };
+  const pick = (h) => !process.env.YC_CASE || process.env.YC_CASE.split(',').indexOf(h) >= 0;
+  for (const how of ['start', 'retry', 'decline'].filter(pick)) {
+    const label = how, { app, todo } = await setup(['pass']);
+    app.click('td-detour', todo); await app.tick(250);
+    assert.ok(/id="start-form"/.test(app.html()), label + ': set-up: the plan\'s Start');
+    const before = kidPaths(app).length;
+    if (how === 'retry') {
+      const w = app.fs.write.bind(app.fs); let failed = false;
+      app.fs.write = (p, ...a) => (!failed && /^runs\/smoke-test\//.test(p)) ? (failed = true, Promise.reject(new Error('disk full'))) : w(p, ...a);
+      app.chooseApprovers().submitForm('start-form'); await app.tick(300);
+      app.fs.write = w;
+      assert.ok(/data-act="plan-resume"/.test(app.html()), label + ': set-up: Try again offered');
+    }
+    const pz = how === 'decline' ? pause(app.fs, 'write', (p) => /^proposals\/plan-ev-.*\.status-/.test(p)) : pause(app.fs, 'write', (p) => /^runs\/smoke-test\//.test(p));
+    if (how === 'start') app.chooseApprovers().submitForm('start-form');
+    if (how === 'retry') { const id = (/data-act="plan-resume"[^>]*data-id="([^"]+)"/.exec(app.html()) || /data-id="([^"]+)"[^>]*data-act="plan-resume"/.exec(app.html()))[1]; app.click('plan-resume', id); }
+    if (how === 'decline') { const id = (/data-act="decline-plan"[^>]*data-id="([^"]+)"/.exec(app.html()) || /data-id="([^"]+)"[^>]*data-act="decline-plan"/.exec(app.html()))[1]; app.click('decline-plan', id); }
+    for (let i = 0; i < 40 && !pz.on(); i++) await app.tick(20);
+    assert.ok(pz.on(), label + ': set-up: its write is under way');
+    await another(app);
+    pz.go(); await app.tick(400); pz.off();
+    if (how === 'decline') assert.ok(app.files('proposals/').some(p => /^proposals\/plan-ev-.*\.status-/.test(p)), label + ': declined, as committed');
+    else assert.strictEqual(kidPaths(app).length, before + 1, label + ': the run was saved');
+    kept(app, label);
+    assert.ok(/(started|declined|saved)/i.test(txt(app.html())), label + ': said what was done: ' + (txt(app.html()).match(/[^.]*(started|declined|saved)[^.]*\./i) || [])[0]);
+  }
+  /* The plan's read-back, after a step correction was opened on the same run and typed in. */
+  if (!pick('readback')) return;
+  const { app, todo } = await setup(['pass']);
+  const fs = app.fs, read = fs.read.bind(fs); let release = null;
+  fs.read = (p, o) => (/^proposals\/plan-ev-[0-9a-f]{24}\.json$/.test(p) && fs.files[p] && !release) ? new Promise((res) => { release = () => res(read(p, o)); }) : read(p, o);
+  app.click('td-detour', todo);
+  for (let i = 0; i < 40 && !release; i++) await app.tick(20);
+  assert.ok(release && plans(app).length === 1, 'read-back: set-up: saved, its read-back held');
+  app.click('corr-open', 'write', { mode: 'correct' }); await app.tick(80);
+  assert.ok(/id="corr-text"|id="corr-to"/.test(app.html()), 'read-back: set-up: the composer is open');
+  const box = /id="corr-text"/.test(app.html()) ? 'corr-text' : 'corr-to';
+  app.set(box, 'My correction');
+  release(); await app.tick(300); fs.read = read;
+  assert.ok(/id="corr-text"|id="corr-to"/.test(app.html()) && !/data-plan-hash/.test(app.html()), 'read-back: the composer stays, the plan isn\'t opened over it');
+  assert.strictEqual(app.draft(box), 'My correction', 'read-back: what was typed stays');
+  assert.ok(/plan was saved/i.test(txt(app.html())), 'read-back: said it was saved');
+});
+
 rule('An interrupted start finds its plan again: Run this checklist opens the plan already there, never a second', async () => {
   const { app, todo } = await setup();
   app.click('td-detour', todo); await app.tick(250);

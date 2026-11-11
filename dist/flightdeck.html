@@ -37800,7 +37800,7 @@ PF.examples = (function () {
     var cx = loopGuard({ run: rk, readable: true }), endBusy = busyStart(), sg = gen;
     /* VD: the completion is bound to the screen and form it started from (navSeq: every field the location is built from),
        and to the person. Moved on, the plan stays saved and is said, never opened over what is on screen now. */
-    var ns = navSeq, me0 = state.me, here = function () { return navSeq === ns && state.me === me0; };
+    var ns = navSeq, me0 = state.me, ep = childEpoch, ov0 = state.overlay, here = function () { return navSeq === ns && state.me === me0 && childEpoch === ep && state.overlay === ov0; };
     var saved = function () { say('Its plan was saved. Run this checklist on the to-do again to open it.', 'good'); render(); };
     var pg = writeGuard({ still: function () {
       if (!guardOk(cx)) return false;
@@ -42791,6 +42791,8 @@ PF.examples = (function () {
       state.resuming = true; render();
       /* Clicked on the form, the run replaces the form's entry (2.16); anywhere else the screen it was clicked on is the origin. */
       var held = holdNav(state.view === 'start'), same = planStill(g, k.fs, k.key, k.me);
+      /* YC: a detour's Try again lands only on the form it was clicked on (see the start). */
+      var dt = /^plan-ev-[0-9a-f]{24}$/.test(String(k.plan)), ep = childEpoch, ov0 = state.overlay, moved = function () { return dt && (childEpoch !== ep || state.overlay !== ov0 || navSeq !== held.seq); };
       /* Who and which folder are asked again under each lock and right before the write, and whether this Try again is still
          the one on offer: a change while it waits writes nothing, even one changed back (that forgot it). */
       var still = function () { return g === gen && state.pendingStarts[k.plan] === k && state.fs === k.fs && fsKey() === k.key && state.me === k.me; };
@@ -42804,9 +42806,10 @@ PF.examples = (function () {
         if (state.pendingStarts[k.plan] === k) delete state.pendingStarts[k.plan];
         /* Saved for the person who asked, who has since changed (even changed back): nobody is taken to it or told it started. */
         if (!same()) { releaseNav(held); return load(true).then(function () { return null; }); }
+        if (moved()) { releaseNav(held); say('Run started: its run was saved. It\'s in Runs; what you\'re doing now was left as it is.', 'good'); return load(true).then(function () { return null; }); }
         heldOwn(held, function () { if (state.planId === k.plan) state.planId = null; }); state.planPick = null; state.planDiff = false;
         return load(true).then(function () { return true; });
-      }).then(function (ok) { if (!ok) return; releaseNav(held); if (!same()) { if (g === gen) render(); return; } openRun(k.process + '/' + k.id); say('Run started.', 'good'); render(); },
+      }).then(function (ok) { if (!ok) return; releaseNav(held); if (!same()) { if (g === gen) render(); return; } if (moved()) { say('Run started: its run was saved. It\'s in Runs; what you\'re doing now was left as it is.', 'good'); render(); return; } openRun(k.process + '/' + k.id); say('Run started.', 'good'); render(); },
         function (e) {
           state.resuming = false; releaseNav(held);
           /* Certainty belongs to every attempt together: once a save may have landed, it stays unknown until one is confirmed. */
@@ -42815,7 +42818,7 @@ PF.examples = (function () {
           say(aboutWhat(same, g, k.fs, k.key, k.me) + (k.saved ? 'Couldn\'t save the run: ' : k.certain === false ? 'Flightdeck couldn\'t confirm whether the run saved: ' : 'Couldn\'t save the run: ') + e.message, 'bad'); render();
         });
     },
-    'decline-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0], g = gen; if (!p) return; if (planHeld(p)) { say(planHeld(p), 'warn'); render(); return; } var dfs = state.fs, dkey = fsKey(), who = state.me, still = planStill(g, dfs, dkey, who); queued(function () { if (!still()) return { dropped: true }; return repo.decidePlan(dfs, p, { action: 'declined', sha: p._sha, lock: LOCKS ? lock : null, still: still, write: function () { return repo.recordPlanStatus(dfs, p, WRITER, 'declined', null, who, null, APP_VERSION); } }); }).then(function (res) { if (res && res.dropped) { say('The plan wasn\'t declined. ' + nothingWritten(g, dfs, dkey, who), 'warn'); render(); return; } if (g !== gen) return; if (!still()) return load(true); home(); say('Plan declined. It stays in the folder for reference.'); return load(true); }, function (e) { say(aboutWhat(still, g, dfs, dkey, who) + 'Couldn\'t decline it: ' + e.message, 'bad'); render(); }); },
+    'decline-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0], g = gen; if (!p) return; if (planHeld(p)) { say(planHeld(p), 'warn'); render(); return; } var dfs = state.fs, dkey = fsKey(), who = state.me, still = planStill(g, dfs, dkey, who), dt = /^plan-ev-[0-9a-f]{24}$/.test(String(p.id)), ep = childEpoch, ov0 = state.overlay, ns0 = navSeq, moved = function () { return dt && (childEpoch !== ep || state.overlay !== ov0 || navSeq !== ns0); }; queued(function () { if (!still()) return { dropped: true }; return repo.decidePlan(dfs, p, { action: 'declined', sha: p._sha, lock: LOCKS ? lock : null, still: still, write: function () { return repo.recordPlanStatus(dfs, p, WRITER, 'declined', null, who, null, APP_VERSION); } }); }).then(function (res) { if (res && res.dropped) { say('The plan wasn\'t declined. ' + nothingWritten(g, dfs, dkey, who), 'warn'); render(); return; } if (g !== gen) return; if (!still()) return load(true); if (moved()) { say('Plan declined. It stays in the folder for reference; what you\'re doing now was left as it is.'); return load(true); } home(); say('Plan declined. It stays in the folder for reference.'); return load(true); }, function (e) { say(aboutWhat(still, g, dfs, dkey, who) + 'Couldn\'t decline it: ' + e.message, 'bad'); render(); }); },
     diff: function (id) { state.diffOf = state.diffOf === id ? null : id; render(); },
     publish: function (id) {
       /* One write at a time (2.16): a second click, or the dialog's other button while this one writes, does nothing. */
@@ -44407,6 +44410,9 @@ PF.examples = (function () {
        twice. The exact bytes it tried are kept in this window, by plan (state.pendingStarts), for Try again (repo.resumeStart). */
     var formSha = e.target.dataset.planHash, startFolder = pub.info.folder, dec = null, pinLate = '', detour = !!(plan && plan.pin && /^plan-ev-[0-9a-f]{24}$/.test(String(plan.id)));
     var sg2 = detour ? writeGuard({}) : null;
+    /* YC: a detour's start lands only on the form it was submitted from: anything done since (another form opened, a name
+       typed, a layer opened) keeps it saved and says so, and nothing on screen is reset or navigated away from. */
+    var ep = childEpoch, ov0 = state.overlay, moved = function () { return detour && (childEpoch !== ep || state.overlay !== ov0 || navSeq !== held.seq); };
     queued(function () {
       r.recorder.session = SESSION;
       /* A run of a checklist with a loop is guarded like every loop write (round 10). A planned start's run is saved once its
@@ -44438,8 +44444,9 @@ PF.examples = (function () {
       if (res && res.dropped) { releaseNav(held); say('The plan wasn\'t started. ' + nothingWritten(sg, sfs, skey, who), 'warn'); render(); return null; }
       if (sg !== gen) { releaseNav(held); return null; }
       if (!still()) { releaseNav(held); return load(true).then(function () { return null; }); }
+      if (moved()) { releaseNav(held); say('Run started: ' + (r.title || r.process) + '. It\'s in Runs; what you\'re doing now was left as it is.', 'good'); return load(true).then(function () { return null; }); }
       heldOwn(held, function () { state.planId = null; }); state.planPick = null; state.planDiff = false; return load(true).then(function () { return true; });
-    }).then(function (ok) { if (!ok) return; releaseNav(held); if (!still()) { render(); return; } openRun(r.process + '/' + r.id); say(R.solo(r) ? 'Run started.' : 'Run started. You\'re recording.', 'good'); state.msg.quiet = true; render(); },
+    }).then(function (ok) { if (!ok) return; releaseNav(held); if (!still()) { render(); return; } if (moved()) { say('Run started: ' + (r.title || r.process) + '. It\'s in Runs; what you\'re doing now was left as it is.', 'good'); render(); return; } openRun(r.process + '/' + r.id); say(R.solo(r) ? 'Run started.' : 'Run started. You\'re recording.', 'good'); state.msg.quiet = true; render(); },
       function (err) {
         endBusy(); releaseNav(held);
         if (dec && err && err.pending && still()) {
