@@ -36225,6 +36225,23 @@ PF.examples = (function () {
     };
     return runAt(0);
   }
+  /* The same by a run's key (just the key when it isn't loaded: the fresh guard then refuses). */
+  function keysOf(key) { var r = findRun(key); return r ? runKeysFor(r) : [key]; }
+  /* A loop as the fresh guard's snapshot d reads it (its records, unread files and runs). */
+  function viewIn(r, id, d) { return PF.loop.view(r, id, { records: d.scopes || [], unread: d.scopesUnread || [], runs: d.runs || [], procOf: ctx.procOf, who: personName }); }
+  function actionIn(V, id) { return V ? PF.loop.actionsOf(V).filter(function (y) { return y.id === id; })[0] || null : null; }
+  /* Round 18 (WA): what a send-back asks of the fresh guard's snapshot: the person acting is the run's recorder, in
+     people.json and active; with a request q, that very request is there, still pending, exactly as it was taken up, and
+     its asker may still ask. */
+  function sendBackJudge(key, id, q, me) {
+    return function (d) {
+      var r = findRun(key);
+      if (!r || actorWhy(r, d.people, me)) return false;
+      if (!q) return true;
+      var V = viewIn(r, id, d), f = actionIn(V, q.id);
+      return !!f && f.status === 'pending' && JSON.stringify(f) === JSON.stringify(q) && !PF.loop.askerWhy(r, V, f, d.people);
+    };
+  }
   /* The runs a write on r depends on, its loop's parent first. */
   function runKeysFor(r) {
     var k = r.process + '/' + r.id, p = r.parent && r.parent.process && r.parent.id ? r.parent.process + '/' + r.parent.id : '';
@@ -36310,7 +36327,15 @@ PF.examples = (function () {
   /* A change to a loop's parent through mutateRun, guarded: fn's change is kept aside (before and after), and when the guard
      drops the save, what only this change touched is put back in this window, so a change made meanwhile (a pause) saves
      alone and never carries it. Returns { fn, opts } for mutateRun. */
+  /* Round 18: the guard is never optional. Every loopEdit names its fresh guard (opts.guard 'snapshot': the approval snapshot,
+     for a cx with holds or fresh; or opts.freshKeys: the fresh guard on those runs, with opts.judge asked of what it read).
+     Without one it refuses: nothing is changed or written (a test build, FLIGHTDECK_STRICT_GUARDS, throws at once). */
   function loopEdit(cx, key, fn, opts) {
+    var snap = !!(opts && opts.guard === 'snapshot' && cx && (cx.holds || cx.fresh)), keyed = !!(opts && Array.isArray(opts.freshKeys) && opts.freshKeys.length);
+    if (!cx || (!snap && !keyed)) {
+      if (window.FLIGHTDECK_STRICT_GUARDS) throw new Error('loopEdit without a guard: ' + key);
+      return { fn: function () { throw new Error('This change has no write-time check, so nothing was saved.'); }, opts: Object.assign({}, opts || {}, { still: function () { return false; } }) };
+    }
     var before = null, after = null, undone = false, target = null, g0 = gen, fs0 = state.fs;
     var copy = function (r) { var c = Object.create(null); Object.keys(r).forEach(function (k) { if (k[0] !== '_') c[k] = r[k]; }); return JSON.parse(JSON.stringify(c)); };
     var wrapped = function (r, m, me, now) { target = r; before = copy(r); var out = fn(r, m, me, now); after = copy(r); return out; };
@@ -36335,10 +36360,11 @@ PF.examples = (function () {
        the next read derives it again, with its authority asked again on the run as it is then. */
     var extra = { still: function () { if (guardOk(cx)) return true; undo(); return false; }, dropUndone: function () { return undone; } };
     /* Round 10 (BB): an approval write reads its loops' runs again before each write, and is put back by identity when held. */
-    if (cx && (cx.holds || cx.fresh)) extra.recheck = function (fs) { return approvalSnapshot(cx, fs).then(function (ok) { if (!ok) undo(); return ok; }); };
+    if (snap) extra.recheck = function (fs) { return approvalSnapshot(cx, fs).then(function (ok) { if (!ok) undo(); return ok; }); };
     /* Round 17 (VC): a landing (opts.freshKeys: the runs it depends on) asks the fresh guard before every write: its authority
-       (cx.todo, through guardOk) asked of the delegations, revokes and people read now. */
-    else if (cx && opts && opts.freshKeys) extra.recheck = function (fs) { return freshGuard(cx, fs, opts.freshKeys, function () { return true; }).then(function (ok) { if (!ok) undo(); return ok; }); };
+       (cx.todo, through guardOk) asked of the delegations, revokes and people read now. Round 18: and opts.judge, the
+       path's own question (a send-back's actor and request), of the same snapshot. */
+    else extra.recheck = function (fs) { var j = typeof opts.judge === 'function' ? opts.judge : function () { return true; }; return freshGuard(cx, fs, opts.freshKeys, j).then(function (ok) { if (!ok) undo(); return ok; }); };
     if (opts && opts.redo) extra.undoFailed = function () { undo(); return undone; };
     return { fn: wrapped, opts: Object.assign({}, opts || {}, extra) };
   }
@@ -36369,7 +36395,7 @@ PF.examples = (function () {
     var fw = PF.loop.fileWhy(f.id + '.json', f); if (fw) { say(fw + ' Nothing was changed.', 'warn'); render(); return; }
     var cx = loopGuard(), lk = runKeysFor(r);
     /* Round 17: a scope request and a removal decision, like every authority-bearing record, ask the fresh guard last. */
-    loopSaved(repo.saveScope(cx.fs, f.id + '.json', f, { still: function () { return guardOk(cx); }, recheck: function (fs) { return freshGuard(cx, fs, lk, function () { return true; }); } }), (P.summary || 'Saved.') + (P.left ? ' ' + PF.loop.pageWords(P.left) : ''));
+    loopSaved(scopeSave(cx.fs, f.id + '.json', f, { still: function () { return guardOk(cx); }, recheck: function (fs) { return freshGuard(cx, fs, lk, function () { return true; }); } }), (P.summary || 'Saved.') + (P.left ? ' ' + PF.loop.pageWords(P.left) : ''));
   }
   function loopDecide(id, op, key) {
     var r = ctx.run(), V = r && loopView(r, id), x = V && V.ledger.items.filter(function (i) { return i.key === key; })[0];
@@ -36380,7 +36406,7 @@ PF.examples = (function () {
     var d = PF.loop.buildDecision({ proposal: p, loop: V.loop, op: op, items: [x.uid], seen: pg.seen, reason: val('loop-why-' + id).trim(), by: state.me, writer: 'w' + loopHex(10), rev: loopHex(8), now: new Date().toISOString(), app: APP_VERSION });
     var dw = PF.loop.fileWhy(d.name, d.file); if (dw) { say(dw + ' Nothing was changed.', 'warn'); render(); return; }
     var cxd = loopGuard(), dk = runKeysFor(r);
-    loopSaved(repo.saveScope(cxd.fs, d.name, d.file, { still: function () { return guardOk(cxd); }, recheck: function (fs) { return freshGuard(cxd, fs, dk, function () { return true; }); } }), (op === 'accept' ? key + ' is removed from scope. Its run stays available.' : key + ' stays in scope.') + (pg.left ? ' ' + PF.loop.pageWords(pg.left) : ''));
+    loopSaved(scopeSave(cxd.fs, d.name, d.file, { still: function () { return guardOk(cxd); }, recheck: function (fs) { return freshGuard(cxd, fs, dk, function () { return true; }); } }), (op === 'accept' ? key + ' is removed from scope. Its run stays available.' : key + ' stays in scope.') + (pg.left ? ' ' + PF.loop.pageWords(pg.left) : ''));
   }
   /* Starts one story's run for loop step id of run r: a promise of the run started, or an Error saying why nothing was. */
   /* request: the id of the request it carries out, kept in the run it starts, so a lost outcome is recovered from it. */
@@ -36542,12 +36568,15 @@ PF.examples = (function () {
       var ea = loopEdit(loopGuard({ q: q, run: key, step: id, view: true, holds: { step: id } }), key, function (rr, m, me, now) {
         var V2 = loopView(rr, id); if (!V2 || !V2.rollup.ok) { no = 'It can\'t be approved yet: ' + (V2 ? V2.rollup.summary : 'the loop isn\'t readable') + '.'; throw new Error(no); }
         R.done(rr, m, id, me, now, { _loop: { ok: true, snapshot: PF.loop.approval(V2.ledger, V2.rollup, { by: q.as, at: now, onBehalf: tool, request: q.id }) } });
-      }, { background: true });
+      }, { background: true, guard: 'snapshot' });
       return mutateRun(key, cx.g, ea.fn, ea.opts).then(function (ok) { return ok === false ? { ok: false, why: no } : { ok: true, why: 'Approved: ' + V.rollup.summary + '.' }; });
     }
     if (!(a && a.s === 'done' && a.loop)) return Promise.resolve({ ok: false, why: 'The loop isn\'t approved, so there was nothing to send back.' });
     var reasons = V.changes.length ? V.changes : ['Sent back for review by ' + personName(q.as) + (q.reason ? ': ' + q.reason : '') + '.'];
-    var es = loopEdit(loopGuard({ q: q, run: key, step: id, view: true }), key, function (rr, m, me, now) { R.unsettleLoop(rr, m, id, reasons, me, now, q.id); }, { background: true });
+    /* Round 18 (WA): a send-back asks the fresh guard before the candidate and the final write: the person acting (the run's
+       recorder, in people.json and active), the run exactly as read, and this very request, still pending and unchanged,
+       whose asker may still ask. */
+    var es = loopEdit(loopGuard({ q: q, run: key, step: id, view: true }), key, function (rr, m, me, now) { R.unsettleLoop(rr, m, id, reasons, me, now, q.id); }, { background: true, freshKeys: runKeysFor(r), judge: sendBackJudge(key, id, q, cx.me) });
     return mutateRun(key, cx.g, es.fn, es.opts)
       .then(function (ok) { return ok === false ? { ok: false, why: 'The run changed meanwhile; ask again.' } : { ok: true, why: 'Sent back for review.' }; });
   }
@@ -36626,7 +36655,7 @@ PF.examples = (function () {
     state.tdKey = { sig: sig, key: key, P: P, at: at };
     var cx = loopGuard({ run: r.process + '/' + r.id, readable: true }), text = PF.todos.text(P.file), endBusy = busyStart(), sg = gen;
     var recheck = function (fs) { return freshGuard(cx, fs, runKeysFor(r), function (d) { var P2 = prep(d); return !P2.why && P2.name === P.name && PF.todos.text(P2.file) === text; }); };
-    repo.saveScope(cx.fs, P.name, P.file, { still: function () { return guardOk(cx); }, recheck: recheck }).then(function (res) {
+    scopeSave(cx.fs, P.name, P.file, { still: function () { return guardOk(cx); }, recheck: recheck }).then(function (res) {
       endBusy(); if (sg !== gen) return;
       if (res && res.dropped) { say('Nothing was written: the folder, the person or the run changed before it was. Ask again if it still needs doing.', 'warn'); render(); return; }
       if (res && res.conflict && res.theirs !== text) { say('A different request is already saved under that name. Nothing was written; read the folder again, then ask again.', 'bad'); render(); return; }
@@ -36695,7 +36724,7 @@ PF.examples = (function () {
     /* Round 17 (VB): right before the write, the fresh guard builds the record again from the runs, people and records read
        now; only exactly these bytes are written. */
     var keys = runKeysFor(r), recheck = function (fs) { return freshGuard(cx, fs, keys, function (d) { return tdSame(made, d); }); };
-    return repo.saveScope(cx.fs, made.name, made.file, { still: function () { return guardOk(cx); }, recheck: recheck }).then(function (res) {
+    return scopeSave(cx.fs, made.name, made.file, { still: function () { return guardOk(cx); }, recheck: recheck }).then(function (res) {
       endBusy(); if (gone()) return false;
       if (res && res.dropped) { said('Nothing was written: the folder, the person, the run or what it decides changed before it was. Read the folder again.', 'warn'); render(); return false; }
       if (slot) tdSettled(slot, mem);
@@ -36778,7 +36807,7 @@ PF.examples = (function () {
       /* Round 17 (VB): before each item's write, the fresh guard: its run (and its parent) read again, people.json, and the
          records; still a plain addition there, and exactly this decision built again from what was read. */
       var recheck = function (fs) { return freshGuard(cx, fs, runKeysFor(r), function (d) { if (!same()) return false; var w = plainNow(x, d); if (w) { late = w; return false; } return tdSame(made, d); }); };
-      repo.saveScope(cx.fs, made.name, made.file, { still: function () { if (!(same() && guardOk(cx))) return false; late = plainNow(x); return !late; }, recheck: recheck }).then(function (res) {
+      scopeSave(cx.fs, made.name, made.file, { still: function () { if (!(same() && guardOk(cx))) return false; late = plainNow(x); return !late; }, recheck: recheck }).then(function (res) {
         endBusy(); if (sg !== gen || !here()) return;
         if (res && res.dropped && late) { tdSettled(slot, mem); alone.push({ x: x, why: late }); step(i + 1); return; }
         /* A refusal by the guard (the person, a run or the records changed, or the folder didn't answer in time) stops the
@@ -36917,7 +36946,7 @@ PF.examples = (function () {
           return !!p2 && !p2.landed && !p2.skip && !p2.adopt && JSON.stringify(p2.write || p2.settle || null) === want;
         });
       };
-      prepared = repo.saveScope(cx.fs, s.name, s.file, { still: function () { return guardOk(cx); }, recheck: recheck }).then(function (res) { if ((res && res.dropped) || !guardOk(cx)) return null; rec._file = s.name; (data.todos = (data.todos || []).slice()).push(rec); return rec; });
+      prepared = scopeSave(cx.fs, s.name, s.file, { still: function () { return guardOk(cx); }, recheck: recheck }).then(function (res) { if ((res && res.dropped) || !guardOk(cx)) return null; rec._file = s.name; (data.todos = (data.todos || []).slice()).push(rec); return rec; });
     }
     return prepared.then(function (a) {
       if (!a || !guardOk(cx)) return false;
@@ -36957,6 +36986,9 @@ PF.examples = (function () {
   /* resolves (round 17): a resolution, a person's decision on how a request ended, asks the fresh guard right before it is
      written. The outcome of a request just carried out (applied or refused) reports what its own guarded write did, so it
      is written as it is: holding it back would leave a write that happened unrecorded. */
+  /* resolves (round 17): a resolution, a person's decision on how a request ended, asks the fresh guard right before it is
+     written. The outcome of a request just carried out (applied or refused) reports what its own guarded write did, so it
+     is written as it is: holding it back would leave a write that happened unrecorded. */
   function loopOutcome(V, q, op, why, cx, resolver, resolves) {
     if (!guardOk(cx)) return Promise.resolve(false);
     var d = PF.loop.buildDecision({ proposal: q.id, loop: V.loop, op: op, items: [], seen: PF.loop.seenFor(V.ledger, [], [q.id]).seen, reason: String(why || '').slice(0, 300), by: cx.me, resolver: resolver || '', writer: 'w' + loopHex(10), rev: loopHex(8), now: new Date().toISOString(), app: APP_VERSION });
@@ -36964,7 +36996,18 @@ PF.examples = (function () {
     var ok0 = V.loop && findRun(V.loop.process + '/' + V.loop.run), ok = ok0 ? runKeysFor(ok0) : null;
     var opts = { still: function () { return guardOk(cx); } };
     if (resolves) opts.recheck = function (fs) { return ok ? freshGuard(cx, fs, ok, function () { return true; }) : false; };
-    return repo.saveScope(cx.fs, d.name, d.file, opts).then(function (res) { return res && res.dropped ? false : res; });
+    else opts.report = true;
+    return scopeSave(cx.fs, d.name, d.file, opts).then(function (res) { return res && res.dropped ? false : res; });
+  }
+  /* Round 18: every scope record this window writes (a request, a decision, a resolution) goes through here, and is refused
+     unless it names its fresh guard (opts.recheck), or says it only reports what a guarded write already did (opts.report:
+     a carried-out request's applied or refused). */
+  function scopeSave(fs, name, file, opts) {
+    if (!opts || (typeof opts.recheck !== 'function' && opts.report !== true)) {
+      if (window.FLIGHTDECK_STRICT_GUARDS) throw new Error('A scope record written without a guard: ' + name);
+      return Promise.resolve({ dropped: true });
+    }
+    return repo.saveScope(fs, name, file, opts);
   }
   /* Counts what the person did since a start was submitted: every click on a control but Refresh, every key, navigation and
      every form opened or closed. A refused start reopens its form only when nothing happened since (childRetry); otherwise
@@ -37091,7 +37134,7 @@ PF.examples = (function () {
           var rk = r.process + '/' + r.id, es2 = loopEdit(loopGuard({ run: rk, step: sid, view: true }), rk, function (rr, m, me, now) {
             var a2 = rr.steps[sid], v2 = a2 && a2.s === 'done' && a2.loop && loopView(rr, sid);
             if (v2 && v2.changes.length) R.unsettleLoop(rr, m, sid, v2.changes, me, now);
-          }, { background: true });
+          }, { background: true, freshKeys: runKeysFor(r), judge: sendBackJudge(rk, sid, null, state.me) });
           if (lv && lv.changes.length) mutateRun(rk, gen, es2.fn, es2.opts);
           return;
         }
@@ -41591,12 +41634,12 @@ PF.examples = (function () {
         var V = loopView(r, id);
         if (!V || !V.rollup.ok) throw new Error('Every ' + (V ? V.noun.one : 'item') + ' in scope needs an accepted result or an approval without a run first.');
         R.done(r, map, id, me, now, { _loop: { ok: true, snapshot: PF.loop.approval(V.ledger, V.rollup, { by: me, at: now }) } });
-      });
+      }, { guard: 'snapshot' });
       mutate(ea.fn, ea.opts);
     },
     'loop-unsettle': function (id) {
       /* With nothing changed, a person may still send it back, saying why (the Why box). */
-      var why = val('loop-why-' + id).trim(), ku = state.runKey, eu = loopEdit(loopGuard({ run: ku, step: id, view: true }), ku, function (r, map, me, now) { var V = loopView(r, id); if (!V) throw new Error('That isn\'t an approved loop.'); var sb = PF.loop.sendBackWhy(V, why); if (sb) throw new Error(sb + ' Use the Why box.'); R.unsettleLoop(r, map, id, V.changes.length ? V.changes : ['Sent back for review by ' + personName(me) + ': ' + why.slice(0, 300)], me, now); });
+      var why = val('loop-why-' + id).trim(), ku = state.runKey, eu = loopEdit(loopGuard({ run: ku, step: id, view: true }), ku, function (r, map, me, now) { var V = loopView(r, id); if (!V) throw new Error('That isn\'t an approved loop.'); var sb = PF.loop.sendBackWhy(V, why); if (sb) throw new Error(sb + ' Use the Why box.'); R.unsettleLoop(r, map, id, V.changes.length ? V.changes : ['Sent back for review by ' + personName(me) + ': ' + why.slice(0, 300)], me, now); }, { freshKeys: keysOf(ku), judge: sendBackJudge(ku, id, null, state.me) });
       mutate(eu.fn, eu.opts);
     },
     /* A child run that was saved but whose link didn't land (the parent changed meanwhile): link it now, with the inputs it was started for. */
@@ -41653,10 +41696,10 @@ PF.examples = (function () {
        the tentative gate back by identity when they hold. */
     pass: function (pi) {
       var kp = state.runKey, r0 = ctx.run(), g0 = r0 ? R.mapOf(r0).phases[+pi] : null;
-      var ep = loopEdit(loopGuard({ run: kp, holds: { phase: +pi } }), kp, function (r, map, me, now) { R.pass(r, map, +pi, me, now); state.justPassed = map.phases[+pi].gate.id; state.edit = null; afterPass(R.nextUp(r, map, me), map, false); }, { only: g0 && g0.gate ? g0.gate.id : null });
+      var ep = loopEdit(loopGuard({ run: kp, holds: { phase: +pi } }), kp, function (r, map, me, now) { R.pass(r, map, +pi, me, now); state.justPassed = map.phases[+pi].gate.id; state.edit = null; afterPass(R.nextUp(r, map, me), map, false); }, { only: g0 && g0.gate ? g0.gate.id : null, guard: 'snapshot' });
       mutate(ep.fn, ep.opts);
     },
-    waive: function (pi) { var why = val('pick-input'), kw = state.runKey, ew = loopEdit(loopGuard({ run: kw, holds: { phase: +pi } }), kw, function (r, map, me, now) { R.waive(r, map, +pi, why, me, now); }); mutate(ew.fn, ew.opts); },
+    waive: function (pi) { var why = val('pick-input'), kw = state.runKey, ew = loopEdit(loopGuard({ run: kw, holds: { phase: +pi } }), kw, function (r, map, me, now) { R.waive(r, map, +pi, why, me, now); }, { guard: 'snapshot' }); mutate(ew.fn, ew.opts); },
     fail: function (pi) { var why = val('pick-input') || 'Failed'; mutate(function (r, map, me, now) { R.fail(r, map, +pi, why, me, now); }); },
     reopen: function (pi) { mutate(function (r, map, me, now) { R.reopen(r, map, +pi, me, now); }); },
     edit: function (id) { childEpoch++; state.edit = id; render(); },
@@ -42632,7 +42675,7 @@ PF.examples = (function () {
           if (!back || back._unrunnable) throw new Error('Keeping that copy would save a run this copy of Flightdeck can\'t read back' + (back && back._unrunnable ? ' (' + String(back._unrunnable).slice(0, 200) + ')' : '') + ', so nothing was replaced.');
           keep(run);
           if (extra.length) run._overflow = (run._overflow || []).concat(extra);
-        }, { recovery: true, expect: cur, expectText: text });
+        }, { recovery: true, expect: cur, expectText: text, guard: 'snapshot' });
         return mutateRun(key, g, ed.fn, ed.opts);
       }).then(function (ok) {
         if (!ok || g !== gen) return;
