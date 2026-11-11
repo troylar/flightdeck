@@ -1200,4 +1200,30 @@ rule('A copy of any witness the work rests on, of another family, malformed, of 
     }
   }
 });
+/* DC: Python dispatches every packed record by its family before any filter or gate: a request record, a scope record or a
+   file of no family that the app can't read and whose run or loop can't be told is part of every checked run's work, whether
+   or not the pack has a living section, as the export of the same folder is partial. A matrix: each kind of unreadable
+   record × a living pack forced complete and a pack of a run without to-dos. */
+rule('Python dispatches every packed record by its family before any filter: an unattributable unreadable record is refused, living section or not', async () => {
+  const LW = await made({ todos: 1 }), PW = await made({ todos: 0 }), hex = 'e'.repeat(24);
+  const td = JSON.parse(String(LW.files[Object.keys(LW.files).filter((k) => /^proposals\/req-flightdeck-/.test(k))[0]])); td.run = 42;
+  const RECS = [['a scope request whose loop is 42', 'req-notes-bot-' + hex, JSON.stringify({ format: 'flightdeck-plan/3', features: ['loops'], id: 'req-notes-bot-' + hex, loop: 42 })],
+    ['a plan/3 file of no loop', 'req-bot-' + hex, '{"format":"flightdeck-plan/3"}'], ['a list', 'req-flightdeck-' + hex, '[]'], ['an empty object', 'req-flightdeck-' + hex, '{}'],
+    ['a to-do whose run is 42', 'req-flightdeck-' + hex, JSON.stringify(td)]];
+  for (const [world, X] of [['a living pack', LW], ['a run without to-dos', PW]]) {
+    const ok = await pack(X.PF, new BytesFS(X.files), X.key);
+    for (const [what, stem, text] of RECS) {
+      const p = 'proposals/' + stem + '.json', tag = world + ' × ' + what;
+      const { res } = await pack(X.PF, new BytesFS(Object.assign({}, X.files, { [p]: text + '\n' })), X.key);
+      assert.strictEqual(res.status, 'partial', tag + ': the export: ' + JSON.stringify(res.col.unresolved).slice(0, 300));
+      if (!PY) continue;
+      const c = checkPack(await repacked(X.PF, ok.zip, (e, man) => {
+        if (world === 'a living pack') forced(man);
+        const f0 = man.files.filter((f) => /^proposals\/|^runs\//.test(f.path))[0], f1 = Object.assign({}, f0, { path: p, pack: f0.pack.slice(0, f0.pack.indexOf(f0.path)) + p });
+        e[f1.pack] = Buffer.from(text + '\n'); man.files.push(f1);
+      }));
+      assert.ok(!c.ok, tag + ': Python: ' + c.out);
+    }
+  }
+});
 run();

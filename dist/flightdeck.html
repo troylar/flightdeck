@@ -26501,7 +26501,9 @@ PF.repo = (function () {
         if (Pr.failed) { p.living = { head: self.living ? self.living.head : '', chain: [], receipt: null, missing: ['proposals/ ' + Pr.failed + ', so the run\'s work can\'t be packed.'], recs: {}, listing: null, deps: [], runTexts: {} }; return; }
         /* A record that can't be read but names this run (a malformed request, say) is part of its work too, living or not; one
            whose run can't be told at all may be this run's, so it is too (the pack is partial, naming it). */
-        var mineUnread = (Pr.todosUnread || []).some(function (u) { return u && (!u.run || (u.run.process === self.process && u.run.id === self.id)); });
+        var mineUnread = (Pr.todosUnread || []).some(function (u) { return u && (!u.run || (u.run.process === self.process && u.run.id === self.id)); })
+          /* A scope record that can't be read whose loop can't be told, or one of this run's loops, likewise (DC). */
+          || (Pr.scopesUnread || []).some(function (u) { return u && (!u.loop || (u.loop.process === self.process && u.loop.run === self.id)); });
         if (!self.living && !PF.todos.recordsFor(Pr.todos, self).length && !mineUnread) return;
         /* The closure, walked until it holds every run it depends on: the shared collector (PF.receipts.deps) names the runs it
            found that aren't read yet; they are read (and their loop children listed), and it is asked again. Bounded. */

@@ -107,25 +107,16 @@ def check_living(z, man):
         for path in by_path:
             if not path.startswith("proposals/") or not path.endswith(".json"):
                 continue
+            # One family dispatch before any filter (dispatch): a record the app can't read whose run or loop can't be told may
+            # be this run's, so it is reached and judged below; one that names a run or a loop names that one.
+            d = dispatch(path)
+            if d["bad"]:
+                if (d["run"] is None and d["loop"] is None) or d["run"] == me or (d["loop"] is not None and d["loop"]["process"] == me["process"] and d["loop"]["run"] == me["id"]):
+                    reached.add(path)
+                continue
+            if d["fam"] not in ("todo", "scope"):
+                continue
             o = packed(path)
-            if o is None:
-                # One the app can't read names no run it can tell: it may be this run's (PF.receipts.deps), so it is reached and
-                # judged below.
-                reached.add(path)
-                continue
-            # Read by its family's reader before its run is asked (the loader's dispatch): a request record the app can't read
-            # whose run can't be told (not an object, an object of no kind, or a to-do record whose run isn't {process, id})
-            # may be this run's, so it is reached and judged below; one that names a run names that run.
-            stem = path[len("proposals/"):]
-            readable = isinstance(o, dict) and (o.get("kind") in ("plan", "status") or isinstance(o.get("format"), str))
-            if stem.lower().startswith("req-") and not readable:
-                reached.add(path)
-                continue
-            if not isinstance(o, dict):
-                continue
-            if CF.todo_claims(o) and family_why(path) and run_of(o) is None:
-                reached.add(path)
-                continue
             lp = o.get("loop")
             if o.get("run") == me or (isinstance(lp, dict) and lp.get("process") == me["process"] and lp.get("run") == me["id"]):
                 reached.add(path)
@@ -143,6 +134,41 @@ def check_living(z, man):
         return scopes
 
     reached, plans_wanted, facts_wanted = set(), set(), set()
+    dispatched = {}
+
+    def loop_of(o):
+        """PF.loop.loopOf: the loop a record names, when it is {process, run, step} as text; else None."""
+        v = o.get("loop") if isinstance(o, dict) else None
+        return v if isinstance(v, dict) and all(isinstance(v.get(k), str) for k in ("process", "run", "step")) else None
+
+    def dispatch(path):
+        """The loader's one family dispatch for a packed proposals/ original, before any run or loop filter: {fam, bad, run,
+        loop}. fam: "todo" (PF.todos.claims), "scope" (a scope request or decision), "plan" (any other file a reader keeps),
+        or "none"; bad: why the app wouldn't read it (its family's reader), or "" ; run and loop: what it names, or None when
+        that can't be told. A req-*.json that isn't a file any family reads is unread, naming nothing."""
+        if path in dispatched:
+            return dispatched[path]
+        raw = z.read(by_path[path])
+        try:
+            o = decode(raw)
+            torn = ""
+        except ValueError as e:
+            o, torn = None, CF.DEEP_WHY if str(e) == CF.DEEP_WHY else "isn't complete JSON"
+        name = path[len("proposals/"):]
+        kept = isinstance(o, dict) and (o.get("kind") in ("plan", "status") or isinstance(o.get("format"), str))
+        if torn or (name.lower().startswith("req-") and not kept):
+            d = {"fam": "none", "bad": torn or "isn't a file Flightdeck reads here", "run": None, "loop": None}
+        elif not kept:
+            d = {"fam": "none", "bad": "", "run": None, "loop": None}
+        elif CF.todo_claims(o):
+            d = {"fam": "todo", "bad": CF.todo_why(o, name, len(raw)), "run": run_of(o), "loop": None}
+        elif o.get("format") in (CF.SCOPE_REQUEST, CF.SCOPE_DECISION):
+            kind, needs, why = CF.scope_why(o, name)
+            d = {"fam": "scope", "bad": why or kind, "run": None, "loop": loop_of(o)}
+        else:
+            d = {"fam": "plan", "bad": "", "run": None, "loop": None}
+        dispatched[path] = d
+        return d
 
     def run_of(o):
         """PF.todos.runOf: the run a record names, when it is {process, id} as text; else None."""
@@ -325,7 +351,7 @@ def check_living(z, man):
                 if isinstance(par, dict) and par.get("item") and par.get("process") == me["process"] and par.get("id") == me["id"]:
                     out.add(parts[1] + "/" + parts[2])
             elif path.startswith("proposals/req-") and ".status-" not in path:
-                o = packed(path)
+                o = packed(path) if dispatch(path)["fam"] == "todo" and not dispatch(path)["bad"] else None
                 if not isinstance(o, dict) or o.get("run") != me:
                     continue
                 for b in (o, o.get("effect") or {}, (o.get("application") or {}).get("effect") or {}):
@@ -355,7 +381,7 @@ def check_living(z, man):
         for path in by_path:
             if not path.startswith("proposals/req-") or ".status-" in path:
                 continue
-            o = packed(path)
+            o = packed(path) if dispatch(path)["fam"] == "scope" and not dispatch(path)["bad"] else None
             lp = (o or {}).get("loop") if isinstance(o, dict) else None
             if not isinstance(lp, dict) or lp.get("process") != me["process"] or lp.get("run") != me["id"]:
                 continue
@@ -405,6 +431,12 @@ def check_living(z, man):
             return True
         me = {"process": run.get("process"), "id": run.get("id")}
         for path in by_path:
+            # The same dispatch first: a record the app can't read whose run or loop can't be told, or that names this run,
+            # is work to check.
+            if path.startswith("proposals/") and path.endswith(".json"):
+                d = dispatch(path)
+                if d["bad"] and ((d["run"] is None and d["loop"] is None) or d["run"] == me):
+                    return True
             if path.startswith("proposals/") and path.endswith(".json"):
                 o = packed(path)
                 todo = isinstance(o, dict) and (o.get("format") in ("flightdeck-plan/4", "flightdeck-plan-status/4")
