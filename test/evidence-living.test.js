@@ -1308,7 +1308,10 @@ rule('Python dispatches every packed record by its family before any filter: an 
   for (const [world, X] of [['a living pack', LW], ['a run without to-dos', PW]]) {
     const ok = await pack(X.PF, new BytesFS(X.files), X.key), [proc, rid] = X.key.split('/');
     /* ED: a malformed scope record whose loop names the selected run is that run's work at the living gate too. */
-    const mine = [['a malformed scope request whose loop names this run', 'req-notes-bot-' + hex, JSON.stringify({ format: 'flightdeck-plan/3', features: ['loops'], id: 'req-notes-bot-' + hex, loop: { process: proc, run: rid, step: 'each-item' } })]];
+    const mine = [['a malformed scope request whose loop names this run', 'req-notes-bot-' + hex, JSON.stringify({ format: 'flightdeck-plan/3', features: ['loops'], id: 'req-notes-bot-' + hex, loop: { process: proc, run: rid, step: 'each-item' } })],
+      /* FC: a malformed to-do whose run names this run with one key too many is this run's work, as runOf reads it. */
+      ['a to-do whose run is this run with an extra key', 'req-flightdeck-' + hex, JSON.stringify(Object.assign({}, td, { run: { process: proc, id: rid, extra: 1 } }))],
+      ['a scope request whose loop is this run with an extra key', 'req-notes-bot-' + hex, JSON.stringify({ format: 'flightdeck-plan/3', features: ['loops'], id: 'req-notes-bot-' + hex, loop: { process: proc, run: rid, step: 'each-item', extra: 1 } })]];
     for (const [what, stem, text] of RECS.concat(mine)) {
       const p = 'proposals/' + stem + '.json', tag = world + ' × ' + what;
       const { res } = await pack(X.PF, new BytesFS(Object.assign({}, X.files, { [p]: text + '\n' })), X.key);

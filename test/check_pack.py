@@ -143,9 +143,10 @@ def check_living(z, man):
         return (d["run"] is None and lp is None) or d["run"] == me or (lp is not None and lp["process"] == me["process"] and lp["run"] == me["id"])
 
     def loop_of(o):
-        """PF.loop.loopOf: the loop a record names, when it is {process, run, step} as text; else None."""
+        """PF.loop.loopOf: the loop a record names, exactly {process, run, step}, when those are text; else None."""
         v = o.get("loop") if isinstance(o, dict) else None
-        return v if isinstance(v, dict) and all(isinstance(v.get(k), str) for k in ("process", "run", "step")) else None
+        ok = isinstance(v, dict) and all(isinstance(v.get(k), str) for k in ("process", "run", "step"))
+        return {"process": v["process"], "run": v["run"], "step": v["step"]} if ok else None
 
     def dispatch(path):
         """The loader's one family dispatch for a packed proposals/ original, before any run or loop filter: {fam, bad, run,
@@ -177,9 +178,10 @@ def check_living(z, man):
         return d
 
     def run_of(o):
-        """PF.todos.runOf: the run a record names, when it is {process, id} as text; else None."""
+        """PF.todos.runOf: the run a record names, exactly {process, id} (other keys dropped), when those are text; else None."""
         v = o.get("run") if isinstance(o, dict) else None
-        return v if isinstance(v, dict) and isinstance(v.get("process"), str) and isinstance(v.get("id"), str) else None
+        ok = isinstance(v, dict) and isinstance(v.get("process"), str) and isinstance(v.get("id"), str)
+        return {"process": v["process"], "id": v["id"]} if ok else None
 
     def packed_ids(rid):
         """The packed files of one record id: its own name and its synced copies (" (1)" and the like)."""
@@ -451,7 +453,7 @@ def check_living(z, man):
                 o = packed(path)
                 todo = isinstance(o, dict) and (o.get("format") in ("flightdeck-plan/4", "flightdeck-plan-status/4")
                                                 or (isinstance(o.get("features"), list) and "living-runs" in o["features"]))
-                if todo and o.get("run") == me:
+                if todo and run_of(o) == me:
                     return True
         return False
 
