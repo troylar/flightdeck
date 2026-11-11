@@ -304,6 +304,20 @@ rule('A second v1 of a loop child\'s checklist added right after the receipt is 
   await endDamaged(app, () => { Object.keys(b.files).forEach(k => { app.fs.files['publications/validate-story/' + b.folder + '/' + k] = { t: b.files[k], m: Date.now() }; }); });
 });
 
+/* ID: a running living run's progress is the shared comparison's (PF.receipts.compare), as its receipt will count it: an
+   excluded unstarted item is no longer in scope, so the screen never says more items than the receipt would. */
+rule('A running living run\'s progress counts items as its receipt would: an excluded unstarted item is left out', async () => {
+  const app = await loopSetup();
+  app.set('loop-why-each', 'Not this release'); app.click('loop-exclude', 'each', { item: 'ABC-102' }); await app.tick(200);
+  await refresh(app, 400);
+  const r = pRun(app); app.click('open-run', r.process + '/' + r.id); await app.tick(120);
+  const prog = (app.html().match(/<ul class="rw-counts[^"]*"[^>]*>([\s\S]*?)<\/ul>/) || [])[1] || '';
+  const lines = (prog.match(/<li>[\s\S]*?<\/li>/g) || []).map((l) => txt(l).trim());
+  assert.ok(lines.indexOf('Items: 0 of 1 cleared') >= 0, 'the running screen counts the items in scope: ' + JSON.stringify(lines));
+  assert.ok(!lines.some((l) => /^Items: 0 of 2/.test(l)), 'never the excluded item: ' + JSON.stringify(lines));
+  assert.ok(/^This checklist: \d+ of \d+ current steps answered$/.test(lines[0]), 'the comparison\'s own words: ' + JSON.stringify(lines));
+});
+
 rule('An ended living run shows the receipt\'s frozen progress lines, the counts now apart; Copy for Jira carries the frozen summary and arrivals', async () => {
   const app = await loopSetup();
   app.click('end', 'Cancelled'); await app.tick(400);

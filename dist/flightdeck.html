@@ -30748,7 +30748,9 @@ PF.vk = (function () {
     if (TV && TV.todos.length) out.push('To-dos: ' + TV.todos.filter(function (x) { return x.state !== 'open'; }).length + ' of ' + TV.todos.length);
     /* An ended living run's progress is what its receipt froze; the counts now (anything that arrived after the end
        included) are said apart, never mixed into it. */
-    var pv = !prOf(ctx) && r.ended && r.living && ctx.planVsNow ? ctx.planVsNow(r) : null, now = '';
+    var pv = !prOf(ctx) && r.living && ctx.planVsNow ? ctx.planVsNow(r) : null, now = '';
+    /* A running living run counts by the shared comparison rules too (PF.receipts.compare), as its receipt will. */
+    if (pv && !pv.ended && pv.lines && pv.lines.length) out = pv.lines.slice();
     if (pv && pv.ended && pv.lines && pv.lines.length) {
       /* The counts now by the shared comparison rules (PF.receipts.compare), as the frozen lines were made. */
       if (pv.now && pv.now.lines) out = pv.now.lines.concat(pv.now.unread && pv.now.unread.length ? ['The loop ' + pv.now.unread[0] + ' can\'t be read here, so its items aren\'t counted'] : []);
