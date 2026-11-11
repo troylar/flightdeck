@@ -69,9 +69,9 @@ const WRITES = {
   /* Round 11 (EB): a loop approval asked from the command line, carried out by the recorder's window on its next read. */
   'loop approve request': async (app) => { await requestApprove(app); app.click('refresh'); await app.tick(300); }
 };
-async function requestApprove(app) {
+async function requestApprove(app, change) {
     const PF = app.PF, LP = PF.loop, r = parentRun(app);
-    const c = LP.cleanIntent({ loop: { process: 'release-readiness', run: r.id, step: 'each' }, changes: [{ op: 'approve', as: 'person-avery' }] }, 'eb-' + Math.random().toString(36).slice(2, 10), { name: 'release-helper', version: '1.0' });
+    const c = LP.cleanIntent({ loop: { process: 'release-readiness', run: r.id, step: 'each' }, changes: [change || { op: 'approve', as: 'person-avery' }] }, 'eb-' + Math.random().toString(36).slice(2, 10), { name: 'release-helper', version: '1.0' });
     const d = await PF.repo.loadAll(app.fs, {}), V = LP.view(r, 'each', { records: d.scopes, runs: d.runs });
     const f = LP.buildRequest(c.intent, { seen: V.ledger.heads, children: [], now: new Date().toISOString(), app: '4.0.0', head: LP.headFor(r) });
     await app.fs.write('proposals/' + f.id + '.json', LP.text(f));
@@ -325,6 +325,7 @@ const AUTH = ['people.json EIO', 'the approver taken out of people.json', 'the a
 const proposalsCount = (app) => app.files('proposals/').length;
 const overlay = (app) => app.overlay() || '';
 const RECOVER = AUTH.concat(['the copy replaced with a newer one', 'the copy\'s twin replaced with a newer one', 'the browser copy replaced with a newer one']);
+const SEND_BACK = { op: 'send-back', as: 'person-avery', reason: 'Check the stories again' };
 const PATHS = {
   Pass: { disk: approveLoop, offered: READY, go: WRITES.Pass },
   Waive: { disk: approveLoop, offered: READY, go: WRITES.Waive },
@@ -408,6 +409,18 @@ const PATHS = {
     offered: () => '',
     go: async (app) => { app.click('refresh'); await app.tick(300); },
     again: () => true
+  },
+  /* Round 18 (WA): sending an approved loop back for review, by the button and by a request the recorder carries out. */
+  'Send back': {
+    changes: AUTH, disk: approveLoop,
+    offered: (app) => approved(app) ? '' : 'the loop isn\'t approved',
+    go: async (app) => { app.set('loop-why-each', 'Check the stories again'); app.click('loop-unsettle', 'each'); }
+  },
+  'Send back request': {
+    changes: AUTH, disk: approveLoop,
+    offered: (app) => approved(app) ? '' : 'the loop isn\'t approved',
+    pre: (app) => requestApprove(app, SEND_BACK),
+    go: async (app) => { app.click('refresh'); await app.tick(300); }
   },
   'Land a delegated fulfillment': {
     needs: 'grantTool', changes: AUTH.concat(['the story\'s run handed to another session', 'the delegation revoked']),
@@ -622,6 +635,37 @@ async function raced(o, how, ch) {
   return off;
 }
 module.exports.raced = raced;
+/* Round 18 (WA): a send-back paused where the reviewers paused it: at its save's read of the parent (the first read of
+   run.json once repo.saveRun is called for it), or once its candidate is written. The change is made while it waits. Nothing
+   more is written to run.json, and the request (on that path) is never recorded applied. Returns what was off. */
+async function sendBackRace(o, how, wait, ch) {
+  const P = PATHS[how], C = CHANGES[ch], tpl = await template(o, P), { app, why } = await opened(tpl, P), tag = how + ' · ' + wait + ' · ' + ch;
+  if (why) return [tag + ': set-up: ' + why];
+  if (P.pre) await P.pre(app, o);
+  const R = app.PF.repo, sr = R.saveRun, fs0 = app.fs, read = fs0.read, write = fs0.write, hold = gate();
+  let saving = false, hit = false;
+  R.saveRun = function (f, run) { if (run && run.process === 'release-readiness') saving = true; return sr.apply(this, arguments); };
+  if (wait === 'at the parent read') fs0.read = function (q) { const a = arguments; if (saving && !hit && PARENT_RE.test(q)) { hit = true; return hold.p.then(() => read.apply(fs0, a)); } return read.apply(fs0, a); };
+  else fs0.write = function (q) { const a = arguments; if (saving && !hit && CAND_RE.test(q)) { hit = true; return write.apply(fs0, a).then((x) => hold.p.then(() => x)); } return write.apply(fs0, a); };
+  const off = () => { R.saveRun = sr; fs0.read = read; fs0.write = write; };
+  await P.go(app); await app.tick(80);
+  for (let t = 0; t < 40 && !hit; t++) await app.tick(50);
+  if (!hit) { hold.open(); off(); return [tag + ': set-up: the send-back never reached that point']; }
+  const had = new Set(app.files('proposals/'));
+  const undo = C.make(app, kidFor(P, o, app));
+  if (!undo) { hold.open(); off(); return [tag + ': set-up: the change couldn\'t be made']; }
+  const p = parentPath(app), mid = app.fs.files[p].t;
+  hold.open();
+  for (let i = 0; i < 40; i++) await app.tick(50);
+  off();
+  const out = [];
+  if (app.fs.files[p].t !== mid) out.push(tag + ': run.json written after the change: ' + JSON.stringify([JSON.parse(app.fs.files[p].t).steps.each.s, JSON.parse(app.fs.files[p].t).recorder]));
+  const applied = app.files('proposals/').filter(f => !had.has(f) && (() => { try { return JSON.parse(app.fs.files[f].t).op === 'applied'; } catch (e) { return false; } })());
+  if (applied.length) out.push(tag + ': recorded applied: ' + JSON.stringify(applied));
+  undo();
+  return out;
+}
+module.exports.sendBackRace = sendBackRace;
 module.exports.paths = PATHS;
 module.exports.HOLD_PATHS = Object.keys(PATHS);
 /* The paths a fixture can set up (round 17: the to-do writers need the spread fixture's hooks). */

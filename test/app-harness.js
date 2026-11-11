@@ -226,6 +226,8 @@ function boot(opts) {
   };
   const location = { protocol: 'file:', get href() { return hist.entries[hist.index].url; }, get hash() { return hashOf(hist.entries[hist.index].url); }, reload() { hist.reloads++; } };
   window.history = history; window.location = location;
+  /* Round 18: a loop write or scope record without its fresh guard throws here rather than refusing quietly. */
+  window.FLIGHTDECK_STRICT_GUARDS = true;
   function traverse(item) { hist.queue.push(item); pump(); }
   function pump() {
     if (hist.held || hist.busy || !hist.queue.length) return;

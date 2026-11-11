@@ -198,6 +198,7 @@ test/compat-typesave.test.js -
 test/skills-parity.test.js -
 test/build.test.js -
 test/readers.test.js -
+test/guards.test.js -
 test/cli.test.js -
 test/cli-parity.test.js -
 test/save.test.js -

@@ -353,4 +353,12 @@ const RACES = {
 for (const how of Object.keys(RACES)) for (const ch of RACES[how]) rule('VA-VC: ' + how + ' on a fulfilled spread\'s loop, ' + ch + ' while its write waits, writes nothing more', async () => {
   assert.deepStrictEqual(await BB.raced(bbSpread, how, ch), []);
 });
+/* Round 18 (WA): a send-back on a fulfilled spread's approved loop, by the button and by a request the recorder carries out,
+   paused at its save's read of the parent while the person acting is taken out of people.json or made inactive, or once its
+   candidate is written while the run is handed to another session: nothing more is written, and the request is never
+   recorded applied. */
+const WA18 = [['at the parent read', OUT], ['at the parent read', INACTIVE], ['after the candidate', 'the run handed to another session']];
+for (const how of ['Send back', 'Send back request']) for (const [wait, ch] of WA18) rule('Round 18 (WA): ' + how + ' on a fulfilled spread\'s approved loop, ' + ch + ' while it waits ' + wait + ', writes nothing more', async () => {
+  assert.deepStrictEqual(await BB.sendBackRace(bbSpread, how, wait, ch), []);
+});
 run();

@@ -26,6 +26,7 @@ async function setup(o) {
   app.click('refresh'); await app.tick(80);
   app.click('start', 'release-readiness'); await app.settle();
   Object.keys(maps.details || {}).forEach(k => app.set('detail-' + k, maps.details[k]));
+  Object.keys(maps.roles || {}).forEach(k => app.set('role-' + k, maps.roles[k]));
   app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   assert.ok(/data-act="loop-add"/.test(app.html()), 'set-up: the loop step is shown with its list');
   return app;
@@ -1203,4 +1204,69 @@ for (const how of ['Pass', 'Use copy', 'Use copy, no approvals']) rule('SD: ' + 
    or the source replaced: nothing more is written and the source stays. */
 for (const [how, chs] of [['Use copy, no approvals', ['the approver taken out of people.json', 'the approver marked inactive', 'the copy replaced with a newer one']], ['Restore browser copy, no approvals', ['the approver taken out of people.json', 'the approver marked inactive', 'the browser copy replaced with a newer one']]])
   for (const ch of chs) rule('VA: ' + how + ' on a plain loop, ' + ch + ' while its write waits, writes nothing more', async () => { assert.deepStrictEqual(await BB.raced(bbLoop, how, ch), []); });
+/* Round 18 (WB): a resolution is a new decision, so the fresh guard right before it is written rebuilds it from the folder as
+   read then: the requester (Blake, in the loop step's role; Avery records) asked again, and the request it resolves still
+   recorded both ways exactly as it was. The resolution's existence read (the first read of a status file not there yet) is
+   paused while the change is made. */
+const LEAD = PARENT.replace('owner: person-avery\n', 'owner: person-avery\nroles: lead\n').replace('Validate every release story {#each}', 'Validate every release story @lead {#each}');
+const holdNewStatus = (fs0) => {
+  const read = fs0.read, hold = gate(); let hit = null;
+  fs0.read = function (q) { const a = arguments; if (!hit && /^proposals\/[^/]*\.status-[^/]*\.json$/.test(q) && !fs0.files[q]) { hit = q; return hold.p.then(() => read.apply(fs0, a)); } return read.apply(fs0, a); };
+  return { hold, hit: () => hit, off: () => { fs0.read = read; } };
+};
+/* A decision on the disputed request besides the two twoWays wrote (writers wa and wb): a resolution. */
+const resolutionOf = (app, id) => app.files('proposals/').filter(p => p.indexOf(id + '.status-') >= 0 && !/\.status-w[ab]-/.test(p)).map(p => JSON.parse(app.fs.files[p].t));
+async function disputed(app) {
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  const id = await ask(app, [{ op: 'approve', as: 'person-avery' }], 'wb-' + Math.random().toString(36).slice(2, 8));
+  await app.tick(300);
+  app.files('proposals/').filter(p => p.indexOf(id + '.status-') >= 0).forEach(p => { delete app.fs.files[p]; });
+  await twoWays(app, id);
+  assert.ok(new RegExp('data-act="loop-resolve"[^>]*data-request="' + id + '"').test(app.html()), 'set-up: recorded both ways');
+  return id;
+}
+const people = (app, fn) => { const kept = app.fs.files['people.json'], doc = JSON.parse(kept.t), list = Array.isArray(doc) ? doc : doc.people, next = fn(list.map(x => Object.assign({}, x))); app.fs.files['people.json'] = { t: JSON.stringify(Array.isArray(doc) ? next : Object.assign({}, doc, { people: next }), null, 2), m: Date.now() }; };
+/* The refused outcome of the disputed request (written by twoWays as writer wb) rewritten as applied: no longer both ways. */
+const replaceRefused = (app, id) => {
+  const p = app.files('proposals/').find(x => x.indexOf(id + '.status-wb-') >= 0), j = JSON.parse(app.fs.files[p].t);
+  j.op = 'applied'; app.fs.files[p] = { t: JSON.stringify(j), m: Date.now() };
+};
+const WB_CHANGES = {
+  'the requester taken out of people.json': (app) => people(app, l => l.filter(x => x.id !== 'person-blake')),
+  'the requester marked inactive': (app) => people(app, l => l.map(x => x.id === 'person-blake' ? Object.assign(x, { inactive: true }) : x)),
+  'the request it resolves rewritten from refused to applied': (app, id) => replaceRefused(app, id)
+};
+for (const ch of Object.keys(WB_CHANGES)) rule('Round 18 (WB): a resolve request, ' + ch + ' while its resolution waits, resolves nothing and is never recorded applied', async () => {
+  const app = await setup({ maps: { parent: LEAD, roles: { lead: 'person-blake' } } });
+  assert.strictEqual(parentRun(app).roles.lead, 'person-blake', 'set-up: Blake holds the loop step\'s role');
+  const id = await disputed(app), h = holdNewStatus(app.fs);
+  const PF = app.PF, LP = PF.loop, r = parentRun(app);
+  const c = LP.cleanIntent({ loop: { process: 'release-readiness', run: r.id, step: 'each' }, changes: [{ op: 'resolve', record: id, outcome: 'refused', as: 'person-blake' }] }, 'wb-rs', { name: 'release-helper', version: '1.0' });
+  const d = await PF.repo.loadAll(app.fs, {}), V = LP.view(r, 'each', { records: d.scopes, runs: d.runs });
+  const f = LP.buildRequest(c.intent, { seen: V.ledger.heads, children: [], now: new Date().toISOString(), app: '3.0.0' });
+  await app.fs.write('proposals/' + f.id + '.json', LP.text(f));
+  app.click('refresh');
+  for (let t = 0; t < 40 && !h.hit(); t++) await app.tick(50);
+  assert.ok(h.hit(), 'set-up: the resolution reached its existence read');
+  WB_CHANGES[ch](app, id);
+  h.hold.open(); await app.tick(600); h.off();
+  assert.deepStrictEqual(resolutionOf(app, id).map(x => x.op), [], 'no resolution written');
+  assert.notStrictEqual((outcome(app, f.id) || {}).op, 'applied', 'the resolve request isn\'t recorded applied');
+});
+rule('Round 18 (WB): Resolve on the run screen, the request rewritten from refused to applied while the resolution waits, writes nothing', async () => {
+  const app = await setup(), id = await disputed(app), h = holdNewStatus(app.fs);
+  app.click('loop-resolve', 'each', { request: id, outcome: 'refused' });
+  for (let t = 0; t < 40 && !h.hit(); t++) await app.tick(50);
+  assert.ok(h.hit(), 'set-up: the resolution reached its existence read');
+  replaceRefused(app, id);
+  h.hold.open(); await app.tick(600); h.off();
+  assert.deepStrictEqual(resolutionOf(app, id).map(x => x.op), [], 'no resolution written');
+});
+rule('Round 18 (WB): a resolve request with nothing changed is carried out: the resolution is written and the request applied', async () => {
+  const app = await setup({ maps: { parent: LEAD, roles: { lead: 'person-blake' } } });
+  const id = await disputed(app);
+  const rs = await ask(app, [{ op: 'resolve', record: id, outcome: 'refused', as: 'person-blake' }], 'wb-ok');
+  await app.tick(400);
+  assert.deepStrictEqual([resolutionOf(app, id).map(x => x.op), (outcome(app, rs) || {}).op], [['refused'], 'applied']);
+});
 run();
