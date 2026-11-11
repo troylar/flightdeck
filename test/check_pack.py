@@ -235,9 +235,10 @@ def check_living(z, man):
                             and rec.get("outcome") == ended.get("outcome") and rec.get("by") == ended.get("by") and rec.get("run") == me)
             # Read as the shipped checker reads it: its format, limits and the id its content gives.
             if good_receipt:
-                path = [p for p in by_path if p == "proposals/" + receipt + ".json"]
+                # The witness resolved above, under the name it is packed as (its own, or a synced copy's).
+                path = packed_ids(receipt)
                 raw = decode(z.read(by_path[path[0]])) if path else None
-                good_receipt = raw is not None and CF.todo_why(raw, receipt + ".json") == ""
+                good_receipt = raw is not None and CF.todo_why(raw, path[0][len("proposals/"):]) == ""
             # Every record it names as seen (pending requests included) is in the pack, and what each of those saw, in turn.
             if good_receipt:
                 for x in rec.get("seen") or []:

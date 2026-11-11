@@ -852,5 +852,14 @@ rule('The final rereads of what discovery read reserve memory first: the peak th
   const tight = await W.PF.repo.exportEvidence(new BytesFS(files), { run: W.key }, { sink: () => {}, now: () => Date.now(), tz: 'UTC', cap: kids.length * SIZE * 2 + 300000 });
   assert.ok(tight.col.retained.peak <= kids.length * SIZE * 2 + 300000, 'within the cap: ' + tight.col.retained.peak);
   assert.ok(tight.status === 'complete' || tight.col.unresolved.length, 'a pack that isn\'t complete says why');
+});/* WE: Python reads the receipt witness it resolved under the name it is packed as: one packed only as its synced copy is read. */
+rule('A receipt in the folder only as its synced copy (<id> (1).json) is confirmed by the export and by Python alike', async () => {
+  const W = await made({ todos: 1 }), id = W.run.living.receipt, files = Object.assign({}, W.files);
+  files['proposals/' + id + ' (1).json'] = files['proposals/' + id + '.json']; delete files['proposals/' + id + '.json'];
+  const { zip, res } = await pack(W.PF, new BytesFS(files), W.key);
+  assert.strictEqual(res.status, 'complete', JSON.stringify(res.col.unresolved));
+  if (!PY) return;
+  const c = checkPack(zip);
+  assert.ok(c.ok, 'Python reads it: ' + c.out);
 });
 run();
