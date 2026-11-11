@@ -486,9 +486,30 @@ def check_living(z, man):
                     return True
         return False
 
+    def root_unread(key):
+        """Why a selected root's run.json isn't one every reader reads (IB), as (kind, why), or None: present in the pack,
+        parsed as every reader parses it (decode: nothing nested past 64 levels), a run, then the readers' verdict on it."""
+        rp = "runs/" + key + "/run.json"
+        if rp not in by_path:
+            return ("missing", "it isn't in the pack")
+        try:
+            run = load(rp)
+        except ValueError:
+            return ("malformed", "it isn't complete JSON")
+        if not isinstance(run, dict):
+            return ("malformed", "it isn't a run this copy can read")
+        return root_problem(key, run)
+
     n = 0
     for r in man["runs"]:
         lv = r.get("living")
+        # The root first, before anything decides whether it has work to check: a root no reader reads, or work the manifest
+        # itself says isn't complete, is never in a complete pack.
+        ru = root_unread(r["key"])
+        if ru and man["status"] != "partial":
+            sys.exit("living: " + r["key"] + "'s run.json isn't one every reader reads (" + ru[0] + ": " + ru[1] + "), but the pack doesn't say it is partial")
+        if lv and not lv.get("complete") and man["status"] != "partial":
+            sys.exit("living: " + r["key"] + " is missing some of its work, but the pack doesn't say it is partial")
         if not lv:
             if has_work(r["key"]):
                 sys.exit("living: " + r["key"] + " has work its packed originals name (a work head, a receipt or a to-do record), but the manifest has no living section for it")

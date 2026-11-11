@@ -1291,6 +1291,33 @@ rule('Python refuses a complete pack whose root run\'s end the readers refuse (a
     assert.ok(!c.ok && c.out.indexOf(W.key) >= 0, what + ': Python: ' + c.out);
   }
 });
+/* IB: Python reads each selected root's run.json, present and parsed as every reader parses it, before it decides whether
+   the root has work to check: a root that isn't in the pack, isn't JSON, isn't a run or nests past what any reader reads is
+   never part of a complete pack, its living section dropped or not; and living.complete false never sits under a complete
+   pack. The export says partial for each of them. */
+rule('Python refuses a complete pack whose root run.json is missing, not JSON, not a run or too deep, its living section dropped', async () => {
+  const W = await made({ todos: 1, pending: true }), full = await pack(W.PF, new BytesFS(W.files), W.key), rp = 'runs/' + W.key + '/run.json';
+  assert.strictEqual(full.res.status, 'complete', JSON.stringify(full.res.col.unresolved));
+  const deep = '['.repeat(65) + ']'.repeat(65);
+  const ROOTS = [['cut', '{'], ['empty', ''], ['null', 'null'], ['a list', '[]'], ['a number', '42'], ['nested 65 deep', deep]];
+  for (const [what, text] of ROOTS) {
+    const { res } = await pack(W.PF, new BytesFS(Object.assign({}, W.files, { [rp]: text })), W.key);
+    assert.strictEqual(res.status, 'partial', what + ': the export: ' + JSON.stringify(res.col.unresolved).slice(0, 300));
+  }
+  if (!PY) return;
+  assert.ok(checkPack(full.zip).ok, 'control');
+  const drop = (man) => { man.status = 'complete'; man.runs.forEach((r) => { delete r.living; }); };
+  for (const [what, text] of ROOTS.concat([['removed', null]])) {
+    const c = checkPack(await repacked(W.PF, full.zip, (e, man, f) => {
+      const x = f(rp);
+      if (text === null) { delete e[x.pack]; man.files = man.files.filter((y) => y !== x); } else e[x.pack] = Buffer.from(text);
+      drop(man);
+    }));
+    assert.ok(!c.ok && c.out.indexOf(W.key) >= 0, what + ': Python: ' + c.out);
+  }
+  const c = checkPack(await repacked(W.PF, full.zip, (e, man) => { man.status = 'complete'; man.runs.forEach((r) => { if (r.living) r.living.complete = false; }); }));
+  assert.ok(!c.ok && c.out.indexOf(W.key) >= 0, 'living.complete false under a complete pack: Python: ' + c.out);
+});
 /* FD: living work needs run/3. An ended living run written back as run/2 (no run/3 field but its living record) is refused
    by every reader as newer, so the export of it is partial and Python refuses a pack of it that says complete. */
 rule('An ended living run written as run/2 is partial in the export, and Python refuses a complete pack of it', async () => {
