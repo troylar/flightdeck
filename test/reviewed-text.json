@@ -25,8 +25,8 @@
       "reviewed": "QC: spread keep's final check rereads and judges the items' checklist and rebuilds from it; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "d681ea3d9939f159e39357e1fefbb3520283979cff465bb2fed01c316bb6bee6",
-      "reviewed": "BD: a keep just saved carries the SHA-256 of its written bytes; checked for direct writes and unconditional deletes"
+      "sha256": "f34d956835b6ec07cd8b69dbf9ef9b1f62c2c9f6b79569e0fde5b5e9641c3a0e",
+      "reviewed": "BE: detour completion counts input events and a revised form; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -421,8 +421,8 @@
       "reviewed": "AD: withdraw rereads the target copy last; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "b1d2c9486eb493b2a6834c159cc461c799515b0c76585f828d1c0580dfb5fbae",
-      "reviewed": "BD: a keep just saved carries the SHA-256 of its written bytes; checked for direct writes and unconditional deletes"
+      "sha256": "737cfa87fe50affc11b72de1567acbb88d9a5ec0229d3fcfdb50bed2ecf9b9dd",
+      "reviewed": "BE: detour completion counts input events and a revised form; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

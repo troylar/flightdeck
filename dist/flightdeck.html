@@ -42013,6 +42013,8 @@ PF.examples = (function () {
     if (!b || b.dataset.act !== 'refresh') childEpoch++;
   }, true);
   document.addEventListener('change', function () { childEpoch++; }, true);
+  /* BE: input alone (typed text, a paste, a drop) is moving on too, with no key pressed and nothing changed yet. */
+  document.addEventListener('input', function () { childEpoch++; }, true);
   document.addEventListener('click', function (e) {
     var b = e.target.closest('[data-act]');
     if (!b || b.disabled) return;
@@ -44494,7 +44496,14 @@ PF.examples = (function () {
     var sg2 = detour ? writeGuard({}) : null;
     /* YC: a detour's start lands only on the form it was submitted from: anything done since (another form opened, a name
        typed, a layer opened) keeps it saved and says so, and nothing on screen is reset or navigated away from. */
-    var ep = childEpoch, ov0 = state.overlay, moved = function () { return detour && (childEpoch !== ep || state.overlay !== ov0 || navSeq !== held.seq); };
+    /* BE: and the form's own values as submitted, read again from the page: a box whose value was replaced with no event at
+       all is a revised form too. */
+    var formId = e.target.id, formVals = function () {
+      var f = (formId && document.getElementById(formId)) || e.target, o = [val('run-title'), val('start-mode')];
+      if (f && f.querySelectorAll) { f.querySelectorAll('[data-detail]').forEach(function (el) { o.push(inputValue(el)); }); f.querySelectorAll('[data-role]').forEach(function (el) { o.push(el.value); }); }
+      return JSON.stringify(o);
+    }, vals0 = formVals();
+    var ep = childEpoch, ov0 = state.overlay, moved = function () { return detour && (childEpoch !== ep || state.overlay !== ov0 || navSeq !== held.seq || formVals() !== vals0); };
     queued(function () {
       r.recorder.session = SESSION;
       /* A run of a checklist with a loop is guarded like every loop write (round 10). A planned start's run is saved once its

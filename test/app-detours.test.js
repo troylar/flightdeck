@@ -304,6 +304,27 @@ rule('A late detour Start, Try again, Decline or plan read-back keeps what was s
   assert.ok(/plan was saved/i.test(txt(app.html())), 'read-back: said it was saved');
 });
 
+/* BE: the same form revised while its Start is being saved, by input alone (typed text, a paste) or by the box's value
+   replaced with no event at all: the run is saved, but the revised form stays on screen as it is, never opened over. */
+rule('A detour Start keeps its run but never navigates away from its own form revised meanwhile by typing, a paste or a replaced value', async () => {
+  for (const how of ['insertText', 'insertFromPaste', 'replaced']) {
+    const { app, todo } = await setup(['pass']);
+    app.click('td-detour', todo); await app.tick(250);
+    assert.ok(/id="start-form"/.test(app.html()), how + ': set-up: the plan\'s Start');
+    const before = kidPaths(app).length, w = app.fs.write.bind(app.fs); let release = null;
+    app.fs.write = (p, ...a) => (!release && /^runs\/smoke-test\//.test(p)) ? new Promise((res, rej) => { release = () => w(p, ...a).then(res, rej); }) : w(p, ...a);
+    app.chooseApprovers().submitForm('start-form');
+    for (let i = 0; i < 40 && !release; i++) await app.tick(20);
+    assert.ok(release, how + ': set-up: its first run write is under way');
+    if (how === 'replaced') app.el('run-title').value = 'Revised name'; else app.input('run-title', 'Revised name', how);
+    release(); await app.tick(400); app.fs.write = w;
+    assert.strictEqual(kidPaths(app).length, before + 1, how + ': the run was saved');
+    assert.ok(/id="start-form"/.test(app.html()), how + ': the revised form is still on screen');
+    assert.strictEqual(app.draft('run-title'), 'Revised name', how + ': what was entered stays');
+    assert.ok(/(started|saved)/i.test(txt(app.html())), how + ': said what was done');
+  }
+});
+
 rule('An interrupted start finds its plan again: Run this checklist opens the plan already there, never a second', async () => {
   const { app, todo } = await setup();
   app.click('td-detour', todo); await app.tick(250);
