@@ -3212,9 +3212,20 @@ async function keepMain(argv, noun) {
     }
     LG2.problems().concat(adapterProblems(ra2)).filter((x) => relevant(x.path)).forEach((q) => { if (!late.some((x) => x.path === q.path && x.kind === q.kind)) late.push(q); });
     if (late.length) { late.forEach((q) => { if (!extra.some((x) => x.path === q.path && x.kind === q.kind)) extra.push(q); }); return held('The run this keeps from, its version or the checklist its items run changed or can\'t be read now.'); }
+    /* CD: then proposals/ is read again, after those rereads, and the keep is made again from that read: the count at its
+       place, what is filed under its name and every copy of it (one that differs or can't be read) are what the folder holds
+       now, never the first read's. */
+    const got2 = await repo.readPlans(LG2.fs, [], null, true), unread2 = (got2.todosUnread || []).filter((u) => !u.run || (u.run.process === proc && u.run.id === runId));
+    LG2.problems().concat(adapterProblems(ra2)).filter((x) => relevant(x.path)).forEach((q) => { if (!late.some((x) => x.path === q.path && x.kind === q.kind)) late.push(q); });
+    unread2.forEach((u) => { const q = { path: 'proposals/' + u.file, kind: u.kind === 'newer' ? 'newer' : 'malformed', why: u.kind === 'newer' ? u.why : fileWhy(u.why) }; if (!late.some((x) => x.path === q.path)) late.push(q); });
+    if (late.length) { late.forEach((q) => { if (!extra.some((x) => x.path === q.path && x.kind === q.kind)) extra.push(q); }); return held('Something this keep rests on in proposals/ changed or can\'t be read now.'); }
     const K2 = L.prepare(now1.run, { source: noun === 'todo' ? { todo: val['--todo'] } : { spread: val['--spread'] }, text: val['--text'], reason: val['--reason'], place, by: { tool: tm[1], version: tm[2] },
-      records, unread, people, procOf: procOfFrom(d2), at: K.record.at, app: eng.version, now: NOW });
-    if (K2.why || K2.status !== K.status || K2.id !== K.id || T.text(K2.file) !== T.text(K.file)) return failOut('failed', 'The run this keeps from changed while it was being read, so this keep isn\'t the one checked.' + nothing + ' Run it again.', problems());
+      records: got2.todos || [], unread: unread2, people, procOf: procOfFrom(d2), at: K.record.at, app: eng.version, now: NOW });
+    if (K2.held) return held(K2.why);
+    if (K2.taken) return failOut('key-taken', K2.why + nothing, problems());
+    if (K2.why) return failOut('invalid', K2.why + nothing, problems());
+    if (K2.status === 'already' && K2.id === K.id) return done(data('already'));
+    if (K2.status !== K.status || K2.id !== K.id || T.text(K2.file) !== T.text(K.file)) return failOut('failed', 'The run this keeps from changed while it was being read, so this keep isn\'t the one checked.' + nothing + ' Run it again.', problems());
     let res;
     try { res = writeOnce(dir, ['proposals'], K.name, T.text(K.file)); } catch (e) { return failOut('failed', 'Could not confirm whether the keep was saved. Try again: the same keep is never filed twice. (' + (e && e.message || String(e)) + ')', problems()); }
     if (res !== 'written') {

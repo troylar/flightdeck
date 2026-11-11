@@ -238,4 +238,44 @@ rule('A spread keep reads the items\' checklist again at its final check: one ma
   }
 });
 
+/* CD: the final check reads proposals/ again after the source run and its checklists, and makes the keep again from that
+   read: a 500th keep filed meanwhile at a place holding 499 refuses this one (naming the limit), and a copy of this keep that
+   differs, or one that can't be read, added meanwhile, files nothing. */
+rule('A keep\'s final check reads proposals/ again: a 500th keep, or a differing or torn copy of this keep, added meanwhile files nothing', async () => {
+  const hookOf = () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-keep-hook-')), hook = path.join(dir, 'hook.js');
+    fs.writeFileSync(hook, "const fs = require('fs'), path = require('path'); let n = 0, done = false; const hit = (p) => { if (done || String(p).indexOf('/runs/release-readiness/r-41/run.json') < 0) return; if (++n < 2) return; done = true; const f = JSON.parse(process.env.KEEP_FILES); Object.keys(f).forEach((k) => fs.writeFileSync(path.join(process.env.KEEP_ROOT, 'proposals', k), f[k])); };" +
+      " for (const k of ['openSync', 'readFileSync']) { const o = fs[k]; fs[k] = function (p) { hit(p); return o.apply(this, arguments); }; } const pr = fs.promises; for (const k of ['open', 'readFile']) { const o = pr[k]; pr[k] = function (p) { hit(p); return o.apply(this, arguments); }; }");
+    return hook;
+  };
+  const keepWith = (F, files) => {
+    let code = 0, text = '';
+    try { text = execFileSync(process.execPath, ['-r', hookOf(), BIN, 'todo', 'keep', F.root, PR, '--todo', F.phaseTodo, '--json', ...TOOL], { encoding: 'utf8', stdio: 'pipe', env: Object.assign({}, process.env, { KEEP_ROOT: F.root, KEEP_FILES: JSON.stringify(files) }) }); } catch (e) { code = e.status; text = String(e.stdout); }
+    return Object.assign(JSON.parse(text), { code });
+  };
+  /* What this keep would file, from a copy of the folder. */
+  const fileOf = async (F) => {
+    const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-keep-copy-')); fs.cpSync(F.root, copy, { recursive: true });
+    const x = json('todo', 'keep', copy, PR, '--todo', F.phaseTodo, '--json', ...TOOL);
+    assert.strictEqual(x.data.status, 'kept', 'set-up: it would be kept');
+    return { id: x.data.keep.id, text: fs.readFileSync(path.join(copy, x.data.keep.file), 'utf8') };
+  };
+  for (const how of ['differs', 'torn'].filter((h) => !process.env.CD_CASE || process.env.CD_CASE.split(',').indexOf(h) >= 0)) {
+    const F = await folder(), K = await fileOf(F), o = JSON.parse(K.text); o.reason = 'Another reason';
+    const before = ls(F.root);
+    const x = keepWith(F, { [K.id + ' (1).json']: how === 'differs' ? JSON.stringify(o, null, 2) + '\n' : '{ "format": ' });
+    assert.ok(!fs.existsSync(path.join(F.root, 'proposals', K.id + '.json')), how + ': not filed: ' + JSON.stringify([x.code, x.data && x.data.status, x.error, x.problems]));
+    assert.ok(x.code !== 0 && !(x.data && x.data.status === 'kept'), how + ': said so: ' + JSON.stringify([x.code, x.error]));
+    assert.strictEqual(ls(F.root).length, before.length + 1, how + ': only the copy added meanwhile');
+  }
+  /* 499 keeps at its place, a 500th filed meanwhile: this one would be the 501st. */
+  const F = await folder(), K = await fileOf(F), base = JSON.parse(K.text);
+  const other = (i) => { const f = JSON.parse(JSON.stringify(base)); f.change.text = 'Wording ' + i; f.id = L.idFor(f.run, f.source, f.template || null, f.anchor || null, f.change.text); if (f.key) f.key = L.keyFor(f.run, f.source, f.template || null, f.anchor || null, f.change.text); const fd = T.filed(f.id + '.json', f); assert.ok(!fd.why, fd.why); return f; };
+  for (let i = 1; i < 500; i++) { const f = other(i); fs.writeFileSync(path.join(F.root, 'proposals', f.id + '.json'), T.text(f)); }
+  const last = other(500);
+  const x = keepWith(F, { [last.id + '.json']: T.text(last) });
+  assert.ok(!fs.existsSync(path.join(F.root, 'proposals', K.id + '.json')), '501st: not filed: ' + JSON.stringify([x.code, x.data && x.data.status, x.error]));
+  assert.ok(x.code !== 0 && x.error && /500/.test(x.error.why), '501st: refused, naming the limit: ' + JSON.stringify([x.code, x.error]));
+});
+
 run();
