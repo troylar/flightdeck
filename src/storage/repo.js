@@ -2645,7 +2645,7 @@ PF.repo = (function () {
       var unread = (r[0].todosUnread || []).slice(), people = r[1];
       if (people.failed) { unread.push({ file: 'people.json', why: 'people.json couldn\'t be read, so no one\'s authority over to-dos can be checked.', run: null }); people = null; }
       /* The loops' scope records from the same one read (a receipt is asked again on them, 4.0 slice 6). */
-      var out = { records: r[0].todos || [], unread: unread, people: people, scopes: r[0].scopes || [], scopesUnread: r[0].scopesUnread || [] };
+      var out = { records: r[0].todos || [], unread: unread, people: people, scopes: r[0].scopes || [], scopesUnread: r[0].scopesUnread || [], plans: r[0].plans || [], plansUnread: r[0].plansUnread || [] };
       if (!o || !o.evidence) return out;
       return readEvidence(fs, r[0], out.records, o.also).then(function (ev) { out.evidence = ev; return out; });
     });
@@ -2682,7 +2682,8 @@ PF.repo = (function () {
   /* A living run's bounded dependency closure (PF.receipts.deps), walked until it holds every run it depends on: the shared
      collector names the runs it found that aren't read yet; they are read (and their loop children listed), and it is asked
      again. Pr: one checked read of proposals/ ({ todos, todosUnread, scopes, scopesUnread }). io: { depRun(proc, id) ->
-     { run } | { bad }, childrenOf(run) -> { runs, bad }, count() -> how many runs were read }. Resolves to { D, known }, and
+     { run } | { bad }, childrenOf(run) -> { runs, bad }, count() -> how many runs were read }. Resolves to { D, known, plans
+     (each evidence plan's copies by id) }, its evidence plans' checks in D.missing, and
      rejects past the one shared bound or with runs left unread. The export (collectEvidence) and the app's ending guard
      (rcptFresh, before every write that ends a living run) both walk it here, so they ask the same closure. */
   function depClosure(self, Pr, io) {
@@ -2708,7 +2709,19 @@ PF.repo = (function () {
       var D = ask();
       if (D.over) throw new Error(D.over);
       if (D.toRead.length) throw new Error('The runs the work of ' + self.process + '/' + self.id + ' depends on weren\'t all read, so no pack was made.');
-      return { D: D, known: known };
+      /* Every evidence plan the work names, from the same read of proposals/ (Pr.plans, Pr.plansUnread): a copy that can't be
+         read, none in the folder, or copies that differ (PF.requests.same) is named in D.missing, after the closure's own. */
+      var planFiles = Object.create(null), plans = Object.create(null);
+      (Pr.plans || []).forEach(function (pl) { if (pl && pl._file) (planFiles[pl.id] = planFiles[pl.id] || []).push(pl); });
+      D.missing = D.missing.slice();
+      D.plans.forEach(function (id) {
+        var g = planFiles[id] || [], gu = (Pr.plansUnread || []).filter(function (u) { return u.id === id; })[0];
+        if (gu) D.missing.push('proposals/' + gu.file + ': a copy of the evidence plan a to-do was done on (' + id + ') can\'t be read (' + String(gu.why).slice(0, 200) + ').');
+        if (!g.length) { D.missing.push('proposals/' + id + '.json: a to-do was done on this evidence plan, but it isn\'t in the folder as read.'); return; }
+        plans[id] = g;
+        if (!g.every(function (pl) { return PF.requests.same(pl, g[0]); })) D.missing.push('proposals/' + id + '.json: a to-do was done on this evidence plan, but the folder has two different copies of it.');
+      });
+      return { D: D, known: known, plans: plans };
     });
   }
   function readLoopChildren(fs, self) {
@@ -3466,15 +3479,10 @@ PF.repo = (function () {
           var byFile = Object.create(null);
           Pr.todos.concat(Pr.scopes).forEach(function (x) { if (x && x._file) byFile[x._file] = x; });
           D.files.forEach(function (f) { var path = 'proposals/' + f.file; L.recs[path] = byFile[f.file] || null; L.recTexts[path] = recHashes[f.file] || ''; add(path, { role: 'living', label: f.label }); });
-          /* Every copy of each evidence plan, as the app groups them (PF.requests.same): each packed and held to its bytes;
-             copies that differ are named and nothing the work claims is confirmed. */
-          var planFiles = Object.create(null); (Pr.plans || []).forEach(function (pl) { if (pl && pl._file) (planFiles[pl.id] = planFiles[pl.id] || []).push(pl); });
+          /* Every copy of each evidence plan, as the app groups them: each packed and held to its bytes. Its checks (a copy that
+             can't be read, none, copies that differ) are depClosure's, already in D.missing. */
           D.plans.forEach(function (id) {
-            var g = planFiles[id] || [], gu = (Pr.plansUnread || []).filter(function (u) { return u.id === id; })[0];
-            if (gu) L.missing.push('proposals/' + gu.file + ': a copy of the evidence plan a to-do was done on (' + id + ') can\'t be read (' + String(gu.why).slice(0, 200) + ').');
-            if (!g.length) { L.missing.push('proposals/' + id + '.json: a to-do was done on this evidence plan, but it isn\'t in the folder as read.'); return; }
-            g.forEach(function (pl) { L.runTexts['proposals/' + pl._file] = recHashes[pl._file] || ''; add('proposals/' + pl._file, { role: 'evidence plan', label: 'The evidence plan a to-do was done on' }); });
-            if (!g.every(function (pl) { return PF.requests.same(pl, g[0]); })) L.missing.push('proposals/' + id + '.json: a to-do was done on this evidence plan, but the folder has two different copies of it.');
+            (res.plans[id] || []).forEach(function (pl) { L.runTexts['proposals/' + pl._file] = recHashes[pl._file] || ''; add('proposals/' + pl._file, { role: 'evidence plan', label: 'The evidence plan a to-do was done on' }); });
           });
           var LBL = { evidence: { role: 'evidence run', label: 'The run a to-do was done on (its result is the evidence)' }, child: { role: 'child run', label: 'A child run of the run\'s loops' }, fulfills: { role: 'fulfilled run', label: 'A run whose spread a request on this run fulfills' } };
           D.runs.forEach(function (x) {

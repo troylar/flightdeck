@@ -3624,7 +3624,7 @@
      prepared on. */
   function rcptClosure(cx, self, s) {
     var got = Object.create(null);
-    var Pr = { todos: s.records || [], todosUnread: (s.unread || []).filter(function (u) { return u && u.file !== 'people.json'; }), scopes: s.scopes || [], scopesUnread: s.scopesUnread || [] };
+    var Pr = { todos: s.records || [], todosUnread: (s.unread || []).filter(function (u) { return u && u.file !== 'people.json'; }), scopes: s.scopes || [], scopesUnread: s.scopesUnread || [], plans: s.plans || [], plansUnread: s.plansUnread || [] };
     return repo.depClosure(self, Pr, {
       depRun: function (proc, id) { var k = proc + '/' + id; return got[k] ? Promise.resolve(got[k]) : repo.depRead(cx.fs, proc, id).then(function (y) { got[k] = y; return y; }); },
       childrenOf: function (X) { return repo.readLoopChildren(cx.fs, X).then(function (o) { return { runs: o.runs, bad: o.unread.map(function (b) { return { key: '', path: b.path, kind: b.kind, why: b.why }; }) }; }); },

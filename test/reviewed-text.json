@@ -25,8 +25,8 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "d8b104e6caa1335e352c382d033f0e1ed75538d97130fed7f3949562687fc2c4",
-      "reviewed": "JA: the receipt is prepared on the closure's own checked runs; reads only; checked for direct writes and unconditional deletes"
+      "sha256": "f269e4aee9a4ecca765901dd9ce967337fd22f6989bc1e73a075007783898005",
+      "reviewed": "JB: design note; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "8828d4ade3981b60bb45d9f25431de63af40dd49e2385a68bcb06d34ddf5e56c",
@@ -425,12 +425,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "8b5a50faf33ffb400767ddd44d98d613232a76a594e086bf13a991bc492177ad",
-      "reviewed": "IA: depClosure is the export's dependency walk moved out whole and shared with the ending guard (rcptClosure); reads only; checked for direct writes and unconditional deletes"
+      "sha256": "0928fef6affb85b1cc10576bb944c01b42895093314baca8a0d08090ea134ea1",
+      "reviewed": "JB: the evidence plans' checks move into depClosure, shared by the export and the ending guard; readTodos passes on the plans from its one read; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "6be1e962f8a71177b993b18c445eaef1dd6ec38d543e13a1931288243654cd05",
-      "reviewed": "JA: the receipt is prepared on the closure's own checked runs; reads only; checked for direct writes and unconditional deletes"
+      "sha256": "292693909341a61df6ed0ab5136d96af6c2f3b9f063d0e28aa9d22044fa63bd6",
+      "reviewed": "JB: the evidence plans' checks move into depClosure, shared by the export and the ending guard; readTodos passes on the plans from its one read; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

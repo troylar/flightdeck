@@ -477,10 +477,34 @@ async function withDeps() {
   const body = { op: 'add', text: 'Covered', target: { phase: 'draft' }, placement: T.placementFor(PF.run.mapOf(r), { phase: 'draft' }), fulfills: { run: { process: 'release-notes', id: 'dep-1' }, spread: 'sp-' + 'c'.repeat(24), uid: 'jira.issue:key:ABC-1', attempt: 1 } };
   const q2 = T.buildProposal({ run: { process: r.process, id: r.id }, producer: { name: 'notes-bot', version: '1.0' }, key: 'k-le1', seen: [], at: new Date().toISOString(), body });
   for (const q of [q1, q2]) await app.fs.write('proposals/' + q.id + '.json', T.text(q));
+  /* The evidence plan the request names, written as the app writes it: the export and the ending guard require it. */
+  const one = await PF.repo.readRunOnly(app.fs, r.process, r.id);
+  await app.fs.write('proposals/' + ev.plan + '.json', JSON.stringify(PF.plans.make(one.pub, { id: ev.plan, process: r.process, title: 'Evidence plan', from: r.process + '/' + r.id, by: 'person-avery', created: new Date().toISOString() }, true, '4.0.0'), null, 2) + '\n');
   await refresh(app, 400);
   app.click('open-run', r.process + '/' + r.id); await app.tick(80);
   return app;
 }
+/* JB: the ending guard asks the evidence plans the work names with the export's own checks (repo.depClosure): a plan
+   deleted right after the receipt is written, one never in the folder, or a second copy that says something else ends
+   nothing, named by its path. */
+rule('An evidence plan the work names, deleted after the receipt is written, missing, or with a differing copy, ends nothing, named by its path', async () => {
+  const plan = 'proposals/plan-ev-' + 'a'.repeat(24) + '.json', misses = [];
+  for (const what of ['deleted after the receipt', 'never in the folder', 'a differing copy']) {
+    const app = await withDeps(), fs = app.fs, write = fs.write.bind(fs), before = app.fs.files[runPath(app)].t;
+    assert.ok(app.fs.files[plan], 'set-up: the plan is in the folder');
+    if (what === 'never in the folder') delete app.fs.files[plan];
+    if (what === 'a differing copy') { const o = JSON.parse(app.fs.files[plan].t); o.title = 'Another evidence plan'; app.fs.files[plan.replace(/\.json$/, ' (1).json')] = { t: JSON.stringify(o, null, 2) + '\n', m: Date.now() }; }
+    if (what !== 'deleted after the receipt') { await refresh(app, 400); const r0 = theRun(app); app.click('open-run', r0.process + '/' + r0.id); await app.tick(80); }
+    let hit = false;
+    fs.write = (p, t, o) => write(p, t, o).then((x) => { if (/^proposals\/req-receipt-/.test(p) && !hit) { hit = true; if (what === 'deleted after the receipt') delete app.fs.files[plan]; } return x; });
+    app.click('end', 'Cancelled'); await app.tick(400);
+    fs.write = write;
+    if (theRun(app).ended) misses.push(what + ': it ended');
+    else if (app.fs.files[runPath(app)].t !== before) misses.push(what + ': the run changed');
+    else if (txt(app.html()).indexOf(plan) < 0) misses.push(what + ': the plan isn\'t named: ' + txt(app.html()).slice(0, 400));
+  }
+  assert.strictEqual(misses.length, 0, misses.join('\n'));
+});
 rule('An evidence run or a fulfilled run changed after the receipt is written ends nothing, named by its path (with the control)', async () => {
   const misses = [];
   for (const [what, path] of [['control', ''], ['evidence run', 'runs/release-notes/evrun1/run.json'], ['fulfilled run', 'runs/release-notes/dep-1/run.json']]) {
