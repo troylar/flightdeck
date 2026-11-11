@@ -9673,8 +9673,11 @@
     var id = run.living.receipt, rec = id ? (data.todos || []).filter(function (x) { return x && x.kind === 'receipt' && x.id === id; })[0] : null;
     if (!id) throw new Error('That copy ended the run without its receipt, so it wasn\'t kept.');
     if (!rec || rec.outcome !== run.ended.outcome || rec.head !== run.living.head) throw new Error('The receipt that copy ended the run with (proposals/' + id + '.json) isn\'t in the folder as read, so it wasn\'t kept.');
+    /* The shared receipt verdict on the copy as it would be kept (who ended it included), before the live run is touched. */
+    var S = PF.receipts.stateOf(run, data.todos || [], data.todosUnread || []);
+    if (!S || S.state !== 'confirmed') throw new Error((S && S.why ? S.why : 'Its receipt can\'t be confirmed.') + ' (proposals/' + id + '.json) So the copy wasn\'t kept.');
     var pre = JSON.stringify(run, function (k, v) { if (this !== run) return v; if (k.charAt(0) === '_' || k === 'ended') return undefined; return k === 'state' ? 'running' : k === 'living' ? { head: run.living.head } : v; });
-    return { pre: pre, id: id, at: rec.at, outcome: rec.outcome, by: rec.by && rec.by.person };
+    return { pre: pre, id: id, at: rec.at, outcome: rec.outcome, by: run.ended.by };
   }
   function fresh() {
     var r = ctx.run(), g = gen, fs = state.fs, at = startRead(), bad = []; if (!r) return Promise.resolve(null);

@@ -476,5 +476,13 @@ rule('With nothing changed after the end, the counts now read exactly as the rec
   const m = /<p class="small rw-now">([\s\S]*?)<\/p>/.exec(app.html());
   assert.ok(m, 'the counts now are shown');
   assert.strictEqual(txt(m[1]).trim(), 'Counted now, after the end: ' + frozen.join(' · '));
+});/* WA: keeping an ended copy asks the shared receipt verdict first: a copy ended by another person than its receipt names
+   ends nothing, and the copy stays. */
+rule('Use copy of an ended living copy whose ended.by isn\'t its receipt\'s by ends nothing, and the copy stays', async () => {
+  const app = await setup(); await added(app, 'Post the release notes');
+  const c = await endedCopy(app, (o) => { o.ended.by = o.ended.by === 'person-blake' ? 'person-avery' : 'person-blake'; });
+  app.click('use-copy', 'run-OTHER.json'); await app.tick(400);
+  assert.ok(!theRun(app).ended, 'not ended: ' + JSON.stringify(theRun(app).ended));
+  assert.ok(app.fs.files[c.copy], 'the copy stays to keep again');
 });
 run();
