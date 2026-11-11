@@ -25,8 +25,8 @@
       "reviewed": "round 17 VD: only add and bind can be delegated"
     },
     "docs/design.md": {
-      "sha256": "4637bdab79329f39e95db8eea60c98ee5256db728dc5292a547cfd9f781e463f",
-      "reviewed": "Round 19 (XD): an excepted arrival's notice"
+      "sha256": "71868467c7f66f83b8ca8fab5097934e0c2fb871edfbb019f460448e3ecaf557",
+      "reviewed": "Round 19 (XA): a loop run's ordinary save takes the whole guard; outside loops a version still arriving saves"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -409,8 +409,8 @@
       "reviewed": "Round 19: writer-boundary tokens, save() through the fresh guard, publication verdict, start rebuilt from the guard's read, excepted arrival wording"
     },
     "src/ui/app.js": {
-      "sha256": "d61272940936ec811e50e49c0a6c4c3d08fbb8b3a88f7f2928acab5e5ab83ed0",
-      "reviewed": "Round 19 (XC): a loop start judged on the guard's read"
+      "sha256": "2393ad9a07f0c9ec47a2bd4bce980f8170786f3a12876aa4d52f9ee57bb4b8b7",
+      "reviewed": "Round 19 (XA): a loop run's ordinary save takes the whole guard; outside loops a version still arriving saves"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

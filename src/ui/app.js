@@ -2760,14 +2760,16 @@
        Hand off, a retry). One that names its own (a loop write, a recovery) keeps it; any other gets the ordinary one: the
        person acting read fresh in people.json and active; the run and its version read fresh (the version must fit); and,
        before run.json once the candidate is written, the run exactly as read, so a handoff there refuses. A run changed on
-       disk before the candidate is kept as a conflict copy, as always. A refusal puts this change back by identity
+       disk before the candidate is kept as a conflict copy, as always. A loop's parent or child (lgx) takes the whole guard
+       instead, at every write: proposals/ read too, the stability pass, and the run exactly as read from the first write
+       on, so a change to it or to the people refuses before the candidate, and no conflict copy is written over approvals. A refusal puts this change back by identity
        (opts.undoEdit, from mutateRun) and writes nothing. A run this window creates asks its create capability instead. */
     var own = {};
     if (!(opts && typeof opts.recheck === 'function')) {
       var key0 = r.process + '/' + r.id, gcx = rcx || loopGuard();
       if (!r._fileHash) own.create = createCap(key0);
       else own.recheck = function (f2, phase) {
-        return freshGuard(gcx, f2, [key0], function () { return true; }, { light: true, lenient: true, phase: phase, restore: !!(opts && opts.restoreMissing) }).then(function (tok) {
+        return freshGuard(gcx, f2, [key0], function () { return true; }, { light: !lgx, lenient: !lgx, syncing: !lgx, phase: phase, restore: !!(opts && opts.restoreMissing) }).then(function (tok) {
           if (!tok && opts && typeof opts.undoEdit === 'function') opts.undoEdit();
           return tok;
         });
@@ -3270,7 +3272,12 @@
         if (gone || broken) return false;
         /* Round 19 (XB): the run's version, judged as the approval snapshot judges it: there, read whole, verified, usable,
            and the one both this window's copy and the run read now are pinned to. */
-        if (!pubFits(r, one.pub) || !pubFits(one.run, one.pub)) return false;
+        if (!pubFits(r, one.pub) || !pubFits(one.run, one.pub)) {
+          /* An ordinary save of a run outside any loop takes the run writer's own verdict on its version: one still arriving
+             (no publication.json yet) is saved, as it always was; one that doesn't match, or can't be read, refuses. */
+          var p0 = one.pub;
+          if (!(o.syncing && p0 && !p0._readFailed && !p0.unusable && (!p0.info || (!PF.repo.runMismatch(r, p0.info) && !PF.repo.runMismatch(one.run, p0.info))))) return false;
+        }
         var same = !!r._fileHash && one.run._fileHash === r._fileHash && (one.run.rev || 0) === (r.rev || 0);
         if (!same && !(o.lenient && o.phase !== 'final')) return false;
         if (one.peopleWhy || !one.people) return false;
