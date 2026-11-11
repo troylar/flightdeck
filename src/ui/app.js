@@ -3779,7 +3779,7 @@
         if ((R.decUnread || []).some(function (u) { return u && u.process === pid; })) return 'a decision on its checklist\'s corrections can\'t be read now, so whether one names this keep can\'t be told.';
         var kr = (R.keeps || []).filter(function (x) { return x && x.id === kid; })[0], cp = PF.learn.copiesOf(R.keepFiles, kid);
         if (planned ? !kr || !cp.files.length || cp.files.some(function (f) { return planned.indexOf(f) < 0; }) : !kr || !cp.files.length) return path + ' isn\'t that keep in the folder now.';
-        if (!cp.same) return 'copies of that keep say different things (' + cp.files.map(function (f) { return 'proposals/' + f; }).join(', ') + '), so which one to withdraw can\'t be told. Remove the one that\'s wrong first.';
+        if (!cp.same) return 'copies of that keep say different things (' + cp.files.slice(0, 3).map(function (f) { return 'proposals/' + f; }).join(', ') + (cp.files.length > 3 ? ' and ' + (cp.files.length - 3) + ' more' : '') + '), so which one to withdraw can\'t be told. Remove the one that\'s wrong first.';
         copies = cp.files; if (!planned) planned = cp.files.slice();
         var g = PF.corrections.groups(PF.learn.members(R.keeps, [], pid)).filter(function (x) { return x.members.some(function (m) { return m.id === kid; }); })[0], over = !!g && g.members.length > MAX;
         /* A keep a decision names goes with its whole correction. While the place is over (decided on two computers), one
@@ -3795,7 +3795,8 @@
       if (res && res.dropped) { say('Nothing was withdrawn: ' + kg.why(), 'warn'); render(); return; }
       if (res && res.partial) {
         fixMemo = Object.create(null); lastAll = -Infinity;
-        say('Withdrawn in part: ' + res.removed.map(function (f) { return 'proposals/' + f; }).join(', ') + ' was removed, and ' + res.left.map(function (f) { return 'proposals/' + f; }).join(', ') + ' is still in the folder: ' + kg.why() + ' Withdraw it again to finish.', 'warn');
+        var few = function (fs) { return fs.slice(0, 3).map(function (f) { return 'proposals/' + f; }).join(', ') + (fs.length > 3 ? ' and ' + (fs.length - 3) + ' more' : ''); };
+        say('Withdrawn in part: ' + few(res.removed) + ' was removed, and ' + few(res.left) + ' is still in the folder: ' + kg.why() + ' Withdraw it again to finish.', 'warn');
         return load(true);
       }
       data.todos = (data.todos || []).filter(function (x) { return !(x && x.kind === 'keep' && x.id === kid); });

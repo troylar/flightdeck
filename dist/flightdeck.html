@@ -20197,7 +20197,7 @@ PF.learn = (function () {
   /* Why a group of keeps is held because copies of one of its keeps differ ('' when none do): every file named. */
   function copiesWhy(g) {
     var m = (g && g.keep && g.members || []).filter(function (c) { return c && c.copiesDiffer && c.copiesDiffer.length > 1; })[0];
-    return m ? 'Copies of a keep in this correction say different things (' + m.copiesDiffer.map(function (f) { return 'proposals/' + f; }).join(', ') + '), so which one was kept can\'t be told and nothing is decided or applied. Remove the copy that\'s wrong, then look again.' : '';
+    return m ? 'Copies of a keep in this correction say different things (' + m.copiesDiffer.slice(0, 3).map(function (f) { return 'proposals/' + f; }).join(', ') + (m.copiesDiffer.length > 3 ? ' and ' + (m.copiesDiffer.length - 3) + ' more' : '') + '), so which one was kept can\'t be told and nothing is decided or applied. Remove the copy that\'s wrong, then look again.' : '';
   }
   /* What a group of keeps groups on: its checklist and place, as that place was, never the wording. */
   function groupKey(c) { return [c.process, 'keep', c.target.step || 'phase:' + c.target.phase, c.change.where, c.sig].join('\n'); }
@@ -38045,7 +38045,7 @@ PF.examples = (function () {
         if ((R.decUnread || []).some(function (u) { return u && u.process === pid; })) return 'a decision on its checklist\'s corrections can\'t be read now, so whether one names this keep can\'t be told.';
         var kr = (R.keeps || []).filter(function (x) { return x && x.id === kid; })[0], cp = PF.learn.copiesOf(R.keepFiles, kid);
         if (planned ? !kr || !cp.files.length || cp.files.some(function (f) { return planned.indexOf(f) < 0; }) : !kr || !cp.files.length) return path + ' isn\'t that keep in the folder now.';
-        if (!cp.same) return 'copies of that keep say different things (' + cp.files.map(function (f) { return 'proposals/' + f; }).join(', ') + '), so which one to withdraw can\'t be told. Remove the one that\'s wrong first.';
+        if (!cp.same) return 'copies of that keep say different things (' + cp.files.slice(0, 3).map(function (f) { return 'proposals/' + f; }).join(', ') + (cp.files.length > 3 ? ' and ' + (cp.files.length - 3) + ' more' : '') + '), so which one to withdraw can\'t be told. Remove the one that\'s wrong first.';
         copies = cp.files; if (!planned) planned = cp.files.slice();
         var g = PF.corrections.groups(PF.learn.members(R.keeps, [], pid)).filter(function (x) { return x.members.some(function (m) { return m.id === kid; }); })[0], over = !!g && g.members.length > MAX;
         /* A keep a decision names goes with its whole correction. While the place is over (decided on two computers), one
@@ -38061,7 +38061,8 @@ PF.examples = (function () {
       if (res && res.dropped) { say('Nothing was withdrawn: ' + kg.why(), 'warn'); render(); return; }
       if (res && res.partial) {
         fixMemo = Object.create(null); lastAll = -Infinity;
-        say('Withdrawn in part: ' + res.removed.map(function (f) { return 'proposals/' + f; }).join(', ') + ' was removed, and ' + res.left.map(function (f) { return 'proposals/' + f; }).join(', ') + ' is still in the folder: ' + kg.why() + ' Withdraw it again to finish.', 'warn');
+        var few = function (fs) { return fs.slice(0, 3).map(function (f) { return 'proposals/' + f; }).join(', ') + (fs.length > 3 ? ' and ' + (fs.length - 3) + ' more' : ''); };
+        say('Withdrawn in part: ' + few(res.removed) + ' was removed, and ' + few(res.left) + ' is still in the folder: ' + kg.why() + ' Withdraw it again to finish.', 'warn');
         return load(true);
       }
       data.todos = (data.todos || []).filter(function (x) { return !(x && x.kind === 'keep' && x.id === kid); });

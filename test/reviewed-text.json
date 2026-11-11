@@ -257,8 +257,8 @@
       "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/learn.js": {
-      "sha256": "d752a2df114cf758b581bbb11f402dd41b522ee53d0ff9a3f6863f15b44bfd63",
-      "reviewed": "VA: a differing keep copy is one held member named through grouping, review, decisions, application and the keep write guard; checked for direct writes and unconditional deletes"
+      "sha256": "3f1d35b0743099a3b74eee40cef581ed09c8a9a456d25d0acfde9636984f4ba4",
+      "reviewed": "D10: cap the copy lists in keep withdrawal and copies-differ messages at 3 with how many more; checked for direct writes and unconditional deletes"
     },
     "src/core/library.js": {
       "sha256": "5c8555ff9b8bc67aa90ea4f556bddebbe47d17ae37e296d44b815187d776bd44",
@@ -421,8 +421,8 @@
       "reviewed": "VB: each delete in multi-copy withdrawal is guarded again, and a refusal stops and reports a partial withdrawal; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "01b8ea936767f3efba36b1b0d0a02450c3a9dc0f9ef48baaab6e461be5446efa",
-      "reviewed": "VD: a late Run this checklist completion is bound to its navigation, form and person; checked for direct writes and unconditional deletes"
+      "sha256": "fbb6f807f593b23eadbe601a043b6f4f195c510b7a5d0ede3372f8f54edc0a90",
+      "reviewed": "D10: cap the copy lists in keep withdrawal and copies-differ messages at 3 with how many more; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

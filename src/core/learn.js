@@ -324,7 +324,7 @@ PF.learn = (function () {
   /* Why a group of keeps is held because copies of one of its keeps differ ('' when none do): every file named. */
   function copiesWhy(g) {
     var m = (g && g.keep && g.members || []).filter(function (c) { return c && c.copiesDiffer && c.copiesDiffer.length > 1; })[0];
-    return m ? 'Copies of a keep in this correction say different things (' + m.copiesDiffer.map(function (f) { return 'proposals/' + f; }).join(', ') + '), so which one was kept can\'t be told and nothing is decided or applied. Remove the copy that\'s wrong, then look again.' : '';
+    return m ? 'Copies of a keep in this correction say different things (' + m.copiesDiffer.slice(0, 3).map(function (f) { return 'proposals/' + f; }).join(', ') + (m.copiesDiffer.length > 3 ? ' and ' + (m.copiesDiffer.length - 3) + ' more' : '') + '), so which one was kept can\'t be told and nothing is decided or applied. Remove the copy that\'s wrong, then look again.' : '';
   }
   /* What a group of keeps groups on: its checklist and place, as that place was, never the wording. */
   function groupKey(c) { return [c.process, 'keep', c.target.step || 'phase:' + c.target.phase, c.change.where, c.sig].join('\n'); }
