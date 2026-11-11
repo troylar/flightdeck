@@ -310,7 +310,8 @@
     if (dl) h += '<dl class="corr-dl">' + dl + '</dl>';
     /* Kept for next time (4.0 slice 5): from a run's to-do or spread, each wording as it was kept, the owner choosing one. */
     if (g.keep) {
-      var alts = g.alternatives || [];
+      var alts = g.alternatives || [], cwy = PF.learn.copiesWhy(g);
+      if (cwy) h += '<div class="notice warn fx-copies" role="note"><span>' + esc(cwy) + '</span></div>';
       h += '<p class="small fx-keep">Kept for next time from ' + (g.members.length === 1 ? (g.first.keep.source.spread ? 'a spread' : 'a to-do') : g.members.length + ' to-dos and spreads') + '.' + (alts.length > 1 ? ' ' + alts.length + ' wordings; review and apply one, or write your own:' : '') + '</p>';
       /* Every wording, 50 at a time: Show more reveals the rest (OE). */
       /* Each wording is keyed by the keep that first suggested it, never by its place in the list. */

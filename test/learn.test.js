@@ -382,6 +382,18 @@ rule('Identical copies of a keep are one keep: a retry is already and its group 
   assert.ok(W.keep({ todo: t1 }).taken, 'a copy that differs stays refused');
 });
 
+/* VA: copies of one keep that differ are a named hold wherever the keep is used: one member (never the id twice), and its
+   group decides nothing, naming both files. */
+rule('Copies of a keep that differ are one held member: its group names both files and decides nothing', () => {
+  const W = world(), t1 = W.todo('Post the release notes', { phase: 'ship' }), K = W.kept({ todo: t1 });
+  const d = plain(K.record); d.reason = 'Another reason'; W.push(d, K.id + ' (1).json');
+  const g = W.groups('release-readiness').filter(x => x.keep)[0];
+  assert.strictEqual(JSON.stringify(g.members.map(m => m.id)), JSON.stringify([K.id]), 'one member');
+  const why = C.decideWhy(g);
+  assert.ok(why.indexOf(K.id + '.json') >= 0 && why.indexOf(K.id + ' (1).json') >= 0, 'both files named: ' + why);
+  for (const st of ['applied', 'declined', 'withdrawn']) assert.throws(() => C.decision(g, 'person-morgan', st, 'x', AT), (e) => e.message === why, st + ': nothing decided');
+});
+
 rule('The 501st keep that would join a group is refused, naming the limit; a group at 500 is still decided and withdrawn', () => {
   const W = world(), t1 = W.todo('Post the release notes', { phase: 'ship' }), K = W.kept({ todo: t1 });
   for (let i = 1; i < 500; i++) W.push(Object.assign(JSON.parse(JSON.stringify(K.record)), { id: 'req-keep-' + i.toString(16).padStart(24, '0'), change: Object.assign({}, K.record.change, { text: 'Wording ' + i }) }));

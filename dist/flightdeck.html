@@ -11274,7 +11274,9 @@ PF.corrections = (function () {
      written short (the rest would reopen it): '' or why. Every other group is decided as before. */
   var MEMBERS_MAX = 500;
   function decideWhy(g) {
-    if (!g || !g.keep || (g.members || []).length <= MEMBERS_MAX) return '';
+    if (!g || !g.keep) return '';
+    var cw = PF.learn.copiesWhy(g); if (cw) return cw;
+    if ((g.members || []).length <= MEMBERS_MAX) return '';
     return 'This correction has ' + g.members.length + ' keeps, more than the ' + MEMBERS_MAX + ' one decision can name, so nothing was decided. Withdraw keeps no decision names (whoever kept one, or the checklist\'s owner while it is over) until ' + MEMBERS_MAX + ' or fewer remain, then decide it.';
   }
   function decision(g, by, status, reason, at, opts) {
@@ -20181,12 +20183,21 @@ PF.learn = (function () {
      on its to-do, never guessed into a checklist. ---- */
   function members(records, runs, pid) {
     var byRun = Object.create(null); (runs || []).forEach(function (r) { if (r && r.process && r.id) byRun[r.process + '/' + r.id] = r; });
-    return keepsOf(records).filter(function (k) { return k.anchor && k.template && k.template.process === pid; }).map(function (k) {
+    /* Copies of one keep that differ (VA) are one member, never its id twice, carrying every file (copiesDiffer): its
+       group decides nothing until one is removed (PF.corrections.decideWhy). */
+    var once = Object.create(null);
+    return keepsOf(records).filter(function (k) { if (once[k.id]) return false; once[k.id] = true; return true; }).filter(function (k) { return k.anchor && k.template && k.template.process === pid; }).map(function (k) {
+      var cp = copiesOf(records, k.id);
       var rk = k.run.process + '/' + k.run.id, r = byRun[rk];
       return { id: k.id, process: pid, run: k.run.id, runKey: rk, runTitle: r ? String(r.title || r.process) : rk, by: k.by.person || k.by.tool, at: k.at, files: [], fileInfo: {}, runEnded: !!(r && r.ended), test: !!(r && PF.run.isTest(r)),
         version: k.template.version, folder: k.template.folder, target: { phase: k.anchor.phase, step: k.anchor.after || null }, change: { op: 'add', text: k.change.text, where: k.change.where },
-        from: '', sig: k.base, why: k.reason || '', happened: '', newer: false, keep: { run: { process: k.run.process, id: k.run.id }, source: k.source, record: k.id, template: k.template } };
+        from: '', sig: k.base, why: k.reason || '', happened: '', newer: false, keep: { run: { process: k.run.process, id: k.run.id }, source: k.source, record: k.id, template: k.template }, copiesDiffer: cp.same ? null : cp.files.slice() };
     });
+  }
+  /* Why a group of keeps is held because copies of one of its keeps differ ('' when none do): every file named. */
+  function copiesWhy(g) {
+    var m = (g && g.keep && g.members || []).filter(function (c) { return c && c.copiesDiffer && c.copiesDiffer.length > 1; })[0];
+    return m ? 'Copies of a keep in this correction say different things (' + m.copiesDiffer.map(function (f) { return 'proposals/' + f; }).join(', ') + '), so which one was kept can\'t be told and nothing is decided or applied. Remove the copy that\'s wrong, then look again.' : '';
   }
   /* What a group of keeps groups on: its checklist and place, as that place was, never the wording. */
   function groupKey(c) { return [c.process, 'keep', c.target.step || 'phase:' + c.target.phase, c.change.where, c.sig].join('\n'); }
@@ -20334,7 +20345,7 @@ PF.learn = (function () {
     return '';
   }
 
-  return { LIMITS: LIMITS, idFor: idFor, keyFor: keyFor, phaseSig: phaseSig, cleanFile: cleanFile, build: build, keepsOf: keepsOf, copiesOf: copiesOf, route: route, prepare: prepare, previewOf: previewOf, stepTextWhy: stepTextWhy,
+  return { LIMITS: LIMITS, idFor: idFor, keyFor: keyFor, phaseSig: phaseSig, cleanFile: cleanFile, build: build, keepsOf: keepsOf, copiesOf: copiesOf, copiesWhy: copiesWhy, route: route, prepare: prepare, previewOf: previewOf, stepTextWhy: stepTextWhy,
     members: members, keptIn: keptIn, keptCapWhy: keptCapWhy, groupKey: groupKey, alternatives: alternatives, ownerWhy: ownerWhy, label: label, forSource: forSource, sourceKey: sourceKey };
 })();
 
@@ -28151,7 +28162,8 @@ PF.vk = (function () {
     if (dl) h += '<dl class="corr-dl">' + dl + '</dl>';
     /* Kept for next time (4.0 slice 5): from a run's to-do or spread, each wording as it was kept, the owner choosing one. */
     if (g.keep) {
-      var alts = g.alternatives || [];
+      var alts = g.alternatives || [], cwy = PF.learn.copiesWhy(g);
+      if (cwy) h += '<div class="notice warn fx-copies" role="note"><span>' + esc(cwy) + '</span></div>';
       h += '<p class="small fx-keep">Kept for next time from ' + (g.members.length === 1 ? (g.first.keep.source.spread ? 'a spread' : 'a to-do') : g.members.length + ' to-dos and spreads') + '.' + (alts.length > 1 ? ' ' + alts.length + ' wordings; review and apply one, or write your own:' : '') + '</p>';
       /* Every wording, 50 at a time: Show more reveals the rest (OE). */
       /* Each wording is keyed by the keep that first suggested it, never by its place in the list. */
@@ -37895,7 +37907,15 @@ PF.examples = (function () {
       fresh: withdraw ? null : function (fx) {
         proc = null; pw = '';
         var gone = 'its checklist\'s publications couldn\'t be read again right before it was written, so its owner can\'t be told.';
-        return repo.readProcess(fx, pid).then(function (p) {
+        /* VA: the group's keeps read again first: copies of one that differ now refuse the write, naming them. */
+        var copies = repo.readKept(fx).then(function (r) {
+          var bad = g.members.map(function (c) { return PF.learn.copiesOf(r.keepFiles, c.id); }).filter(function (x) { return !x.same; })[0];
+          if (bad) pw = PF.learn.copiesWhy({ keep: true, members: [{ copiesDiffer: bad.files }] });
+          var torn = (r.keepUnread || []).filter(function (u) { return u && g.members.some(function (c) { return PF.todos.requestFile(String(u.file), c.id); }); })[0];
+          if (!bad && torn) pw = 'a copy of a keep in this correction can\'t be read now (proposals/' + torn.file + '), so whether it says the same can\'t be told.';
+        }, function (e) { pw = 'what was kept for next time couldn\'t be read again right before it was written (' + (e && e.message || e) + ').'; });
+        return copies.then(function () { return repo.readProcess(fx, pid); }).then(function (p) {
+          if (pw) return true;
           if (!p || p.unlisted || !p.latest) { pw = gone; return true; }
           /* Listed again after every version was read: one published meanwhile (it may move ownership) refuses the write. */
           var seen = (p.all || []).concat(p.broken || []).map(function (x) { return x && (x.info ? x.info.folder : x.folder); }).filter(Boolean).sort().join('|');

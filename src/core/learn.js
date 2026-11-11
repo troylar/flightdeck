@@ -310,12 +310,21 @@ PF.learn = (function () {
      on its to-do, never guessed into a checklist. ---- */
   function members(records, runs, pid) {
     var byRun = Object.create(null); (runs || []).forEach(function (r) { if (r && r.process && r.id) byRun[r.process + '/' + r.id] = r; });
-    return keepsOf(records).filter(function (k) { return k.anchor && k.template && k.template.process === pid; }).map(function (k) {
+    /* Copies of one keep that differ (VA) are one member, never its id twice, carrying every file (copiesDiffer): its
+       group decides nothing until one is removed (PF.corrections.decideWhy). */
+    var once = Object.create(null);
+    return keepsOf(records).filter(function (k) { if (once[k.id]) return false; once[k.id] = true; return true; }).filter(function (k) { return k.anchor && k.template && k.template.process === pid; }).map(function (k) {
+      var cp = copiesOf(records, k.id);
       var rk = k.run.process + '/' + k.run.id, r = byRun[rk];
       return { id: k.id, process: pid, run: k.run.id, runKey: rk, runTitle: r ? String(r.title || r.process) : rk, by: k.by.person || k.by.tool, at: k.at, files: [], fileInfo: {}, runEnded: !!(r && r.ended), test: !!(r && PF.run.isTest(r)),
         version: k.template.version, folder: k.template.folder, target: { phase: k.anchor.phase, step: k.anchor.after || null }, change: { op: 'add', text: k.change.text, where: k.change.where },
-        from: '', sig: k.base, why: k.reason || '', happened: '', newer: false, keep: { run: { process: k.run.process, id: k.run.id }, source: k.source, record: k.id, template: k.template } };
+        from: '', sig: k.base, why: k.reason || '', happened: '', newer: false, keep: { run: { process: k.run.process, id: k.run.id }, source: k.source, record: k.id, template: k.template }, copiesDiffer: cp.same ? null : cp.files.slice() };
     });
+  }
+  /* Why a group of keeps is held because copies of one of its keeps differ ('' when none do): every file named. */
+  function copiesWhy(g) {
+    var m = (g && g.keep && g.members || []).filter(function (c) { return c && c.copiesDiffer && c.copiesDiffer.length > 1; })[0];
+    return m ? 'Copies of a keep in this correction say different things (' + m.copiesDiffer.map(function (f) { return 'proposals/' + f; }).join(', ') + '), so which one was kept can\'t be told and nothing is decided or applied. Remove the copy that\'s wrong, then look again.' : '';
   }
   /* What a group of keeps groups on: its checklist and place, as that place was, never the wording. */
   function groupKey(c) { return [c.process, 'keep', c.target.step || 'phase:' + c.target.phase, c.change.where, c.sig].join('\n'); }
@@ -463,6 +472,6 @@ PF.learn = (function () {
     return '';
   }
 
-  return { LIMITS: LIMITS, idFor: idFor, keyFor: keyFor, phaseSig: phaseSig, cleanFile: cleanFile, build: build, keepsOf: keepsOf, copiesOf: copiesOf, route: route, prepare: prepare, previewOf: previewOf, stepTextWhy: stepTextWhy,
+  return { LIMITS: LIMITS, idFor: idFor, keyFor: keyFor, phaseSig: phaseSig, cleanFile: cleanFile, build: build, keepsOf: keepsOf, copiesOf: copiesOf, copiesWhy: copiesWhy, route: route, prepare: prepare, previewOf: previewOf, stepTextWhy: stepTextWhy,
     members: members, keptIn: keptIn, keptCapWhy: keptCapWhy, groupKey: groupKey, alternatives: alternatives, ownerWhy: ownerWhy, label: label, forSource: forSource, sourceKey: sourceKey };
 })();

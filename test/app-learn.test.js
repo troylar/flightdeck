@@ -379,6 +379,29 @@ rule('A group over 500 stays recoverable: its owner sees the overflow and withdr
   assert.strictEqual(app.files('proposals/req-keep-').length, 499, 'the owner withdraws nothing once it is within the limit');
 });
 
+/* VA: a OneDrive copy of a keep that differs (only its reason, say) holds its correction by name: the review says so, and
+   Apply and every decision write nothing and leave the draft as it was, whether the copy was read or arrives after. */
+rule('A keep whose copy differs holds its correction by name: no draft change and no decision, read before or arriving at the write', async () => {
+  for (const when of ['read', 'late']) for (const act of ['apply', 'decide']) {
+    const label = when + ' · ' + act, app = await setup(), id = await added(app, 'Post the release notes');
+    app.click('keep', id, { kind: 'todo' }); await app.tick(120); await refresh(app, 300);
+    const gid = groupId(app), k = keeps(app)[0], own = 'proposals/' + k.id + '.json', copy = 'proposals/' + k.id + ' (1).json';
+    const diff = JSON.stringify(Object.assign(JSON.parse(app.fs.files[own].t), { reason: 'Another reason' }), null, 2) + '\n';
+    const DR = 'maps/drafts/release-notes.md', draft0 = app.fs.files[DR] ? app.fs.files[DR].t : null, n = app.files('corrections/').length;
+    if (when === 'read') { app.fs.files[copy] = { t: diff, m: Date.now() }; await refresh(app, 300); }
+    app.click('keep-open', gid, { process: 'release-notes' }); await app.tick(120);
+    app.choose('person-morgan'); await app.tick(80);
+    if (when === 'read') assert.ok(txt(app.html()).indexOf(k.id + ' (1).json') >= 0, label + ': the review names the copy');
+    if (act === 'apply') { app.click('corr-review', gid); await app.tick(60); }
+    if (when === 'late') app.fs.files[copy] = { t: diff, m: Date.now() };
+    if (act === 'apply') app.click('corr-apply', gid); else app.click('corr-applied', gid);
+    await app.tick(400);
+    assert.strictEqual(app.files('corrections/').length, n, label + ': no decision written');
+    assert.strictEqual(app.fs.files[DR] ? app.fs.files[DR].t : null, draft0, label + ': the draft as it was');
+    assert.ok(txt(app.html()).indexOf(k.id + ' (1).json') >= 0, label + ': said, naming the copy: ' + (txt(app.html()).match(/[^.]*different things[^.]*\./) || [])[0]);
+  }
+});
+
 /* QE: every name the checked reader knows for a keep (its own, " (1)", "-COMPUTER") is withdrawn like its own; identical
    copies of it are one keep, so withdrawing it removes each of them. */
 rule('A keep under a OneDrive copy name is withdrawn like its own, and identical copies go with it', async () => {

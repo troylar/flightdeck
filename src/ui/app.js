@@ -3662,7 +3662,15 @@
       fresh: withdraw ? null : function (fx) {
         proc = null; pw = '';
         var gone = 'its checklist\'s publications couldn\'t be read again right before it was written, so its owner can\'t be told.';
-        return repo.readProcess(fx, pid).then(function (p) {
+        /* VA: the group's keeps read again first: copies of one that differ now refuse the write, naming them. */
+        var copies = repo.readKept(fx).then(function (r) {
+          var bad = g.members.map(function (c) { return PF.learn.copiesOf(r.keepFiles, c.id); }).filter(function (x) { return !x.same; })[0];
+          if (bad) pw = PF.learn.copiesWhy({ keep: true, members: [{ copiesDiffer: bad.files }] });
+          var torn = (r.keepUnread || []).filter(function (u) { return u && g.members.some(function (c) { return PF.todos.requestFile(String(u.file), c.id); }); })[0];
+          if (!bad && torn) pw = 'a copy of a keep in this correction can\'t be read now (proposals/' + torn.file + '), so whether it says the same can\'t be told.';
+        }, function (e) { pw = 'what was kept for next time couldn\'t be read again right before it was written (' + (e && e.message || e) + ').'; });
+        return copies.then(function () { return repo.readProcess(fx, pid); }).then(function (p) {
+          if (pw) return true;
           if (!p || p.unlisted || !p.latest) { pw = gone; return true; }
           /* Listed again after every version was read: one published meanwhile (it may move ownership) refuses the write. */
           var seen = (p.all || []).concat(p.broken || []).map(function (x) { return x && (x.info ? x.info.folder : x.folder); }).filter(Boolean).sort().join('|');

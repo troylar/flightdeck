@@ -272,7 +272,9 @@ PF.corrections = (function () {
      written short (the rest would reopen it): '' or why. Every other group is decided as before. */
   var MEMBERS_MAX = 500;
   function decideWhy(g) {
-    if (!g || !g.keep || (g.members || []).length <= MEMBERS_MAX) return '';
+    if (!g || !g.keep) return '';
+    var cw = PF.learn.copiesWhy(g); if (cw) return cw;
+    if ((g.members || []).length <= MEMBERS_MAX) return '';
     return 'This correction has ' + g.members.length + ' keeps, more than the ' + MEMBERS_MAX + ' one decision can name, so nothing was decided. Withdraw keeps no decision names (whoever kept one, or the checklist\'s owner while it is over) until ' + MEMBERS_MAX + ' or fewer remain, then decide it.';
   }
   function decision(g, by, status, reason, at, opts) {
