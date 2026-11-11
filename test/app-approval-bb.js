@@ -216,7 +216,17 @@ const approverIs = (app, fn) => {
    the copy beside the run, its lost-save twin, or the copy kept in this browser. */
 const TWIN = 'candidate-twin-abcdefgh.json';
 const newer = (t) => { const j = JSON.parse(t); j.log = (j.log || []).concat([{ at: new Date().toISOString(), by: (j.recorder && j.recorder.person) || 'person-avery', what: 'Noted from another window while the copy was being kept' }]); return JSON.stringify(j, null, 2); };
-const replaceFile = (app, f) => { if (!f || !app.fs.files[f]) return null; const kept = app.fs.files[f]; app.fs.files[f] = { t: newer(kept.t), m: Date.now() }; return () => { app.fs.files[f] = kept; }; };
+/* Replaced in place; once a recovery has removed it, a newer one written where it was (another window saving it again). */
+const replaceFile = (app, f) => {
+  if (!f) return null;
+  const kept = app.fs.files[f], base = kept || app.fs.files[parentPath(app)];
+  if (!base) return null;
+  app.fs.files[f] = { t: newer(base.t), m: Date.now() };
+  const undo = () => { if (kept) app.fs.files[f] = kept; else delete app.fs.files[f]; };
+  /* Written where the recovery's source was after it removed it: another copy, not the source chosen. */
+  undo.added = !kept;
+  return undo;
+};
 const otherPath = (app) => parentPath(app).replace('run.json', 'run-OTHER.json');
 const twinPath = (app) => parentPath(app).replace('run.json', TWIN);
 const replaceLocal = (app) => { const k = localKeyOf(app, parentRun(app).id), kept = app.store[k]; if (!kept) return null; app.store[k] = JSON.stringify(JSON.parse(newer(kept))); return () => { app.store[k] = kept; }; };
@@ -250,7 +260,9 @@ const CHANGES = {
   'people.json EIO': { make: (app) => eio(app, 'people.json'), sees: (op, p) => op === 'read' && p === 'people.json' },
   'the approver taken out of people.json': { make: (app) => approverIs(app, (list, me) => list.filter(x => x.id !== me)), sees: (op, p) => op === 'read' && p === 'people.json' },
   'the copy replaced with a newer one': { paths: ['Use copy'], make: (app) => replaceFile(app, otherPath(app)), sees: (op, p) => op === 'read' && p === 'runs/release-readiness/<run>/run-OTHER.json', kept: (app, mid) => !!app.fs.files[otherPath(app)] && app.fs.files[otherPath(app)].t === mid },
-  'the copy\'s twin replaced with a newer one': { paths: ['Use copy'], make: (app) => replaceFile(app, twinPath(app)), sees: (op, p) => op === 'read' && p === 'runs/release-readiness/<run>/' + TWIN, kept: (app, mid) => !!app.fs.files[twinPath(app)] && app.fs.files[twinPath(app)].t === mid, of: twinPath },
+  /* The twin isn't the source chosen: what UB asks of it is that, once it differs, it's never removed and its bytes stay.
+     Writes made from the chosen copy, still exactly as chosen, are the recovery's (notSource: only removing it is late). */
+  'the copy\'s twin replaced with a newer one': { paths: ['Use copy'], notSource: true, make: (app) => replaceFile(app, twinPath(app)), sees: (op, p) => op === 'read' && p === 'runs/release-readiness/<run>/' + TWIN, kept: (app, mid) => !!app.fs.files[twinPath(app)] && app.fs.files[twinPath(app)].t === mid, of: twinPath },
   /* Asked of the browser copy itself, at the judgment, after every read: any point sees it. */
   'the browser copy replaced with a newer one': { paths: ['Restore browser copy'], make: replaceLocal, sees: () => true, kept: (app, mid) => app.store[localKeyOf(app, parentRun(app).id)] === mid, local: true },
   'the approver marked inactive': { make: (app) => approverIs(app, (list, me) => list.map(x => x.id === me ? Object.assign(x, { inactive: true }) : x)), sees: (op, p) => op === 'read' && p === 'people.json' }
@@ -270,7 +282,7 @@ const passedCopy = async (app, o, local) => {
   if (!passed.gates || !passed.gates[gid(app)] || passed.gates[gid(app)].s !== 'passed') return;
   await app.fs.write(p, approvedText);
   if (local) { await o.reread(app); app.store[localKeyOf(app, passed.id)] = JSON.stringify(passed); }
-  else { await app.fs.write(p.replace('run.json', 'run-OTHER.json'), JSON.stringify(passed)); await app.fs.write(p.replace('run.json', TWIN), JSON.stringify(passed)); }
+  else { await app.fs.write(p.replace('run.json', 'run-OTHER.json'), JSON.stringify(passed)); await app.fs.write(p.replace('run.json', TWIN), JSON.stringify(passed)); app.fs.files[p.replace('run.json', TWIN)].m = Date.now() - 3600000; }
   await o.reread(app);
 };
 const PATHS = {
@@ -424,8 +436,12 @@ async function suspension(o, how, changes, shard) {
       w.off(); undo(); continue;
     }
     required++;
+    /* A copy that isn't the source chosen (its twin, or one written after the source was removed): only its removal is late,
+       and it must be kept as the change left it. */
+    const notSource = C.notSource || undo.added;
+    if (notSource) late.splice(0, late.length, ...late.filter(x => x.q === '-' + (C.of || otherPath)(app)));
     if (late.length) off.push(tag + ': written after the change' + (pt.phase === 'stable' ? ' (its stability pass reread it)' : ' (made before the stability pass)') + ': ' + names(late));
-    else if (P.kept && !P.kept(app)) off.push(tag + ': the recovery source was removed');
+    else if (!notSource && P.kept && !P.kept(app)) off.push(tag + ': the recovery source was removed');
     else if (C.kept && !C.kept(app, mid)) off.push(tag + ': the source as replaced wasn\'t kept');
     w.off(); undo();
   }
