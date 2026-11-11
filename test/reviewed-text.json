@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "dd2a78a76a11eefaa0c03eea525a5f6675f0d3aec068be1d1eb26abc3fdcccb9",
-      "reviewed": "HE: one runFileProblems for run/next and todo list: a run folder without run.json and a run.json a reader refuses are named alike, todo list exits 4 for them; checked for direct writes and unconditional deletes: readers only, nothing written"
+      "sha256": "b6542f59b3097736f8731132c6ddf77128de3c004c91e22600524157cb0bb7f6",
+      "reviewed": "runs names each run's unread to-do records by their own paths as run, next and todo list do; todo list no longer names one path and kind twice; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "4930aee232c7766241927d231c2eb0729443450de507161a3f0e85b7e7f5fb8e",

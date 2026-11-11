@@ -118,6 +118,8 @@ rule('This version: run, next, runs and todo list name the same receipt problem 
   /* FB: a copy under the receipt's id named .JSON or .Json is selected as the loader selects it, by every reader and the checker. */
   [['an empty object', '{}'], ['a copy that isn\'t JSON', '{ bad'], ['a plan-family copy', '{"format":"flightdeck-plan/2"}\n']].forEach(([what, text]) => ['.JSON', '.Json']
     .forEach((ext) => cases.push([what + ' named ' + ext, (dir) => fs.writeFileSync(path.join(dir, 'proposals', receipt.replace(/\.json$/, ' (1)' + ext)), text), 'malformed'])));
+  /* ME: a valid legacy plan under the receipt's id named .JSON, which runs must name as run, next and todo list do. */
+  cases.push(['a valid 1.x plan named .JSON', (dir) => fs.writeFileSync(path.join(dir, 'proposals', receipt.replace(/\.json$/, ' (1).JSON')), JSON.stringify({ kind: 'plan', id: 'plan-other', process: 'release-notes' }, null, 2) + '\n'), 'malformed']);
   if (process.getuid && process.getuid() !== 0) cases.push(['unreadable', (dir) => fs.chmodSync(path.join(dir, 'proposals', receipt), 0), 'unreadable']);
   for (const [state, damage, kind] of cases) {
     const { root, dir } = tree(files);
@@ -135,6 +137,9 @@ rule('This version: run, next, runs and todo list name the same receipt problem 
       assert.strictEqual(want.length, 1, state + ': run names it once: ' + JSON.stringify(outs.run.json.problems));
       assert.strictEqual(want[0][0], kind, state);
       same(seen, Object.keys(outs).map((k) => [k, 4, want]), state + ': ' + JSON.stringify(seen));
+      /* ME: and the copies under the receipt's id are named alike by all four, whichever one indexed them. */
+      const copyOf = (o) => (o.json.problems || []).filter((x) => x.path.indexOf('proposals/' + receipt.replace(/\.json$/, ' (')) === 0).map((x) => [x.path, x.kind]).sort();
+      same(Object.keys(outs).map((k) => [k, copyOf(outs[k])]), Object.keys(outs).map((k) => [k, copyOf(outs.run)]), state + ': the copies: ' + JSON.stringify(Object.keys(outs).map((k) => [k, copyOf(outs[k])])));
       /* The checker gives the same verdict: the run, its state, the path, the kind and (but for an OS error) the why. */
       if (PY) {
         const res = JSON.parse(cp.execFileSync(PY, ['-I', path.join(ROOT, 'example-folder', '.flightdeck', 'skills', '_flightdeck', 'check_folder.py'), dir], { encoding: 'utf8' }));

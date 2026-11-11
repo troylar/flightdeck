@@ -1047,7 +1047,13 @@ async function readData(eng, adapter, req) {
     if (two && req.cmd === 'runs') {
       const un = markTodos(PF, runs, { todos: d.todos || [], todosUnread: d.todosUnread || [] }, d.people, !!(d.failed && 'people' in d.failed), { runs: [], loops: { records: d.scopes || [], unread: d.scopesUnread || [], procOf: procOfFrom(d) } }, { runs: d.runs || runs, plans: d.plans || [] });
       /* proposals/ that couldn't be listed is that problem (named by the read): no receipt is judged against nothing read. */
-      if (!(d.failed && 'proposals' in d.failed)) runs.forEach((r) => { if (req.proc && r.process !== req.proc) return; const rp = receiptProblem(PF, r, d.todos, un); if (rp) owned[rp.path] = rp; });
+      /* Each run's records that couldn't be read (a copy indexed under a receipt's id included) are named by their own paths,
+         as run, next and todo list name them (4.0, ME); a path a receipt's verdict speaks for stays the receipt's. */
+      if (!(d.failed && 'proposals' in d.failed)) {
+        const mine = {}, inScope = runs.filter((r) => !req.proc || r.process === req.proc);
+        inScope.forEach((r) => { const rp = receiptProblem(PF, r, d.todos, un); if (rp) { mine[rp.path] = true; owned[rp.path] = rp; } });
+        inScope.forEach((r) => un.filter((u) => u.run ? u.run.process === r.process && u.run.id === r.id : true).concat(evidenceUnread(PF, r, r._tdv, un)).forEach((u) => { if (u.file !== 'people.json' && !mine['proposals/' + u.file]) { mine['proposals/' + u.file] = true; const q = recordProblem(u); L.note(q.path, q.kind, q.why); } }));
+      }
     }
     const known = (p) => d.processes.some((x) => x.process === p) || d.runs.some((r) => r.process === p) || d.plans.some((x) => x.process === p);
     if (req.proc && !known(req.proc) && !req.stage) return notFound('There\'s no process ' + req.proc + ' in the team folder.');
@@ -3298,7 +3304,7 @@ async function todoMain(argv) {
   const relevant = (p) => p === '' || p === 'people.json' || p === 'proposals' || p === 'proposals/' || p.indexOf('runs/' + proc + '/' + runId) === 0 || p === 'runs' || p === 'runs/' + proc || also.some((q) => under(p, q) || p === q.split('/').slice(0, -1).join('/'));
   const extra = [];
   const owned = {};
-  const problems = () => { const all = L.problems(), seen = {}; all.forEach((x) => { seen[x.path + '\u0000' + x.kind] = true; }); adapterProblems(ra).forEach((x) => { if (!seen[x.path + '\u0000' + x.kind]) all.push(x); }); return all.filter((x) => relevant(x.path)).concat(extra).filter((x) => !owned[x.path]).concat(Object.keys(owned).sort().map((k) => owned[k])); };
+  const problems = () => { const all = L.problems(), seen = {}; all.forEach((x) => { seen[x.path + '\u0000' + x.kind] = true; }); adapterProblems(ra).forEach((x) => { if (!seen[x.path + '\u0000' + x.kind]) all.push(x); }); const kept = all.filter((x) => relevant(x.path)), has = {}; kept.forEach((x) => { has[x.path + '\u0000' + x.kind] = true; }); return kept.concat(extra.filter((x) => { const k = x.path + '\u0000' + x.kind; if (has[k]) return false; has[k] = true; return true; })).filter((x) => !owned[x.path]).concat(Object.keys(owned).sort().map((k) => owned[k])); };
   const done = (data, code) => { const e = A.envelope(eng.version, new Date().toISOString(), problems(), data, C2); return out(e, code != null ? code : e.complete ? 0 : EXIT.partial); };
   const nothing = writes ? ' Nothing was written.' : '';
   try {
