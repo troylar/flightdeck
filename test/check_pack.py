@@ -520,15 +520,13 @@ def check_living(z, man):
                 sys.exit("living: " + r["key"] + " has work its packed originals name (a work head, a receipt or a to-do record), but the manifest has no living section for it")
             continue
         n += 1
-        run = packed("runs/" + r["key"] + "/run.json")
-        if run is None:
+        # A root no reader reads (root_unread: missing, not JSON, no run, or refused by the readers' verdict) is in a partial
+        # pack only, and nothing more is read of it: its fields aren't a run's.
+        if ru:
             if lv.get("complete"):
-                sys.exit("living: " + r["key"] + " says its work is complete, but its run.json isn't in the pack")
+                sys.exit("living: " + r["key"] + " says its work is complete, but its run.json isn't one every reader reads (" + ru[0] + ": " + ru[1] + ")")
             continue
-        # The readers' verdict on the root run.json as written (root_problem), before its receipt or completeness.
-        ep = root_problem(r["key"], run)
-        if ep and lv.get("complete"):
-            sys.exit("living: " + r["key"] + " says its work is complete, but its run.json's end or living record isn't one every reader accepts (" + ep[0] + ": " + ep[1] + ")")
+        run = packed("runs/" + r["key"] + "/run.json")
         head = (run.get("living") or {}).get("head", "")
         reached.clear()
         plans_wanted.clear()

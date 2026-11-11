@@ -1330,6 +1330,20 @@ rule('Python refuses a pack whose manifest leaves out the run it was made for, o
   const twice = checkPack(await repacked(W.PF, full.zip, (e, man) => { man.runs = man.runs.concat([JSON.parse(JSON.stringify(man.runs[0]))]); }));
   assert.ok(!twice.ok && twice.out.indexOf(W.key) >= 0, 'named twice: Python: ' + twice.out);
 });
+/* JE: an honest partial pack whose root run.json is no run (a list, a number, true, a string) is read without reading the
+   root's fields: Python accepts it as partial, and a complete claim on it stays refused. */
+rule('Python accepts an honest partial pack whose root run.json is no run, and refuses it claimed complete', async () => {
+  const W = await made({ todos: 1, pending: true }), rp = 'runs/' + W.key + '/run.json';
+  for (const text of ['[]', '42', 'true', '"run"']) {
+    const { res, zip } = await pack(W.PF, new BytesFS(Object.assign({}, W.files, { [rp]: text })), W.key);
+    assert.strictEqual(res.status, 'partial', text + ': the export');
+    if (!PY) continue;
+    const c = checkPack(zip);
+    assert.ok(c.ok, text + ': the honest partial pack: ' + c.out);
+    const claimed = checkPack(await repacked(W.PF, zip, (e, man) => { forced(man); }));
+    assert.ok(!claimed.ok && claimed.out.indexOf(W.key) >= 0, text + ': claimed complete: ' + claimed.out);
+  }
+});
 /* FD: living work needs run/3. An ended living run written back as run/2 (no run/3 field but its living record) is refused
    by every reader as newer, so the export of it is partial and Python refuses a pack of it that says complete. */
 rule('An ended living run written as run/2 is partial in the export, and Python refuses a complete pack of it', async () => {
