@@ -37805,6 +37805,10 @@ PF.examples = (function () {
     if ((data.plans || []).some(function (p) { return p.id === id; })) { open(); return; }
     if (runUnread(r)) { say(runUnread(r) + ' Nothing was written.', 'warn'); render(); return; }
     var cx = loopGuard({ run: rk, readable: true }), endBusy = busyStart(), sg = gen;
+    /* VD: the completion is bound to the screen and form it started from (navSeq: every field the location is built from),
+       and to the person. Moved on, the plan stays saved and is said, never opened over what is on screen now. */
+    var ns = navSeq, me0 = state.me, here = function () { return navSeq === ns && state.me === me0; };
+    var saved = function () { say('Its plan was saved. Run this checklist on the to-do again to open it.', 'good'); render(); };
     var pg = writeGuard({ still: function () {
       if (!guardOk(cx)) return false;
       var r2 = findRun(rk), V2 = r2 ? todoView(r2) : null, x2 = V2 && V2.byTodo[todoId], F2 = x2 ? PF.detours.planFor(r2, x2, detourPub(x2.checklist), {}) : null;
@@ -37814,8 +37818,10 @@ PF.examples = (function () {
       endBusy(); if (sg !== gen) return;
       if (res && res.dropped) { say('Nothing was written: the folder, the person or the run changed before its plan was. Run this checklist again if it still needs doing.', 'warn'); render(); return; }
       /* Already there (made from another window or computer): the same plan by its name, which is opened. */
+      if (!here()) { saved(); return load(true); }
       return load(true).then(function () {
         if (sg !== gen) return;
+        if (!here()) { saved(); return; }
         if (!(data.plans || []).some(function (p) { return p.id === id; })) { say('Its plan is in the folder but can\'t be read back yet. Check Folder health, then try again.', 'warn'); render(); return; }
         open(); render();
       });

@@ -223,6 +223,32 @@ rule('Run this checklist whose folder or person changes before the plan is writt
   assert.strictEqual(plans(app2).length, 0, 'clicked anyway, nothing written');
 });
 
+/* VD: Run this checklist's late completion is bound to the screen, form and person it started from. Its plan is saved;
+   once the person has moved on (another Start screen, typing a run name) or another person is chosen, nothing is opened
+   over it and nothing typed is replaced, and it is said. */
+rule('A late Run this checklist keeps its plan but never opens over a newer screen, replaces what was typed, or opens for another person', async () => {
+  for (const how of ['moved', 'person']) {
+    const { app, todo } = await setup();
+    const fs = app.fs, read = fs.read.bind(fs), blob = fs.blob ? fs.blob.bind(fs) : null; let release = null;
+    const held = (p) => /^proposals\/plan-ev-[0-9a-f]{24}\.json$/.test(p) && fs.files[p] && !release;
+    const wait = (go) => new Promise((res) => { release = () => res(go()); });
+    fs.read = (p, o) => held(p) ? wait(() => read(p, o)) : read(p, o);
+    if (blob) fs.blob = (p, o) => held(p) ? wait(() => blob(p, o)) : blob(p, o);
+    app.click('td-detour', todo);
+    for (let i = 0; i < 40 && !release; i++) await app.tick(20);
+    assert.ok(release && plans(app).length === 1, how + ': set-up: the plan is saved, its read-back held');
+    if (how === 'moved') { app.click('start', 'release-notes'); await app.settle(); app.set('run-title', 'My typed name'); }
+    else { app.choose('person-blake'); await app.tick(40); }
+    const view = app.html().indexOf('data-plan-hash') >= 0;
+    release(); await app.tick(300);
+    fs.read = read; if (blob) fs.blob = blob;
+    assert.strictEqual(plans(app).length, 1, how + ': the plan is kept');
+    assert.strictEqual(app.html().indexOf('data-plan-hash') >= 0, view, how + ': the plan wasn\'t opened over the screen');
+    if (how === 'moved') assert.strictEqual(app.draft('run-title'), 'My typed name', 'what was typed stays');
+    assert.ok(/plan was saved/i.test(txt(app.html())), how + ': said: ' + (txt(app.html()).match(/[^.]*plan[^.]*\./) || [])[0]);
+  }
+});
+
 rule('An interrupted start finds its plan again: Run this checklist opens the plan already there, never a second', async () => {
   const { app, todo } = await setup();
   app.click('td-detour', todo); await app.tick(250);
