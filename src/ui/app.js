@@ -3651,7 +3651,16 @@
     if (!(sn.records || []).some(function (x) { return x && x.kind === 'receipt' && x.id === t.id; })) return false;
     var A = PF.receipts.prepare(pre, Object.assign(rcptInputs(sn), { outcome: t.outcome, by: t.by || cx.me, at: t.at, app: APP_VERSION }));
     /* Bound to the scope records it was prepared from too (an end from this window), so a change that keeps every count is a change. */
-    return !A.why && !A.none && A.id === t.id && (t.scopes == null || scopeSig(pre, sn) === t.scopes);
+    if (A.why || A.none || A.id !== t.id || (t.scopes != null && scopeSig(pre, sn) !== t.scopes)) return false;
+    /* The one receipt verdict every reader gives, on the run as this save would end it and on this fresh read: everything under
+       the receipt's id (a copy that can't be read, whatever run it names, or a copy of another kind) is asked, not only the
+       receipt this window prepared. */
+    var ended = JSON.parse(JSON.stringify(pre));
+    ended.ended = { outcome: t.outcome, by: t.by || cx.me };
+    ended.living = { head: pre.living ? pre.living.head : '', receipt: t.id };
+    var S = PF.receipts.verdict(ended, sn.records || [], sn.unread || []);
+    if (S && S.problem) { cx.rcptWhy = S.why + ' (' + S.path + ')'; return false; }
+    return !!S && S.state === 'confirmed';
   }
   /* Ending a run. A run that isn't living ends exactly as in 3.0. A living run ends with its receipt: prepared from the folder
      as this window reads it (nothing is written when it can't be: a record, the loop or a spread's coverage that can't be

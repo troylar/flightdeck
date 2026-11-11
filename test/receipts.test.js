@@ -338,4 +338,24 @@ rule('A receipt is bound to the person who ends the run: another person gets ano
   const mm = RC.stateOf(other, W.recs, []);
   same([mm.state, mm.kind, mm.path], ['mismatch', 'malformed', 'proposals/' + P1.id + '.json'], JSON.stringify(mm));
 });
+/* CA: the verdict sees every record and every unread entry under the receipt's id, of any kind and naming any run: a copy
+   that can't be read (it names another run) or a copy that is another kind of record is a problem, named by its path. */
+rule('One receipt verdict sees everything under the receipt\'s id: an unreadable copy naming another run, or a copy of another kind, is never confirmed', () => {
+  const W = world();
+  W.todo('Post the notes', { phase: 'ship' });
+  const P1 = W.end('Stopped early'), path = 'proposals/' + P1.id + '.json', copy = P1.id + ' (1).json';
+  same(RC.verdict(W.r, W.recs, []).state, 'confirmed', 'the control');
+  const un = RC.verdict(W.r, W.recs, [{ file: copy, why: 'is a receipt that isn\'t in its format: Its id isn\'t the one its run, who ended it and what it says give.', kind: 'malformed', run: { process: 'release-readiness', id: 'someone-else' } }]);
+  same([un.state, un.problem && un.problem.path, un.problem && un.problem.kind], ['unread', path, 'malformed'], JSON.stringify(un));
+  assert.ok(un.why.indexOf('proposals/' + copy) >= 0, 'the copy is named by its path: ' + un.why);
+  const q = T.buildProposal({ run: { process: 'release-readiness', id: 'elsewhere' }, id: P1.id, by: 'person-morgan', seen: [], at: AT, body: { op: 'add', text: 'Another kind', target: { phase: 'ship' }, placement: T.placementFor(R.mapOf(W.r), { phase: 'ship' }) }, app: '4.0.0' });
+  const qr = T.cleanFile(JSON.parse(T.text(q)), copy);
+  assert.ok(qr.ok, 'set-up: a valid to-do request under the receipt\'s id: ' + qr.why);
+  qr.record._file = copy;
+  for (const recs of [W.recs.concat([qr.record]), [qr.record].concat(W.recs)]) {
+    const mx = RC.verdict(W.r, recs, []);
+    same([mx.state, mx.problem && mx.problem.path, mx.problem && mx.problem.kind], ['mismatch', path, 'malformed'], JSON.stringify(mx));
+    assert.ok(mx.why.indexOf('proposals/' + copy) >= 0, 'the other kind is named by its path: ' + mx.why);
+  }
+});
 run();

@@ -254,10 +254,18 @@ PF.receipts = (function () {
     if (!r || !r.living || !r.ended) return null;
     var id = r.living.receipt;
     if (!id) return { state: 'none', why: 'It ended without a receipt record.', path: '', kind: '', record: null };
-    var path = 'proposals/' + id + '.json';
-    var un = (unread || []).filter(function (u) { return u && PF.todos.requestFile(u.file, id); })[0];
-    if (un) return { state: 'unread', why: 'Its receipt (' + id + ') can\'t be read: ' + String(un.why || 'unreadable'), path: path, kind: un.kind === 'newer' ? 'newer' : un.kind === 'unreadable' ? 'unreadable' : 'malformed', record: null };
-    var mine = (records || []).filter(function (x) { return x && x.kind === 'receipt' && x.id === id; });
+    var path = 'proposals/' + id + '.json', own = id + '.json';
+    /* Everything under the receipt's id, before its kind or its run is looked at: every unread entry and every checked record,
+       whatever run it names. The one named first is the receipt's own file, else the first by name. */
+    var first = function (xs, nameOf) { return xs.map(function (x, i) { return [x, String(nameOf(x)), i]; }).sort(function (a, b) { return (a[1] === own ? 0 : 1) - (b[1] === own ? 0 : 1) || cmpStr(a[1], b[1]) || a[2] - b[2]; })[0][0]; };
+    var uns = (unread || []).filter(function (u) { return u && PF.todos.requestFile(u.file, id); });
+    if (uns.length) {
+      var un = first(uns, function (u) { return u.file; }), uw = String(un.why || 'unreadable');
+      return { state: 'unread', why: un.file === own ? 'Its receipt (' + id + ') can\'t be read: ' + uw : 'Its receipt (' + id + ') has a copy that can\'t be read (proposals/' + un.file + '): ' + uw, path: path, kind: un.kind === 'newer' ? 'newer' : un.kind === 'unreadable' ? 'unreadable' : 'malformed', record: null };
+    }
+    var all = (records || []).filter(function (x) { return x && x.id === id; }), odd = all.filter(function (x) { return x.kind !== 'receipt'; });
+    if (odd.length) { var o1 = first(odd, function (x) { return x._file || own; }); return { state: 'mismatch', why: 'Its receipt (' + id + ') has a copy that is another kind of record (proposals/' + String(o1._file || own) + ', a ' + String(o1.kind) + '), so which is meant isn\'t known.', path: path, kind: 'malformed', record: null }; }
+    var mine = all;
     if (!mine.length) return { state: 'missing', why: 'Its receipt (' + id + ') isn\'t in the folder, so what it ended with can\'t be confirmed.', path: path, kind: 'nofile', record: null };
     var rec = mine[0];
     if (mine.some(function (x) { return JSON.stringify(PF.todos.fingerprint(bodyOf(x))) !== JSON.stringify(PF.todos.fingerprint(bodyOf(rec))); })) return { state: 'mismatch', why: 'Its receipt (' + id + ') has two different copies in the folder.', path: path, kind: 'malformed', record: null };

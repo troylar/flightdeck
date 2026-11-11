@@ -1106,4 +1106,26 @@ rule('An evidence plan with a copy that says something else is partial and named
   const c = checkPack(zip);
   assert.ok(c.ok, 'Python reads it: ' + c.out);
 });
+/* CA: the export's receipt verdict sees everything under the receipt's id: a copy that can't be read because it names another
+   run, or a valid to-do request carrying the receipt's id, leaves the pack partial naming the receipt, and Python refuses a
+   forced complete claim. */
+rule('A copy under the receipt\'s id that names another run, or is another kind of record, leaves the pack partial, and Python refuses it as complete', async () => {
+  const W = await made({ todos: 1 }), id = W.run.living.receipt, p = 'proposals/' + id + '.json', T = W.PF.todos;
+  const o = JSON.parse(String(W.files[p])); o.run = Object.assign({}, o.run, { id: 'someone-else' });
+  const q = T.buildProposal({ run: { process: W.run.process, id: 'someone-else' }, id, by: 'person-avery', seen: [], at: new Date().toISOString(), body: { op: 'add', text: 'Another kind', target: { phase: 'review' }, placement: T.placementFor(W.PF.run.mapOf(W.PF.run.sanitize(JSON.parse(JSON.stringify(W.run)))), { phase: 'review' }) }, app: '4.0.0' });
+  for (const [what, text] of [['a copy naming another run', JSON.stringify(o, null, 2) + '\n'], ['a copy of another kind', T.text(q)]]) {
+    const files = Object.assign({}, W.files, { [copyOf(p)]: text });
+    const { zip, res } = await pack(W.PF, new BytesFS(files), W.key);
+    assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(p) >= 0), what + ': ' + res.status + ' ' + JSON.stringify(res.col.unresolved).slice(0, 400));
+    if (!PY) continue;
+    /* Forced complete with the copy packed beside the receipt (the export names an unread one without packing it). */
+    const c = checkPack(await repacked(W.PF, zip, (e, man, get) => {
+      forced(man);
+      if (get(copyOf(p))) return;
+      const f0 = get(p), f1 = Object.assign({}, f0, { path: copyOf(p), pack: f0.pack.replace(/\.json$/, ' (1).json') });
+      e[f1.pack] = Buffer.from(text); man.files.push(f1);
+    }));
+    assert.ok(!c.ok && /receipt/.test(c.out), what + ': Python: ' + c.out);
+  }
+});
 run();

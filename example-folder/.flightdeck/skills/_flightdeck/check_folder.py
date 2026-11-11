@@ -4338,11 +4338,21 @@ def receipt_verdict(text, read, unread):
     rid = lv.get("receipt")
     if not rid:
         return {"state": "none", "path": "", "kind": "", "why": "It ended without a receipt record."}
-    path = "proposals/" + rid + ".json"
-    for name, kind, why in unread:
-        if todo_request_file(name, rid):
-            return {"state": "unread", "path": path, "kind": kind, "why": "Its receipt (" + rid + ") can't be read: " + why}
-    mine = read.get(rid) or []
+    path, own = "proposals/" + rid + ".json", rid + ".json"
+    # Everything under the receipt's id, before its kind or its run is looked at (PF.receipts.stateOf): every unread entry and
+    # every checked to-do record, whatever run it names. The one named first is the receipt's own file, else the first by name.
+    first = lambda xs: sorted(xs, key=lambda x: (x[0] != own, x[0]))[0]
+    uns = [u for u in unread if todo_request_file(u[0], rid)]
+    if uns:
+        name, kind, why = first(uns)
+        said = "Its receipt (" + rid + ") can't be read: " if name == own else "Its receipt (" + rid + ") has a copy that can't be read (proposals/" + name + "): "
+        return {"state": "unread", "path": path, "kind": kind, "why": said + why}
+    every = read.get(rid) or []
+    odd = [x for x in every if x[1].get("kind") != "receipt"]
+    if odd:
+        name, o = first(odd)
+        return {"state": "mismatch", "path": path, "kind": "malformed", "why": "Its receipt (" + rid + ") has a copy that is another kind of record (proposals/" + name + ", a " + str(o.get("kind")) + "), so which is meant isn't known."}
+    mine = [x[1] for x in every]
     if not mine:
         return {"state": "missing", "path": path, "kind": "nofile", "why": "Its receipt (" + rid + ") isn't in the folder, so what it ended with can't be confirmed."}
     rec = mine[0]
@@ -4431,8 +4441,8 @@ def main():
         if todo_claims(obj):
             un = []
             bad = todo_why(obj, name, os.path.getsize(os.path.join(prop_dir, name)), un)
-            if not bad and obj.get("kind") == "receipt":
-                rcpt_read.setdefault(obj.get("id"), []).append(obj)
+            if not bad:
+                rcpt_read.setdefault(obj.get("id"), []).append((name, obj))
             elif bad:
                 rcpt_unread.append((name, "newer" if " newer Flightdeck" in bad else "malformed", bad))
             note = (un[0] + ": an international domain name; Flightdeck decides whether it reads") if un else ""
@@ -4571,7 +4581,7 @@ def main():
                     if m and (m.group(1) + "." + m.group(2)) not in lineage and time.time() - os.path.getmtime(os.path.join(rdir, n)) >= 60:
                         copies.append(n)
                 receipts = [n for n in names if n.startswith("candidate-")]
-                v = receipt_verdict(read_app_text(os.path.join(rdir, "run.json")), rcpt_read, rcpt_unread + split_unread)
+                v = receipt_verdict(read_app_text(os.path.join(rdir, "run.json")), rcpt_read, split_unread + rcpt_unread)
                 if v:
                     out.setdefault("runReceipts", []).append(dict({"run": proc + "/" + rid}, **v))
                 if copies:

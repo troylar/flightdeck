@@ -96,7 +96,15 @@ rule('This version: run, next, runs and todo list name the same receipt problem 
     .forEach(([what, text]) => cases.push([what, put(text), 'malformed']));
   /* KD: a synced copy of the receipt under its id that is another family of record (a plan): which is meant isn't known. */
   cases.push(['a copy of another family', (dir) => fs.writeFileSync(path.join(dir, 'proposals', receipt.replace(/\.json$/, ' (1).json')), JSON.stringify({ format: 'flightdeck-plan/1', kind: 'plan', id: receipt.replace(/\.json$/, ''), process: 'release-notes', title: 'A plan' })), 'malformed']);
-  if (process.getuid && process.getuid() !== 0) cases.push(['unreadable', (dir) => fs.chmodSync(path.join(dir, 'proposals', receipt), 0), 'unreadable']);
+  /* CA: everything under the receipt's id, whatever run it names or kind it is: a copy that can't be read because it names
+     another run, and a valid to-do request carrying the receipt's id. */
+  cases.push(['a copy naming another run', (dir) => { const o = JSON.parse(fs.readFileSync(path.join(dir, 'proposals', receipt), 'utf8')); o.run.id = 'someone-else'; fs.writeFileSync(path.join(dir, 'proposals', receipt.replace(/\.json$/, ' (1).json')), JSON.stringify(o, null, 2) + '\n'); }, 'malformed']);
+  cases.push(['a copy of another kind', (dir) => {
+    const NEW = H.loadMain(), T = NEW.todos, l = JSON.parse(fs.readFileSync(path.join(dir, 'runs/release-notes/run-l/run.json'), 'utf8'));
+    const q = T.buildProposal({ run: { process: 'release-notes', id: 'run-q' }, id: receipt.replace(/\.json$/, ''), by: 'person-avery', seen: [], at: AT, body: { op: 'add', text: 'Another kind', target: { phase: 'review' }, placement: T.placementFor(NEW.run.mapOf(NEW.run.sanitize(l)), { phase: 'review' }) }, app: '4.0.0' });
+    fs.writeFileSync(path.join(dir, 'proposals', receipt.replace(/\.json$/, ' (1).json')), T.text(q));
+  }, 'malformed']);
+  if (process.getuid && process.getuid() !== 0) cases.push(['unreadable',(dir) => fs.chmodSync(path.join(dir, 'proposals', receipt), 0), 'unreadable']);
   for (const [state, damage, kind] of cases) {
     const { root, dir } = tree(files);
     try {
