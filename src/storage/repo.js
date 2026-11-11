@@ -2123,6 +2123,8 @@ PF.repo = (function () {
     var stop = function () { return removed.length ? { partial: true, removed: removed.slice(), left: names ? names.slice(i) : [] } : { dropped: true }; };
     var next = function () {
       if (names && i >= names.length) return { ok: true, removed: removed.slice() };
+      /* AD: the guard is told which copy this delete removes, so it reads that one last (null before the first is known). */
+      if (typeof opts.aim === 'function') opts.aim(names ? names[i] : null);
       return Promise.resolve().then(function () { return opts.fresh(fs); }).then(function (ok) {
         if (ok === false || !opts.still()) return stop();
         var now = typeof opts.copies === 'function' ? opts.copies() : [name];

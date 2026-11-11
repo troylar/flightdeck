@@ -25,8 +25,8 @@
       "reviewed": "QC: spread keep's final check rereads and judges the items' checklist and rebuilds from it; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "ef29597820ab6c5c3fc741fc5eec54a985eec25b6b00cf5e8c3e74c359dda80b",
-      "reviewed": "AB: keep guard and withdraw list proposals/ again after readKept; checked for direct writes and unconditional deletes"
+      "sha256": "c5608b8ad17f08e40796a08b3410c252a921f39666a3b9ff04e5ed88c2aff79e",
+      "reviewed": "AD: withdraw rereads the target copy last; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -417,12 +417,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "4edc80c5cb813bc9e054ed1f733a1e38c605502f92a5c32b7e0eef67a8527a13",
-      "reviewed": "AE: a supplied _sha is kept as the file wrote it and refused like _file and _bytes; checked for direct writes and unconditional deletes"
+      "sha256": "1015336ad0425c1656e7b661c65feb8e9e2e932f5733632961546120dc982e25",
+      "reviewed": "AD: withdraw rereads the target copy last; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "55026678a722661fbc73e0ef97eea141a59cd529214c12363a8a08c4422af95c",
-      "reviewed": "AB: keep guard and withdraw list proposals/ again after readKept; checked for direct writes and unconditional deletes"
+      "sha256": "8c44e44f653ba97b10d8ac09550b4c9d36c76ef8cbf3ecda3b602bcb39855b0c",
+      "reviewed": "AD: withdraw rereads the target copy last; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

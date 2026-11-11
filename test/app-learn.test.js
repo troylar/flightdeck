@@ -469,6 +469,44 @@ rule('A keep copy that arrives during the guard\'s read refuses every keep write
   }
 });
 
+/* AD: withdrawing three identical copies reads the copy it is about to remove last, after the others: that copy changed
+   (to a valid keep with the same id and another reason) during the last read of another copy before its delete is never
+   removed, at each position. */
+rule('Withdrawing copies reads the one it removes last: that copy changed during another copy\'s read is never removed, at each position', async () => {
+  const make = async () => {
+    const app = await setup(), id = await added(app, 'Post the release notes'); app.click('keep', id, { kind: 'todo' }); await app.tick(120);
+    const k = keeps(app)[0], t = app.fs.files['proposals/' + k.id + '.json'].t;
+    app.fs.files['proposals/' + k.id + ' (1).json'] = { t, m: Date.now() }; app.fs.files['proposals/' + k.id + '-LAPTOP.json'] = { t, m: Date.now() };
+    await refresh(app, 300); await openPage(app);
+    return { app, k, t };
+  };
+  const watch = (app, onRead) => {
+    const fs = app.fs, st = { log: [], removes: [] }, rd = fs.read.bind(fs), bl = fs.blob ? fs.blob.bind(fs) : null, rm = fs.remove.bind(fs);
+    const wrap = (orig) => (p, o) => { const i = st.log.length; st.log.push({ p, removes: st.removes.length }); if (onRead) onRead(i, p); return orig(p, o); };
+    fs.read = wrap(rd); if (bl) fs.blob = wrap(bl); fs.remove = (p, ...a) => { st.removes.push(p); return rm(p, ...a); };
+    st.off = () => { fs.read = rd; if (bl) fs.blob = bl; fs.remove = rm; };
+    return st;
+  };
+  const dry = await make(), d = watch(dry.app);
+  dry.app.click('keep-withdraw', dry.k.id, { process: 'release-notes' }); await dry.app.tick(600); d.off();
+  assert.strictEqual(d.removes.length, 3, 'set-up: all three removed when nothing changes');
+  let ran = 0;
+  for (let pos = 0; pos < 2; pos++) {
+    /* In the pass before delete #pos, the last other copy still to go is read twice (the reader, then its bytes): the
+       target changes at that second read, after any read of the target placed before it. */
+    const { app, k, t } = await make(), o = JSON.parse(t); o.reason = 'Another reason';
+    const as = (p) => 'proposals/' + k.id + p.slice(('proposals/' + dry.k.id).length), target = as(d.removes[pos]), trigger = as(d.removes[d.removes.length - 1]);
+    const changed = JSON.stringify(o, null, 2) + '\n';
+    let seen = 0, st = null;
+    st = watch(app, (i, p) => { if (st && st.removes.length === pos && p === trigger && ++seen === 2) app.fs.files[target] = { t: changed, m: Date.now() }; });
+    app.click('keep-withdraw', k.id, { process: 'release-notes' }); await app.tick(600); st.off();
+    assert.strictEqual(seen >= 2, true, 'position ' + pos + ': set-up: the other copy was read twice in that pass');
+    ran++;
+    assert.ok(app.fs.files[target] && app.fs.files[target].t === changed, 'position ' + pos + ': the changed copy ' + target + ' was never removed: ' + (txt(app.html()).match(/(Withdrawn|Nothing was withdrawn)[^.]*\./) || [])[0]);
+  }
+  assert.ok(ran >= 2, 'set-up: at least two positions have another copy read before the delete');
+});
+
 /* YB: Withdraw on a whole correction reads the keep's copies again, as every other decision does: a copy that differs
    refuses it, naming the copy; its author still withdraws it once the copy is gone. */
 rule('Withdrawing a whole correction is refused while a copy of its keep differs; its author withdraws it once that copy is gone', async () => {

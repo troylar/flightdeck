@@ -3787,7 +3787,7 @@
     var name = rec._file || kid + '.json', path = 'proposals/' + name, R = null, proc = null, fail = '', copies = null, planned = null, endBusy = busyStart(), sg = gen, MAX = PF.corrections.MEMBERS_MAX;
     /* YA: what is withdrawn is exactly what this window read: each copy's file and the SHA-256 of its bytes, as shown. */
     var shown = Object.create(null); (data.todos || []).forEach(function (k) { if (k && k.kind === 'keep' && k.id === kid && typeof k._file === 'string') shown[k._file] = k._sha || ''; });
-    var bytes = Object.create(null), listed = null;
+    var bytes = Object.create(null), aim = null, listed = null;
     var kg = writeGuard({
       fresh: function (fx) {
         R = null; proc = null; fail = ''; copies = null; bytes = Object.create(null); listed = null;
@@ -3798,8 +3798,10 @@
           /* AB: proposals/ listed again after the contents were read: a copy that arrived or went meanwhile refuses it. */
           .then(function () { return R ? fx.list('proposals').then(function (items) { listed = (items || []).filter(function (v) { return v.kind !== 'dir' && PF.todos.requestFile(String(v.name), kid); }).map(function (v) { return v.name; }).sort(); }, function () { listed = null; }) : null; })
           .then(function () {
-            var fs0 = R ? PF.learn.copiesOf(R.keepFiles, kid).files : [];
-            return fs0.reduce(function (p, f) { return p.then(function () { return fx.read('proposals/' + f).then(function (x) { bytes[f] = x && typeof x.text === 'string' ? PF.sha256.hex(x.text) : null; }, function () { bytes[f] = null; }); }); }, Promise.resolve());
+            /* AD: the copy about to be removed (aim) is read last of all, after every other copy, right before people.json. */
+            var fs0 = R ? PF.learn.copiesOf(R.keepFiles, kid).files : [], t = aim && fs0.indexOf(aim) >= 0 ? aim : fs0[0];
+            var order = fs0.filter(function (f) { return f !== t; }).concat(t ? [t] : []);
+            return order.reduce(function (p, f) { return p.then(function () { return fx.read('proposals/' + f).then(function (x) { bytes[f] = x && typeof x.text === 'string' ? PF.sha256.hex(x.text) : null; }, function () { bytes[f] = null; }); }); }, Promise.resolve());
           }).then(function () { return true; });
       },
       who: function (ppl, me) {
@@ -3824,7 +3826,7 @@
         if (!over) return 'only whoever kept it can withdraw it. Its checklist\'s owner withdraws keeps only while a place holds more than ' + MAX + '.';
         return PF.learn.ownerWhy({ keep: true, members: [] }, proc && !proc.unlisted ? proc : null, ppl, me, false);
       } });
-    placeLock(keepPlace(rec), function () { return repo.withdrawKeep(state.fs, name, { id: kid, fresh: kg.fresh, still: kg.still, copies: function () { return copies; } }); }).then(function (res) {
+    placeLock(keepPlace(rec), function () { return repo.withdrawKeep(state.fs, name, { id: kid, fresh: kg.fresh, still: kg.still, copies: function () { return copies; }, aim: function (n) { aim = n; } }); }).then(function (res) {
       endBusy(); if (sg !== gen) return;
       if (res && res.dropped) { say('Nothing was withdrawn: ' + kg.why(), 'warn'); render(); return; }
       if (res && res.partial) {
