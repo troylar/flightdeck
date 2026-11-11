@@ -25,8 +25,8 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "1e7a56156963b8b80d3ad617d6f796a005f6dd35e3408d6c2f68819bb52b97ec",
-      "reviewed": "MB: readLoopChildren judges each listed run whole before skipping it as another run's; reads only; checked for direct writes and unconditional deletes"
+      "sha256": "3e9e7cc5a6f25ee78017e597cbb8b381ee7b096d29363f678ac41790ab3941aa",
+      "reviewed": "MA: one set of children seen per ending attempt, carried across guards; reads only; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "8828d4ade3981b60bb45d9f25431de63af40dd49e2385a68bcb06d34ddf5e56c",
@@ -429,8 +429,8 @@
       "reviewed": "MB: readLoopChildren judges each listed run whole before skipping it as another run's; reads only; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "814786b3459ff1249f71c1e53061156114a5d2704c750e521104aab4e2c0ef13",
-      "reviewed": "KA: the closure's last child listing is held to every earlier child read (rcptAbsent); reads only; checked for direct writes and unconditional deletes"
+      "sha256": "097434585b94cf57cc1ac0fd15c1227d7c517706fa5966af83d4f45e7b4e4283",
+      "reviewed": "MA: one set of children seen per ending attempt, carried across guards; reads only; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

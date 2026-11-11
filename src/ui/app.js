@@ -3599,8 +3599,14 @@
       if (x[1].unread.length) { var u = x[1].unread[0]; cx.rcptWhy = String(u.path || 'runs/' + u.key + '/run.json') + ': a child run of this run\'s loops can\'t be read as every reader reads it (' + String(u.kind || 'unreadable') + ': ' + String(u.why).slice(0, 200) + ').'; return null; }
       var s = x[0], d = { todos: s.records, todosUnread: s.unread }; todoBodies(d);
       var mine = function (c) { return c && c.parent && c.parent.item && c.parent.process === self.process && c.parent.id === self.id; };
-      var gone = rcptAbsent(self, x[1].runs, d.todos || [], s.scopes || [], (data.runs || []).filter(mine));
+      /* Every child seen during this ending attempt (the receipt's write and each guard of the save that ends the run, or a
+         recovery's), carried from guard to guard: each later listing must still hold all of them. */
+      var seenK = cx.kidsSeen || (cx.kidsSeen = Object.create(null));
+      var seenList = function () { return Object.keys(seenK).sort().map(function (k) { return seenK[k]; }); };
+      var note = function (runs) { runs.forEach(function (c) { seenK[c.process + '/' + c.id] = { process: c.process, id: c.id }; }); };
+      var gone = rcptAbsent(self, x[1].runs, d.todos || [], s.scopes || [], (data.runs || []).filter(mine), seenList());
       if (gone) { cx.rcptWhy = gone; return null; }
+      note(x[1].runs);
       return rcptDepsJudged(cx, self, d.todos || []).then(function (bad) {
         if (!bound()) return null;
         if (bad) { cx.rcptWhy = String(bad.path) + ': a run this run\'s work depends on can\'t be read as every reader reads it (' + String(bad.kind) + ': ' + String(bad.why).slice(0, 200) + ').'; return null; }
@@ -3609,8 +3615,9 @@
           if (cl.why) { cx.rcptWhy = cl.why; return null; }
           /* The children the closure listed last are held to every child read before: the guard's first read and this
              window's. One gone between those listings is named, never left out of what the receipt counts. */
-          var gone2 = rcptAbsent(self, cl.kids, d.todos || [], s.scopes || [], (data.runs || []).filter(mine).concat(x[1].runs));
+          var gone2 = rcptAbsent(self, cl.kids, d.todos || [], s.scopes || [], (data.runs || []).filter(mine), x[1].runs.concat(seenList()));
           if (gone2) { cx.rcptWhy = gone2; return null; }
+          note(cl.kids);
           /* One checked dependency snapshot: the receipt is prepared and asked again on the very runs the closure read and
              checked (its loop children, evidence runs and the runs it fulfills), never on an earlier read of them. */
           var dep = cl.runs, have = Object.create(null);
@@ -3661,10 +3668,11 @@
   /* A child run the folder still refers to that the fresh listing doesn't have (deleted, or now naming another parent): the
      children this window read, the run a loop item's choice names, a spread's binding and a request fulfilling one of this
      run's spreads. Named by its path, and the end is refused: no listing can tell a missing child from one never started. */
-  function rcptAbsent(self, kids, records, scopes, known) {
+  function rcptAbsent(self, kids, records, scopes, known, seen) {
     var have = Object.create(null), ids = Object.create(null), want = [], me = function (x) { return x && x.run && x.run.process === self.process && x.run.id === self.id; };
     kids.forEach(function (c) { have[c.process + '/' + c.id] = true; ids[c.id] = true; });
     known.forEach(function (c) { want.push({ key: c.process + '/' + c.id, why: 'this window read it as a child run of this run' }); });
+    (seen || []).forEach(function (c) { want.push({ key: c.process + '/' + c.id, why: 'an earlier read while ending this run listed it as a child run' }); });
     records.forEach(function (x) {
       if (!x) return;
       if (x.fulfills && x.fulfills.run && x.fulfills.run.process === self.process && x.fulfills.run.id === self.id && x.run) want.push({ key: x.run.process + '/' + x.run.id, why: 'proposals/' + String(x._file || x.id + '.json') + ' fulfills one of this run\'s spreads on it' });
@@ -3750,6 +3758,8 @@
       var rec = P.record; rec._file = P.name;
       if (!(data.todos || []).some(function (x) { return x.id === rec.id; })) data.todos = (data.todos || []).concat([rec]);
       var lcx = loopGuard({ run: key, readable: true });
+      /* The children the receipt's write saw are carried into the save's guards: one ending attempt, one set. */
+      lcx.kidsSeen = cx.kidsSeen || Object.create(null);
       var ed = loopEdit(lcx, key, function (rr, m, me, now) {
         if (!rr.living || rr.living.head !== P.record.head) throw new Error('The run\'s to-dos changed since its receipt was prepared, so it wasn\'t ended. End it again.');
         var pre = todoPre(rr);

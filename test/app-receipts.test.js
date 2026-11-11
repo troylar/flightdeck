@@ -437,6 +437,29 @@ rule('A child the readers refuse whose file names this run as its parent ends no
   assert.strictEqual(misses.length, 0, misses.join('\n'));
 });
 
+/* MA: every child seen during one ending attempt (the receipt's write and every guard of the save that ends the run) must
+   still be in every later listing: a child that appears after the receipt is written (a second open run for an item, so
+   the counts stay the same) and is deleted after the parent's candidate is written ends nothing, named by its path. */
+rule('A child seen by one ending guard and gone by a later one ends nothing, named by its path', async () => {
+  const app = await loopSetup(), kid = kidPaths(app)[0], fresh = kid.replace(/\/[^/]+\/run\.json$/, '/manew001/run.json'), dir = fresh.replace(/run\.json$/, '');
+  const pp = pPath(app), fs = app.fs, write = fs.write.bind(fs), runText = app.fs.files[pp].t;
+  /* A second open run for the same item: the counts the receipt froze stay the same with it or without it. */
+  const k = JSON.parse(app.fs.files[kid].t); k.id = 'manew001';
+  let added = false, gone = false;
+  fs.write = (p, t, o) => write(p, t, o).then((x) => {
+    if (!added && /^proposals\/req-receipt-/.test(p)) { added = true; app.fs.files[fresh] = { t: JSON.stringify(k, null, 2), m: Date.now() }; }
+    else if (added && !gone && p.indexOf(pp.replace(/run\.json$/, '') + 'candidate-') === 0) { gone = true; app.files(dir).forEach((f) => { delete app.fs.files[f]; }); }
+    return x;
+  });
+  app.click('end', 'Cancelled'); await app.tick(500);
+  fs.write = write;
+  assert.ok(added, 'the receipt was written and the child added');
+  assert.ok(!pRun(app).ended || !gone, 'not ended: ' + JSON.stringify(pRun(app).living));
+  assert.strictEqual(app.fs.files[pp].t, runText, 'the run is as it was');
+  if (gone) assert.ok(txt(app.html()).indexOf(fresh) >= 0, 'named by its path: ' + txt(app.html()).slice(0, 600));
+  assert.ok(gone, 'the save reached its candidate write, so the later guard is what refuses');
+});
+
 rule('An ended living run shows the receipt\'s frozen progress lines, the counts now apart; Copy for Jira carries the frozen summary and arrivals', async () => {
   const app = await loopSetup();
   app.click('end', 'Cancelled'); await app.tick(400);
