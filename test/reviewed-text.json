@@ -13,16 +13,16 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "48d09a5a89e1db48dab203e5d40368cc9ef339c3ca0ea88b31078bdef66a0b74",
-      "reviewed": "PB: design.md says the final check compares all three listings; checked for direct writes and unconditional deletes"
+      "sha256": "96cd413753fb7426ce5d1b7d45358d2881f052c62d9c87e1ebe280fbf4702d7f",
+      "reviewed": "PF: name the real processes and process --contract 2 forms instead of read and versions; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "e641a0f9f4655b4634b9d2661fe4e4b97222f23ece79f5917e6c99f174218087",
       "reviewed": "4.0 slice 5 commit 6, checklist-linked to-dos: PF.detours (pins, the evidence plan, evidence, provenance), the checklist and evidence fields in to-do records, repo.readEvidence, the app's Run this checklist, Accept and the way back, the living-run skill and command guide sections, the 4.0.0 release entry; checked for direct writes and unconditional deletes: the plan is written create-once through repo.savePlan under the run guard, a done on a run through saveScope with a fresh read before the write, nothing deleted"
     },
     "docs/apps.md": {
-      "sha256": "b372291778c41993c443748bf001b9b35e08933ad0cab1d4933f848a991f2ae4",
-      "reviewed": "LA: keeps, to-do writes and requests read proposals/ last through proposalsFinal; checked for direct writes and unconditional deletes"
+      "sha256": "428c3d206f7a4436598d28a12e29951ae095cdc3b5c21e2e44038e60e943c837",
+      "reviewed": "PF: name the real processes and process --contract 2 forms instead of read and versions; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
       "sha256": "0c456680c212ea89b1100f4dc1fb5797d53a9296be76c74ebbf5e22320140535",
@@ -85,8 +85,8 @@
       "reviewed": "4.0 slice 5 keep for next time: PF.learn keep records, todo keep and spread keep (written once through writeOnce), the app's Keep for next time (repo.saveScope under the run guard), owner-only keep decisions, checker keep_why, docs and skills; checked for direct writes and unconditional deletes: none"
     },
     "example-folder/.flightdeck/skills/flightdeck-living-run/SKILL.md": {
-      "sha256": "e654a8426caf59c0c013ee2b8ac818a190ddd94c137db38b884b81c3e385c69a",
-      "reviewed": "4.0 slice 5 commit 6, checklist-linked to-dos: PF.detours (pins, the evidence plan, evidence, provenance), the checklist and evidence fields in to-do records, repo.readEvidence, the app's Run this checklist, Accept and the way back, the living-run skill and command guide sections, the 4.0.0 release entry; checked for direct writes and unconditional deletes: the plan is written create-once through repo.savePlan under the run guard, a done on a run through saveScope with a fresh read before the write, nothing deleted"
+      "sha256": "51a3e3567c39899596c89f564fe948c55872d2a5b9ef4abbb885c3e0be083ec5",
+      "reviewed": "PF: name the real processes and process --contract 2 forms instead of read and versions; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/flightdeck-new-checklist/SKILL.md": {
       "sha256": "3a6eb58e264583f36fb072835912f61bbb9a3fcf619f5932b2f0bdea2cfa6099",
@@ -197,8 +197,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "0c692957cbf1651c2e2159724cdaf4dcb38d1a75d983a6b6521a4143c7917f70",
-      "reviewed": "keeps named by their wording too: another wording is another alternative; checked for direct writes and unconditional deletes"
+      "sha256": "54decbea13f8239dff0daad5c31d0be0726a33ab40cf53d2c07ce1ddc2cd2f12",
+      "reviewed": "PF: name the real processes and process --contract 2 forms instead of read and versions; checked for direct writes and unconditional deletes"
     },
     "src/core/appjson.js": {
       "sha256": "a8c8f5ed439d30899c1f9c72e7852e06cfaa4c0ee665a599704db0e8682fc960",

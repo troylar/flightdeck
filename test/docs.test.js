@@ -314,6 +314,19 @@ rule('Round 19: every shipped or generating file is pinned whole: computed text,
   const inv = RT.inventory();
   ['build.py', 'package.json', 'tools/baselines.js', 'tools/type-table.js', 'CHANGELOG.md', 'LICENSE', 'README.md'].forEach((f) => assert.strictEqual(inv[f], 'whole', f));
 });
+/* PF: every command a shipped doc or skill names in code (`flightdeck <command>`) is one the command line knows. */
+rule('Docs: every flightdeck command the docs and the installed skills name in code is one the command knows', () => {
+  const { execFileSync } = require('child_process');
+  const words = new Set();
+  [...REPO_DOCS, ...INSTALLED].forEach(f => { const md = read(f); (md.match(/`flightdeck [a-z][a-z-]*/g) || []).concat(md.match(/^\s*flightdeck [a-z][a-z-]*/gm) || []).forEach(m => words.add(m.replace(/^[\s`]*flightdeck /, ''))); });
+  const unknown = [...words].filter(w => {
+    let out = '';
+    try { out = execFileSync(process.execPath, [path.join(ROOT, 'bin', 'flightdeck.js'), w], { encoding: 'utf8', stdio: 'pipe', timeout: 30000 }); } catch (e) { out = String(e.stdout || '') + String(e.stderr || ''); }
+    return /unknown command/.test(out);
+  });
+  assert.deepStrictEqual(unknown, [], 'named in the docs, unknown to the command: ' + unknown.join(', '));
+});
+
 rule('The README\'s manual download is the release being shipped, so it can\'t go stale', () => {
   const version = JSON.parse(read('src/releases.json'))[0].version;
   const links = read('README.md').match(/@troylar\/flightdeck@\d+\.\d+\.\d+\/dist\/flightdeck\.html/g) || [];
