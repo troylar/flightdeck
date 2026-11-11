@@ -4335,7 +4335,7 @@ def draft_main(args):
         sys.stdout.write("\n")
         return 1
     out = dict({"draft": path, "folder": root}, **draft_check(md, team_files(root)["stepTypes"]))
-    json.dump(json_safe(out), sys.stdout, indent=2, ensure_ascii=False, allow_nan=False)
+    json.dump(json_safe(out), sys.stdout, indent=2, ensure_ascii=True, allow_nan=False)
     sys.stdout.write("\n")
     return 0
 
@@ -4527,7 +4527,8 @@ def receipt_verdict_of(r, read, unread, key=None):
     key = key or (str(r.get("process")) + "/" + str(r.get("id")))
     ep = run_problem(r, key)
     if ep:
-        title = js_slice(r["title"], 200) if isinstance(r.get("title"), str) else ""
+        # The title as the readers keep it (R.sanitize: str(o.title, 100), cut in UTF-16 units, else Untitled run).
+        title = (js_slice(r["title"], 100) if isinstance(r.get("title"), str) else "") or "Untitled run"
         return {"state": "unread", "path": "runs/" + key + "/run.json", "kind": ep[0],
                 "why": ('"' + title + '" (' + key + "): " + ep[1]) if ep[0] == "newer" else ep[1]}
     lv = clean_living(r.get("living"))
@@ -4834,7 +4835,7 @@ def main():
         out["teamFiles"]["problems"].append({"file": TEAM_FILE, "problem": tv["why"]})
     out["teamMissing"] = team_missing(root, out["publications"], tv)
     out["skills"] = skill_registrations(root)
-    json.dump(json_safe(out), sys.stdout, indent=2, ensure_ascii=False, allow_nan=False)
+    json.dump(json_safe(out), sys.stdout, indent=2, ensure_ascii=True, allow_nan=False)
     sys.stdout.write("\n")
 
 

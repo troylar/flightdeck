@@ -319,6 +319,30 @@ rule('This version: a run.json that is no run, or nested past what any reader re
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   }
 });
+/* JC: the checker's JSON output is ASCII with every character past it escaped, a lone surrogate included, as JSON.stringify
+   writes one: a newer living run titled 199 x's and an emoji, cut by UTF-16 units as the readers cut it, is named in
+   complete JSON, with the very words run gives. */
+rule('This version: a newer run whose title is cut inside an emoji is named by the checker in complete JSON, in run\'s words', async () => {
+  const { files } = await folder(), rp = 'runs/release-notes/run-l/run.json';
+  for (const [what, title] of [['199 x\'s and an emoji', 'x'.repeat(199) + '\u{1F600}'], ['99 x\'s and an emoji (cut inside it)', 'x'.repeat(99) + '\u{1F600}'], ['no title', undefined]]) {
+    const r = JSON.parse(files[rp]); if (title === undefined) delete r.title; else r.title = title; r.features = r.features.concat(['zz-later']);
+    const { root, dir } = tree(Object.assign({}, files, { [rp]: JSON.stringify(r, null, 2) + '\n' }));
+    try {
+      const rl = cli(MINE, 'run', dir, 'release-notes/run-l', '--contract', '2', '--json');
+      const p = (rl.json.problems || []).filter((x) => x.path === rp);
+      same([p.length, p[0] && p[0].kind], [1, 'newer'], what + ': ' + rl.out.slice(0, 600));
+      if (!PY) continue;
+      const c = cp.spawnSync(PY, ['-I', path.join(ROOT, 'example-folder', '.flightdeck', 'skills', '_flightdeck', 'check_folder.py'), dir], { encoding: 'buffer', maxBuffer: 1 << 26 });
+      assert.strictEqual(c.status, 0, what + ': the checker: ' + String(c.stderr).slice(-600));
+      const out = c.stdout.toString('latin1');
+      assert.ok(!/[^\x00-\x7f]/.test(out), what + ': the checker writes ASCII');
+      const mine = (JSON.parse(out).runReceipts || []).filter((x) => x.run === 'release-notes/run-l');
+      /* The run named as the readers name it: its title as they keep it, then its folder. */
+      const named = (w) => String(w).split(' (release-notes/run-l): ')[0];
+      same(mine.map((x) => [x.path, x.kind, named(x.why)]), [[rp, 'newer', named(p[0].why)]], what + ': the checker: ' + JSON.stringify(mine).slice(0, 600));
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
+});
 /* CE: the shipped checker reads publication.json with the app's replacement decoder (its payload still checked over the raw
    bytes): a byte that isn't UTF-8 (FF) in a version's change note is the version the app reads, current for both. */
 rule('This version: a publication.json with a byte that isn\'t UTF-8 in its change note is current for the app and the checker alike', async () => {

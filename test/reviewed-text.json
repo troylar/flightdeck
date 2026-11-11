@@ -53,8 +53,8 @@
       "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "bb59499afc4db84edf264606ddd3a4a318c5987f0cfc97b68195096e785f756a",
-      "reviewed": "IC: run_entry parses run.json once through run_verdict.parse before reading lineage; --readers writes only its own mkdtemp folder and removes it; checked for direct writes and unconditional deletes"
+      "sha256": "d2e98c9b3c9eead315d2b4139aa886913a451a6f02a3ad1dfac650bd68388d8d",
+      "reviewed": "JC: the checker writes ASCII JSON and keeps a run's title as the readers do (100 UTF-16 units, else Untitled run); checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
       "sha256": "197779e5fb047d6137527db0211659a2db320470f3086d61b5126d6e868b0cf8",
@@ -201,8 +201,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "19f96876c2cf45ed75c60543adccd61b116728a8ea84c99c136c1969d71982b4",
-      "reviewed": "IC: run_entry parses run.json once through run_verdict.parse before reading lineage; --readers writes only its own mkdtemp folder and removes it; checked for direct writes and unconditional deletes"
+      "sha256": "e030c66a8200b329c7f834db8970bcb63f170b32427b1a4aac2aa7d6f40a572e",
+      "reviewed": "JC: the checker writes ASCII JSON and keeps a run's title as the readers do (100 UTF-16 units, else Untitled run); checked for direct writes and unconditional deletes"
     },
     "src/core/appjson.js": {
       "sha256": "98019ea60f70df332d6774d2ac26d0bbd028e95f1f76f543cbe54c89cb8cd4fe",
