@@ -20291,6 +20291,9 @@ PF.learn = (function () {
       out.owner = true; out.groups.push(gid);
       var bad = named.filter(function (m) { return unread[m]; }), gone = named.filter(function (m) { return !unread[m] && !have[m]; });
       if (!out.hold && (bad.length || gone.length)) out.hold = 'this version includes what was kept for next time, and a keep it rests on ' + (bad.length ? 'can\'t be read' : 'isn\'t in the folder') + ' (' + bad.concat(gone).slice(0, 3).map(function (m) { return 'proposals/' + m + '.json'; }).join(', ') + '), so who may publish it can\'t be told. Check Folder health, then try again.';
+      /* AC: copies of a keep it rests on that differ: which one was kept can't be told, so it holds for everyone, named. */
+      var split = named.map(function (m) { return copiesOf(R.keepFiles || R.keeps, m); }).filter(function (c) { return !c.same; })[0];
+      if (!out.hold && split) out.hold = 'this version includes what was kept for next time, and copies of a keep it rests on say different things (' + split.files.slice(0, 3).map(function (f) { return 'proposals/' + f; }).join(', ') + (split.files.length > 3 ? ' and ' + (split.files.length - 3) + ' more' : '') + '), so which one was kept can\'t be told. Remove the copy that\'s wrong, then try again.';
     });
     var kept = order.some(function (gid) { return by[gid].some(function (d) { return (d.members || []).some(function (m) { return KEEP_ID.test(m); }); }); }) ||
       keeps.some(function (k) { return k.template && k.template.process === pid; }) || Object.keys(unread).length > 0;

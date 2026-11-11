@@ -25,8 +25,8 @@
       "reviewed": "QC: spread keep's final check rereads and judges the items' checklist and rebuilds from it; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "88cff543393c2d93217a11a573a8a17fc765cae648368be2fae445a5c3dff2cf",
-      "reviewed": "AE: a supplied _sha is kept as the file wrote it and refused like _file and _bytes; checked for direct writes and unconditional deletes"
+      "sha256": "83479ee048c2ba9bf3c111db36078114cf3678f7cf81c6953dc84e794a87d97f",
+      "reviewed": "AC: differing copies of a keep kept content rests on hold Publish and Promote for everyone, named; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -257,8 +257,8 @@
       "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/learn.js": {
-      "sha256": "3f1d35b0743099a3b74eee40cef581ed09c8a9a456d25d0acfde9636984f4ba4",
-      "reviewed": "D10: cap the copy lists in keep withdrawal and copies-differ messages at 3 with how many more; checked for direct writes and unconditional deletes"
+      "sha256": "188bf1c2ee0efc1cb8d6cb3994b8d31763f20b3c35ca73020993c89a85a2d918",
+      "reviewed": "AC: differing copies of a keep kept content rests on hold Publish and Promote for everyone, named; checked for direct writes and unconditional deletes"
     },
     "src/core/library.js": {
       "sha256": "5c8555ff9b8bc67aa90ea4f556bddebbe47d17ae37e296d44b815187d776bd44",

@@ -316,6 +316,19 @@ rule('Kept content is worked out from the decisions that applied it, before any 
   assert.strictEqual(L2.keptCapWhy(K, full.slice(0, 10)), '', 'under the cap');
 });
 
+/* AC: copies of a keep that kept content rests on that differ are a named hold for everyone, the owner too. */
+rule('Kept content whose keep has copies that differ is held for everyone, naming both files', () => {
+  const H = require('./harness').load(), L2 = H.learn, C2 = H.corrections;
+  const md = ['---', 'process: p1', 'title: P', 'owner: person-morgan', '---', '', '## A · READ-DO {#a}', '- [!] {confirm} One {#one}', ''].join('\n');
+  const withKept = md.replace('- [!] {confirm} One {#one}', '- [!] {confirm} One {#one}\n- [ ] {confirm} Kept words {#kept1}');
+  const sig = C2.stepSig(H.map.parse(withKept), 'kept1'), id = 'req-keep-' + 'a'.repeat(24);
+  const dec = { kind: 'correction-decision', process: 'p1', group: 'gaaaaaaaaaaaaaaaa', status: 'applied', members: [id], result: { step: 'kept1', sig }, by: 'person-morgan', at: AT, rev: 1 };
+  const k = { kind: 'keep', id, template: { process: 'p1' }, reason: 'One', _file: id + '.json' }, k2 = Object.assign({}, k, { reason: 'Two', _file: id + ' (1).json' });
+  const K = L2.keptIn(withKept, md, { decisions: [dec], keeps: [k, k2], keepFiles: [k, k2] }, 'p1');
+  assert.ok(K.hold.indexOf(id + '.json') >= 0 && K.hold.indexOf(id + ' (1).json') >= 0 && /kept for next time/.test(K.hold), 'held, naming both: ' + K.hold);
+  assert.strictEqual(L2.keptIn(withKept, md, { decisions: [dec], keeps: [k], keepFiles: [k, Object.assign({}, k, { _file: id + ' (1).json' })] }, 'p1').hold, '', 'identical copies hold nothing');
+});
+
 /* VC: what kept content rests on comes from the decisions that applied it (applied or included, shown in the text), never
    from a decline's members: a keep withdrawn after two offline declines took the place past 500 is no dependency. */
 rule('Kept content rests only on the members of the decisions that applied it: a keep only a decline names, withdrawn since, holds nothing', () => {

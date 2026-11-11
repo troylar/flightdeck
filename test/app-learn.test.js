@@ -236,7 +236,7 @@ rule('Kept content needs its owner from durable proof read at the write: Reopen,
    and staging before that) × Publish and Promote × refreshed and cached: someone else publishes nothing; the owner publishes,
    unless a keep a readable decision names is gone or any proof can't be read (QA: held for everyone). With every trace deleted (both-deleted), the draft is
    a hand edit, which anyone may publish: the documented limit (design.md 45.3); a stage that still lists it is a trace. */
-const OA_WAYS = ['keep', 'decision', 'both-trunc', 'both-deleted', 'member', 'trunc-keep', 'trunc-decision', 'reopen', 'staged'];
+const OA_WAYS = ['keep', 'decision', 'both-trunc', 'both-deleted', 'member', 'trunc-keep', 'trunc-decision', 'reopen', 'staged', 'copy-differs'];
 rule('Lost proof never lets anyone but the owner publish kept content: every way of losing it, for Publish and Promote, refreshed or cached', async () => {
   const stage = async (app) => {
     await openPage(app); app.set('change-note', 'Post the notes'); app.click('stage-draft', 'release-notes'); await app.tick(300);
@@ -264,6 +264,8 @@ rule('Lost proof never lets anyone but the owner publish kept content: every way
     app.choose('person-avery'); await app.tick(80); await refresh(app, 300); await openPage(app);
     if (how === 'keep' || how === 'both-trunc' || how === 'both-deleted' || how === 'member') delete app.fs.files[k1];
     if (how === 'trunc-keep') cut(app, k1);
+    /* AC: a valid copy of the keep that differs (only its reason): which one was kept can't be told, so it holds. */
+    if (how === 'copy-differs') { const o = JSON.parse(app.fs.files[k1].t); o.reason = 'Another reason'; app.fs.files[k1.replace(/\.json$/, ' (1).json')] = { t: JSON.stringify(o, null, 2) + '\n', m: Date.now() }; }
     if (how === 'decision' || how === 'both-deleted' || how === 'reopen' || how === 'staged') ds.forEach(f => { delete app.fs.files[f]; });
     if (how === 'both-trunc' || how === 'trunc-decision') ds.forEach(f => cut(app, f));
     if (mode === 'refresh') { await refresh(app, 300); await openPage(app); }
@@ -279,7 +281,7 @@ rule('Lost proof never lets anyone but the owner publish kept content: every way
     assert.ok(/kept for next time/.test(txt(app.html())), label + ': said why: ' + (txt(app.html()).match(/Nothing was (published|promoted)[^.]*\.[^.]*\./) || [])[0]);
     app.choose('person-morgan'); await app.tick(80); await refresh(app, 300); await openPage(app);
     await go();
-    const held = how === 'keep' || how === 'member' || how === 'trunc-keep' || how === 'both-trunc' || how === 'trunc-decision';
+    const held = how === 'keep' || how === 'member' || how === 'trunc-keep' || how === 'both-trunc' || how === 'trunc-decision' || how === 'copy-differs';
     assert.strictEqual(versions(app), held ? n : n + 1, label + (held ? ': a keep a decision names is gone: held for the owner too' : ': the owner publishes it')); checks++;
   }
   assert.strictEqual(checks, ways.length * 2 * 2 * 2, 'the whole matrix ran');
