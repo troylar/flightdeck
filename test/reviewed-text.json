@@ -29,8 +29,8 @@
       "reviewed": "MA: one set of children seen per ending attempt, carried across guards; reads only; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
-      "sha256": "764bf0870e1d7aa572685a6b122bc7b265881989b861cedd5d3d3ffa2517c50b",
-      "reviewed": "export: a keep whose standing can't be worked out leaves the pack partial; check_pack refuses an unconfirmed claim under a complete pack; checked for direct writes and unconditional deletes"
+      "sha256": "ccfc60e224c821ca6364987da3946d9830463c6eebb86b04b2a33db1b6e76b1e",
+      "reviewed": "check_pack checks the manifest's nested shapes: scope keys, tz and days, dependency keys, receipt metadata; checked for direct writes and unconditional deletes"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",

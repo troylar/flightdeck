@@ -1552,4 +1552,80 @@ rule('A keep whose standing can\'t be worked out (its process too big to read) l
   assert.ok(!bad.ok && /claim|keep/.test(bad.out), 'Python refuses a complete claim: ' + bad.out);
 });
 
+/* MC: the manifest's nested shapes, checked before anything reads them: the scope's exact keys, each dependency named once,
+   the receipt's metadata typed and agreeing with the packed run (none while it runs; its own id and a confirmed state only
+   when the pack's receipt confirms it), and real, ordered days with each readable root started inside them in the pack's
+   time zone. */
+rule('Python refuses a scope with an extra key, in either form', async () => {
+  if (!PY) return;
+  const W = await made({ todos: 1, pending: true }), proc = W.key.split('/')[0];
+  for (const [form, made2] of [['single run', () => pack(W.PF, new BytesFS(W.files), W.key)], ['date range', () => datePack(W.PF, new BytesFS(W.files), proc)]]) {
+    const full = await made2();
+    assert.ok(checkPack(full.zip).ok, form + ' control');
+    for (const [what, edit] of [['an extra key', (sc) => { sc.extra = 42; }], ['no time zone', (sc) => { delete sc.tz; }], ['a time zone that is no zone', (sc) => { sc.tz = 'Not/AZone'; }], ['a time zone that isn\'t text', (sc) => { sc.tz = 42; }]]) {
+      const c = checkPack(await repacked(W.PF, full.zip, (e, man) => edit(man.scope)));
+      assert.ok(!c.ok && /scope|time zone/.test(c.out), form + ', ' + what + ': Python: ' + c.out);
+    }
+  }
+});
+rule('Python refuses a pack naming a run its work depends on twice, the copy first or last', async () => {
+  if (!PY) return;
+  const L = await loopMade(), full = await pack(L.PF, new BytesFS(L.files), L.key), man0 = manifestOf(full.zip);
+  assert.ok(checkPack(full.zip).ok, 'control: ' + checkPack(full.zip).out);
+  assert.ok((man0.runs[0].living.deps || []).length, 'set-up: the parent depends on a run');
+  for (const first of [true, false]) {
+    const c = checkPack(await repacked(L.PF, full.zip, (e, man) => {
+      const lv = man.runs[0].living, d = Object.assign({}, lv.deps[0], { head: 'other', chain: [] });
+      lv.deps = first ? [d].concat(lv.deps) : lv.deps.concat([d]);
+    }));
+    assert.ok(!c.ok && /twice/.test(c.out), (first ? 'first' : 'last') + ': Python: ' + c.out);
+  }
+});
+rule('Python refuses receipt metadata that isn\'t the export\'s or doesn\'t agree with the packed run, running or ended', async () => {
+  if (!PY) return;
+  const R0 = await made({ todos: 1, end: false }), run = await pack(R0.PF, new BytesFS(R0.files), R0.key);
+  assert.strictEqual(manifestOf(run.zip).runs[0].living.receipt, null, 'set-up: a running run has no receipt');
+  assert.ok(checkPack(run.zip).ok, 'running control: ' + checkPack(run.zip).out);
+  const W = await made({ todos: 1 }), ended = await pack(W.PF, new BytesFS(W.files), W.key);
+  assert.ok(checkPack(ended.zip).ok, 'ended control: ' + checkPack(ended.zip).out);
+  const id = W.run.living.receipt;
+  const cases = [
+    ['running, a fabricated confirmed receipt', run, (lv) => { lv.receipt = { id: '', state: 'confirmed', why: '' }; }],
+    ['running, a fabricated receipt with an id', run, (lv) => { lv.receipt = { id: id, state: 'confirmed', why: '' }; }],
+    ['ended, the receipt dropped', ended, (lv) => { lv.receipt = null; }],
+    ['ended, its state a list', ended, (lv) => { lv.receipt.state = []; }],
+    ['ended, a state the export never writes', ended, (lv) => { lv.receipt.state = 'fine'; }],
+    ['ended, its why a number', ended, (lv) => { lv.receipt.why = 42; }],
+    ['ended, an extra key', ended, (lv) => { lv.receipt.extra = 1; }],
+    ['ended, the receipt a list', ended, (lv) => { lv.receipt = []; }]
+  ];
+  for (const [what, base, edit] of cases) {
+    const c = checkPack(await repacked(W.PF, base.zip, (e, man) => edit(man.runs[0].living)));
+    assert.ok(!c.ok && /receipt|living section/.test(c.out), what + ': Python: ' + c.out);
+  }
+  /* A receipt the export couldn't confirm, said confirmed: the receipt deleted from the pack, everything else forced. */
+  const rp = 'proposals/' + id + '.json';
+  const lie = checkPack(await repacked(W.PF, ended.zip, (e, man, g) => { const y = g(rp); delete e[y.pack]; man.files = man.files.filter((z) => z.path !== rp); man.status = 'partial'; man.runs[0].living.complete = false; }));
+  assert.ok(!lie.ok && /receipt/.test(lie.out), 'a confirmed receipt the pack doesn\'t hold, in a partial pack: ' + lie.out);
+});
+rule('Python refuses days that aren\'t real or are out of order, and a root started outside them in the pack\'s time zone', async () => {
+  if (!PY) return;
+  const W = await made({ todos: 1, pending: true }), proc = W.key.split('/')[0], full = await datePack(W.PF, new BytesFS(W.files), proc);
+  assert.ok(checkPack(full.zip).ok, 'control: ' + checkPack(full.zip).out);
+  const created = JSON.parse(String(W.files['runs/' + W.key + '/run.json'])).created, day = (ms) => new Date(ms).toISOString().slice(0, 10), t = Date.parse(created);
+  const cases = [
+    ['February 30th', (sc) => { sc.from = '2026-02-30'; sc.through = '2026-02-30'; }],
+    ['month 13', (sc) => { sc.through = '2026-13-01'; }],
+    ['the last day before the first', (sc) => { sc.from = day(t + 86400000); sc.through = day(t - 86400000); }],
+    ['days after the run started', (sc) => { sc.from = day(t + 86400000); sc.through = day(t + 2 * 86400000); }],
+    ['days before the run started', (sc) => { sc.from = day(t - 2 * 86400000); sc.through = day(t - 86400000); }],
+    /* 14 hours ahead moves the start to another day unless it's 10:00 or later UTC; 12 hours behind, unless it's before 12:00. */
+    ['the same day in a zone where the run started on another', (sc) => { sc.tz = new Date(t).getUTCHours() < 12 ? 'Etc/GMT+12' : 'Pacific/Kiritimati'; }]
+  ];
+  for (const [what, edit] of cases) {
+    const c = checkPack(await repacked(W.PF, full.zip, (e, man) => { edit(man.scope); man.tz = man.scope.tz; }));
+    assert.ok(!c.ok && /day|date|range|started/.test(c.out), what + ': Python: ' + c.out);
+  }
+});
+
 run();

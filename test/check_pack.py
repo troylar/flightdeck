@@ -3,7 +3,7 @@ manifest.json's SHA-256 for every payload file and SHA256SUMS for payload plus m
 application chain from the packed run.json's living.head through each application's previous, and checks the receipt the run
 names says the run's work head and outcome: a pack that calls a run's work complete must hold all of it, and a pack missing
 any of it must say it is partial. Run with python3 -I."""
-import hashlib, json, os, re, sys, zipfile
+import datetime, hashlib, json, os, re, sys, zipfile, zoneinfo
 
 # The shipped checker's own record reader (Python, independent of the app): a packed receipt is read by its rules.
 # Like the shipped checker, it writes no bytecode cache beside the files it loads.
@@ -60,6 +60,42 @@ KEY = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}/[a-z0-9-]{1,40}\Z", re.I | re.A)
 DAY = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}\Z", re.A)
 RUN_FILE = re.compile(r"^runs/([^/]+)/([^/]+)/run\.json\Z")
 DEP_ROLES = ("child run", "evidence run", "fulfilled run")
+# The states PF.receipts.stateOf gives an ended living run's receipt; the manifest's living.receipt carries one.
+RECEIPT_STATES = ("confirmed", "none", "missing", "unread", "mismatch")
+
+
+def zone(tz):
+    """The time zone a pack names, or None when it isn't text or isn't a zone this computer knows."""
+    if not isinstance(tz, str) or not tz or len(tz) > 64:
+        return None
+    try:
+        return zoneinfo.ZoneInfo(tz)
+    except (ValueError, zoneinfo.ZoneInfoNotFoundError, OSError):
+        return None
+
+
+def real_day(s):
+    """A day the export accepts (E.day): YYYY-MM-DD that a calendar has."""
+    if not isinstance(s, str) or not DAY.match(s):
+        return False
+    try:
+        datetime.date.fromisoformat(s)
+        return True
+    except ValueError:
+        return False
+
+
+def started_day(created, tz):
+    """The day a clock in tz showed when a run started (E.inRange's localDay), or None when its created can't be read."""
+    if not isinstance(created, str):
+        return None
+    try:
+        t = datetime.datetime.fromisoformat(created)
+    except ValueError:
+        return None
+    if t.tzinfo is None:
+        return None
+    return t.astimezone(tz).date().isoformat()
 
 
 def obj(x):
@@ -88,12 +124,22 @@ def manifest_problem(man):
     sc = man.get("scope")
     if not isinstance(sc, dict):
         return "its scope isn't an object"
+    # Exactly the export's keys in either form (MC): {run, tz} or {process, from, through, tz}.
     if "run" in sc:
-        if any(k in sc for k in ("process", "from", "through")) or not isinstance(sc["run"], str) or not KEY.match(sc["run"]):
-            return "its scope isn't a run's key"
-    elif not (isinstance(sc.get("process"), str) and KEY.match(sc["process"] + "/x") and isinstance(sc.get("from"), str) and DAY.match(sc["from"])
-              and isinstance(sc.get("through"), str) and DAY.match(sc["through"])):
-        return "its scope is neither a run nor a process with a date range"
+        if set(sc) != {"run", "tz"} or not isinstance(sc["run"], str) or not KEY.match(sc["run"]):
+            return "its scope isn't a run's key and a time zone, and only those"
+    elif not (set(sc) == {"process", "from", "through", "tz"} and isinstance(sc.get("process"), str) and KEY.match(sc["process"] + "/x")
+              and isinstance(sc.get("from"), str) and DAY.match(sc["from"]) and isinstance(sc.get("through"), str) and DAY.match(sc["through"])):
+        return "its scope is neither a run nor a process with a date range and a time zone, and only those"
+    if zone(sc["tz"]) is None:
+        return "its scope's time zone isn't one this computer knows"
+    if "tz" in man and man["tz"] != sc["tz"]:
+        return "its time zone isn't its scope's"
+    if "process" in sc:
+        if not real_day(sc["from"]) or not real_day(sc["through"]):
+            return "a day in its scope isn't a real date"
+        if sc["from"] > sc["through"]:
+            return "its scope's first day (" + sc["from"] + ") is after its last day (" + sc["through"] + ")"
     paths, packs = set(), set()
     for f in man["files"]:
         if not isinstance(f, dict) or not all(isinstance(f.get(k), str) for k in ("pack", "path", "sha256", "role")):
@@ -130,10 +176,18 @@ def manifest_problem(man):
                 and (lv.get("receipt") is None or isinstance(lv["receipt"], dict)) and isinstance(lv.get("deps", []), list)
                 and isinstance(lv.get("missing", []), list)):
             return "the living section of " + r["key"] + " isn't the export's"
+        rc = lv.get("receipt")
+        if rc is not None and not (set(rc) == {"id", "state", "why"} and isinstance(rc["id"], str) and isinstance(rc["state"], str)
+                                   and rc["state"] in RECEIPT_STATES and isinstance(rc["why"], str)):
+            return "the receipt the living section of " + r["key"] + " names isn't the export's: an id, one of its states and a why"
+        deps_seen = set()
         for d in lv.get("deps", []):
             if not (isinstance(d, dict) and isinstance(d.get("key"), str) and KEY.match(d["key"]) and isinstance(d.get("head", ""), str)
                     and isinstance(d.get("chain", []), list)):
                 return "a run the work of " + r["key"] + " depends on isn't named as the export names it"
+            if d["key"] in deps_seen:
+                return "the living section of " + r["key"] + " names " + d["key"] + ", a run its work depends on, twice"
+            deps_seen.add(d["key"])
             named.add(d["key"])
     if "run" in sc:
         if keys != [sc["run"]]:
@@ -421,6 +475,7 @@ def check_living(z, man):
             closed = walk()
         receipt = own.get("receipt")
         good_receipt = True
+        own_ok[0] = False
         if receipt:
             rec = wit(receipt)
             ended = obj(run.get("ended"))
@@ -437,6 +492,7 @@ def check_living(z, man):
                     except ValueError:
                         return False
                 good_receipt = bool(paths) and all(whole(p) for p in paths)
+            own_ok[0] = good_receipt
             # Every record it names as seen (pending requests included) is in the pack, and what each of those saw, in turn.
             if good_receipt:
                 for x in arr(rec.get("seen")):
@@ -451,6 +507,10 @@ def check_living(z, man):
                 saw(rec)
                 good_receipt = walk()
         return whole, chain, closed, good_receipt, copies[0]
+
+    # Whether the last run check_run read has a receipt record of its own that says what it ended with, read whole (what
+    # PF.receipts.stateOf calls confirmed), apart from what the receipt saw.
+    own_ok = [False]
 
     def depends_on(run):
         """The runs a run's work depends on, found in the pack on their own: packed runs naming it as their loop's parent, and
@@ -614,6 +674,15 @@ def check_living(z, man):
             sys.exit("living: " + r["key"] + "'s run.json isn't one every reader reads (" + ru[0] + ": " + ru[1] + "), but the pack doesn't say it is partial")
         if lv and not lv.get("complete") and man["status"] != "partial":
             sys.exit("living: " + r["key"] + " is missing some of its work, but the pack doesn't say it is partial")
+        # A date-range pack holds runs started on its days, by the clock in its time zone (MC); one whose start can't be
+        # read is included undated, and the pack says partial.
+        sc = man["scope"]
+        if "process" in sc and not ru:
+            sd = started_day(packed("runs/" + r["key"] + "/run.json").get("created"), zone(sc["tz"]))
+            if sd is None and man["status"] != "partial":
+                sys.exit("scope: when " + r["key"] + " started can't be read, but the pack doesn't say it is partial")
+            if sd is not None and not (sc["from"] <= sd <= sc["through"]):
+                sys.exit("scope: " + r["key"] + " started on " + sd + " (" + sc["tz"] + "), outside the pack's days " + sc["from"] + " through " + sc["through"])
         if not lv:
             if has_work(r["key"]):
                 sys.exit("living: " + r["key"] + " has work its packed originals name (a work head, a receipt or a to-do record), but the manifest has no living section for it")
@@ -627,6 +696,18 @@ def check_living(z, man):
             continue
         run = packed("runs/" + r["key"] + "/run.json")
         head = obj(run.get("living")).get("head", "")
+        # The receipt metadata agrees with the run (MC): an ended living run has one, under its run.json's id ('' and none
+        # when it ended without one); a running run has none; confirmed only when the packed receipt says what it ended with.
+        rl, rc = obj(run.get("living")), lv.get("receipt")
+        is_ended = isinstance(run.get("living"), dict) and isinstance(run.get("ended"), dict)
+        if is_ended != (rc is not None):
+            sys.exit("living: " + r["key"] + (" has ended, but the manifest names no receipt for it" if is_ended else " hasn't ended, but the manifest names a receipt for it"))
+        if rc is not None:
+            rid = rl.get("receipt") if isinstance(rl.get("receipt"), str) else ""
+            if rc["id"] != rid or (rc["state"] == "none") != (rid == ""):
+                sys.exit("living: " + r["key"] + "'s receipt in the manifest isn't the one its run.json names")
+            if man["status"] == "complete" and rc["state"] not in ("confirmed", "none"):
+                sys.exit("living: " + r["key"] + "'s receipt is " + rc["state"] + ", but the pack says it's complete")
         reached.clear()
         plans_wanted.clear()
         facts_wanted.clear()
@@ -636,6 +717,8 @@ def check_living(z, man):
         if own_receipt and obj(lv.get("receipt")).get("id") != own_receipt:
             sys.exit("living: " + r["key"] + " names another receipt than its run.json")
         whole, chain, closed, good_receipt, copies = check_run(run)
+        if rc is not None and rc["state"] == "confirmed" and not own_ok[0]:
+            sys.exit("living: " + r["key"] + "'s receipt is said to be confirmed, but the receipt in the pack doesn't say what it ended with")
         if not lv.get("complete"):
             if man["status"] != "partial":
                 sys.exit("living: " + r["key"] + " is missing some of its work, but the pack doesn't say it is partial")
