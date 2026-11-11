@@ -263,7 +263,8 @@ rule('A receipt with more than one damaged field, or at a limit, is refused by t
     edit('keeps twice, by bad', (c) => { c.keeps = ['req-keep-' + '0'.repeat(24), 'req-keep-' + '0'.repeat(24)]; c.by = 'a b'; });
     edit('keeps bad id', (c) => { c.keeps = ['keep-1']; });
     edit('id moved', (c) => { c.outcome = c.outcome === 'Completed' ? 'Cancelled' : 'Completed'; });
-    edit('by moved only', (c) => { c.by = 'person-morgan'; c.at = '2026-11-10T00:00:00Z'; });
+    edit('by moved only', (c) => { c.by = 'person-morgan'; });
+    edit('at moved only', (c) => { c.at = '2026-11-10T00:00:00Z'; });
     edit('unknown field', (c) => { c.extra = 1; c['10'] = 2; });
   });
   const pyOut = JSON.parse(cp.execFileSync(py, ['-I', '-B', '-c', DRIVER, DIR], { input: JSON.stringify(cases), encoding: 'utf8', maxBuffer: 64 * 1048576 }));
@@ -273,7 +274,9 @@ rule('A receipt with more than one damaged field, or at a limit, is refused by t
     if (j !== p) off.push(c.label + ' · app: ' + (j || 'reads it') + ' · checker: ' + (p || 'reads it'));
   });
   assert.deepStrictEqual(off, [], off.length + ' first reasons differ');
-  assert.ok(cases.some((c) => /by moved only/.test(c.label) && !jsRefuses(c)), 'who and when never change its id');
+  /* TC: when never changes its id; who does (a receipt is the person's who ended the run). */
+  assert.ok(cases.some((c) => /at moved only/.test(c.label) && !jsRefuses(c)), 'when never changes its id');
+  assert.ok(cases.some((c) => /by moved only/.test(c.label) && /who ended it/.test(jsRefuses(c) || '')), 'who does');
   assert.ok(cases.some((c) => /id moved/.test(c.label) && /Its id isn't/.test(jsRefuses(c))), 'what it says does');
 });
 rule('A keep with more than one damaged field is refused by the checker for the same field first as the app', () => {
