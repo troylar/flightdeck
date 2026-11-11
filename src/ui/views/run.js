@@ -697,6 +697,8 @@
         return out;
       } });
   }
+  /* A keep a tool filed is the tool's, whatever it is called, never a person's. */
+  function whoOf(ctx, m) { return m.byKind === 'tool' ? m.by + ' (a tool)' : nameOf(ctx, m.by); }
   function provenance(ctx, r, map, st, g, shown) {
     var c = g.first, d = g.decision, ch = g.change, disc = 'prov:' + g.id, open = !!(ctx.state.disc && ctx.state.disc[disc]);
     var pm = function (x) { PF.perf.add('prov.member'); return 'pm-' + st.id + '-' + x.k; };
@@ -707,10 +709,10 @@
       if (g.from && ch.op !== 'add') dl += '<dt>Before</dt><dd>' + esc(g.from) + '</dd>';
       var prop = C.proposal(c, map); if (prop) dl += '<dt>' + (ch.op === 'describe' || ch.op === 'screenshot' ? 'Change' : 'After') + '</dt><dd>' + esc(ch.op === 'add' ? 'Added' + (g.from ? ' after "' + g.from + '"' : '') + ': ' + st.text : prop) + '</dd>';
     }
-    shown.forEach(function (x) { var m = x.m; if (m.why) dl += '<dt id="' + esc(x.id) + '" tabindex="-1">' + (ch.op === 'describe' ? 'Problem' : 'Why') + ' · ' + esc(nameOf(ctx, m.by)) + '</dt><dd>' + esc(m.why) + '</dd>'; });
+    shown.forEach(function (x) { var m = x.m; if (m.why) dl += '<dt id="' + esc(x.id) + '" tabindex="-1">' + (ch.op === 'describe' ? 'Problem' : 'Why') + ' · ' + esc(whoOf(ctx, m)) + '</dt><dd>' + esc(m.why) + '</dd>'; });
     var runs = '<p class="small prov-runs">Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + ': ' + shown.map(function (x) {
       var m = x.m;
-      return '<button class="linkish" id="' + esc(x.id) + '-run" data-act="open-run" data-id="' + esc(m.process + '/' + m.run) + '">' + esc(m.runTitle) + '</button> (' + esc(nameOf(ctx, m.by)) + ', ' + (m.test ? 'test run, staged v' : 'v') + esc(m.version) + ')';
+      return '<button class="linkish" id="' + esc(x.id) + '-run" data-act="open-run" data-id="' + esc(m.keep && m.runKey ? m.runKey : m.process + '/' + m.run) + '">' + esc(m.runTitle) + '</button> (' + esc(whoOf(ctx, m)) + ', ' + (m.test ? 'test run, staged v' : 'v') + esc(m.version) + ')';
     }).join(', ') + (shown.length < g.members.length ? ', and ' + (g.members.length - shown.length).toLocaleString('en-US') + ' more' : '') + '</p>';
     var who = d && d.by ? '<p class="small">' + (d.status === 'included' ? esc(nameOf(ctx, d.by)) + ' said v' + esc(d.version) + ' has it' : 'Applied by ' + esc(nameOf(ctx, d.by))) + (d.at ? ' ' + esc(U.day(d.at)) : '') + '.</p>' : '';
     return '<div class="prov"><span class="badge b-changed">Changed in v' + esc(g.landed.version) + '</span><details class="prov-why" data-disc="' + esc(disc) + '"' + (open ? ' open' : '') + '><summary class="small">Why is this here?</summary>' +

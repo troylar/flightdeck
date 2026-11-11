@@ -1323,6 +1323,20 @@ function landedSetup(o) {
   return { ctx, state, p, g, r1, r2, v1, v2 };
 }
 
+/* PE: a keep in Why is this here? links the run it was kept from (its own process, never the version's) and names a tool
+   that kept it as a tool, whatever it is called. */
+rule('Why is this here? links a keep to the run it came from and names a tool that kept it as a tool', () => {
+  const { ctx, state, r2 } = landedSetup();
+  const base = (pid) => C.forProcess(ctx.data.runs, pid, ctx.data.corrDecisions, ctx.processes().filter((x) => x.id === pid)[0]);
+  ctx.corrections = (pid) => { const gs = base(pid); gs.forEach((g) => g.members.forEach((m) => { if (m.change && m.change.op === 'wording') Object.assign(m, { keep: true, run: 'r-41', runKey: 'qa-checks/r-41', by: 'person-avery', byKind: 'tool' }); })); return gs; };
+  state.view = 'run'; ctx.run = () => r2; state.sel = 'approved';
+  const ins = insOf(V.run(ctx));
+  assert.ok(/data-act="open-run" data-id="qa-checks\/r-41"/.test(ins) && !/data-id="release\/r-41"/.test(ins), 'the source run: ' + (ins.match(/data-act="open-run" data-id="[^"]*"/g) || []).join(' '));
+  assert.ok(/Why · person-avery \(a tool\)<\/dt>/.test(ins), 'the reason names the tool');
+  assert.ok(/\(person-avery \(a tool\), v1\)/.test(ins), 'the run names the tool');
+  assert.ok(!/Avery Lee \(|Why · Avery Lee/.test(ins), 'never as the person');
+});
+
 rule('Publishing says how many corrections the version includes, and names applied ones left out because they changed since', () => {
   const { ctx, state, p, g } = landedSetup({ unpublished: true });
   state.view = 'process'; state.processId = 'release'; state.me = 'person-blake';
