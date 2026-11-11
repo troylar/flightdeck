@@ -403,5 +403,32 @@ async function suspension(o, how, changes, shard) {
   return { cells, applicable, required, limit, points: points.length, todo: todo.length, off };
 }
 module.exports.suspension = suspension;
+/* Round 15 (SD): the guard's first read never settles. Past the guard's deadline (waitMs, real time) the approval has
+   refused: nothing written or removed, the click (or Try again) offered again, a recovery's source kept. The read then
+   answers late, and still nothing is written. Returns what was off. */
+async function stalled(o, how, waitMs) {
+  const P = PATHS[how], tpl = await template(o, P), { app, why } = await opened(tpl, P);
+  if (why) return [how + ': set-up: ' + why];
+  if (P.pre) await P.pre(app);
+  const w = guardWatch(app, namer(app, o.kid(app))), hold = gate(), late = [], off = [];
+  let hit = false;
+  w.st.hook = () => (!hit ? (hit = true, hold.p) : null);
+  const write = app.fs.write, remove = app.fs.remove;
+  app.fs.write = function (q) { if (hit) late.push(q); return write.apply(app.fs, arguments); };
+  app.fs.remove = function (q) { if (hit) late.push('-' + q); return remove.apply(app.fs, arguments); };
+  await P.go(app); await app.tick(80);
+  for (let t = 0; t < 40 && !hit; t++) await app.tick(50);
+  if (!hit) { hold.open(); w.off(); return [how + ': set-up: never reached the guard']; }
+  await new Promise(res => setTimeout(res, waitMs)); await app.tick(100);
+  if (late.length) off.push(how + ': written while the read hung: ' + JSON.stringify(late));
+  const again = /data-act="(retry-save|pass|waive|loop-approve|use-copy|restore-local)"/.exec(app.html());
+  if (!again) off.push(how + ': past the deadline, neither the click nor Try again is offered');
+  if (P.kept && !P.kept(app)) off.push(how + ': the recovery source was removed');
+  hold.open(); await quiet(app, w);
+  if (late.length) off.push(how + ': written once the read answered late: ' + JSON.stringify(late));
+  w.off();
+  return off;
+}
+module.exports.stalled = stalled;
 module.exports.HOLD_PATHS = Object.keys(PATHS);
 module.exports.HOLD_CHANGES = Object.keys(CHANGES);

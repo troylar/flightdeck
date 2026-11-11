@@ -1194,4 +1194,9 @@ for (const how of BB.HOLD_PATHS) for (const ch of HA_CHANGES) rule('HA: ' + how 
   console.log('HA cells · a plain loop · ' + how + ' · ' + ch + ' · ran ' + r.applicable + ' of ' + r.cells + ' cells, none left out (' + r.required + ' judged, ' + r.limit + ' at the stated limit)');
   assert.deepStrictEqual(r.off, []);
 });
+/* Round 15 (SD): a read inside the approval guard that never settles refuses at the guard's deadline, offers the click or
+   Try again again, keeps a recovery's source, and its late answer writes nothing. (Waits out the deadline in real time.) */
+for (const how of ['Pass', 'Use copy']) rule('SD: ' + how + ' on a plain loop whose guard read never settles refuses at the deadline and ignores the late answer', async () => {
+  assert.deepStrictEqual(await BB.stalled(bbLoop, how, 16000), []);
+});
 run();
