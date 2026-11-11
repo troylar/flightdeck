@@ -3229,7 +3229,10 @@ PF.repo = (function () {
        again and compare (recheck), so what arrived in proposals/, beside a dependency run or among a loop's children after its
        read is a change, never missed. */
     /* Every run discovery read (a loop child, kept or left out as another parent's), by the SHA-256 of the bytes read. */
-    var seenHashes = Object.create(null), rawOf = Object.create(null), rawKept = Object.create(null);
+    var seenHashes = Object.create(null), rawOf = Object.create(null), rawKept = Object.create(null), rawDiff = Object.create(null);
+    /* The first read of a path is its baseline, never replaced: a later read with other bytes (a version two runs pin, read
+       for each) is a change, named at the end, so no verdict rests on bytes another one didn't see. */
+    function rawSeen(p, hash) { if (p in rawOf && rawOf[p] !== hash) rawDiff[p] = true; else if (!(p in rawOf)) rawOf[p] = hash; rawKept[hash] = true; }
     /* A file's raw bytes and their SHA-256 (noted in rawOf by path). n: the size its stat gave. */
     function rawBytes(p, n) {
       return ro.blob(p).then(function (b) {
@@ -3241,7 +3244,7 @@ PF.repo = (function () {
           shut();
           var u = new Uint8Array(ab);
           if (u.length > n) throw new Error(p + ' grew past the ' + E.size(n) + ' reserved for it while it was read, so it wasn\'t read');
-          var h = S.create(); h.update(u); var hash = h.digest(); rawOf[p] = hash; rawKept[hash] = true;
+          var h = S.create(); h.update(u); var hash = h.digest(); rawSeen(p, hash);
           return { u: u, hash: hash };
         }, function (e) { shut(); throw e; });
       });
@@ -3263,7 +3266,7 @@ PF.repo = (function () {
             if (!b) { retained.now -= n; return null; }
             /* Its raw SHA-256 kept (rawOf), as for a record: a screenshot that verified a version is read again at the end too. */
             var shut = function () { if (b.close) b.close(); };
-            var whole = function () { return b.slice(0, n + 1).arrayBuffer().then(function (ab) { shut(); if (ab.byteLength > n) throw new Error(p + ' grew past the ' + E.size(n) + ' reserved for it while it was read, so it wasn\'t read'); var h = S.create(); h.update(new Uint8Array(ab)); var hash = h.digest(); rawOf[p] = hash; rawKept[hash] = true; return ab; }, function (e) { shut(); throw e; }); };
+            var whole = function () { return b.slice(0, n + 1).arrayBuffer().then(function (ab) { shut(); if (ab.byteLength > n) throw new Error(p + ' grew past the ' + E.size(n) + ' reserved for it while it was read, so it wasn\'t read'); var h = S.create(); h.update(new Uint8Array(ab)); rawSeen(p, h.digest()); return ab; }, function (e) { shut(); throw e; }); };
             return { size: Math.min(b.size, n), type: b.type, lastModified: b.lastModified, slice: function (a, z) { return b.slice(a, Math.min(z == null ? n : z, n)); }, arrayBuffer: whole,
               text: function () { return whole().then(function (ab) { return new TextDecoder('utf-8').decode(ab); }); }, close: shut };
           }, function (e) { retained.now -= n; throw e; });
@@ -3459,6 +3462,7 @@ PF.repo = (function () {
                discovery read, one it left out included, is read again and compared by its SHA-256. */
             if (!p.discovery) return;
             var D0 = p.discovery;
+            Object.keys(rawDiff).sort().forEach(function (rp) { note(rp, rp + ' changed between two of its reads', p.key); });
             /* Every proposals/ original it read, one it left out (another run's) included, by its SHA-256 too. */
             var was = Object.create(null);
             Object.keys(D0.hashes).forEach(function (rp) { was[rp] = D0.hashes[rp]; });
@@ -3650,7 +3654,7 @@ PF.repo = (function () {
           attempt++;
           paths.forEach(function (pth) { forget(pth); delete decHash[pth]; });
           Object.keys(rc.runs).forEach(function (k) { var base = 'runs/' + k + '/'; Object.keys(done).forEach(function (pth) { if (pth.indexOf(base) === 0) forget(pth); }); });
-          procCache = {}; decHash = {}; propsOnce = null; recHashes = Object.create(null); lists = Object.create(null); seenHashes = Object.create(null); rawOf = Object.create(null);
+          procCache = {}; decHash = {}; propsOnce = null; recHashes = Object.create(null); lists = Object.create(null); seenHashes = Object.create(null); rawOf = Object.create(null); rawDiff = Object.create(null);
           /* Every attempt starts as the first did: sizes and the cap checked before anything new is read. */
           return preEstimate(keysAll).then(function () { return planAll(keysAll); }).then(fullEstimate).then(round);
         });

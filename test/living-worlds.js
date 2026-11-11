@@ -86,7 +86,9 @@ async function loopMade(o) {
   app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
   app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(150);
-  const pPath = app.files('runs/release-readiness/').find(p => /run\.json$/.test(p)), kPath = app.files('runs/validate-story/').find(p => /run\.json$/.test(p));
+  /* o.kids: a second story run of the same version, started before the first gets its to-do. */
+  if (o.kids > 1) { app.click('open-run', app.files('runs/release-readiness/').map(p => JSON.parse(app.fs.files[p].t)).map(r => r.process + '/' + r.id)[0]); await app.tick(80); app.set('loop-add-each', 'ABC-102'); app.click('loop-add', 'each'); await app.tick(150); app.click('loop-start', 'each', { item: 'ABC-102' }); await app.tick(150); }
+  const pPath = app.files('runs/release-readiness/').find(p => /run\.json$/.test(p)), kPath = app.files('runs/validate-story/').filter(p => /run\.json$/.test(p)).find(p => JSON.parse(app.fs.files[p].t).parent.item === 'ABC-101' || /ABC-101/.test(app.fs.files[p].t));
   assert.ok(pPath && kPath, 'set-up: a parent and a story run');
   const P0 = JSON.parse(app.fs.files[pPath].t), K0 = JSON.parse(app.fs.files[kPath].t);
   for (const [r, text] of [[K0, 'Check the story'], [P0, 'Post the release notes']]) {

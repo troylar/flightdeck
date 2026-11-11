@@ -1007,4 +1007,22 @@ rule('A child folder listed and then gone before it is read is unread, named mis
   const u = out.unread.filter((x) => x.path === 'runs/' + W.kid.process + '/new-child/run.json')[0];
   assert.ok(u && u.kind === 'missing', JSON.stringify(out.unread));
 });
+/* ZC: a path's first read is its baseline: two child runs pinning one version, its screenshot and record replaced (to match
+   each other) between their verifications, never export complete on the first verdict's bytes. */
+rule('A version two child runs pin, replaced between their two verifications (screenshot and record together), never exports complete', async () => {
+  const W = await loopMade({ shot: true, kids: 2 }), kids = Object.keys(W.files).filter((p) => /^runs\/validate-story\/[^/]+\/run\.json$/.test(p));
+  assert.strictEqual(kids.length, 2, 'set-up: two story runs');
+  const shot = Object.keys(W.files).filter((p) => /images\/shot\.png$/.test(p))[0], pub = shot.replace('images/shot.png', 'publication.json');
+  const other = Buffer.from(SHOT); other[other.length - 1] ^= 0x01;
+  const info = JSON.parse(String(W.files[pub]));
+  info.images['images/shot.png'] = W.PF.util.hash(other.toString('latin1'));
+  if (info.payload) info.payload.images['images/shot.png'] = sha(other);
+  const pub2 = Buffer.from(JSON.stringify(info, null, 2));
+  /* The second run's reads (each the second of its path) see the new record and screenshot; the first run's saw the old. */
+  let n = 0, m = 0;
+  const fsx = new BytesFS(W.files, { hooks: { blob: (p, x) => { if (p === pub && ++m === 2) x.files.set(pub, pub2); if (p === shot && ++n === 2) x.files.set(shot, other); } } });
+  const { res } = await pack(W.PF, fsx, W.key);
+  assert.ok(n >= 2 && m >= 2, 'set-up: the record and screenshot were read for each run (' + m + ', ' + n + ')');
+  assert.ok(!(res.status === 'complete' && res.col.attempts === 1), 'complete on the first attempt: ' + JSON.stringify(res.col.unresolved));
+});
 run();
