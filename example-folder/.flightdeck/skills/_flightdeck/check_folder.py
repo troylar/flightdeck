@@ -2525,8 +2525,8 @@ def receipt_why(o, name):
         rec["keeps"] = list(ks)
     if not errors:
         body = {"head": rec["head"], "outcome": rec["outcome"], "seen": rec["seen"], "counts": rec["counts"], "coverage": rec["coverage"], "evidence": rec["evidence"], "keeps": rec["keeps"]}
-        if o["id"] != "req-receipt-" + _thash(["receipt", rec["run"]["process"], rec["run"]["id"], _tsha(body)], 24):
-            err("Its id isn't the one its run and what it says give.")
+        if o["id"] != "req-receipt-" + _thash(["receipt", rec["run"]["process"], rec["run"]["id"], o["by"], _tsha(body)], 24):
+            err("Its id isn't the one its run, who ended it and what it says give.")
     return "is a receipt that isn't in its format: " + errors[0] if errors else ""
 
 
@@ -4341,6 +4341,8 @@ def receipt_verdict(text, read, unread):
         return {"state": "mismatch", "path": path, "kind": "malformed", "why": "Its receipt (" + rid + ") is another run's."}
     if rec.get("head") != lv["head"] or rec.get("outcome") != r["ended"].get("outcome"):
         return {"state": "mismatch", "path": path, "kind": "malformed", "why": "Its receipt (" + rid + ") doesn't say what the run ended with (its work head or outcome differs)."}
+    if rec.get("by") != r["ended"].get("by"):
+        return {"state": "mismatch", "path": path, "kind": "malformed", "why": "Its receipt (" + rid + ") was written by another person than the one who ended the run."}
     return {"state": "confirmed", "path": path, "kind": "", "why": ""}
 
 

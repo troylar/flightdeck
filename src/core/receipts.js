@@ -127,14 +127,14 @@ PF.receipts = (function () {
   /* The keeps (corrections kept for next time) filed on the run: their ids. */
   function keepsOf(records, r) { return (records || []).filter(function (x) { return x && x.kind === 'keep' && x.run && x.run.process === r.process && x.run.id === r.id; }).map(function (x) { return x.id; }).filter(function (id, i, a) { return a.indexOf(id) === i; }).sort(cmpStr); }
   function bodyOf(b) { return { head: b.head, outcome: b.outcome, seen: b.seen, counts: b.counts, coverage: b.coverage, evidence: b.evidence, keeps: b.keeps }; }
-  /* A receipt is named by its run and what it says, never who or when: preparing it again on the run as it stands is the same
-     file, and anything that changed since is another. */
-  function idFor(run, b) { return 'req-receipt-' + PF.sha256.hex(JSON.stringify(['receipt', run.process, run.id, PF.todos.fingerprint(bodyOf(b))])).slice(0, 24); }
+  /* A receipt is named by its run, who ended it and what it says, never when: the same person preparing it again on the run
+     as it stands is the same file, and another person, or anything that changed since, is another. */
+  function idFor(run, b, by) { return 'req-receipt-' + PF.sha256.hex(JSON.stringify(['receipt', run.process, run.id, String(by || ''), PF.todos.fingerprint(bodyOf(b))])).slice(0, 24); }
   function build(o) {
     var f = { format: PF.todos.FORMAT, features: [PF.todos.FEATURE] };
     if (PF.envelope.semver(o.app)) f.app = o.app;
     var b = bodyOf(o);
-    f.kind = 'receipt'; f.id = idFor(o.run, b); f.run = { process: o.run.process, id: o.run.id }; f.seen = b.seen.slice(); f.by = o.by; f.at = o.at;
+    f.kind = 'receipt'; f.id = idFor(o.run, b, o.by); f.run = { process: o.run.process, id: o.run.id }; f.seen = b.seen.slice(); f.by = o.by; f.at = o.at;
     f.outcome = b.outcome; f.head = b.head; f.counts = b.counts; f.coverage = b.coverage; f.evidence = b.evidence; f.keeps = b.keeps;
     return f;
   }
@@ -209,7 +209,7 @@ PF.receipts = (function () {
     if (!Array.isArray(o.keeps) || o.keeps.length > LIMITS.refs || !o.keeps.every(function (x) { return typeof x === 'string' && REQ.test(x); })) errors.push('"keeps" is a list of at most ' + LIMITS.refs + ' keep ids.');
     else if (o.keeps.some(function (x, i) { return o.keeps.indexOf(x) !== i; })) errors.push('"keeps" names a keep twice.');
     else rec.keeps = o.keeps.slice();
-    if (!errors.length && o.id !== idFor(rec.run, rec)) errors.push('Its id isn\'t the one its run and what it says give.');
+    if (!errors.length && o.id !== idFor(rec.run, rec, o.by)) errors.push('Its id isn\'t the one its run, who ended it and what it says give.');
     if (errors.length) return mal('is a receipt that isn\'t in its format: ' + errors[0]);
     return { ok: true, record: rec };
   }
@@ -263,6 +263,7 @@ PF.receipts = (function () {
     if (mine.some(function (x) { return JSON.stringify(PF.todos.fingerprint(bodyOf(x))) !== JSON.stringify(PF.todos.fingerprint(bodyOf(rec))); })) return { state: 'mismatch', why: 'Its receipt (' + id + ') has two different copies in the folder.', path: path, kind: 'malformed', record: null };
     if (!rec.run || rec.run.process !== r.process || rec.run.id !== r.id) return { state: 'mismatch', why: 'Its receipt (' + id + ') is another run\'s.', path: path, kind: 'malformed', record: null };
     if (rec.head !== r.living.head || rec.outcome !== r.ended.outcome) return { state: 'mismatch', why: 'Its receipt (' + id + ') doesn\'t say what the run ended with (its work head or outcome differs).', path: path, kind: 'malformed', record: null };
+    if (!rec.by || rec.by.person !== r.ended.by) return { state: 'mismatch', why: 'Its receipt (' + id + ') was written by another person than the one who ended the run.', path: path, kind: 'malformed', record: null };
     return { state: 'confirmed', why: '', path: path, kind: '', record: rec };
   }
 

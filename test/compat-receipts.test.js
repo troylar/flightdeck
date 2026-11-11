@@ -88,7 +88,8 @@ rule('This version: run, next, runs and todo list name the same receipt problem 
   const cases = [['missing', (dir) => fs.unlinkSync(path.join(dir, 'proposals', receipt)), 'nofile'],
     ['mismatch', (dir) => edit(dir, 'runs/release-notes/run-l/run.json', (r) => { r.ended.outcome = 'Stopped early'; r.state = 'stopped'; }), 'malformed'],
     ['head', (dir) => edit(dir, 'proposals/' + receipt, (o) => { o.head = 'req-flightdeck-' + 'e'.repeat(24); }), 'malformed'],
-    ['another run', (dir) => edit(dir, 'proposals/' + receipt, (o) => { o.run.id = 'run-q'; }), 'malformed']];
+    ['another run', (dir) => edit(dir, 'proposals/' + receipt, (o) => { o.run.id = 'run-q'; }), 'malformed'],
+    ['another person', (dir) => edit(dir, 'runs/release-notes/run-l/run.json', (r) => { r.ended.by = r.ended.by === 'person-blake' ? 'person-avery' : 'person-blake'; }), 'malformed']];
   /* ID: a named receipt every reader refuses is unread and malformed, with the same first reason, whatever it holds. */
   const put = (text) => (dir) => fs.writeFileSync(path.join(dir, 'proposals', receipt), text);
   [['empty', ''], ['null', 'null'], ['a list', '[]'], ['a number', '5'], ['broken JSON', '{ broken'], ['too deep', '{"a":'.repeat(65) + '1' + '}'.repeat(65)]]

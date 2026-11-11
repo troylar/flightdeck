@@ -809,5 +809,17 @@ rule('A keep the receipt names is in the closure: deleted, the export is partial
   assert.ok(checkPack(full.zip).ok, 'the control holds');
   const bad = checkPack(await repacked(W.PF, full.zip, (e, man, g) => { const y = g(kp); delete e[y.pack]; man.files = man.files.filter((z) => z.path !== kp); }));
   assert.ok(!bad.ok && /receipt/.test(bad.out), 'Python refuses it: ' + bad.out);
+});/* TC: the receipt is the one the person who ended the run wrote: a run.json naming another person is a mismatch, in the
+   export and in Python. */
+rule('A run whose ended.by isn\'t its receipt\'s by leaves the pack partial, and Python refuses a complete claim', async () => {
+  const W = await made({ todos: 1 }), r = JSON.parse(W.files[W.runPath]);
+  r.ended.by = r.ended.by === 'person-blake' ? 'person-avery' : 'person-blake';
+  const files = Object.assign({}, W.files, { [W.runPath]: JSON.stringify(r, null, 2) }), rp = 'proposals/' + W.run.living.receipt + '.json';
+  const { res, zip } = await pack(W.PF, new BytesFS(files), W.key);
+  assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(W.run.living.receipt) >= 0), res.status + ' ' + JSON.stringify(res.col.unresolved));
+  if (!PY) return;
+  const bad = checkPack(await repacked(W.PF, zip, (e, man) => forced(man)));
+  assert.ok(!bad.ok && /receipt/.test(bad.out), 'Python refuses it: ' + bad.out);
+  assert.ok(rp);
 });
 run();

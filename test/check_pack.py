@@ -232,7 +232,7 @@ def check_living(z, man):
             rec = wit(receipt)
             ended = run.get("ended") or {}
             good_receipt = (rec is not None and rec.get("kind") == "receipt" and rec.get("id") == receipt and rec.get("head") == head
-                            and rec.get("outcome") == ended.get("outcome") and rec.get("run") == me)
+                            and rec.get("outcome") == ended.get("outcome") and rec.get("by") == ended.get("by") and rec.get("run") == me)
             # Read as the shipped checker reads it: its format, limits and the id its content gives.
             if good_receipt:
                 path = [p for p in by_path if p == "proposals/" + receipt + ".json"]

@@ -237,17 +237,17 @@ rule('Every list a receipt keeps is bounded: one over its limit is refused whole
   W.todo('Post the notes', { phase: 'ship' });
   const P1 = W.receipt();
   const keep = (n) => Array.from({ length: n }, (_, i) => 'req-keep-' + (i + 1).toString(16).padStart(24, '0'));
-  const over = Object.assign(plain(P1.file), { keeps: keep(501) }); over.id = RC.idFor(over.run, over);
+  const over = Object.assign(plain(P1.file), { keeps: keep(501) }); over.id = RC.idFor(over.run, over, over.by);
   const v = T.cleanFile(over, over.id + '.json');
   assert.ok(!v.ok && /"keeps" is a list of at most 500 keep ids/.test(v.why), v.why);
-  const at = Object.assign(plain(P1.file), { keeps: keep(500) }); at.id = RC.idFor(at.run, at);
+  const at = Object.assign(plain(P1.file), { keeps: keep(500) }); at.id = RC.idFor(at.run, at, at.by);
   assert.ok(T.cleanFile(at, at.id + '.json').ok, 'exactly at the limit reads');
   /* Preflight: 501 keeps on the run refuse the receipt, and nothing is prepared. */
   const keeps = keep(501).map((id) => ({ id, kind: 'keep', run: { process: 'release-readiness', id: 'r-41' } }));
   const P2 = RC.prepare(W.r, W.inputs({ records: W.recs.concat(keeps), outcome: 'Stopped early', by: 'person-morgan', at: AT }));
   assert.ok(/501 keeps; a receipt names at most 500\. Nothing was cut and nothing was ended\./.test(P2.why), P2.why);
   const moved = Object.assign(plain(P1.file), { head: P1.file.head.replace(/.$/, (c) => (c === '0' ? '1' : '0')) });
-  assert.ok(/Its id isn't the one its run and what it says give/.test(T.cleanFile(moved, moved.id + '.json').why), 'what it says is bound to its name');
+  assert.ok(/Its id isn't the one its run, who ended it and what it says give/.test(T.cleanFile(moved, moved.id + '.json').why), 'what it says is bound to its name');
 });
 
 rule('A receipt never enters the to-do order or the chain, and another receipt later changes nothing the run shows', () => {
@@ -316,11 +316,26 @@ rule('One receipt verdict: unread, another run\'s and missing receipts are probl
   same([v(without).state, v(without).problem], ['missing', { path, kind: 'nofile', why: v(without).why }]);
   const un = v(without, [{ file: P1.name, why: 'EIO: i/o error', kind: 'unreadable', run: null }]);
   same([un.state, un.problem.kind, un.problem.path], ['unread', 'unreadable', path]);
-  const other = v(without, [{ file: P1.name, why: 'is a receipt that isn\'t in its format: Its id isn\'t the one its run and what it says give.', kind: 'malformed', run: { process: 'release-readiness', id: 'elsewhere' } }]);
+  const other = v(without, [{ file: P1.name, why: 'is a receipt that isn\'t in its format: Its id isn\'t the one its run, who ended it and what it says give.', kind: 'malformed', run: { process: 'release-readiness', id: 'elsewhere' } }]);
   same([other.state, other.problem.kind], ['unread', 'malformed']);
   const none = v([], [], Object.assign(plain(W.r), { living: { head: W.r.living.head } }));
   same([none.state, none.problem], ['none', null]);
   assert.strictEqual(v(W.recs, [], world().r), null, 'a run that isn\'t an ended living run has no verdict');
 });
-
+/* TC: a receipt is the person's who ended the run: another person ending the same work writes another receipt (its id names
+   who), the same person again the same file, and a run ended by someone other than its receipt's author is a mismatch. */
+rule('A receipt is bound to the person who ends the run: another person gets another receipt, and a run ended by someone else than its receipt says is a mismatch', () => {
+  const W = world();
+  W.todo('Post the notes', { phase: 'ship' });
+  const A = W.receipt('Stopped early', { by: 'person-morgan' }), A2 = W.receipt('Stopped early', { by: 'person-morgan' }), B = W.receipt('Stopped early', { by: 'person-riley' });
+  assert.ok(!A.why && !B.why, A.why || B.why);
+  same(A2.file, A.file);
+  assert.notStrictEqual(B.id, A.id, 'another person is another receipt');
+  const back = T.cleanFile(JSON.parse(T.text(B.file)), B.name);
+  assert.ok(back.ok, back.why);
+  const P1 = W.end('Stopped early'), other = plain(W.r);
+  other.ended.by = other.ended.by === 'person-riley' ? 'person-morgan' : 'person-riley';
+  const mm = RC.stateOf(other, W.recs, []);
+  same([mm.state, mm.kind, mm.path], ['mismatch', 'malformed', 'proposals/' + P1.id + '.json'], JSON.stringify(mm));
+});
 run();

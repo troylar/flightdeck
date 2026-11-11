@@ -25,8 +25,8 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "a08d8c7b68adc5a85e8a591cc83bc7ebf4afaacaf8f61bffbb3ee783aae9df97",
-      "reviewed": "TE: reader verdicts keep a failed listing and unreadable kind"
+      "sha256": "2c19e4a828c27cea498f7254d2c1fdec0a61771b4089d536b9574567d723e349",
+      "reviewed": "TC: receipt bound to the person ending the run"
     },
     "docs/evidence.md": {
       "sha256": "8828d4ade3981b60bb45d9f25431de63af40dd49e2385a68bcb06d34ddf5e56c",
@@ -53,8 +53,8 @@
       "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "312b665f61cd84c08f18c6f5af2b1c3da4aac5b5407f4c84f2f4d181a4b45506",
-      "reviewed": "run.js adds R.canonical (pure, read-only); repo.js asks it in depVerdict; check_folder.py trims with JavaScript's white space; design.md says so. No instruction text, writes or deletes changed"
+      "sha256": "e0f35e317521fb71e454a8125f7c10689788471dc12c60a3ad5346aed807dda0",
+      "reviewed": "TC: receipt bound to the person ending the run"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
       "sha256": "197779e5fb047d6137527db0211659a2db320470f3086d61b5126d6e868b0cf8",
@@ -197,8 +197,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "da32c5526568f628fc012b1146d4c1d2d606ad6ae655756a895ebb3dc5444481",
-      "reviewed": "canonical check reads own keys only; baselines rewritten for the shipped checker's JavaScript trim"
+      "sha256": "9846b5e2dab0a2a2a20e2024b075c46308067be14d11fba4f1f41d6660a8f168",
+      "reviewed": "TC: receipt bound to the person ending the run"
     },
     "src/core/appjson.js": {
       "sha256": "98019ea60f70df332d6774d2ac26d0bbd028e95f1f76f543cbe54c89cb8cd4fe",
@@ -309,8 +309,8 @@
       "reviewed": "loops: items: item kind, feed binding, completeness fix, nouns, unknown-kind refusal in loop.js/map.js/publish.js/types.js and check_folder.py parity; pure checks only, checked for direct writes and unconditional deletes"
     },
     "src/core/receipts.js": {
-      "sha256": "402931b0971ab94c89babc9e3b90c67e9eb8d995bb232ba240a1e5db1ae71488",
-      "reviewed": "TB: receipt keeps followed as checked keep witnesses"
+      "sha256": "9a5b3babb2d7c82490925bfd3d0ea17612644e1bbb0f44e3d6be34ac3e341dbd",
+      "reviewed": "TC: receipt bound to the person ending the run"
     },
     "src/core/refs.js": {
       "sha256": "24b7d2b52fcd99673fcc427db286a7224af83342da19efcd561ac850d6baa441",
