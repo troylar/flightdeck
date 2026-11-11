@@ -13,20 +13,20 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "d28d6f0dde4b7da5343651cdef304e0cfc404f7b28ffff3cdf52aff08359cccf",
-      "reviewed": "CD: a keep's final check reads proposals/ again; checked for direct writes and unconditional deletes"
+      "sha256": "3e09a6ebd8114931b30953b00d2609c8d3175704b949675fbf0f40601e5d5692",
+      "reviewed": "LA: keeps, to-do writes and requests read proposals/ last through proposalsFinal; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "e641a0f9f4655b4634b9d2661fe4e4b97222f23ece79f5917e6c99f174218087",
       "reviewed": "4.0 slice 5 commit 6, checklist-linked to-dos: PF.detours (pins, the evidence plan, evidence, provenance), the checklist and evidence fields in to-do records, repo.readEvidence, the app's Run this checklist, Accept and the way back, the living-run skill and command guide sections, the 4.0.0 release entry; checked for direct writes and unconditional deletes: the plan is written create-once through repo.savePlan under the run guard, a done on a run through saveScope with a fresh read before the write, nothing deleted"
     },
     "docs/apps.md": {
-      "sha256": "74da977b1564a0f2a60a2a447eb4ccc0872cdb6d34a82e3d20695ae96120141c",
-      "reviewed": "CD: a keep's final check reads proposals/ again; checked for direct writes and unconditional deletes"
+      "sha256": "b372291778c41993c443748bf001b9b35e08933ad0cab1d4933f848a991f2ae4",
+      "reviewed": "LA: keeps, to-do writes and requests read proposals/ last through proposalsFinal; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "79f6b639b34686c8cfbf0d2c1cc12035c144c194f454b4b670d21301fa97f59c",
-      "reviewed": "LB: a completion's own resets never count as moving on; checked for direct writes and unconditional deletes"
+      "sha256": "bc9d1ac6f81f6762f070317dc0018e07cbfe5fc9666fe20e47910b5a5ecb6141",
+      "reviewed": "LA: keeps, to-do writes and requests read proposals/ last through proposalsFinal; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -417,12 +417,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "bbbc96167d27e861fff5d229535ac46938701f5afd5f30ad02625750ccb26536",
-      "reviewed": "CA: loader-supplied metadata kept in a side map, never a record field; reconstruction contained per file; checked for direct writes and unconditional deletes"
+      "sha256": "4de64c09b059856539086c3c1f46ca37c7cbfd42c5ced7a6d52534bc6adae9ea",
+      "reviewed": "LA: keeps, to-do writes and requests read proposals/ last through proposalsFinal; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "4e49913f89b9ac2a6742b61a3b2040efdf856e1c37678e9df7c5a6fdc9baee67",
-      "reviewed": "LB: a completion's own resets never count as moving on; checked for direct writes and unconditional deletes"
+      "sha256": "bace58a70f4e216d443f96dd94d7a9b150241015b76ce97efea6fb949fc5bf5e",
+      "reviewed": "LA: keeps, to-do writes and requests read proposals/ last through proposalsFinal; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

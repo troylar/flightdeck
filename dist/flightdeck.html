@@ -25556,6 +25556,27 @@ PF.repo = (function () {
         decisions: decs.filter(function (d) { return !d._unread; }), decUnread: decs.filter(function (d) { return d._unread; }) };
     });
   }
+  /* LA: the one final check every writer of proposals/ asks last, after every other read it rests on (o.deps, read first):
+     proposals/ listed, read whole (readPlans, as o.bad and o.two say), then listed again. moved: a file arrived or went
+     during that read, so what was read isn't what the folder holds and the caller writes nothing. The caller builds its
+     operation again from got (counts, copies, unread records, evidence, a request's identity) and compares. sig: what was
+     read, for a caller that must know nothing in proposals/ changed between two reads (evidence read from the first). */
+  function proposalsFinal(fs, o) {
+    o = o || {};
+    var dep = null, n0 = null;
+    var names = function () { return fs.list('proposals').then(function (items) { return (items || []).filter(function (v) { return v && v.kind !== 'dir'; }).map(function (v) { return String(v.name); }).sort().join('\n'); }); };
+    return Promise.resolve(o.deps ? o.deps(fs) : null).then(function (d) { dep = d; return names(); }).then(function (n) { n0 = n; return readPlans(fs, o.bad || null, null, !!o.two); })
+      .then(function (got) { return names().then(function (n1) { return { got: got, deps: dep, moved: n0 !== n1, sig: proposalsSig(got) }; }); });
+  }
+  /* Every record readPlans gave, by file and content, and every file it couldn't read: equal exactly when two reads agree. */
+  function proposalsSig(got, test) {
+    var ok = test || function () { return true; }, out = [];
+    ['todos', 'plans', 'statuses', 'scopes'].forEach(function (k) { (got[k] || []).forEach(function (x) { if (x && ok(String(x._file || ''))) out.push(k + ':' + x._file + ':' + U.hash(JSON.stringify(x))); }); });
+    (got.todosUnread || []).concat(got.scopesUnread || []).forEach(function (u) { if (u && ok(String(u.file || ''))) out.push('unread:' + u.file + ':' + u.why); });
+    (got.torn || []).forEach(function (t) { var f = String(t._file || t.path || ''); if (ok(f.replace(/^proposals\//, ''))) out.push('torn:' + f); });
+    (got.refused || []).forEach(function (r) { var f = String(r.path || ''); if (ok(f.replace(/^proposals\//, ''))) out.push('refused:' + f); });
+    return out.sort().join('\n');
+  }
   function readTodos(fs, o) {
     /* With o.evidence the plans are read as the app reads them (no reading-for-other-apps list), from the same one read. */
     return Promise.all([readPlans(fs, o && o.evidence ? null : []), loadPeople(fs).then(null, function (e) { return { failed: why(e) }; })]).then(function (r) {
@@ -25563,6 +25584,7 @@ PF.repo = (function () {
       if (people.failed) { unread.push({ file: 'people.json', why: 'people.json couldn\'t be read, so no one\'s authority over to-dos can be checked.', run: null }); people = null; }
       var out = { records: r[0].todos || [], unread: unread, people: people };
       if (!o || !o.evidence) return out;
+      out.sig = proposalsSig(r[0]);
       return readEvidence(fs, r[0], out.records, o.also).then(function (ev) { out.evidence = ev; return out; });
     });
   }
@@ -26408,7 +26430,7 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readTodos: readTodos, readKept: readKept, withdrawKeep: withdrawKeep, readEvidence: readEvidence, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, saveScope: saveScope, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, proposalsFinal: proposalsFinal, proposalsSig: proposalsSig, readTodos: readTodos, readKept: readKept, withdrawKeep: withdrawKeep, readEvidence: readEvidence, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, saveScope: saveScope, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();
 
 </script>
@@ -37682,8 +37704,14 @@ PF.examples = (function () {
   function tdFresh(cx, also) {
     var bound = function () { return !!cx && cx.g === gen && cx.fs === state.fs && cx.me === state.me; };
     if (!bound()) return Promise.resolve(null);
+    /* LA: proposals/ is read once more after the runs its evidence rests on, through the one final check (listed, read,
+       listed again): a file that arrived or went, or anything in proposals/ that changed since the records were read, writes
+       nothing. */
     return repo.readTodos(cx.fs, { evidence: true, also: also || [] }).then(function (s) {
       if (!bound()) return null;
+      return repo.proposalsFinal(cx.fs).then(function (F) { return F.moved || F.sig !== s.sig ? null : s; });
+    }).then(function (s) {
+      if (!s || !bound()) return null;
       /* people.json is read again last, after the records and everything their evidence rests on: authority is asked on
          what it says right before the write. One that can't be read now is unread, never this window's older copy. */
       return cx.fs.read(PF.people.FILE).then(function (x) {
@@ -38180,16 +38208,21 @@ PF.examples = (function () {
        taken from the copy read before: one that can't be read now holds the keep. */
     var gov = K.record.template && K.record.template.process !== r.process ? K.record.template.process : '', govProc = null, late = '', fr = null;
     /* The keep is asked again on people.json read right before the write (writeGuard): its person listed and active. The
-       to-do and keep records are read again first (MB), so the 500 limit is counted on what the folder holds now, never on
-       this window's last read; a keep record that can't be read refuses it. */
+       checklist it rests on is read again first, then (LA) the to-do and keep records last, through the one final check
+       (repo.proposalsFinal: listed, read, listed again), so the 500 limit and its copies are counted on what the folder
+       holds now, never on a read made before another; a keep record that can't be read, or a file in proposals/ that
+       arrived or went during that read, refuses it. */
     var kg = writeGuard({
       fresh: function (fx) {
         fr = null;
-        var recs = repo.readTodos(fx).then(function (x) { fr = x; return true; }, function (e) { late = 'proposals/ couldn\'t be read again right before it was (' + (e && e.message || e) + ').'; return false; });
-        return recs.then(function (ok) {
-          if (!ok || !gov) return ok;
-          return repo.readProcess(fx, gov).then(function (p) { govProc = p; if (!p) late = 'the checklist ' + gov + ' isn\'t published in this folder now.'; return !!p; },
-            function (e) { late = 'publications/' + gov + '/ couldn\'t be read again right before it was (' + (e && e.message || e) + ').'; return false; });
+        var pub = !gov ? Promise.resolve(true) : repo.readProcess(fx, gov).then(function (p) { govProc = p; if (!p) late = 'the checklist ' + gov + ' isn\'t published in this folder now.'; return !!p; },
+          function (e) { late = 'publications/' + gov + '/ couldn\'t be read again right before it was (' + (e && e.message || e) + ').'; return false; });
+        return pub.then(function (ok) {
+          if (!ok) return ok;
+          return repo.proposalsFinal(fx, { bad: [] }).then(function (F) {
+            if (F.moved) { late = 'a file in proposals/ arrived or went while it was being read, so how many are kept at this place can\'t be counted.'; return false; }
+            fr = { records: F.got.todos || [], unread: F.got.todosUnread || [] }; return true;
+          }, function (e) { late = 'proposals/ couldn\'t be read again right before it was (' + (e && e.message || e) + ').'; return false; });
         });
       },
       still: function (ppl) {

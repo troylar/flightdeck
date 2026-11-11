@@ -785,6 +785,29 @@ rule('A spread\'s keep is held when its checklist\'s publication can\'t be read 
   assert.strictEqual(keeps(app)[0].template.process, 'validate-story');
 });
 
+/* LA: a spread's keep is filed against proposals/ as read last, after its checklist's publication is read again: a copy of
+   the keep that differs, or one that can't be read, landing while that publication is read again, files nothing. */
+rule('A spread\'s keep files nothing when a differing or torn copy of it lands while its checklist is read again', async () => {
+  for (const how of ['differs', 'torn'].filter((h) => !process.env.LA_CASE || process.env.LA_CASE.split(',').indexOf(h) >= 0)) {
+    const { app, spread } = await loopSetup();
+    /* Its name and bytes, from a keep filed once and then removed (this window reads the folder again after). */
+    app.click('keep', spread, { kind: 'spread' }); await app.tick(200);
+    const k = keeps(app)[0]; assert.ok(k, how + ': set-up: kept once');
+    const own = 'proposals/' + k.id + '.json', o = JSON.parse(app.fs.files[own].t); o.reason = 'Another reason';
+    delete app.fs.files[own]; await refresh(app, 400);
+    assert.strictEqual(keeps(app).length, 0, how + ': set-up: removed');
+    const fs = app.fs, read = fs.read.bind(fs), blob = fs.blob ? fs.blob.bind(fs) : null; let landed = false;
+    const land = (p) => { if (!landed && /^publications\/validate-story\/.*map\.md$/.test(p)) { landed = true; fs.files['proposals/' + k.id + ' (1).json'] = { t: how === 'torn' ? '{ "format": ' : JSON.stringify(o, null, 2) + '\n', m: Date.now() }; } };
+    fs.read = (p, x) => { land(p); return read(p, x); };
+    if (blob) fs.blob = (p, x) => { land(p); return blob(p, x); };
+    app.click('keep', spread, { kind: 'spread' }); await app.tick(300);
+    fs.read = read; if (blob) fs.blob = blob;
+    assert.ok(landed, how + ': set-up: the copy landed while the checklist was read again');
+    assert.ok(!app.fs.files[own], how + ': not filed');
+    assert.ok(/Nothing was kept/.test(txt(app.html())), how + ': said: ' + (txt(app.html()).match(/(Nothing was kept|Suggest)[^.]*\.[^.]*\./) || [])[0]);
+  }
+});
+
 /* BC: a copy that arrives during the last read before the last delete (people.json, which no guard can follow) is never
    said withdrawn: the folder is listed again once the deletes are done, and the copy still there is named. */
 rule('A keep copy arriving during the last read before a withdrawal\'s last delete is said, by path, never "Withdrawn"', async () => {

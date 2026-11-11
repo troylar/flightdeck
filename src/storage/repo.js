@@ -2725,6 +2725,27 @@ PF.repo = (function () {
         decisions: decs.filter(function (d) { return !d._unread; }), decUnread: decs.filter(function (d) { return d._unread; }) };
     });
   }
+  /* LA: the one final check every writer of proposals/ asks last, after every other read it rests on (o.deps, read first):
+     proposals/ listed, read whole (readPlans, as o.bad and o.two say), then listed again. moved: a file arrived or went
+     during that read, so what was read isn't what the folder holds and the caller writes nothing. The caller builds its
+     operation again from got (counts, copies, unread records, evidence, a request's identity) and compares. sig: what was
+     read, for a caller that must know nothing in proposals/ changed between two reads (evidence read from the first). */
+  function proposalsFinal(fs, o) {
+    o = o || {};
+    var dep = null, n0 = null;
+    var names = function () { return fs.list('proposals').then(function (items) { return (items || []).filter(function (v) { return v && v.kind !== 'dir'; }).map(function (v) { return String(v.name); }).sort().join('\n'); }); };
+    return Promise.resolve(o.deps ? o.deps(fs) : null).then(function (d) { dep = d; return names(); }).then(function (n) { n0 = n; return readPlans(fs, o.bad || null, null, !!o.two); })
+      .then(function (got) { return names().then(function (n1) { return { got: got, deps: dep, moved: n0 !== n1, sig: proposalsSig(got) }; }); });
+  }
+  /* Every record readPlans gave, by file and content, and every file it couldn't read: equal exactly when two reads agree. */
+  function proposalsSig(got, test) {
+    var ok = test || function () { return true; }, out = [];
+    ['todos', 'plans', 'statuses', 'scopes'].forEach(function (k) { (got[k] || []).forEach(function (x) { if (x && ok(String(x._file || ''))) out.push(k + ':' + x._file + ':' + U.hash(JSON.stringify(x))); }); });
+    (got.todosUnread || []).concat(got.scopesUnread || []).forEach(function (u) { if (u && ok(String(u.file || ''))) out.push('unread:' + u.file + ':' + u.why); });
+    (got.torn || []).forEach(function (t) { var f = String(t._file || t.path || ''); if (ok(f.replace(/^proposals\//, ''))) out.push('torn:' + f); });
+    (got.refused || []).forEach(function (r) { var f = String(r.path || ''); if (ok(f.replace(/^proposals\//, ''))) out.push('refused:' + f); });
+    return out.sort().join('\n');
+  }
   function readTodos(fs, o) {
     /* With o.evidence the plans are read as the app reads them (no reading-for-other-apps list), from the same one read. */
     return Promise.all([readPlans(fs, o && o.evidence ? null : []), loadPeople(fs).then(null, function (e) { return { failed: why(e) }; })]).then(function (r) {
@@ -2732,6 +2753,7 @@ PF.repo = (function () {
       if (people.failed) { unread.push({ file: 'people.json', why: 'people.json couldn\'t be read, so no one\'s authority over to-dos can be checked.', run: null }); people = null; }
       var out = { records: r[0].todos || [], unread: unread, people: people };
       if (!o || !o.evidence) return out;
+      out.sig = proposalsSig(r[0]);
       return readEvidence(fs, r[0], out.records, o.also).then(function (ev) { out.evidence = ev; return out; });
     });
   }
@@ -3577,5 +3599,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readTodos: readTodos, readKept: readKept, withdrawKeep: withdrawKeep, readEvidence: readEvidence, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, saveScope: saveScope, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, proposalsFinal: proposalsFinal, proposalsSig: proposalsSig, readTodos: readTodos, readKept: readKept, withdrawKeep: withdrawKeep, readEvidence: readEvidence, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, saveScope: saveScope, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

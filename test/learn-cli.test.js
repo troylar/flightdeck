@@ -278,4 +278,60 @@ rule('A keep\'s final check reads proposals/ again: a 500th keep, or a differing
   assert.ok(x.code !== 0 && x.error && /500/.test(x.error.why), '501st: refused, naming the limit: ' + JSON.stringify([x.code, x.error]));
 });
 
+/* LA: the final check's own read of proposals/ is what the keep is filed against: a 500th keep, or a differing or torn copy
+   of this keep, that lands DURING that read (after proposals/ was listed, before its files are all read) files nothing. */
+rule('A keep filed after its final read of proposals/ files nothing when a 500th keep or a copy of it lands during that read', async () => {
+  const hookOf = () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-keep-hook-')), hook = path.join(dir, 'hook.js');
+    fs.writeFileSync(hook, "const fs = require('fs'), path = require('path'); let n = 0, done = false; const hit = (p) => { p = String(p); if (done) return; if (p.indexOf('/runs/release-readiness/r-41/run.json') >= 0) { n++; return; } if (n < 2 || !/\\/proposals\\/[^/]+\\.json$/.test(p)) return; done = true; const f = JSON.parse(process.env.KEEP_FILES); Object.keys(f).forEach((k) => fs.writeFileSync(path.join(process.env.KEEP_ROOT, 'proposals', k), f[k])); };" +
+      " for (const k of ['openSync', 'readFileSync']) { const o = fs[k]; fs[k] = function (p) { hit(p); return o.apply(this, arguments); }; } const pr = fs.promises; for (const k of ['open', 'readFile']) { const o = pr[k]; pr[k] = function (p) { hit(p); return o.apply(this, arguments); }; }");
+    return hook;
+  };
+  const keepWith = (F, files) => {
+    let code = 0, text = '';
+    try { text = execFileSync(process.execPath, ['-r', hookOf(), BIN, 'todo', 'keep', F.root, PR, '--todo', F.phaseTodo, '--json', ...TOOL], { encoding: 'utf8', stdio: 'pipe', env: Object.assign({}, process.env, { KEEP_ROOT: F.root, KEEP_FILES: JSON.stringify(files) }) }); } catch (e) { code = e.status; text = String(e.stdout); }
+    return Object.assign(JSON.parse(text), { code });
+  };
+  const fileOf = async (F) => {
+    const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-keep-copy-')); fs.cpSync(F.root, copy, { recursive: true });
+    const x = json('todo', 'keep', copy, PR, '--todo', F.phaseTodo, '--json', ...TOOL);
+    assert.strictEqual(x.data.status, 'kept', 'set-up: it would be kept');
+    return { id: x.data.keep.id, text: fs.readFileSync(path.join(copy, x.data.keep.file), 'utf8') };
+  };
+  const pick = (h) => !process.env.LA_CASE || process.env.LA_CASE.split(',').indexOf(h) >= 0;
+  for (const how of ['differs', 'torn'].filter(pick)) {
+    const F = await folder(), K = await fileOf(F), o = JSON.parse(K.text); o.reason = 'Another reason';
+    const x = keepWith(F, { [K.id + ' (1).json']: how === 'differs' ? JSON.stringify(o, null, 2) + '\n' : '{ "format": ' });
+    assert.ok(!fs.existsSync(path.join(F.root, 'proposals', K.id + '.json')), how + ': not filed: ' + JSON.stringify([x.code, x.data && x.data.status, x.error, x.problems]));
+    assert.ok(x.code !== 0 && !(x.data && x.data.status === 'kept'), how + ': said so: ' + JSON.stringify([x.code, x.error]));
+  }
+  if (!pick('501st')) return;
+  const F = await folder(), K = await fileOf(F), base = JSON.parse(K.text);
+  const other = (i) => { const f = JSON.parse(JSON.stringify(base)); f.change.text = 'Wording ' + i; f.id = L.idFor(f.run, f.source, f.template || null, f.anchor || null, f.change.text); if (f.key) f.key = L.keyFor(f.run, f.source, f.template || null, f.anchor || null, f.change.text); return f; };
+  for (let i = 1; i < 500; i++) { const f = other(i); fs.writeFileSync(path.join(F.root, 'proposals', f.id + '.json'), T.text(f)); }
+  const last = other(500);
+  const x = keepWith(F, { [last.id + '.json']: T.text(last) });
+  assert.ok(!fs.existsSync(path.join(F.root, 'proposals', K.id + '.json')), '501st: not filed: ' + JSON.stringify([x.code, x.data && x.data.status, x.error]));
+  assert.ok(x.code !== 0, '501st: refused: ' + JSON.stringify([x.code, x.error]));
+});
+
+/* LD: a keep at this place from another source run that can't be read leaves the count unknown: the keep holds (exit 4),
+   naming that file, at the first check and at the final one, as the app does. */
+rule('A keep beside one that can\'t be read from another source run at its place holds (exit 4), naming that file', async () => {
+  const F = await folder(), copy = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-keep-copy-')); fs.cpSync(F.root, copy, { recursive: true });
+  const k = json('todo', 'keep', copy, PR, '--todo', F.phaseTodo, '--json', ...TOOL);
+  assert.strictEqual(k.data.status, 'kept', 'set-up: it would be kept');
+  const base = JSON.parse(fs.readFileSync(path.join(copy, k.data.keep.file), 'utf8'));
+  const other = (i, run) => { const f = JSON.parse(JSON.stringify(base)); f.change.text = 'Wording ' + i; if (run) f.run = run; f.id = L.idFor(f.run, f.source, f.template || null, f.anchor || null, f.change.text); if (f.key) f.key = L.keyFor(f.run, f.source, f.template || null, f.anchor || null, f.change.text); return f; };
+  for (let i = 1; i < 500; i++) { const f = other(i); fs.writeFileSync(path.join(F.root, 'proposals', f.id + '.json'), T.text(f)); }
+  const bad = other(500, { process: 'release-readiness', id: 'r-77' }), badName = bad.id + '.json';
+  fs.writeFileSync(path.join(F.root, 'proposals', badName), T.text(bad).replace(/\n}\s*$/, ',\n  "surprise": 1\n}\n'));
+  let code = 0, text = '';
+  try { text = execFileSync(process.execPath, [BIN, 'todo', 'keep', F.root, PR, '--todo', F.phaseTodo, '--json', ...TOOL], { encoding: 'utf8', stdio: 'pipe' }); } catch (e) { code = e.status; text = String(e.stdout); }
+  const x = JSON.parse(text);
+  assert.ok(!fs.existsSync(path.join(F.root, k.data.keep.file)), 'not filed: ' + JSON.stringify([code, x.data && x.data.status, x.problems]));
+  assert.strictEqual(code, 4, 'held: ' + JSON.stringify([code, x.error, x.problems]));
+  assert.ok((x.problems || []).some(q => q.path === 'proposals/' + badName), 'named: ' + JSON.stringify(x.problems));
+});
+
 run();

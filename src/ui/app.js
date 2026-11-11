@@ -3407,8 +3407,14 @@
   function tdFresh(cx, also) {
     var bound = function () { return !!cx && cx.g === gen && cx.fs === state.fs && cx.me === state.me; };
     if (!bound()) return Promise.resolve(null);
+    /* LA: proposals/ is read once more after the runs its evidence rests on, through the one final check (listed, read,
+       listed again): a file that arrived or went, or anything in proposals/ that changed since the records were read, writes
+       nothing. */
     return repo.readTodos(cx.fs, { evidence: true, also: also || [] }).then(function (s) {
       if (!bound()) return null;
+      return repo.proposalsFinal(cx.fs).then(function (F) { return F.moved || F.sig !== s.sig ? null : s; });
+    }).then(function (s) {
+      if (!s || !bound()) return null;
       /* people.json is read again last, after the records and everything their evidence rests on: authority is asked on
          what it says right before the write. One that can't be read now is unread, never this window's older copy. */
       return cx.fs.read(PF.people.FILE).then(function (x) {
@@ -3905,16 +3911,21 @@
        taken from the copy read before: one that can't be read now holds the keep. */
     var gov = K.record.template && K.record.template.process !== r.process ? K.record.template.process : '', govProc = null, late = '', fr = null;
     /* The keep is asked again on people.json read right before the write (writeGuard): its person listed and active. The
-       to-do and keep records are read again first (MB), so the 500 limit is counted on what the folder holds now, never on
-       this window's last read; a keep record that can't be read refuses it. */
+       checklist it rests on is read again first, then (LA) the to-do and keep records last, through the one final check
+       (repo.proposalsFinal: listed, read, listed again), so the 500 limit and its copies are counted on what the folder
+       holds now, never on a read made before another; a keep record that can't be read, or a file in proposals/ that
+       arrived or went during that read, refuses it. */
     var kg = writeGuard({
       fresh: function (fx) {
         fr = null;
-        var recs = repo.readTodos(fx).then(function (x) { fr = x; return true; }, function (e) { late = 'proposals/ couldn\'t be read again right before it was (' + (e && e.message || e) + ').'; return false; });
-        return recs.then(function (ok) {
-          if (!ok || !gov) return ok;
-          return repo.readProcess(fx, gov).then(function (p) { govProc = p; if (!p) late = 'the checklist ' + gov + ' isn\'t published in this folder now.'; return !!p; },
-            function (e) { late = 'publications/' + gov + '/ couldn\'t be read again right before it was (' + (e && e.message || e) + ').'; return false; });
+        var pub = !gov ? Promise.resolve(true) : repo.readProcess(fx, gov).then(function (p) { govProc = p; if (!p) late = 'the checklist ' + gov + ' isn\'t published in this folder now.'; return !!p; },
+          function (e) { late = 'publications/' + gov + '/ couldn\'t be read again right before it was (' + (e && e.message || e) + ').'; return false; });
+        return pub.then(function (ok) {
+          if (!ok) return ok;
+          return repo.proposalsFinal(fx, { bad: [] }).then(function (F) {
+            if (F.moved) { late = 'a file in proposals/ arrived or went while it was being read, so how many are kept at this place can\'t be counted.'; return false; }
+            fr = { records: F.got.todos || [], unread: F.got.todosUnread || [] }; return true;
+          }, function (e) { late = 'proposals/ couldn\'t be read again right before it was (' + (e && e.message || e) + ').'; return false; });
         });
       },
       still: function (ppl) {

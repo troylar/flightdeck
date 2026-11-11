@@ -299,4 +299,43 @@ rule('runs reads each proposals file once and reports what that one read found',
   assert.deepStrictEqual(twice.map(k => path.basename(k)), [], 'each proposals file is read once');
 });
 
+/* LA: a request is filed only against proposals/ as its final read finds it, after every other read it rests on. A plan
+   torn or repinned while the evidence run is read, and a torn or differing copy of a request that lands while the pinned
+   version is read, file nothing. */
+const hooked = (args, env) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-la-hook-')), hook = path.join(dir, 'hook.js');
+  fs.writeFileSync(hook, "const fs = require('fs'), path = require('path'); let done = false; const hit = (p) => { if (done || String(p).indexOf(process.env.LA_AT) < 0) return; done = true; const f = JSON.parse(process.env.LA_FILES); Object.keys(f).forEach((k) => fs.writeFileSync(path.join(process.env.LA_ROOT, k), f[k])); };" +
+    " for (const k of ['openSync', 'readFileSync']) { const o = fs[k]; fs[k] = function (p) { hit(p); return o.apply(this, arguments); }; } const pr = fs.promises; for (const k of ['open', 'readFile']) { const o = pr[k]; pr[k] = function (p) { hit(p); return o.apply(this, arguments); }; }");
+  let code = 0, out = '';
+  try { out = execFileSync(process.execPath, ['-r', hook, BIN, ...args], { encoding: 'utf8', stdio: 'pipe', env: Object.assign({}, process.env, env) }); } catch (e) { code = e.status; out = String(e.stdout); }
+  return Object.assign(JSON.parse(out), { code });
+};
+const pickLA = (h) => !process.env.LA_CASE || process.env.LA_CASE.split(',').indexOf(h) >= 0;
+rule('suggest-done --evidence-run whose plan is torn or repinned while the evidence run is read files nothing', async () => {
+  for (const how of ['torn', 'repin'].filter(pickLA)) {
+    const F = await folder(), L = await linked(F, 'pass'), S = await started(F, L, 'k1', 'pass');
+    const pf = 'proposals/' + S.plan.id + '.json', p = JSON.parse(fs.readFileSync(path.join(F.root, pf), 'utf8'));
+    if (p.pin) p.pin.folder = 'v9-zzzzzzzz'; else p.version = 9;
+    const before = ls(F.root);
+    const x = hooked(['todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--json', ...TOOL],
+      { LA_AT: '/runs/smoke-test/k1/run.json', LA_ROOT: F.root, LA_FILES: JSON.stringify({ [pf]: how === 'torn' ? '{ "format": ' : JSON.stringify(p, null, 2) + '\n' }) });
+    assert.ok(!ls(F.root).some(n => /^req-evidence-/.test(n) && before.indexOf(n) < 0), how + ': nothing filed: ' + JSON.stringify([x.code, x.data && x.data.status, x.error, x.problems]));
+    assert.ok(x.code !== 0, how + ': said so: ' + JSON.stringify([x.code, x.data && x.data.status]));
+  }
+});
+rule('todo add --checklist with a torn or differing copy of its request landing while the pinned version is read files nothing', async () => {
+  for (const how of ['torn', 'differs'].filter(pickLA)) {
+    const F = await folder(), copy = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-la-copy-')); fs.cpSync(F.root, copy, { recursive: true });
+    const args = (root) => ['todo', 'add', root, PR, '--key', 't-1', '--text', 'Smoke test the build', '--phase', 'ship', '--checklist', F.pin, '--json', ...TOOL];
+    const c = json(...args(copy));
+    assert.strictEqual(c.data.status, 'requested', 'set-up: it would be requested');
+    const o = JSON.parse(fs.readFileSync(path.join(copy, c.data.request.file), 'utf8')); o.text = 'Something else';
+    const name = c.data.request.id + ' (1).json';
+    fs.mkdirSync(path.join(F.root, 'proposals'), { recursive: true });
+    const x = hooked(args(F.root), { LA_AT: '/publications/smoke-test/', LA_ROOT: F.root, LA_FILES: JSON.stringify({ ['proposals/' + name]: how === 'torn' ? '{ "format": ' : JSON.stringify(o, null, 2) + '\n' }) });
+    assert.ok(!fs.existsSync(path.join(F.root, c.data.request.file)), how + ': not filed: ' + JSON.stringify([x.code, x.data && x.data.status, x.error, x.problems]));
+    assert.ok(x.code !== 0, how + ': said so: ' + JSON.stringify([x.code, x.data && x.data.status]));
+  }
+});
+
 run();
