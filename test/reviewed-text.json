@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "4cd18db196dae1fed01743ffbc2bd33dfc7e0e23da9c04d0d88ced04f3dec937",
-      "reviewed": "GA: the readers' whole run.json verdict everywhere: repo.judgeRunFile (export, before any gate), run_verdict.py shipped beside check_folder.py (moved from test/, reader_problem added; check_folder.run_problem and check_pack root_problem ask it), todo list exits 4 naming a run.json no reader reads; checked for direct writes and unconditional deletes: export and checker only read; run_verdict.py writes only its own temporary version folder (mkdtemp) for the pack reader's version check, removed after, never called by check_folder.py; nothing in the team folder written or deleted"
+      "sha256": "dd2a78a76a11eefaa0c03eea525a5f6675f0d3aec068be1d1eb26abc3fdcccb9",
+      "reviewed": "HE: one runFileProblems for run/next and todo list: a run folder without run.json and a run.json a reader refuses are named alike, todo list exits 4 for them; checked for direct writes and unconditional deletes: readers only, nothing written"
     },
     "build.py": {
       "sha256": "4930aee232c7766241927d231c2eb0729443450de507161a3f0e85b7e7f5fb8e",

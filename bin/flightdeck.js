@@ -765,6 +765,12 @@ const PART_PATH = { people: 'people.json', drafts: 'maps/drafts/', publications:
 const PROC_ID = /^[a-z0-9][a-z0-9-]{0,59}$/, RUN_KEY = /^([a-z0-9][a-z0-9-]{0,59})\/([a-z0-9-]{1,40})$/i;
 
 function fileWhy(w) { return 'This file ' + String(w || 'couldn\'t be read') + '.'; }
+/* What every reader of one run names about its own files, from readRunOnly: a folder without run.json, then each of its files
+   that couldn't be read (run.json a reader refuses included), with the same paths, kinds and words. */
+function runFileProblems(one, key) {
+  const out = one.nofile ? [{ path: 'runs/' + key + '/run.json', kind: 'nofile', why: 'The run folder has no run.json.' }] : [];
+  return out.concat((one.bad || []).map((b) => ({ path: b.path, kind: b.kind || 'unreadable', why: fileWhy(b.why) })));
+}
 /* A run this copy can only list by name: saved by a newer Flightdeck (its format, fields this copy doesn't know, or its own
    frozen checklist and step types using features this copy can't read). A run on a version that's only unusable here
    still reads; its version is named instead. */
@@ -926,8 +932,7 @@ async function readData(eng, adapter, req) {
       /* Contract 1 shows what Flightdeck 1.x reads: a run/3 and a 2.0 version are named as newer. Contract 2 reads them. */
       if (!two) { one.run = A.v1Run(one.run); one.pub = A.v1Pub(one.pub); }
       const r = one.run, key = m[1] + '/' + m[2];
-      if (one.nofile) L.note('runs/' + key + '/run.json', 'nofile', 'The run folder has no run.json.');
-      take(one.bad.map((b) => ({ path: b.path, kind: b.kind || 'unreadable', why: fileWhy(b.why) })));
+      take(runFileProblems(one, key));
       take(one.fuUnread.map((u) => ({ path: u.path, kind: u.kind || 'malformed', why: u.kind === 'newer' ? u.why : fileWhy(u.why) })));
       one.fuDecisions.forEach((x) => { const p = decisionDrift(x); if (p) take([p]); });
       if (one.peopleWhy) L.note('people.json', one.peopleKind || 'unreadable', fileWhy(one.peopleWhy));
@@ -3300,9 +3305,9 @@ async function todoMain(argv) {
     const one = await repo.readRunOnly(L.fs, proc, runId);
     if (!one.found) return failOut('not-found', 'There\'s no run ' + proc + '/' + runId + ' in the team folder.' + nothing, problems());
     const r = one.run;
-    /* A run.json no reader can read is named as run, next and runs name it (readRunOnly's own problem), and reading it is
-       partial (exit 4), as for a run a newer Flightdeck made. */
-    if (!r) { (one.bad || []).forEach((x) => L.note(x.path, x.kind || 'malformed', x.why)); return failOut('failed', 'The run ' + proc + '/' + runId + ' couldn\'t be read, so its to-dos can\'t be.' + nothing, problems(), writes || !(one.bad || []).length ? null : EXIT.partial); }
+    /* A run folder without run.json, or a run.json no reader can read, is named as run, next and runs name it (runFileProblems),
+       and reading it is partial (exit 4), as for a run a newer Flightdeck made. */
+    if (!r) { const rf = runFileProblems(one, proc + '/' + runId); rf.forEach((x) => L.note(x.path, x.kind, x.why)); return failOut('failed', 'The run ' + proc + '/' + runId + ' couldn\'t be read, so its to-dos can\'t be.' + nothing, problems(), writes || !rf.length ? null : EXIT.partial); }
     /* The run verdict every reader gives (judgeRun: newer, an end or a time it can't read, records it drops), ledgered before
        anything is read from its to-dos or its receipt is judged, as run, next and runs ledger it. */
     judgeRun(PF, r, one.pub).forEach((x) => L.note(x.path, x.kind, x.why));

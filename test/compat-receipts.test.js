@@ -454,4 +454,23 @@ rule('This version: the folder checker, run from the team folder\'s own skills w
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   });
 });
+/* HE: a run folder whose run.json is gone (its notes still there) is named at run.json alike by the four readers: each exits 4
+   with the same path and kind, todo list too. */
+rule('This version: a run folder without its run.json is named at run.json by the four readers alike, todo list included', async () => {
+  const { files } = await folder(), rp = 'runs/release-notes/run-l/run.json', fx = Object.assign({}, files);
+  delete fx[rp];
+  fx['runs/release-notes/run-l/notes-w-1.jsonl'] = JSON.stringify({ id: 'n1', text: 'A note', by: 'person-avery', at: '2026-11-01T10:00:00.000Z' }) + '\n';
+  const { root, dir } = tree(fx);
+  try {
+    const outs = {
+      run: cli(MINE, 'run', dir, 'release-notes/run-l', '--contract', '2', '--json'),
+      next: cli(MINE, 'next', dir, 'release-notes/run-l', '--as', 'person-avery', '--contract', '2', '--json'),
+      runs: cli(MINE, 'runs', dir, '--contract', '2', '--json'),
+      'todo list': cli(MINE, 'todo', 'list', dir, 'release-notes/run-l', '--json')
+    };
+    const seen = Object.keys(outs).map((n) => [n, outs[n].code, (outs[n].json.problems || []).filter((x) => x.path === rp).map((x) => [x.kind, x.why])]);
+    assert.strictEqual(seen[0][2].length, 1, 'run names run.json: ' + outs.run.out.slice(0, 400));
+    same(seen, Object.keys(outs).map((n) => [n, 4, seen[0][2]]), JSON.stringify(seen).slice(0, 800));
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
 run();
