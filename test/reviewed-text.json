@@ -29,8 +29,8 @@
       "reviewed": "MA: one set of children seen per ending attempt, carried across guards; reads only; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
-      "sha256": "8828d4ade3981b60bb45d9f25431de63af40dd49e2385a68bcb06d34ddf5e56c",
-      "reviewed": "LC: dependency versions bound and packed"
+      "sha256": "764bf0870e1d7aa572685a6b122bc7b265881989b861cedd5d3d3ffa2517c50b",
+      "reviewed": "export: a keep whose standing can't be worked out leaves the pack partial; check_pack refuses an unconfirmed claim under a complete pack; checked for direct writes and unconditional deletes"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
@@ -425,8 +425,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "324851aab5a5ccde8bff44cb5a1b80041f71730478f605ece7e8f07bcac04e88",
-      "reviewed": "MB: readLoopChildren judges each listed run whole before skipping it as another run's; reads only; checked for direct writes and unconditional deletes"
+      "sha256": "7d7acff9735c86b23cad9258a08a2ead4f7ba2597272c8ce64e6066f11098b1f",
+      "reviewed": "export: a keep whose standing can't be worked out leaves the pack partial; check_pack refuses an unconfirmed claim under a complete pack; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "097434585b94cf57cc1ac0fd15c1227d7c517706fa5966af83d4f45e7b4e4283",

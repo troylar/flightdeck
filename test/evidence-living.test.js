@@ -1532,4 +1532,24 @@ rule('Python dispatches every packed record by its family before any filter: an 
     }
   }
 });
+/* MD: a keep's standing is worked out from its process's runs and versions; when that scan is capped, the pack can't confirm
+   it, so it is partial and names why, and Python refuses a complete claim that carries the failure. */
+rule('A keep whose standing can\'t be worked out (its process too big to read) leaves the pack partial, and Python refuses a complete claim', async () => {
+  const W = await made({ todos: 1, keep: 'placed' }), files = Object.assign({}, W.files);
+  /* Another run of the same process, 3 MiB: with an 8 MiB cap, the process is too big to read for where its keeps stand. */
+  files['runs/release-notes/padrun0001/run.json'] = JSON.stringify({ format: 'preflight-run/2', pad: 'x'.repeat(3 * 1048576) });
+  const ctl = await pack(W.PF, new BytesFS(W.files), W.key, { cap: 8 * 1048576 });
+  assert.strictEqual(ctl.res.status, 'complete', 'the control: ' + JSON.stringify(ctl.res.col.unresolved));
+  const { zip, res } = await pack(W.PF, new BytesFS(files), W.key, { cap: 8 * 1048576 });
+  const mr = manifestOf(zip).runs[0], cl = mr.claims.filter((c) => c.correction === W.keepId)[0];
+  assert.ok(cl && !cl.verified && /too big/.test(cl.status), 'set-up: the keep\'s claim can\'t be confirmed ' + JSON.stringify(mr.claims));
+  assert.strictEqual(res.status, 'partial', 'the export: ' + JSON.stringify(res.col.unresolved));
+  assert.ok(res.col.unresolved.some((u) => /too big/.test(u) && u.indexOf(W.key) >= 0), JSON.stringify(res.col.unresolved));
+  assert.ok(mr.living && !mr.living.complete, 'the living work isn\'t called complete');
+  if (!PY) return;
+  assert.ok(checkPack(zip).ok, 'the honest partial pack is accepted');
+  const bad = checkPack(await repacked(W.PF, zip, (e, man) => forced(man)));
+  assert.ok(!bad.ok && /claim|keep/.test(bad.out), 'Python refuses a complete claim: ' + bad.out);
+});
+
 run();

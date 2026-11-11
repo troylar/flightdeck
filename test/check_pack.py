@@ -114,6 +114,14 @@ def manifest_problem(man):
         if r["key"] in keys:
             return r["key"] + " is named twice"
         keys.append(r["key"])
+        # A claim the pack can't confirm (a keep whose standing couldn't be worked out, MD) never sits under a complete pack:
+        # the export confirms a claim only by stating it as its own text.
+        cls = r.get("claims", [])
+        if not isinstance(cls, list) or not all(isinstance(c, dict) and isinstance(c.get("verified"), bool) and isinstance(c.get("text"), str)
+                                                and isinstance(c.get("status"), str) for c in cls):
+            return "the claims of " + r["key"] + " aren't the export's"
+        if man["status"] == "complete" and any(c["verified"] is not True or c["status"] != c["text"] for c in cls):
+            return "the pack says it's complete, but a claim of " + r["key"] + " can't be confirmed from it"
         lv = r.get("living")
         if lv is None:
             continue

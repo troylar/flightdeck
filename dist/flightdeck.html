@@ -26675,9 +26675,11 @@ PF.repo = (function () {
       return procs.reduce(function (q, kp) { return q.then(function () {
         return processContext(kp).then(function (ctx) {
           var mineK = ks.filter(function (k) { return k.template.process === kp; });
-          if (ctx.why) { mineK.forEach(function (k) { p.claims.push({ correction: k.id, group: '', process: kp, text: 'Where it stands', folder: '', why: ctx.why }); }); return; }
+          /* A scan that was capped or failed can't say where a keep stands: the pack names it and is partial (4.0, MD). */
+          var cant = function (why) { (p.keepWhys = p.keepWhys || []).push(why); mineK.forEach(function (k) { p.claims.push({ correction: k.id, group: '', process: kp, text: 'Where it stands', folder: '', why: why }); }); };
+          if (ctx.why) return cant(ctx.why);
           var gs = [];
-          try { gs = C.forProcess(ctx.runs, kp, ctx.decisions.filter(function (y) { return y.d; }).map(function (y) { return y.d; }), ctx.index, PF.learn.members(Pr.todos, ctx.runs, kp)); } catch (e) { gs = []; }
+          try { gs = C.forProcess(ctx.runs, kp, ctx.decisions.filter(function (y) { return y.d; }).map(function (y) { return y.d; }), ctx.index, PF.learn.members(Pr.todos, ctx.runs, kp)); } catch (e) { return cant('Where what was kept for next time in ' + kp + ' stands couldn\'t be worked out.'); }
           var vers = {};
           mineK.forEach(function (k) {
             var g = gs.filter(function (x) { return x.keep && x.members.some(function (m) { return m.keep && m.keep.record === k.id; }); })[0];
@@ -26813,8 +26815,10 @@ PF.repo = (function () {
       if (rc.raw && !p.folder) limits.push('The version it names isn\'t one this copy can find.');
       /* A living run (4.0 slice 6): each record its work rests on, as packed, must be the bytes the one checked read of
          proposals/ read; one that changed, went or wasn't read is named, and nothing kept for next time is confirmed. */
+      /* What was kept for next time whose standing couldn't be worked out: never confirmed, and the pack is partial. */
+      if (p.keepWhys && !p.living) p.keepWhys.forEach(function (w) { limits.push(w); col.unresolved.push(p.key + ': ' + w); });
       if (p.living) {
-        var L = p.living, lm = L.missing.slice();
+        var L = p.living, lm = L.missing.slice().concat(p.keepWhys || []);
         Object.keys(L.recs).sort().forEach(function (path) {
           var x = done[path], was = L.recs[path];
           if (!x || x.gone) { lm.push(path + ' was removed while the pack was made.'); return; }

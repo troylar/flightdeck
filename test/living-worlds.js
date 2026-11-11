@@ -46,7 +46,10 @@ async function made(o) {
   if (o.keep) {
     const T = PF.todos, rp = app.files('runs/release-notes/').find(p => /run\.json$/.test(p)), r0 = PF.run.sanitize(JSON.parse(app.fs.files[rp].t));
     const d = await PF.repo.loadAll(app.fs, {}), td = Object.keys(T.view(r0, { records: d.todos || [], people }).byTodo)[0];
-    const k = PF.learn.build({ run: { process: r0.process, id: r0.id }, by: 'person-avery', at: new Date().toISOString(), app: '4.0.0', source: { todo: td }, change: { text: 'Check the release notes twice', where: 'end' }, needs: 'It isn\'t placed yet.' });
+    /* o.keep 'placed': kept at the end of the draft phase of the run's own checklist, so where it stands is worked out. */
+    const pl = o.keep === 'placed' ? PF.learn.prepare(r0, { source: { todo: td }, text: 'Check the release notes twice', place: { phase: 'draft' }, by: { person: 'person-avery' }, records: d.todos || [], people, at: new Date().toISOString(), app: '4.0.0' }) : null;
+    if (pl) assert.ok(pl.file && pl.file.anchor, 'set-up: the keep is placed ' + JSON.stringify(pl.why || pl.status));
+    const k = pl ? pl.file : PF.learn.build({ run: { process: r0.process, id: r0.id }, by: 'person-avery', at: new Date().toISOString(), app: '4.0.0', source: { todo: td }, change: { text: 'Check the release notes twice', where: 'end' }, needs: 'It isn\'t placed yet.' });
     await app.fs.write('proposals/' + k.id + '.json', JSON.stringify(k, null, 2) + '\n');
     app.click('refresh'); await app.tick(400);
     o.keepId = k.id;
@@ -56,9 +59,9 @@ async function made(o) {
   const files = {}; Object.keys(app.fs.files).forEach(p => { files[p] = app.fs.files[p].t; });
   return { PF, files, key: r.process + '/' + r.id, run: r, runPath, request: o.request || null, pendingId: o.pendingId || '', keepId: o.keepId || '' };
 }
-async function pack(PF, fsx, key) {
+async function pack(PF, fsx, key, more) {
   const parts = [];
-  const res = await PF.repo.exportEvidence(fsx, { run: key }, { sink: u => { parts.push(Buffer.from(u)); }, now: () => Date.now(), tz: 'UTC' });
+  const res = await PF.repo.exportEvidence(fsx, { run: key }, Object.assign({ sink: u => { parts.push(Buffer.from(u)); }, now: () => Date.now(), tz: 'UTC' }, more || {}));
   return { zip: Buffer.concat(parts), res };
 }
 /* A pack of every run of a process created today (the process + date range scope). */
