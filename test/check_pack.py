@@ -346,7 +346,8 @@ def check_living(z, man):
                 o = load(f["path"])
             except ValueError:
                 o = None
-            name = f["path"][len("proposals/"):-len(".json")] if f["path"].startswith("proposals/") and f["path"].endswith(".json") else ""
+            # Under its own name or a synced copy's (" (1)" and the like), as the app reads plans.
+            name = record_name(f["path"])
             if not isinstance(o, dict) or o.get("id") != name or CF.plan_why(o):
                 plans_bad.append(f["path"])
 
@@ -475,9 +476,13 @@ def check_living(z, man):
             if why:
                 sys.exit("living: " + r["key"] + " says its work is complete, but " + path + ", a record its work rests on, isn't one the app reads: " + why)
         for pid in sorted(plans_wanted):
-            o = packed("proposals/" + pid + ".json")
-            if not isinstance(o, dict) or o.get("id") != pid or CF.plan_why(o):
+            # The plan by its id, under its own name or a synced copy's: every copy packed a plan the app reads, and all of them
+            # saying the same thing (PF.requests.same, the shipped checker's same_plan).
+            ps = [packed(p) for p in sorted(packed_ids(pid))]
+            if not ps or any(not isinstance(o, dict) or o.get("id") != pid or CF.plan_why(o) for o in ps):
                 sys.exit("living: " + r["key"] + " says its work is complete, but proposals/" + pid + ".json, an evidence plan the work names, isn't in the pack as a plan the app reads")
+            if any(not CF.same_plan(o, ps[0]) for o in ps):
+                sys.exit("living: " + r["key"] + " says its work is complete, but the pack holds two different copies of proposals/" + pid + ".json, an evidence plan the work names")
         for k in named:
             if k not in done:
                 sys.exit("living: " + r["key"] + " names " + k + " as a run it depends on, but nothing in the pack depends on it")

@@ -1081,4 +1081,29 @@ rule('A pending request or a loop scope record with a copy that says something e
     assert.ok(!c.ok && /two different copies/.test(c.out), what + ': Python: ' + c.out);
   }
 });
+/* AC: an evidence plan is held to its copies as the app groups them (PF.requests.same): copies that differ are each packed,
+   named and the work unconfirmed, whichever name is listed first; a plan there only as its synced copy is the plan, for the
+   export and for Python alike. */
+rule('An evidence plan with a copy that says something else is partial and named, either listing order; one there only as its synced copy is complete, in Python too', async () => {
+  const E = (await roleWorlds()).filter((w) => w.role === 'evidence')[0];
+  const pp = Object.keys(E.files).filter((p) => /^proposals\/plan-ev-[a-z]+\.json$/.test(p))[0], o = JSON.parse(String(E.files[pp]));
+  assert.ok(pp, 'set-up: the evidence plan');
+  const other = JSON.stringify(Object.assign({}, o, { title: o.title + ' (edited)' }), null, 2) + '\n';
+  for (const first of [true, false]) {
+    const rest = Object.assign({}, E.files), files = first ? Object.assign({ [copyOf(pp)]: other }, rest) : Object.assign(rest, { [copyOf(pp)]: other });
+    const { zip, res } = await pack(E.PF, new BytesFS(files), E.key);
+    assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(pp.slice(0, -5)) >= 0 && /two different copies/.test(u)), (first ? 'copy first' : 'copy last') + ': ' + res.status + ' ' + JSON.stringify(res.col.unresolved).slice(0, 400));
+    const man = manifestOf(zip);
+    assert.ok(man.files.some((f) => f.path === pp) && man.files.some((f) => f.path === copyOf(pp)), 'both copies packed');
+    if (!PY) continue;
+    const c = checkPack(await repacked(E.PF, zip, (e, m) => forced(m)));
+    assert.ok(!c.ok && /two different copies/.test(c.out), 'Python: ' + c.out);
+  }
+  const only = Object.assign({}, E.files); only[copyOf(pp)] = only[pp]; delete only[pp];
+  const { zip, res } = await pack(E.PF, new BytesFS(only), E.key);
+  assert.strictEqual(res.status, 'complete', 'only its synced copy: ' + JSON.stringify(res.col.unresolved));
+  if (!PY) return;
+  const c = checkPack(zip);
+  assert.ok(c.ok, 'Python reads it: ' + c.out);
+});
 run();
