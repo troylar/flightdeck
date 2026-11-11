@@ -608,4 +608,20 @@ rule('2.0: Evidence checks every screenshot in the version\'s payload: a corrupt
   assert.strictEqual(check(bom).ok, false, 'a byte-order mark in map.md fails it too (the payload is over exact bytes): ' + check(bom).detail);
 });
 
+/* ZA: the pack write refuses any change of size, growth included: an attachment that grew or shrank after it was hashed is
+   never packed as a prefix (the command line rereads it), and the app packs the bytes it hashed. */
+rule('An attachment that grows or shrinks between hashing and the pack write stops the pack, never packed as its old prefix', async () => {
+  for (const [what, to] of [['grows', (b) => Buffer.concat([b, Buffer.from('appended evidence\n')])], ['shrinks', (b) => b.slice(0, b.length - 1)]]) {
+    let n = 0;
+    const f = await folder({ hooks: { blob: (q, x) => { if (q === fixture.log && ++n === 2) x.files.set(q, to(x.files.get(q))); } } });
+    await assert.rejects(repo.exportEvidence(f, { run: 'release/run1' }, { sink: () => {}, keepBytes: false, tz: 'UTC' }), /changed while/, what);
+    assert.strictEqual(n, 2, what + ': read again to write it');
+    /* The app keeps what it hashed: the pack holds one whole state of the file, never a prefix of the new one. */
+    let m = 0, was = null;
+    const g = await folder({ hooks: { blob: (q, x) => { if (q === fixture.log && ++m === 1) { was = Buffer.from(x.files.get(q)); setImmediate(() => x.files.set(q, to(was))); } } } });
+    const { zip, res } = await pack(g, { run: 'release/run1' });
+    const e = unzip(zip)['originals/' + fixture.log];
+    assert.ok(res.status === 'partial' || (e && (Buffer.from(e.data).equals(was) || Buffer.from(e.data).equals(to(was)))), what + ', app: ' + res.status);
+  }
+});
 run();
