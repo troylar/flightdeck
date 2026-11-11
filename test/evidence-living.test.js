@@ -1106,6 +1106,22 @@ rule('An evidence plan with a copy that says something else is partial and named
   const c = checkPack(zip);
   assert.ok(c.ok, 'Python reads it: ' + c.out);
 });
+/* CB: receipt copies are compared by the receipt's own body (ZE's fingerprint: what it froze, never when it was written),
+   as the app and the folder checker compare them: a synced copy that differs only in "at" is the same receipt for the export
+   and for Python, either listing order. */
+rule('A receipt copy that differs only in when it was written is the same receipt for the export and for Python, either listing order', async () => {
+  const W = await made({ todos: 1 }), id = W.run.living.receipt, p = 'proposals/' + id + '.json', o = JSON.parse(String(W.files[p]));
+  o.at = new Date(Date.parse(o.at) + 60000).toISOString();
+  const other = JSON.stringify(o, null, 2) + '\n';
+  for (const first of [true, false]) {
+    const rest = Object.assign({}, W.files), files = first ? Object.assign({ [copyOf(p)]: other }, rest) : Object.assign(rest, { [copyOf(p)]: other });
+    const { zip, res } = await pack(W.PF, new BytesFS(files), W.key);
+    assert.strictEqual(res.status, 'complete', (first ? 'copy first' : 'copy last') + ': ' + JSON.stringify(res.col.unresolved).slice(0, 400));
+    if (!PY) continue;
+    const c = checkPack(zip);
+    assert.ok(c.ok, (first ? 'copy first' : 'copy last') + ': Python reads it: ' + c.out);
+  }
+});
 /* CA: the export's receipt verdict sees everything under the receipt's id: a copy that can't be read because it names another
    run, or a valid to-do request carrying the receipt's id, leaves the pack partial naming the receipt, and Python refuses a
    forced complete claim. */

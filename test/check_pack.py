@@ -69,11 +69,17 @@ COPY = re.compile(r"^( \([0-9]{1,3}\)|-[A-Za-z0-9-]{1,63})$")
 ENVELOPE = ("format", "features", "app", "created", "key")
 
 
+RECEIPT_BODY = ("head", "outcome", "seen", "counts", "coverage", "evidence", "keeps")
+
+
 def copy_body(o):
     """A record as the app compares its copies (PF.loop.copyBody of the checked record): its own fields, the envelope left out,
-    keys in any order, lists in order."""
+    keys in any order, lists in order. A receipt by its own body, as its verdict compares copies (what it froze, never when it
+    was written; the shipped checker's receipt_verdict)."""
     if not isinstance(o, dict):
         return json.dumps(o, sort_keys=True)
+    if o.get("kind") == "receipt":
+        return "receipt " + json.dumps({k: o[k] for k in RECEIPT_BODY if k in o}, sort_keys=True)
     return json.dumps({k: v for k, v in o.items() if k not in ENVELOPE and not k.startswith("_")}, sort_keys=True)
 def check_living(z, man):
     by_path = {f["path"]: f["pack"] for f in man["files"]}
@@ -266,10 +272,15 @@ def check_living(z, man):
                             and rec.get("outcome") == ended.get("outcome") and rec.get("by") == ended.get("by") and rec.get("run") == me)
             # Read as the shipped checker reads it: its format, limits and the id its content gives.
             if good_receipt:
-                # The witness resolved above, under the name it is packed as (its own, or a synced copy's).
-                path = packed_ids(receipt)
-                raw = decode(z.read(by_path[path[0]])) if path else None
-                good_receipt = raw is not None and CF.todo_why(raw, path[0][len("proposals/"):]) == ""
+                # Every packed copy of the witness resolved above (its own name and each synced copy's), each read by those rules:
+                # copies are one receipt by its body, but every original is checked whole.
+                paths = packed_ids(receipt)
+                def whole(p):
+                    try:
+                        return CF.todo_why(decode(z.read(by_path[p])), p[len("proposals/"):]) == ""
+                    except ValueError:
+                        return False
+                good_receipt = bool(paths) and all(whole(p) for p in paths)
             # Every record it names as seen (pending requests included) is in the pack, and what each of those saw, in turn.
             if good_receipt:
                 for x in rec.get("seen") or []:
