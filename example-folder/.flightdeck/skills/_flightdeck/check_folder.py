@@ -1622,6 +1622,18 @@ def read_text(path):
         return None
 
 
+def read_app_text(path):
+    """A file's text as the app reads it (TextDecoder: UTF-8, each invalid sequence one U+FFFD, a leading byte-order mark
+    dropped), or None when it can't be read."""
+    try:
+        with open(path, "rb") as f:
+            raw = f.read()
+    except OSError:
+        return None
+    text = raw.decode("utf-8", "replace")
+    return text[1:] if raw.startswith(b"\xef\xbb\xbf") else text
+
+
 # The format envelope (Flightdeck's PF.envelope, docs/design.md section 28), for the families this checker reads. A file in a
 # newer major, or with a must-understand feature this copy doesn't know, is refused and named with the version it needs.
 # test/checker.test.js fails if this disagrees with src/core/envelope.js.
@@ -4315,8 +4327,8 @@ def receipt_verdict(text, read, unread):
     """PF.receipts.verdict for an ended living run.json: its state, the receipt's path, the problem's kind and why (same order
     and words), or None for a run that isn't an ended living run."""
     try:
-        r = json.loads(text, parse_constant=_no_constant) if text else None
-    except ValueError:
+        r = json.loads(text, parse_constant=_no_constant) if text and not json_too_deep(text) else None
+    except (ValueError, RecursionError):
         r = None
     if not isinstance(r, dict) or not isinstance(r.get("ended"), dict):
         return None
@@ -4384,7 +4396,8 @@ def main():
     for name in sorted(os.listdir(prop_dir)) if os.path.isdir(prop_dir) else []:
         if not name.lower().endswith(".json") or not os.path.isfile(os.path.join(prop_dir, name)):
             continue
-        text = read_text(os.path.join(prop_dir, name))
+        # Read as the app reads a record (its replacement decoding), so a byte it replaces is read the same way here.
+        text = read_app_text(os.path.join(prop_dir, name))
         if text is None and name.startswith("req-"):
             rcpt_unread.append((name, "unreadable", "couldn't be read"))
         # PF.util.jsonTooDeep: nested past the bound, refused by name before anything parses it, as the app refuses it.
@@ -4550,7 +4563,7 @@ def main():
                 copies = [n for n in names if re.match(r"^run.*\.json\Z", n, re.I | re.A) and n != "run.json"]
                 # A save's candidate file that run.json doesn't list was overwritten by another window or computer.
                 try:
-                    lineage = json.loads(read_text(os.path.join(rdir, "run.json")) or "{}", parse_constant=_no_constant).get("lineage") or []
+                    lineage = json.loads(read_app_text(os.path.join(rdir, "run.json")) or "{}", parse_constant=_no_constant).get("lineage") or []
                 except ValueError:
                     lineage = []
                 for n in names:
@@ -4558,7 +4571,7 @@ def main():
                     if m and (m.group(1) + "." + m.group(2)) not in lineage and time.time() - os.path.getmtime(os.path.join(rdir, n)) >= 60:
                         copies.append(n)
                 receipts = [n for n in names if n.startswith("candidate-")]
-                v = receipt_verdict(read_text(os.path.join(rdir, "run.json")), rcpt_read, rcpt_unread + split_unread)
+                v = receipt_verdict(read_app_text(os.path.join(rdir, "run.json")), rcpt_read, rcpt_unread + split_unread)
                 if v:
                     out.setdefault("runReceipts", []).append(dict({"run": proc + "/" + rid}, **v))
                 if copies:

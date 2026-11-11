@@ -230,4 +230,32 @@ rule('This version: a receipt copy whose counts are written in another key order
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   }
 });
+/* AF: the checker reads a receipt and run.json with the app's replacement decoder: a byte that isn't UTF-8 (FF) in a
+   receipt's evidence result, or in run.json's title, reads as the app reads it, and the receipt is confirmed by both. */
+rule('This version: a receipt or run.json with a byte that isn\'t UTF-8 is read by the checker as the app reads it: confirmed by both', async () => {
+  const { files, receipt } = await folder(), NEW = H.loadMain(), rp = 'runs/release-notes/run-l/run.json';
+  const FFB = (t, mark) => { const b = Buffer.from(t), at = b.indexOf(Buffer.from(mark)); assert.ok(at >= 0, 'set-up: ' + mark); return Buffer.concat([b.slice(0, at), Buffer.from([0xff]), b.slice(at + Buffer.byteLength(mark))]); };
+  const cases = [];
+  { const o = JSON.parse(files['proposals/' + receipt]);
+    o.evidence = [{ todo: 'td-' + '1'.repeat(24), plan: 'plan-ev-' + '2'.repeat(24), run: { process: 'smoke-test', id: 'k1' }, answer: 'Yes', result: 'pass �' }];
+    o.id = NEW.receipts.idFor(o.run, o, o.by);
+    const r = JSON.parse(files[rp]); r.living.receipt = o.id;
+    const f = Object.assign({}, files); delete f['proposals/' + receipt];
+    f['proposals/' + o.id + '.json'] = FFB(JSON.stringify(o, null, 2) + '\n', '�'); f[rp] = JSON.stringify(r, null, 2) + '\n';
+    cases.push(['FF in the receipt\'s evidence result', f]); }
+  { const r = JSON.parse(files[rp]); r.title = r.title + ' �';
+    cases.push(['FF in run.json\'s title', Object.assign({}, files, { [rp]: FFB(JSON.stringify(r, null, 2) + '\n', '�') })]); }
+  for (const [what, f] of cases) {
+    const { root, dir } = tree(f);
+    try {
+      const rl = cli(MINE, 'run', dir, 'release-notes/run-l', '--contract', '2', '--json');
+      assert.strictEqual(rl.json.data && rl.json.data.run.receipt.state, 'confirmed', what + ': ' + rl.out.slice(0, 400));
+      if (PY) {
+        const res = JSON.parse(cp.execFileSync(PY, ['-I', path.join(ROOT, 'example-folder', '.flightdeck', 'skills', '_flightdeck', 'check_folder.py'), dir], { encoding: 'utf8' }));
+        const mine = (res.runReceipts || []).filter((x) => x.run === 'release-notes/run-l');
+        assert.strictEqual(mine.length && mine[0].state, 'confirmed', what + ' checker: ' + JSON.stringify(res.runReceipts));
+      }
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
+});
 run();
