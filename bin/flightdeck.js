@@ -1026,7 +1026,8 @@ async function readData(eng, adapter, req) {
       const ofEvidence = (p) => Object.keys(evRuns).some((k) => under(p, 'runs/' + k) || under(p, 'publications/' + evRuns[k]) || under(p, 'staged/' + evRuns[k])) || Object.keys(evPlans).some((id) => String(p).indexOf('proposals/' + id) === 0);
       ev.problems.forEach((q) => { if (ofEvidence(q.path)) mine[q.path] = true; });
       runs.forEach((r) => { if (r && r._tdv) PF.detours.planProblems(r, r._tdv.todos, ev).forEach((q) => { if (shown(r.process)) mine[q.path] = true; L.note(q.path, q.kind, q.why); }); });
-      const was = relevant; relevant = (p) => was(p) || !!mine[p];
+      /* PC: anything the ledger notes under that evidence (a notes file that can't be read included) counts, not only ev.problems. */
+      const was = relevant; relevant = (p) => was(p) || !!mine[p] || ofEvidence(p);
     }
     const known = (p) => d.processes.some((x) => x.process === p) || d.runs.some((r) => r.process === p) || d.plans.some((x) => x.process === p);
     if (req.proc && !known(req.proc) && !req.stage) return notFound('There\'s no process ' + req.proc + ' in the team folder.');

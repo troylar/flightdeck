@@ -209,6 +209,31 @@ rule('Evidence a pending request rests on, missing or unreadable, is every reade
   }
 });
 
+/* PC: a notes file of the evidence run that can't be read (unreadable, a link, too big) is runs --process's problem as it is
+   run's and next's: exit 4, incomplete, named at its path. */
+rule('An evidence run\'s notes file that can\'t be read is runs --process\'s problem as it is run\'s and next\'s', async () => {
+  const cases = {
+    unreadable: (f) => { fs.writeFileSync(f, '{"kind":"note"}\n'); fs.chmodSync(f, 0); },
+    link: (f) => { fs.writeFileSync(path.join(path.dirname(f), '..', 'elsewhere.jsonl'), '{"kind":"note"}\n'); fs.symlinkSync(path.join(path.dirname(f), '..', 'elsewhere.jsonl'), f); },
+    big: (f) => { fs.writeFileSync(f, Buffer.alloc(17 * 1048576, 32)); },
+  };
+  for (const how of Object.keys(cases).filter((h) => !process.env.PC_CASE || process.env.PC_CASE.split(',').indexOf(h) >= 0)) {
+    if (how === 'unreadable' && process.getuid && process.getuid() === 0) continue;
+    const F = await folder(), L = await linked(F, 'pass');
+    await started(F, L, 'k1', 'pass');
+    const s = json('todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--json', ...TOOL);
+    assert.strictEqual(s.code, 0, JSON.stringify(s));
+    const note = path.join(F.root, 'runs', 'smoke-test', 'k1', 'notes-wpc.jsonl');
+    cases[how](note);
+    const readers = { run: json('run', F.root, PR, '--contract', '2', '--json'), next: json('next', F.root, PR, '--contract', '2', '--json'), 'runs --process': json('runs', F.root, '--process', 'release-readiness', '--contract', '2', '--json') };
+    Object.keys(readers).forEach((k) => {
+      const x = readers[k], hit = (x.problems || []).some(q => q.path === 'runs/smoke-test/k1/notes-wpc.jsonl');
+      assert.deepStrictEqual([k, how, x.code, x.complete, hit], [k, how, 4, false, true], k + ' (' + how + '): ' + JSON.stringify(x.problems));
+    });
+    try { fs.chmodSync(note, 0o644); } catch (e) { /* a link or gone */ }
+  }
+});
+
 rule('Evidence that reads but isn\'t trusted, and an evidence plan or decision that can\'t be read, is every reader\'s problem as runs judges it: exit 4 and incomplete, always together', async () => {
   const cases = {
     newer: (F, S) => { const f = runFile(F.root, 'smoke-test/k1'), o = JSON.parse(fs.readFileSync(f, 'utf8')); o.format = 'preflight-run/99'; fs.writeFileSync(f, JSON.stringify(o)); },
