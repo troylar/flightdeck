@@ -239,7 +239,7 @@ const LOOKUPS_OK = {
   'app.js|typeForms|F.fsKey': [1, 'the folder\'s key, its kind, a colon and its name; or empty with no folder'],
   'app.js|thumbWant|k': [2, 'a thumbnail\'s key: an image path (holds a slash) or process/folder|path'],
   'app.js|thumbWant|el.dataset.thumb': [1, 'a thumbnail\'s key: an image path (holds a slash) or process/folder|path'],
-  'app.js|o|k': [3, 'a run key from state.unread or state.missing (holds a slash); or a field of the type form this code builds'],
+  'app.js|o|k': [4, 'a run key from state.unread or state.missing (holds a slash); or a field of the type form this code builds; or a key Object.keys gave of the record itself (the approval snapshot\'s strip)'],
   'app.js|shown|m.id': [1, 'a proposal id: PP.check requires p-<letters>-<letters> (ID), for its id and for what it replaces or follows'],
   'app.js|shown|x.id': [1, 'a proposal id: PP.check requires p-<letters>-<letters> (ID), for its id and for what it replaces or follows'],
   'app.js|recs|m.id': [1, 'a proposal id: PP.check requires p-<letters>-<letters> (ID), for its id and for what it replaces or follows'],
