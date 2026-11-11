@@ -26133,7 +26133,7 @@ PF.repo = (function () {
       return statOf(path).then(function (size) {
         if (size == null) return { missing: true };
         if (size > limit) return { over: size };
-        return ro.read(path).then(function (f) { return f ? { text: decoded(f.text) } : { missing: true }; }, function () { return { missing: true }; });
+        return ro.read(path).then(function (f) { return f ? { text: decoded(f.text) } : { missing: true, gone: true }; }, function () { return { missing: true, failed: true }; });
       });
     }
 
@@ -26311,9 +26311,20 @@ PF.repo = (function () {
         var ds = r[0], total = 0, over = false;
         r[1].concat(r[2]).forEach(function (m) { m.sizes.forEach(function (z) { if (z == null) return; total += z; if (z > recordMax) over = true; }); });
         if (over || total > CTX_MAX) return { decisions: ds, groups: [], pubs: [], runs: [], index: null, why: 'The runs and versions of ' + proc + ' are too big to read here (' + E.size(total) + '), so where its corrections stand can\'t be worked out.' };
+        /* Every other run's file that was listed but gone when sized, or couldn't be read, is named by its path and kind: where
+           corrections stand can't be worked out without it (4.0, NC). A run in the pack answers for its own files. */
+        var fails = [];
+        r[1].forEach(function (m) { if (!selected[m.key]) m.want.forEach(function (n, i) { if (m.sizes[i] == null) fails.push(m.base + n + ' (vanished)'); }); });
         var runs = limited(r[1].filter(function (m) { return m.want.length; }), 8, function (m) {
           /* A run in the pack is read from its snapshot; any other only as text. */
-          var read = function (n) { return selected[m.key] ? record(m.base + n).then(function (x) { return x.text == null ? null : x.text; }) : sizedText(m.base + n, recordMax).then(function (x) { return x.text == null ? null : x.text; }); };
+          var read = function (n, i) {
+            if (selected[m.key]) return record(m.base + n).then(function (x) { return x.text == null ? null : x.text; });
+            if (m.sizes[i] == null) return Promise.resolve(null);
+            return sizedText(m.base + n, recordMax).then(function (x) {
+              if (x.text == null) fails.push(m.base + n + (x.over ? ' (too big)' : x.failed ? ' (unreadable)' : ' (vanished)'));
+              return x.text == null ? null : x.text;
+            });
+          };
           return Promise.all(m.want.map(read)).then(function (t) {
             /* Only a run in its own folder: a copy of one elsewhere would add its corrections again. */
             if (t[0] == null || !R.sanitize(json(t[0])) || elsewhere(json(t[0]), proc, m.key.split('/')[1])) return null;
@@ -26332,7 +26343,9 @@ PF.repo = (function () {
         return Promise.all([runs, pubs]).then(function (x) {
           var pubList = x[1], verified = pubList.filter(function (p) { return p.v.ok; }).map(function (p) { return p.v; });
           var runsRead = x[0].filter(Boolean), index = P.index(verified);
-          return { decisions: ds, groups: C.forProcess(runsRead, proc, ds.filter(function (y) { return y.d; }).map(function (y) { return y.d; }), index), pubs: pubList, why: '', runs: runsRead, index: index };
+          fails.sort();
+          var why = fails.length ? 'Some runs of ' + proc + ' couldn\'t be read (' + fails.slice(0, 5).join(', ') + (fails.length > 5 ? ', and ' + (fails.length - 5) + ' more' : '') + '), so where its corrections stand can\'t be worked out.' : '';
+          return { decisions: ds, groups: C.forProcess(runsRead, proc, ds.filter(function (y) { return y.d; }).map(function (y) { return y.d; }), index), pubs: pubList, why: why, runs: runsRead, index: index, fails: fails };
         });
       }));
     }

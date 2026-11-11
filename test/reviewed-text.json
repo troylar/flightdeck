@@ -29,8 +29,8 @@
       "reviewed": "MA: one set of children seen per ending attempt, carried across guards; reads only; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
-      "sha256": "1204164a9c6b87da825c0538f80302ae93cdf9f5008689148c91da6ac2099f46",
-      "reviewed": "a fact the work rests on is followed through the records it saw, in the export and check_pack; checked for direct writes and unconditional deletes"
+      "sha256": "73b79dd75afcadbd2d9752c10da2a348d7f9543d53205f447944dbbe2810fe8e",
+      "reviewed": "export: a keep's process context run whose files are gone or can't be read is named and leaves the pack partial; checked for direct writes and unconditional deletes"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
@@ -425,8 +425,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "7d7acff9735c86b23cad9258a08a2ead4f7ba2597272c8ce64e6066f11098b1f",
-      "reviewed": "export: a keep whose standing can't be worked out leaves the pack partial; check_pack refuses an unconfirmed claim under a complete pack; checked for direct writes and unconditional deletes"
+      "sha256": "e14e009916465304157cdb7811a733dd0fb4aa7ec650f31be6ebe8282ee743cc",
+      "reviewed": "export: a keep's process context run whose files are gone or can't be read is named and leaves the pack partial; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "097434585b94cf57cc1ac0fd15c1227d7c517706fa5966af83d4f45e7b4e4283",

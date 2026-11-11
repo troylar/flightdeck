@@ -1651,4 +1651,30 @@ rule('A fact the work rests on is followed through the facts it saw: one gone le
   const bad = checkPack(await repacked(PF, full.zip, (e, man, g) => { const y = g(f1p); delete e[y.pack]; man.files = man.files.filter((z) => z.path !== f1p); forced(man); }));
   assert.ok(!bad.ok && bad.out.indexOf(f1.id) >= 0, 'Python refuses it: ' + bad.out);
 });
+/* NC: where a keep stands is worked out from its process's other runs; one of them whose run.json or notes can't be read
+   (the read fails, finds nothing, or the file is gone when sized) leaves the pack partial, named by its path, and Python
+   refuses a complete claim that carries it. */
+rule('A keep whose process has a run that can\'t be read leaves the pack partial, named by its path, whichever way the read fails', async () => {
+  const W = await made({ todos: 1, keep: 'placed' }), proc = W.key.split('/')[0];
+  const other = 'runs/' + proc + '/ctxrun0001/', files = Object.assign({}, W.files, { [other + 'run.json']: otherRoot(W, 'ctxrun0001'), [other + 'notes-w1.jsonl']: '' });
+  const ctl = await pack(W.PF, new BytesFS(files), W.key);
+  assert.strictEqual(ctl.res.status, 'complete', 'the control: ' + JSON.stringify(ctl.res.col.unresolved));
+  const failing = (how, at) => {
+    const fsx = new BytesFS(files), read = fsx.read.bind(fsx), stat = fsx.stat.bind(fsx);
+    fsx.read = (p) => p === other + at && how !== 'stat' ? (how === 'eio' ? Promise.reject(new Error('EIO: i/o error')) : Promise.resolve(null)) : read(p);
+    fsx.stat = (p) => p === other + at && how === 'stat' ? Promise.resolve(null) : stat(p);
+    return fsx;
+  };
+  for (const [what, how, at] of [['run.json read fails (EIO)', 'eio', 'run.json'], ['run.json read finds nothing', 'null', 'run.json'], ['run.json gone when sized', 'stat', 'run.json'], ['notes read fails', 'eio', 'notes-w1.jsonl'], ['notes gone when sized', 'stat', 'notes-w1.jsonl']]) {
+    const { res, zip } = await pack(W.PF, failing(how, at), W.key);
+    assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(other + at) >= 0), what + ': ' + res.status + ' ' + JSON.stringify(res.col.unresolved));
+    const mr = manifestOf(zip).runs[0], cl = mr.claims.filter((c) => c.correction === W.keepId)[0];
+    assert.ok(cl && !cl.verified && mr.living && !mr.living.complete, what + ': the keep isn\'t confirmed ' + JSON.stringify(mr.claims));
+    if (PY) {
+      assert.ok(checkPack(zip).ok, what + ': the honest partial pack is accepted');
+      const bad = checkPack(await repacked(W.PF, zip, (e, man) => forced(man)));
+      assert.ok(!bad.ok, what + ': Python refuses a complete claim: ' + bad.out);
+    }
+  }
+});
 run();
