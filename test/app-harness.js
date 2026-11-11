@@ -143,7 +143,8 @@ function boot(opts) {
       const id = unq(idm[1]), typ = (/\stype="([^"]*)"/.exec(tag) || [])[1] || (m[1] === 'input' ? 'text' : m[1]);
       const def = drawnValue(html, id), defChecked = /\schecked\b/.test(tag), at = m.index;
       const el = inputs.has(id) || (els[id] && els[id]._touched) ? els[id] : { id, value: def, checked: defChecked, dataset: {} };
-      el.tagName = m[1].toUpperCase(); if (!inputs.has(id) || !el.type) el.type = typ;
+      /* A SELECT on a page always has its options: a node without them (not liveForms) stays as it was, never a select that has none. */
+      if (!(m[1] === 'select' && !el.options)) el.tagName = m[1].toUpperCase(); if (!inputs.has(id) || !el.type) el.type = typ;
       Object.defineProperty(el, 'defaultValue', { configurable: true, get: () => def }); el.defaultChecked = defChecked;
       el.hasAttribute = a => new RegExp('\\s' + a + '(=|\\s|>|$)').test(tag);
       if (!el._ownClosest) el._ownClosest = el.closest || (() => null);

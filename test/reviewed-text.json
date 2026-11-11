@@ -25,8 +25,8 @@
       "reviewed": "QC: spread keep's final check rereads and judges the items' checklist and rebuilds from it; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "f533ea5a993e01f4c87950eb9e76eb40fc503c5ba6cd74f94ed19dd08fa14eeb",
-      "reviewed": "CA: loader-supplied metadata kept in a side map, never a record field; reconstruction contained per file; checked for direct writes and unconditional deletes"
+      "sha256": "6aca75ccf9d4343d21b8073b78171d925a75641400b670bc327dddacd5aae68d",
+      "reviewed": "CB: one page mark for every detour and plan completion that navigates; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -421,8 +421,8 @@
       "reviewed": "CA: loader-supplied metadata kept in a side map, never a record field; reconstruction contained per file; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "737cfa87fe50affc11b72de1567acbb88d9a5ec0229d3fcfdb50bed2ecf9b9dd",
-      "reviewed": "BE: detour completion counts input events and a revised form; checked for direct writes and unconditional deletes"
+      "sha256": "d8ab565b167c563a2c5626ea49a80e30d355ad3e3a7fc7f4e9f0b01d23b59d25",
+      "reviewed": "CB: one page mark for every detour and plan completion that navigates; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

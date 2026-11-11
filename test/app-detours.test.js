@@ -325,6 +325,54 @@ rule('A detour Start keeps its run but never navigates away from its own form re
   }
 });
 
+/* CB: the same check for every detour completion that navigates, not only Start: Try again, Decline and the plan's
+   read-back each keep what they saved but never leave their own form revised meanwhile, even by a value replaced with no
+   event at all. */
+rule('A detour Try again, Decline or plan read-back never navigates away from its own form whose value was replaced with no event', async () => {
+  const pause = (fs, m, test) => { const orig = fs[m].bind(fs); let release = null; fs[m] = (p, ...a) => (!release && test(p)) ? new Promise((res, rej) => { release = () => orig(p, ...a).then(res, rej); }) : orig(p, ...a); return { go: () => release && release(), on: () => !!release, off: () => { fs[m] = orig; } }; };
+  const pick = (h) => !process.env.CB_CASE || process.env.CB_CASE.split(',').indexOf(h) >= 0;
+  for (const how of ['retry', 'decline'].filter(pick)) {
+    const { app, todo } = await setup(['pass']);
+    app.click('td-detour', todo); await app.tick(250);
+    assert.ok(/id="start-form"/.test(app.html()), how + ': set-up: the plan\'s Start');
+    const before = kidPaths(app).length;
+    if (how === 'retry') {
+      const w = app.fs.write.bind(app.fs); let failed = false;
+      app.fs.write = (p, ...a) => (!failed && /^runs\/smoke-test\//.test(p)) ? (failed = true, Promise.reject(new Error('disk full'))) : w(p, ...a);
+      app.chooseApprovers().submitForm('start-form'); await app.tick(300);
+      app.fs.write = w;
+      assert.ok(/data-act="plan-resume"/.test(app.html()), how + ': set-up: Try again offered');
+    }
+    const act = how === 'retry' ? 'plan-resume' : 'decline-plan';
+    const id = (new RegExp('data-act="' + act + '"[^>]*data-id="([^"]+)"').exec(app.html()) || new RegExp('data-id="([^"]+)"[^>]*data-act="' + act + '"').exec(app.html()))[1];
+    const pz = how === 'decline' ? pause(app.fs, 'write', (p) => /^proposals\/plan-ev-.*\.status-/.test(p)) : pause(app.fs, 'write', (p) => /^runs\/smoke-test\//.test(p));
+    app.click(act, id);
+    for (let i = 0; i < 40 && !pz.on(); i++) await app.tick(20);
+    assert.ok(pz.on(), how + ': set-up: its write is under way');
+    /* As on a page, the box the page holds is the one replaced (the harness hands back its own node once marked); no event. */
+    Object.assign(app.el('run-title'), { _touched: true }).value = 'Revised name';
+    pz.go(); await app.tick(400); pz.off();
+    if (how === 'decline') assert.ok(app.files('proposals/').some(p => /^proposals\/plan-ev-.*\.status-/.test(p)), how + ': declined, as committed');
+    else assert.strictEqual(kidPaths(app).length, before + 1, how + ': the run was saved');
+    assert.ok(/id="start-form"/.test(app.html()), how + ': the revised form is still on screen');
+    assert.strictEqual(app.draft('run-title'), 'Revised name', how + ': what was entered stays');
+    assert.ok(/(started|declined|saved)/i.test(txt(app.html())), how + ': said what was done: ' + (txt(app.html()).match(/[^.]*(started|declined|saved)[^.]*\./i) || [])[0]);
+  }
+  if (!pick('readback')) return;
+  const { app, todo } = await setup(['pass']);
+  const fs = app.fs, read = fs.read.bind(fs); let release = null;
+  fs.read = (p, o) => (/^proposals\/plan-ev-[0-9a-f]{24}\.json$/.test(p) && fs.files[p] && !release) ? new Promise((res) => { release = () => res(read(p, o)); }) : read(p, o);
+  app.click('td-detour', todo);
+  for (let i = 0; i < 40 && !release; i++) await app.tick(20);
+  assert.ok(release && plans(app).length === 1, 'read-back: set-up: saved, its read-back held');
+  assert.ok(app.el('td-add'), 'read-back: set-up: the to-do box is on screen');
+  Object.assign(app.el('td-add'), { _touched: true }).value = 'A revised to-do';
+  release(); await app.tick(300); fs.read = read;
+  assert.ok(!/data-plan-hash/.test(app.html()), 'read-back: the plan isn\'t opened over the run');
+  assert.strictEqual(app.draft('td-add'), 'A revised to-do', 'read-back: what was entered stays');
+  assert.ok(/plan was saved/i.test(txt(app.html())), 'read-back: said it was saved');
+});
+
 rule('An interrupted start finds its plan again: Run this checklist opens the plan already there, never a second', async () => {
   const { app, todo } = await setup();
   app.click('td-detour', todo); await app.tick(250);
