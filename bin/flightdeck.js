@@ -1016,7 +1016,17 @@ async function readData(eng, adapter, req) {
       const ev = gp ? await evidenceRead(PF, L.fs, gp, d.todos || []) : { runs: d.runs || runs, plans: d.plans || [], unreadRuns: [], holds: [], problems: [], paths: [] };
       ev.problems.forEach((q) => L.note(q.path, q.kind, q.why));
       markTodos(PF, runs, { todos: d.todos || [], todosUnread: d.todosUnread || [] }, d.people, !!(d.failed && 'people' in d.failed), { runs: [], loops: { records: d.scopes || [], unread: d.scopesUnread || [], procOf: procOfFrom(d) } }, ev);
-      runs.forEach((r) => { if (r && r._tdv) PF.detours.planProblems(r, r._tdv.todos, ev).forEach((q) => L.note(q.path, q.kind, q.why)); });
+      /* LC: what the listed runs' to-dos rest on elsewhere (the runs their evidence names, those runs' versions and the plans
+         that started them) is this command's problem too, as run and next count it: those paths join what it depends on. */
+      const shown = (p) => !req.proc || p === req.proc, mine = {}, evRuns = {}, evPlans = {}, under = (p, q) => p === q || String(p).indexOf(q + '/') === 0;
+      (d.todos || []).filter((x) => x && x.run && shown(x.run.process)).forEach((x) => [x.evidence, x.effect && x.effect.evidence, x.application && x.application.effect && x.application.effect.evidence].forEach((e) => {
+        if (e && e.run && typeof e.run.process === 'string' && typeof e.run.id === 'string') evRuns[e.run.process + '/' + e.run.id] = e.run.process;
+        if (e && typeof e.plan === 'string') evPlans[e.plan] = true;
+      }));
+      const ofEvidence = (p) => Object.keys(evRuns).some((k) => under(p, 'runs/' + k) || under(p, 'publications/' + evRuns[k]) || under(p, 'staged/' + evRuns[k])) || Object.keys(evPlans).some((id) => String(p).indexOf('proposals/' + id) === 0);
+      ev.problems.forEach((q) => { if (ofEvidence(q.path)) mine[q.path] = true; });
+      runs.forEach((r) => { if (r && r._tdv) PF.detours.planProblems(r, r._tdv.todos, ev).forEach((q) => { if (shown(r.process)) mine[q.path] = true; L.note(q.path, q.kind, q.why); }); });
+      const was = relevant; relevant = (p) => was(p) || !!mine[p];
     }
     const known = (p) => d.processes.some((x) => x.process === p) || d.runs.some((r) => r.process === p) || d.plans.some((x) => x.process === p);
     if (req.proc && !known(req.proc) && !req.stage) return notFound('There\'s no process ' + req.proc + ' in the team folder.');

@@ -198,6 +198,8 @@ rule('Evidence a pending request rests on, missing or unreadable, is every reade
     else fs.writeFileSync(runFile(F.root, 'smoke-test/k1'), '{ torn');
     const readers = { run: json('run', F.root, PR, '--contract', '2', '--json'), next: json('next', F.root, PR, '--contract', '2', '--json'), 'todo list': json('todo', 'list', F.root, PR, '--json') };
     if (how === 'missing') readers.runs = json('runs', F.root, '--contract', '2', '--json');
+    /* LC: the parent's runs alone are read with what their to-dos rest on, named like the other readers. */
+    readers['runs --process'] = json('runs', F.root, '--process', 'release-readiness', '--contract', '2', '--json');
     Object.keys(readers).forEach((k) => {
       const x = readers[k], hit = (x.problems || []).filter(q => q.path === 'runs/smoke-test/k1/run.json');
       /* An absent run is nofile, the kind every reader uses for a file that isn't there. */
@@ -261,7 +263,7 @@ rule('Evidence that reads but isn\'t trusted, and an evidence plan or decision t
           : how === 'pubread' ? { path: 'publications/smoke-test/' + F.kp.info.folder + '/publication.json', prefix: 'publications/smoke-test/' + F.kp.info.folder, kinds: ['unreadable'] }
           : { path: runPath, kinds: (runs.problems || []).filter(q => q.path === runPath).map(q => q.kind) };
     assert.ok(want.kinds.length, how + ': set-up: runs names the run: ' + JSON.stringify(runs.problems));
-    const readers = { runs, run: json('run', F.root, PR, '--contract', '2', '--json'), next: json('next', F.root, PR, '--contract', '2', '--json'), 'todo list': json('todo', 'list', F.root, PR, '--json'),
+    const readers = { runs, 'runs --process': json('runs', F.root, '--process', 'release-readiness', '--contract', '2', '--json'), run: json('run', F.root, PR, '--contract', '2', '--json'), next: json('next', F.root, PR, '--contract', '2', '--json'), 'todo list': json('todo', 'list', F.root, PR, '--json'),
       'suggest-done --dry-run': json('todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--dry-run', '--json', ...TOOL) };
     Object.keys(readers).forEach((k) => {
       const x = readers[k], at = (q) => q.path === want.path || (want.prefix && q.path.indexOf(want.prefix) === 0), hit = (x.problems || []).filter(q => at(q) && want.kinds.indexOf(q.kind) >= 0);

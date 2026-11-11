@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "3e09a6ebd8114931b30953b00d2609c8d3175704b949675fbf0f40601e5d5692",
-      "reviewed": "LA: keeps, to-do writes and requests read proposals/ last through proposalsFinal; checked for direct writes and unconditional deletes"
+      "sha256": "e79382af7c31f73e55357c15942adc8060ca6a241e3608898a706943d2428c75",
+      "reviewed": "LC: runs --process keeps the evidence paths its listed runs' to-dos rest on in its problems; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "e641a0f9f4655b4634b9d2661fe4e4b97222f23ece79f5917e6c99f174218087",
