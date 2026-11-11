@@ -1163,6 +1163,32 @@ rule('A packed request record the app can\'t read whose run can\'t be told is re
     assert.ok(!c.ok && c.out.indexOf(p) >= 0, what + ': Python: ' + c.out);
   }
 });
+/* FB: one file-selection predicate, the loader's (a .json name in any case): a packed request record the app can't read named
+   .JSON or .Json is refused by Python as complete, as a .json one is, and a pending request's copy named .JSON that says
+   something else is two different copies for the export and for Python alike. */
+rule('A packed record named .JSON or .Json is selected as the loader selects it: Python refuses an unreadable one and a copy that differs, as the export does', async () => {
+  const W = await made({ todos: 1, pending: true }), ok = await pack(W.PF, new BytesFS(W.files), W.key), hex = 'e'.repeat(24);
+  const td = JSON.parse(String(W.files['proposals/' + W.pendingId + '.json'])); td.run = 42;
+  for (const ext of ['.JSON', '.Json']) {
+    for (const [what, text] of [['an empty object', '{}'], ['a request whose run is 42', JSON.stringify(td, null, 2)]]) {
+      const p = 'proposals/req-flightdeck-' + hex + ext, tag = ext + ' × ' + what;
+      const { res } = await pack(W.PF, new BytesFS(Object.assign({}, W.files, { [p]: text + '\n' })), W.key);
+      assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(p) >= 0), tag + ': the export names it: ' + res.status + ' ' + JSON.stringify(res.col.unresolved).slice(0, 300));
+      if (!PY) continue;
+      const c = checkPack(await repacked(W.PF, ok.zip, (e, man) => {
+        const f0 = man.files.filter((f) => /^proposals\/req-/.test(f.path))[0], f1 = Object.assign({}, f0, { path: p, pack: f0.pack.slice(0, f0.pack.indexOf(f0.path)) + p });
+        e[f1.pack] = Buffer.from(text + '\n'); man.files.push(f1);
+      }));
+      assert.ok(!c.ok && c.out.indexOf(p) >= 0, tag + ': Python: ' + c.out);
+    }
+    const p = 'proposals/' + W.pendingId + '.json', o = JSON.parse(String(W.files[p])); o.text = o.text + ' (edited)';
+    const cp = p.replace(/\.json$/, ' (1)' + ext), { zip, res } = await pack(W.PF, new BytesFS(Object.assign({}, W.files, { [cp]: JSON.stringify(o, null, 2) + '\n' })), W.key);
+    assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(p) >= 0 && /two different copies/.test(u)), ext + ' copy: ' + res.status + ' ' + JSON.stringify(res.col.unresolved).slice(0, 400));
+    if (!PY) continue;
+    const c = checkPack(await repacked(W.PF, zip, (e, man) => forced(man)));
+    assert.ok(!c.ok && /two different copies/.test(c.out), ext + ' copy: Python: ' + c.out);
+  }
+});
 /* DA: every file under proposals/ is indexed by its file-name id before any family reads it: a copy of a witness (any family
    it rests on) that parses as another family, fails as one, has an unknown format, isn't JSON or names another run holds that
    witness. The loader holds it (the to-do record's run, the scope record's loop, the evidence plan's id) and the export is

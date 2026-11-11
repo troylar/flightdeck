@@ -115,6 +115,9 @@ rule('This version: run, next, runs and todo list name the same receipt problem 
     ['a valid plan-status/2 decision', Object.assign({ format: 'flightdeck-plan-status/2', app: '4.0.0' }, DEC)]]
     .forEach(([what, o]) => cases.push([what, (dir) => fs.writeFileSync(path.join(dir, 'proposals', receipt.replace(/\.json$/, ' (1).json')), JSON.stringify(o, null, 2) + '\n'), 'malformed']));
   cases.push(['a valid to-do record of another id', (dir) => { const q = fs.readdirSync(path.join(dir, 'proposals')).filter((n) => /^req-notes-bot-/.test(n))[0]; fs.copyFileSync(path.join(dir, 'proposals', q), path.join(dir, 'proposals', receipt.replace(/\.json$/, ' (1).json'))); }, 'malformed']);
+  /* FB: a copy under the receipt's id named .JSON or .Json is selected as the loader selects it, by every reader and the checker. */
+  [['an empty object', '{}'], ['a copy that isn\'t JSON', '{ bad'], ['a plan-family copy', '{"format":"flightdeck-plan/2"}\n']].forEach(([what, text]) => ['.JSON', '.Json']
+    .forEach((ext) => cases.push([what + ' named ' + ext, (dir) => fs.writeFileSync(path.join(dir, 'proposals', receipt.replace(/\.json$/, ' (1)' + ext)), text), 'malformed'])));
   if (process.getuid && process.getuid() !== 0) cases.push(['unreadable', (dir) => fs.chmodSync(path.join(dir, 'proposals', receipt), 0), 'unreadable']);
   for (const [state, damage, kind] of cases) {
     const { root, dir } = tree(files);

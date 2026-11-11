@@ -1964,8 +1964,13 @@ def name_keys(name):
 OTHER_COPY = "holds another record than the one its name stands for, so which is meant isn't known. Keep one of them"
 
 
+def json_name(name):
+    """The loader's file selection (/\\.json$/i): a name ending .json in any ASCII case."""
+    return isinstance(name, str) and re.search(r"\.[jJ][sS][oO][nN]\Z", name) is not None
+
+
 def todo_request_file(name, rid):
-    return _tstr(name) and js_len(name) <= 240 and name.startswith(rid) and name.endswith(".json") and _tcopy_mark(name[len(rid):-5] or None)
+    return _tstr(name) and js_len(name) <= 240 and name.startswith(rid) and json_name(name) and _tcopy_mark(name[len(rid):-5] or None)
 
 
 def todo_claims(o):
@@ -4544,7 +4549,7 @@ def main():
     todo_unchecked = []
     rcpt_read, rcpt_unread, id_families, good_reads = {}, [], {}, []
     for name in sorted(os.listdir(prop_dir)) if os.path.isdir(prop_dir) else []:
-        if not name.lower().endswith(".json") or not os.path.isfile(os.path.join(prop_dir, name)):
+        if not json_name(name) or not os.path.isfile(os.path.join(prop_dir, name)):
             continue
         # Read as the app reads a record (its replacement decoding), so a byte it replaces is read the same way here.
         text = read_app_text(os.path.join(prop_dir, name))

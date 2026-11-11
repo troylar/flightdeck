@@ -105,7 +105,7 @@ def check_living(z, man):
         plans_wanted every evidence plan those records name by reference, and in facts_wanted every fact they rest on."""
         scopes = []
         for path in by_path:
-            if not path.startswith("proposals/") or not path.endswith(".json"):
+            if not path.startswith("proposals/") or not CF.json_name(path):
                 continue
             # One family dispatch before any filter (dispatch): a record the app can't read whose run or loop can't be told may
             # be this run's, so it is reached and judged below; one that names a run or a loop names that one.
@@ -129,8 +129,8 @@ def check_living(z, man):
                     fact = ((b or {}).get("support") or {}).get("fact") if isinstance((b or {}).get("support"), dict) else None
                     if o.get("run") == me and isinstance(fact, str):
                         facts_wanted.add(fact)
-                    if isinstance(fact, str) and "proposals/" + fact + ".json" in by_path:
-                        reached.add("proposals/" + fact + ".json")
+                    if isinstance(fact, str):
+                        reached.update(packed_ids(fact))
         return scopes
 
     reached, plans_wanted, facts_wanted = set(), set(), set()
@@ -184,12 +184,12 @@ def check_living(z, man):
     def packed_ids(rid):
         """The packed files of one record id: its own name and its synced copies (" (1)" and the like)."""
         base = "proposals/" + rid
-        return [p for p in by_path if p == base + ".json" or (p.startswith(base) and p.endswith(".json") and COPY.match(p[len(base):-5])
-                and (not p[len(base):-5].startswith("-") or any(c.isupper() for c in p[len(base):-5])))]
+        return [p for p in by_path if p.startswith(base) and CF.json_name(p) and (p[len(base):-5] == "" or (COPY.match(p[len(base):-5])
+                and (not p[len(base):-5].startswith("-") or any(c.isupper() for c in p[len(base):-5]))))]
 
     def record_name(path):
         """The record a packed proposals/ name stands for (its own name, or the one a synced copy copies), or ''."""
-        if not path.startswith("proposals/") or not path.endswith(".json"):
+        if not path.startswith("proposals/") or not CF.json_name(path):
             return ""
         stem = path[len("proposals/"):-5]
         for i in range(1, len(stem)):
@@ -443,11 +443,11 @@ def check_living(z, man):
         for path in by_path:
             # The same dispatch first: a record the app can't read whose run or loop can't be told, or that names this run,
             # is work to check.
-            if path.startswith("proposals/") and path.endswith(".json"):
+            if path.startswith("proposals/") and CF.json_name(path):
                 d = dispatch(path)
                 if d["bad"] and applies(d, me):
                     return True
-            if path.startswith("proposals/") and path.endswith(".json"):
+            if path.startswith("proposals/") and CF.json_name(path):
                 o = packed(path)
                 todo = isinstance(o, dict) and (o.get("format") in ("flightdeck-plan/4", "flightdeck-plan-status/4")
                                                 or (isinstance(o.get("features"), list) and "living-runs" in o["features"]))

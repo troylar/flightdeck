@@ -35,8 +35,8 @@ PF.todos = (function () {
     for (var i = 1; i < s.length && i < 240; i++) if ((s.charAt(i) === ' ' || s.charAt(i) === '-') && copyMark(s.slice(i))) out.push(s.slice(0, i));
     return out;
   }
-  /* Whether a request's file name is its id's, or a synced copy of it. */
-  function requestFile(name, id) { return typeof name === 'string' && name.length <= 240 && name.indexOf(id) === 0 && /\.json$/.test(name) && copyMark(name.slice(id.length, -5) || undefined); }
+  /* Whether a request's file name is its id's, or a synced copy of it, by the loader's selection (.json in any case). */
+  function requestFile(name, id) { return typeof name === 'string' && name.length <= 240 && name.indexOf(id) === 0 && /\.json$/i.test(name) && copyMark(name.slice(id.length, -5) || undefined); }
   var UID = /^[a-z][a-z0-9.-]{0,19}:(key:)?[A-Za-z0-9_-]{1,40}$/, TICKET = /^[A-Za-z][A-Za-z0-9_]{0,19}-[1-9][0-9]{0,8}$/;
   var ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/, CONTROL = /[\u0000-\u001f\u007f\u2028\u2029]/;
   var WORDS = { waiting: 'Waiting for approval', queued: 'Queued for the recorder', applied: 'Applied', declined: 'Declined', held: 'Held', disputed: 'Disputed' };

@@ -53,8 +53,8 @@
       "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "a89ab6e1706d4a737ba403a608039d8449dc383588f54c4d64f81267c020071b",
-      "reviewed": "FA: raw end and living validation before every gate"
+      "sha256": "8534cd870adc934fd7953582d4a74a572a0efebad606b50d48f3e5f8dbc0e733",
+      "reviewed": "FB: the loader's .json selection in any case for request names and proposals/"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
       "sha256": "197779e5fb047d6137527db0211659a2db320470f3086d61b5126d6e868b0cf8",
@@ -197,8 +197,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "3868e4be2b3fee0b3eff83cee5284cc784861ab196f82a08a1727dc4365eee4f",
-      "reviewed": "FA: raw end and living validation before every gate"
+      "sha256": "4c23f1333f4cd9cb26548a501f2118aa8974e053eb6cb4e4ab484269c31553c5",
+      "reviewed": "FB: requestFile and the checker select .json names in any case, as the loader does; checked for direct writes and unconditional deletes"
     },
     "src/core/appjson.js": {
       "sha256": "98019ea60f70df332d6774d2ac26d0bbd028e95f1f76f543cbe54c89cb8cd4fe",
@@ -369,8 +369,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "e445b5f1e858cb0259a1a333e7f942729a39bbb57562669a3ded7a730d38cb0c",
-      "reviewed": "DA: index proposals/ by file-name id"
+      "sha256": "2800643b918a2ae8c633b75cd93f2cdbc8339d17bf9042b2b7f5f4b18abd2e1b",
+      "reviewed": "FB: requestFile and the checker select .json names in any case, as the loader does; checked for direct writes and unconditional deletes"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",
