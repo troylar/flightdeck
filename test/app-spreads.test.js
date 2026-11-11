@@ -144,20 +144,23 @@ rule('TF: a batch decision\'s reread that finishes after the folder changed neve
   await landedSpread(app);
   const ps = await sync(app, ['ABC-102', 'ABC-103']);
   await refresh(app, 300);
-  const fs = app.fs, write = fs.write.bind(fs), read = fs.read.bind(fs); let first = null, firstText = null, reads = 0, release = null;
+  const fs = app.fs, write = fs.write.bind(fs), read = fs.read.bind(fs); let first = null, firstText = null, second = false, reads = 0, release = null;
   const held = new Promise((res) => { release = res; });
-  fs.write = (p, t, o) => { if (!first && /^proposals\/req-.*status-/.test(p)) { first = p; firstText = t; } return write(p, t, o); };
+  fs.write = (p, t, o) => { if (/^proposals\/req-.*status-/.test(p)) { if (!first) { first = p; firstText = t; } else if (p !== first) second = true; } return write(p, t, o); };
+  /* Its read-back fails; the fresh guard before the second decision lists it as it is; the batch's reread, once the second
+     is written, waits. */
   fs.read = (p, o) => {
     if (p !== first) return read(p, o);
     reads++;
     if (reads === 1) return Promise.reject(new Error('EIO'));
+    if (!second) return read(p, o);
     return held.then(() => ({ text: firstText }));
   };
   app.click('td-inbox', ''); await app.tick(20);
   const bt = /<button[^>]*data-act="td-accept-all"[^>]*>/.exec(ov(app)), d = {};
   bt[0].replace(/data-(ids)="([^"]*)"/g, (x, k, v) => { d[k] = v.replace(/&quot;/g, '"').replace(/&amp;/g, '&'); });
   app.click('td-accept-all', /data-id="([^"]*)"/.exec(bt[0])[1], d); await app.tick(300);
-  assert.ok(first && reads >= 2, 'set-up: the read-back failed and the reread waits (' + reads + ')');
+  assert.ok(first && second && reads >= 2, 'set-up: the read-back failed, the second was written and the reread waits (' + reads + ')');
   const which = ps.filter(q => first.indexOf(q.id) >= 0)[0];
   /* Another folder: a copy of this one without that acceptance. */
   app.click('close-overlay'); await app.tick();
