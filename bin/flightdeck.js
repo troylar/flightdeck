@@ -839,6 +839,8 @@ function runCovers(proc, id, r) {
    counts. Returns every to-do record that couldn't be read (and people.json, when it couldn't be). */
 /* loopIn: { runs, loops } a spread's coverage reads (its loop's scope records and every item's run); without it a spread holds
    its loop, fail closed. Only `runs` are marked. */
+/* How every reader names a to-do record it couldn't read: newer and unreadable keep their kind; anything else is malformed. */
+const unreadKind = (u) => u.kind === 'newer' || u.kind === 'unreadable' ? u.kind : 'malformed';
 /* The unread records a run's requests depend on elsewhere (4.0 slice 4): a suggestion still to be decided or applied rests on
    facts of the run that has its item's loop (a story's parent); any record of that run that can't be read holds it, so it is
    the reader's problem too. V: the run's to-do view; unread: every unread record read. */
@@ -960,7 +962,7 @@ async function readData(eng, adapter, req) {
              whose run can't be told may be a request pending on this run, living yet or not (4.0, RD): named too. */
           const rp = receiptProblem(PF, r, gp.todos, un);
           if (rp) { mine[rp.path] = true; owned[rp.path] = rp; }
-          un.filter((u) => u.run ? u.run.process === m[1] && u.run.id === m[2] : true).concat(evidenceUnread(PF, r, r._tdv, un)).forEach((u) => { if (u.file !== 'people.json' && !mine['proposals/' + u.file]) { mine['proposals/' + u.file] = true; L.note('proposals/' + u.file, u.kind === 'newer' || u.kind === 'unreadable' ? u.kind : 'malformed', u.kind === 'newer' ? u.why : fileWhy(u.why)); } });
+          un.filter((u) => u.run ? u.run.process === m[1] && u.run.id === m[2] : true).concat(evidenceUnread(PF, r, r._tdv, un)).forEach((u) => { if (u.file !== 'people.json' && !mine['proposals/' + u.file]) { mine['proposals/' + u.file] = true; L.note('proposals/' + u.file, unreadKind(u), u.kind === 'newer' ? u.why : fileWhy(u.why)); } });
           relevant = (p) => was(p) || !!mine[p] || evp.some((q) => p === q || String(p).indexOf(q + '/') === 0);
         }
       }
@@ -1033,7 +1035,8 @@ async function readData(eng, adapter, req) {
     /* Living runs (4.0): what to-dos hold, as in every window. */
     if (two && req.cmd === 'runs') {
       const un = markTodos(PF, runs, { todos: d.todos || [], todosUnread: d.todosUnread || [] }, d.people, !!(d.failed && 'people' in d.failed), { runs: [], loops: { records: d.scopes || [], unread: d.scopesUnread || [], procOf: procOfFrom(d) } }, { runs: d.runs || runs, plans: d.plans || [] });
-      runs.forEach((r) => { if (req.proc && r.process !== req.proc) return; const rp = receiptProblem(PF, r, d.todos, un); if (rp) owned[rp.path] = rp; });
+      /* proposals/ that couldn't be listed is that problem (named by the read): no receipt is judged against nothing read. */
+      if (!(d.failed && 'proposals' in d.failed)) runs.forEach((r) => { if (req.proc && r.process !== req.proc) return; const rp = receiptProblem(PF, r, d.todos, un); if (rp) owned[rp.path] = rp; });
     }
     const known = (p) => d.processes.some((x) => x.process === p) || d.runs.some((r) => r.process === p) || d.plans.some((x) => x.process === p);
     if (req.proc && !known(req.proc) && !req.stage) return notFound('There\'s no process ' + req.proc + ' in the team folder.');
@@ -3173,7 +3176,7 @@ async function keepMain(argv, noun) {
     const pw = peopleWhy(one.people);
     if (pw) LG.note('people.json', 'malformed', pw);
     const bad = [], got = await repo.readPlans(LG.fs, bad, null, true), unread = (got.todosUnread || []).slice();
-    unread.filter((u) => !u.run || (u.run.process === proc && u.run.id === runId)).forEach((u) => extra.push({ path: 'proposals/' + u.file, kind: u.kind === 'newer' ? 'newer' : 'malformed', why: u.kind === 'newer' ? u.why : fileWhy(u.why) }));
+    unread.filter((u) => !u.run || (u.run.process === proc && u.run.id === runId)).forEach((u) => extra.push({ path: 'proposals/' + u.file, kind: unreadKind(u), why: u.kind === 'newer' ? u.why : fileWhy(u.why) }));
     const records = got.todos || [], people = one.people, NOW = Date.now(), title = String(r.title || r.process);
     /* Item work and spreads go to the checklist the items run: that one's publications are what this keep rests on too. */
     const V = T.view(r, { records: T.recordsFor(records, r), unread: unread.filter((u) => !u.run || (u.run.process === proc && u.run.id === runId)), people, now: NOW });
@@ -3303,7 +3306,7 @@ async function todoMain(argv) {
     try { got = await repo.readPlans(L.fs, bad, null, true); } catch (e) { L.note('proposals/', 'unreadable', fileWhy(e && e.message || String(e))); return failOut('failed', 'proposals/ couldn\'t be read, so the run\'s to-dos and requests can\'t be.' + nothing, problems(), writes ? null : EXIT.partial); }
     /* Only this run's to-do records (and one that can't say which run it is for) are this command's problems. */
     const unread = (got.todosUnread || []).filter(mineRun);
-    unread.forEach((u) => extra.push({ path: 'proposals/' + u.file, kind: u.kind === 'newer' ? 'newer' : 'malformed', why: u.kind === 'newer' ? u.why : fileWhy(u.why) }));
+    unread.forEach((u) => extra.push({ path: 'proposals/' + u.file, kind: unreadKind(u), why: u.kind === 'newer' ? u.why : fileWhy(u.why) }));
     if (one.peopleWhy || pw) unread.push({ file: 'people.json', why: 'people.json couldn\'t be read, so no one\'s authority over to-dos can be checked.', run: null });
     const records = T.recordsFor(got.todos || [], r), people = one.people, NOW = Date.now();
     /* Every record and unread file read, for what a request depends on elsewhere (a story's facts are on its parent run). */
@@ -3315,7 +3318,7 @@ async function todoMain(argv) {
     const V = T.view(r, { records, unread, people, deps, now: NOW }), nameOf = A.names(people), title = String(r.title || r.process);
     const gateOf = (pl) => (pl ? T.gateTitle(map, pl.beforeGate) : '');
     /* A record another run's evidence needs that can't be read is this command's problem too, named. */
-    const noteUnread = (list) => list.forEach((u) => { const p = 'proposals/' + u.file; if (u.file !== 'people.json' && !extra.some((e) => e.path === p)) extra.push({ path: p, kind: u.kind === 'newer' ? 'newer' : 'malformed', why: u.kind === 'newer' ? u.why : fileWhy(u.why) }); });
+    const noteUnread = (list) => list.forEach((u) => { const p = 'proposals/' + u.file; if (u.file !== 'people.json' && !extra.some((e) => e.path === p)) extra.push({ path: p, kind: unreadKind(u), why: u.kind === 'newer' ? u.why : fileWhy(u.why) }); });
     noteUnread(evidenceUnread(PF, r, V, deps.unread));
     const rp = receiptProblem(PF, r, got.todos, got.todosUnread || []);
     if (rp) owned[rp.path] = rp;

@@ -278,5 +278,37 @@ rule('Usage, an unknown run, a run that ended and a folder part that can\'t be r
   const h = json('todo', 'add', root, 'release-notes/r-1', '--text', 'x', '--phase', 'draft', '--json', ...TOOL);
   assert.deepStrictEqual([h.code, h.data && h.data.status], [4, 'held']);
   assert.deepStrictEqual(ls(root), [T.idFor('notes-bot', 'zz') + '.json'], 'nothing written');
+});/* TE: what a reader couldn't read keeps its state. proposals/ that can't be listed is that problem, never a missing receipt
+   worked out from nothing read; a request that can't be read (EIO) is unreadable in every reader, todo list included. */
+const READERS = (root, id) => [['run', ['run', root, id, '--contract', '2', '--json']], ['next', ['next', root, id, '--as', 'person-avery', '--contract', '2', '--json']],
+  ['runs', ['runs', root, '--contract', '2', '--json']], ['todo list', ['todo', 'list', root, id, '--json']]];
+rule('proposals/ that can\'t be listed on an ended living run: every reader names it, and none says its receipt is missing', async () => {
+  const W = await require('./living-worlds').made({ todos: 1 }), root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-todo-'));
+  Object.keys(W.files).forEach((p) => { fs.mkdirSync(path.dirname(path.join(root, p)), { recursive: true }); fs.writeFileSync(path.join(root, p), W.files[p]); });
+  assert.ok(W.run.ended && W.run.living && W.run.living.receipt, 'set-up: an ended living run with a receipt');
+  const FD = require(BIN), readdir = fs.readdirSync, dir = fs.realpathSync(path.join(root, 'proposals')), got = {};
+  fs.readdirSync = function (p) { if ([path.resolve(String(p)), (() => { try { return fs.realpathSync(String(p)); } catch (e) { return ''; } })()].indexOf(dir) >= 0) { const e = new Error('EIO: i/o error, scandir'); e.code = 'EIO'; throw e; } return readdir.apply(fs, arguments); };
+  try {
+    for (const [name, args] of READERS(root, W.key)) {
+      const r = await FD.main(args), j = JSON.parse(r.out), ps = j.problems || [];
+      got[name] = [r.code, ps.some((p) => p.path === 'proposals/'), ps.filter((p) => p.path.indexOf(W.run.living.receipt) >= 0).map((p) => p.kind)];
+    }
+  } finally { fs.readdirSync = readdir; }
+  const want = {}; Object.keys(got).forEach((k) => { want[k] = [4, true, []]; });
+  assert.deepStrictEqual(got, want);
+});
+rule('A request whose run can\'t be told and whose read fails (EIO) is unreadable in run, next, runs and todo list alike', async () => {
+  const { root, d } = await folder(), bad = 'proposals/' + T.idFor('notes-bot', 'eio') + '.json';
+  await d.write(bad, '{}');
+  const FD = require(BIN), open = fs.openSync, full = fs.realpathSync(path.join(root, bad)), got = {};
+  fs.openSync = function (p) { if ([path.resolve(String(p)), (() => { try { return fs.realpathSync(String(p)); } catch (e) { return ''; } })()].indexOf(full) >= 0) { const e = new Error('EIO: i/o error, open'); e.code = 'EIO'; throw e; } return open.apply(fs, arguments); };
+  try {
+    for (const [name, args] of READERS(root, 'release-notes/r-1')) {
+      const r = await FD.main(args), j = JSON.parse(r.out);
+      got[name] = [r.code, (j.problems || []).filter((p) => p.path === bad).map((p) => p.kind)];
+    }
+  } finally { fs.openSync = open; }
+  const want = {}; Object.keys(got).forEach((k) => { want[k] = [4, ['unreadable']]; });
+  assert.deepStrictEqual(got, want);
 });
 run();
