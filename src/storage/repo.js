@@ -610,14 +610,15 @@ PF.repo = (function () {
      for a reader whose limit is in bytes of the file as it is. */
   function sized(o, f) { try { Object.defineProperty(o, '_bytes', { value: f.size != null ? f.size : U.utf8Bytes(f.text), enumerable: false }); } catch (e) { /* frozen: no size */ } return o; }
   /* The loader's own fields (_file, then _bytes, and a keep's _sha) go on the object read; a file that already has any of
-     them keeps what it wrote, as _supplied (not enumerable), so a reader that checks every field (PF.todos.cleanFile) reads
-     the file as written. */
+     them keeps what it wrote, with the file's own field order, so a reader that checks every field (PF.todos.cleanFile)
+     reads the file as written. CA: that is kept in a side map keyed by the object, never in a field, since a file can
+     supply any field name. */
   var LOADER_KEYS = ['_file', '_bytes', '_sha'];
+  var supplied = new WeakMap();
   function tagged(o, name, f) {
     var sup = null;
-    LOADER_KEYS.forEach(function (k) { if (Object.prototype.hasOwnProperty.call(o, k)) { sup = sup || Object.create(null); sup[k] = o[k]; } });
-    /* BF: with the file's own field order (order, not enumerable), so each is put back where the file had it. */
-    if (sup) { try { Object.defineProperty(sup, 'order', { value: Object.keys(o), enumerable: false }); Object.defineProperty(o, '_supplied', { value: sup, enumerable: false }); } catch (e) { /* frozen */ } }
+    LOADER_KEYS.forEach(function (k) { if (Object.prototype.hasOwnProperty.call(o, k)) { sup = sup || { values: Object.create(null), order: Object.keys(o) }; sup.values[k] = o[k]; } });
+    if (sup) supplied.set(o, sup);
     o._file = name;
     /* A keep's file carries the SHA-256 of its bytes (_sha, not enumerable): withdrawing removes only what was read (YA). */
     if (/^req-keep-/.test(String(name)) && typeof f.text === 'string') { try { Object.defineProperty(o, '_sha', { value: PF.sha256.hex(f.text), enumerable: false }); } catch (e) { /* frozen */ } }
@@ -625,14 +626,13 @@ PF.repo = (function () {
   }
   /* A record as its file wrote it, with no prototype: the loader's fields left out, the file's own put back. */
   function asWritten(p) {
-    var raw = Object.create(null), sup = p._supplied || null;
+    var raw = Object.create(null), sup = supplied.get(p) || null, vals = sup ? sup.values : null;
     /* BF: a supplied loader key goes back where the file had it, so the first refusal names the same field as every reader. */
     var own = function (o, k) { return Object.prototype.hasOwnProperty.call(o, k); };
-    (sup && sup.order ? sup.order : []).concat(Object.keys(p)).forEach(function (k) {
+    (sup ? sup.order : []).concat(Object.keys(p)).forEach(function (k) {
       if (own(raw, k)) return;
-      if (sup && own(sup, k)) raw[k] = sup[k]; else if (LOADER_KEYS.indexOf(k) < 0 && own(p, k)) raw[k] = p[k];
+      if (vals && own(vals, k)) raw[k] = vals[k]; else if (LOADER_KEYS.indexOf(k) < 0 && own(p, k)) raw[k] = p[k];
     });
-    if (sup) Object.keys(sup).forEach(function (k) { if (!own(raw, k)) raw[k] = sup[k]; });
     return raw;
   }
   function loadJsonDir(fs, dir, ok, bad, only, torn, perFile) {
@@ -2837,17 +2837,18 @@ PF.repo = (function () {
            read (newer, malformed) holds its run (or, when which run it is for can't be told, every living run). */
         if (PF.todos.claims(p)) {
           /* Copied into a map with no prototype, so a "__proto__" key in the file is a field the checks refuse, never the copy's prototype. */
-          var raw = asWritten(p);
           /* A record the checks can't even look at (a value that can't be turned into text) is one unread file, never a read
              that fails. */
-          var tv; try { tv = PF.todos.cleanFile(raw, p._file, p._bytes); } catch (e) { tv = { ok: false, kind: 'malformed', why: 'is a to-do record that isn\'t in its format', needs: '' }; }
+          var tv; try { tv = PF.todos.cleanFile(asWritten(p), p._file, p._bytes); } catch (e) { tv = { ok: false, kind: 'malformed', why: 'is a to-do record that isn\'t in its format', needs: '' }; }
           var tp = 'proposals/' + p._file, tf = PF.todos.familyOf(p);
           if (!tv.ok) { if (bad) bad.push({ path: tp, kind: tv.kind, why: tv.why }); refused.push(PF.envelope.refusal(tp, tf, tv)); todosUnread.push({ file: p._file, why: tv.why, kind: tv.kind, run: PF.todos.runOf(p) }); return; }
           tv.record._file = p._file; if (p._sha) { try { Object.defineProperty(tv.record, '_sha', { value: p._sha, enumerable: false }); } catch (e) { /* frozen */ } } todos.push(tv.record); return;
         }
         /* A scope request or decision (3.0, PF.loop) goes to its own reader first and never reaches the plan reader. */
         if (PF.loop.isScope(p)) {
-          var sv = PF.loop.cleanFile(asWritten(p), p._file), sp = 'proposals/' + p._file, sf = p.format === PF.loop.STATUS ? 'flightdeck-plan-status' : 'flightdeck-plan';
+          var sv, sp, sf;
+          try { sv = PF.loop.cleanFile(asWritten(p), p._file); } catch (e) { sv = { ok: false, kind: 'malformed', why: 'is a scope record that isn\'t in its format' }; }
+          sp = 'proposals/' + p._file, sf = p.format === PF.loop.STATUS ? 'flightdeck-plan-status' : 'flightdeck-plan';
           if (!sv.ok) { if (bad) bad.push({ path: sp, kind: sv.kind, why: sv.why }); refused.push(PF.envelope.refusal(sp, sf, sv)); scopesUnread.push({ file: p._file, why: sv.why, loop: PF.loop.loopOf(p) }); return; }
           sv.record._file = p._file; scopes.push(sv.record); return;
         }

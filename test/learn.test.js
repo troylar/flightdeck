@@ -448,6 +448,34 @@ rule('A keep starting with a supplied "_sha" and then an unknown field is refuse
   assert.ok(r && /_sha/.test(JSON.stringify(r)) && !/extra/.test(JSON.stringify(r)), 'the checker names _sha: ' + JSON.stringify(r));
 });
 
+/* CA: "_supplied" in a file is the file's own field, never the loader's: every JSON type of it, alone or after a supplied
+   "_sha", is refused by name for that one file with the core reader's reason, and the rest of proposals/ still reads. */
+const SUPPLIED = ['forged', 7, true, null, {}, [], ['extra'], { order: 'forged' }, { order: 7 }, { order: {} }, { order: ['extra'] }, { order: null }, { _file: 'x.json' }];
+async function suppliedEverywhere(name, record, other, label) {
+  for (const v of SUPPLIED) for (const lead of [false, true]) {
+    const o = Object.assign(lead ? { _sha: 'first' } : {}, plain(record), { _supplied: v }), text = JSON.stringify(o);
+    const raw = Object.create(null); Object.keys(o).forEach((x) => { raw[x] = o[x]; });
+    const core = name.startsWith('req-') && T.claims(o) ? T.cleanFile(raw, name) : LP.cleanFile(raw, name);
+    const tag = label + ' with _supplied ' + JSON.stringify(v) + (lead ? ' after _sha' : '');
+    assert.ok(!core.ok, tag + ': the core reader refuses it');
+    const m = new PF.fs.MemoryFS('ca-' + Math.random(), null);
+    m.files['proposals/' + name] = { t: text, m: 1 }; m.files['proposals/' + other._file] = { t: JSON.stringify(other.rec), m: 1 };
+    const d = await PF.repo.readPlans(m), u = d.todosUnread.concat(d.scopesUnread).filter(x => x.file === name)[0];
+    assert.ok(u, tag + ': named as unread');
+    assert.strictEqual(u.why, core.why, tag + ': the same reason as the core reader');
+    assert.ok(d.todos.some(x => x._file === other._file), tag + ': the other record still reads: ' + JSON.stringify([other._file, d.todos.map(x => x._file), d.todosUnread]));
+    const all = await PF.repo.loadAll(m, {});
+    assert.ok(!('proposals' in (all.failed || {})), tag + ': proposals/ is not failed: ' + JSON.stringify(all.failed));
+  }
+}
+rule('A to-do record or keep that supplies "_supplied" of any JSON type is refused by name, and the rest still reads', async () => {
+  const W = world(), t1 = W.todo('Post the release notes', { phase: 'ship' }), K = W.keep({ todo: t1 });
+  const prep = (text, key) => { const Q = T.prepare(W.r, { body: { op: 'add', text, target: { phase: 'ship' } }, by: { person: 'person-morgan' }, key, records: W.recs, unread: W.unread, people: W.people, at: AT, app: '4.0.0' }); assert.ok(!Q.why, Q.why); return Q; };
+  const A = prep('Another', 'k-ca1'), B = prep('One more', 'k-ca2'), other = { _file: A.name, rec: JSON.parse(T.text(A.file)) };
+  await suppliedEverywhere(K.name, JSON.parse(T.text(K.file)), other, 'a keep');
+  await suppliedEverywhere(B.name, JSON.parse(T.text(B.file)), other, 'a to-do record');
+});
+
 rule('The 501st keep that would join a group is refused, naming the limit; a group at 500 is still decided and withdrawn', () => {
   const W = world(), t1 = W.todo('Post the release notes', { phase: 'ship' }), K = W.kept({ todo: t1 });
   for (let i = 1; i < 500; i++) W.push(Object.assign(JSON.parse(JSON.stringify(K.record)), { id: 'req-keep-' + i.toString(16).padStart(24, '0'), change: Object.assign({}, K.record.change, { text: 'Wording ' + i }) }));

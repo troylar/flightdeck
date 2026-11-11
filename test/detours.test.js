@@ -251,4 +251,22 @@ rule('Records: a checklist only on an addition, evidence only on a done and neve
   assert.ok(!sp.ok);
 });
 
+/* CA: a checklist-linked to-do (a detour) that supplies "_supplied" of any JSON type is refused by name with the core
+   reader's reason; proposals/ never fails for it. */
+rule('A detour record that supplies "_supplied" of any JSON type is refused by name, never failing proposals/', async () => {
+  const W = world(); W.linked('Run the smoke test', ['pass']);
+  const af = W.addFile, name = af.id + '.json';
+  for (const v of ['forged', 7, true, null, {}, [], ['extra'], { order: 'forged' }, { order: 7 }, { order: {} }, { order: ['extra'] }, { order: null }, { _file: 'x.json' }]) for (const lead of [false, true]) {
+    const o = Object.assign(lead ? { _bytes: 3 } : {}, plain(af), { _supplied: v }), raw = Object.create(null);
+    Object.keys(o).forEach((x) => { raw[x] = o[x]; });
+    const core = T.cleanFile(raw, name), tag = JSON.stringify(v) + (lead ? ' after _bytes' : '');
+    assert.ok(!core.ok, tag);
+    const m = new PF.fs.MemoryFS('ca-' + Math.random(), null); m.files['proposals/' + name] = { t: JSON.stringify(o), m: 1 };
+    const d = await PF.repo.readPlans(m), u = d.todosUnread.filter(x => x.file === name)[0];
+    assert.ok(u && u.why === core.why, tag + ': ' + JSON.stringify(u) + ' vs ' + core.why);
+    const all = await PF.repo.loadAll(m, {});
+    assert.ok(!('proposals' in (all.failed || {})), tag + ': ' + JSON.stringify(all.failed));
+  }
+});
+
 run();
