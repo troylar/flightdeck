@@ -28,6 +28,13 @@ PF.todos = (function () {
     var m = typeof name === 'string' && name.length <= 240 ? DCOPY.exec(name) : null;
     return m && copyMark(m[4]) ? m[1] + '.status-' + m[2] + '-' + m[3] + '.json' : '';
   }
+  /* The ids a file in proposals/ may stand for by its name alone (DA): its stem, and the stem without each suffix that is a
+     synced copy's mark (" (n)", or a dash suffix with a capital letter). Read before any family reads the file. */
+  function nameKeys(name) {
+    var s = String(name || '').replace(/\.json$/i, ''), out = [s];
+    for (var i = 1; i < s.length && i < 240; i++) if ((s.charAt(i) === ' ' || s.charAt(i) === '-') && copyMark(s.slice(i))) out.push(s.slice(0, i));
+    return out;
+  }
   /* Whether a request's file name is its id's, or a synced copy of it. */
   function requestFile(name, id) { return typeof name === 'string' && name.length <= 240 && name.indexOf(id) === 0 && /\.json$/.test(name) && copyMark(name.slice(id.length, -5) || undefined); }
   var UID = /^[a-z][a-z0-9.-]{0,19}:(key:)?[A-Za-z0-9_-]{1,40}$/, TICKET = /^[A-Za-z][A-Za-z0-9_]{0,19}-[1-9][0-9]{0,8}$/;
@@ -1397,6 +1404,6 @@ PF.todos = (function () {
   return { SOPS: SOPS, ALL_OPS: ALL_OPS, isSpreadOp: isSpreadOp, hasPair: hasPair, loopWhy: loopWhy, FORMAT: FORMAT, STATUS: STATUS, FEATURE: FEATURE, LIMITS: LIMITS, OPS: OPS, WORDS: WORDS, STATE_WORDS: STATE_WORDS, idFor: idFor, todoIdFor: todoIdFor, statusName: statusName, isTodo: isTodo, claims: claims, familyOf: familyOf,
     targetKey: targetKey, placeOf: placeOf, placementWhy: placementWhy, placementFor: placementFor, effectOf: effectOf, fingerprint: fp, text: text,
     buildProposal: buildProposal, buildGrant: buildGrant, buildStatus: buildStatus, cleanFile: cleanFile, fileWhy: fileWhy, filed: filed, runOf: runOf, recordsFor: recordsFor,
-    requestFile: requestFile, recordName: recordName, decideStill: decideStill, notFact: notFact, reduce: reduce, seenFor: seenFor, requestsOf: requestsOf,
+    requestFile: requestFile, nameKeys: nameKeys, recordName: recordName, decideStill: decideStill, notFact: notFact, reduce: reduce, seenFor: seenFor, requestsOf: requestsOf,
     personWhy: personWhy, mayFor: mayFor, consequenceOf: consequenceOf, authorityFor: authorityFor, view: view, holds: holds, markHolds: markHolds, cutFor: cutFor, cleanCut: cleanCut, cleanLiving: cleanLiving, applyPlan: applyPlan, nextQueued: nextQueued, keepHead: keepHead, prepare: prepare, gateTitle: gateTitle, toOf: toOf, inbox: inbox, delegations: delegations, decide: decide, revokeOf: revokeOf, grantOf: grantOf, whatWords: whatWords, askDiffers: askDiffers };
 })();

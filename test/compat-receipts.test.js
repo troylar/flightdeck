@@ -104,7 +104,11 @@ rule('This version: run, next, runs and todo list name the same receipt problem 
     const q = T.buildProposal({ run: { process: 'release-notes', id: 'run-q' }, id: receipt.replace(/\.json$/, ''), by: 'person-avery', seen: [], at: AT, body: { op: 'add', text: 'Another kind', target: { phase: 'review' }, placement: T.placementFor(NEW.run.mapOf(NEW.run.sanitize(l)), { phase: 'review' }) }, app: '4.0.0' });
     fs.writeFileSync(path.join(dir, 'proposals', receipt.replace(/\.json$/, ' (1).json')), T.text(q));
   }, 'malformed']);
-  if (process.getuid && process.getuid() !== 0) cases.push(['unreadable',(dir) => fs.chmodSync(path.join(dir, 'proposals', receipt), 0), 'unreadable']);
+  /* DA: a copy under the receipt's file-name id is part of its verdict whatever family it parses or fails as. */
+  [['a plan-family copy', '{"format":"flightdeck-plan/2"}\n'], ['a scope-family copy', '{"format":"flightdeck-plan/3","features":["loops"]}\n'],
+    ['an unknown-format copy', '{"format":"flightdeck-elsewhere/1","id":"x"}\n'], ['a copy that isn\'t JSON', '{ bad']]
+    .forEach(([what, text]) => cases.push([what, (dir) => fs.writeFileSync(path.join(dir, 'proposals', receipt.replace(/\.json$/, ' (1).json')), text), 'malformed']));
+  if (process.getuid && process.getuid() !== 0) cases.push(['unreadable', (dir) => fs.chmodSync(path.join(dir, 'proposals', receipt), 0), 'unreadable']);
   for (const [state, damage, kind] of cases) {
     const { root, dir } = tree(files);
     try {

@@ -1163,4 +1163,41 @@ rule('A packed request record the app can\'t read whose run can\'t be told is re
     assert.ok(!c.ok && c.out.indexOf(p) >= 0, what + ': Python: ' + c.out);
   }
 });
+/* DA: every file under proposals/ is indexed by its file-name id before any family reads it: a copy of a witness (any family
+   it rests on) that parses as another family, fails as one, has an unknown format, isn't JSON or names another run holds that
+   witness. The loader holds it (the to-do record's run, the scope record's loop, the evidence plan's id) and the export is
+   partial. A matrix: every witness family × each kind of copy. */
+const DA_COPIES = [
+  ['a plan-family file', () => '{"format":"flightdeck-plan/2"}\n'],
+  ['a scope-family file', () => '{"format":"flightdeck-plan/3","features":["loops"]}\n'],
+  ['an unknown format', () => '{"format":"flightdeck-elsewhere/1","id":"x"}\n'],
+  ['a body that isn\'t JSON', () => '{ bad'],
+  ['another run', (o) => { const c = JSON.parse(JSON.stringify(o)); if (c.loop) c.loop = Object.assign({}, c.loop, { run: 'someone-else' }); else if (c.run) c.run = Object.assign({}, c.run, { id: 'someone-else' }); else c.process = 'someone-else'; c.at = 42; return JSON.stringify(c, null, 2) + '\n'; }]];
+rule('A copy of any witness the work rests on, of another family, malformed, of an unknown format or naming another run, holds that witness in the loader and the export', async () => {
+  const W = await made({ todos: 1, requested: true, keep: true, pending: true }), L = await loopMade(), E = (await roleWorlds()).filter((w) => w.role === 'evidence')[0];
+  const wit = [];
+  const byKind = {};
+  Object.keys(W.files).filter((p) => /^proposals\/req-/.test(p)).sort().forEach((p) => { let o; try { o = JSON.parse(String(W.files[p])); } catch (e) { return; } if (o && o.kind && !byKind[o.kind]) byKind[o.kind] = p; });
+  ['receipt', 'compound', 'proposal', 'decision', 'application', 'keep'].forEach((k) => { assert.ok(byKind[k], 'set-up: a ' + k + ' ' + JSON.stringify(Object.keys(byKind))); wit.push([k, W, byKind[k]]); });
+  wit.push(['scope', L, Object.keys(L.files).filter((p) => /^proposals\/req-/.test(p) && /"loop"/.test(String(L.files[p])))[0]]);
+  wit.push(['evidence plan', E, Object.keys(E.files).filter((p) => /^proposals\/plan-ev-[a-z]+\.json$/.test(p))[0]]);
+  for (const [fam, X, p] of wit) {
+    const o = JSON.parse(String(X.files[p]));
+    for (const [what, make] of DA_COPIES) {
+      const name = copyOf(p), files = Object.assign({}, X.files, { [name]: make(o) }), tag = fam + ' × ' + what;
+      let Pr = null; try { Pr = await X.PF.repo.readPlans(new BytesFS(files), null, null, true); } catch (e) { Pr = null; }
+      if (Pr) {
+        const f = name.slice('proposals/'.length);
+        const held = fam === 'scope' ? Pr.scopesUnread.some((u) => u.file === f && u.loop && u.loop.run === o.loop.run && u.loop.step === o.loop.step)
+          : fam === 'evidence plan' ? (Pr.plansUnread || []).some((u) => u.file === f && u.id === o.id) || (what === 'another run')
+          : Pr.todosUnread.some((u) => u.file === f && u.run && u.run.process === o.run.process && u.run.id === o.run.id);
+        /* A copy read whole as its own family (a scope record of another loop) is a copy that differs: the copy rule holds it. */
+        const whole = (Pr.scopes || []).concat(Pr.todos || []).some((x) => x._file === f);
+        assert.ok(held || (what === 'another run' && whole), tag + ': the loader holds the witness: ' + JSON.stringify(fam === 'scope' ? Pr.scopesUnread : fam === 'evidence plan' ? Pr.plansUnread : Pr.todosUnread).slice(0, 400));
+      }
+      const { res } = await pack(X.PF, new BytesFS(files), X.key);
+      assert.strictEqual(res.status, 'partial', tag + ': ' + JSON.stringify(res.col.unresolved).slice(0, 300));
+    }
+  }
+});
 run();

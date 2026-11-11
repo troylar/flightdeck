@@ -2758,7 +2758,29 @@ PF.repo = (function () {
         if (PF.todos.recordName(t._file)) todosUnread.push(t.kind ? { file: t._file, why: t.why, kind: t.kind, run: null } : { file: t._file, why: t.why, run: null });
         if (!t.link && /^req-/.test(String(t._file || ''))) scopesUnread.push({ file: t._file, why: t.why, loop: null });
       });
-      return { plans: plans, statuses: statuses, scopes: scopes, scopesUnread: scopesUnread, todos: todos, todosUnread: todosUnread, refused: refused, torn: torn || [] };
+      /* DA: every file here indexed by its file-name id before any family's result is used. A file under a witness's name (a
+         to-do record, a scope record or a plan read whole) that can't be read, whatever family it parsed as or failed as (a
+         refusal, a torn file, another run's record), holds that witness: the to-do record's run, the scope record's loop, the
+         plan's id (plansUnread). Every verdict that asks for unread records sees it there. */
+      var wit = Object.create(null), keyed = function (f, w) { PF.todos.nameKeys(f).forEach(function (k) { (wit[k] = wit[k] || []).push(w); }); };
+      todos.forEach(function (x) { keyed(x._file, { run: PF.todos.runOf(x) }); });
+      scopes.forEach(function (x) { keyed(x._file, { loop: PF.loop.loopOf(x) }); });
+      plans.forEach(function (x) { keyed(x._file, { plan: x.id }); });
+      var badFiles = [], badSeen = Object.create(null), bad1 = function (f, why, kind) { f = String(f || ''); if (!f || badSeen[f]) return; badSeen[f] = true; badFiles.push({ file: f, why: String(why || 'unreadable'), kind: kind === 'newer' || kind === 'unreadable' ? kind : 'malformed' }); };
+      todosUnread.forEach(function (u) { bad1(u.file, u.why, u.kind); });
+      scopesUnread.forEach(function (u) { bad1(u.file, u.why, 'malformed'); });
+      refused.forEach(function (x) { if (/^proposals\//.test(x.path)) bad1(x.path.slice(10), x.why, x.kind); });
+      (torn || []).forEach(function (t) { bad1(t._file, t.why, t.kind); });
+      var plansUnread = [], sameRun = function (a, b) { return !!a && !!b && a.process === b.process && a.id === b.id; };
+      badFiles.forEach(function (b) {
+        var ws = []; PF.todos.nameKeys(b.file).forEach(function (k) { (wit[k] || []).forEach(function (w) { if (ws.indexOf(w) < 0) ws.push(w); }); });
+        ws.forEach(function (w) {
+          if (w.run && !todosUnread.some(function (u) { return u.file === b.file && sameRun(u.run, w.run); })) todosUnread.push({ file: b.file, why: b.why, kind: b.kind, run: { process: w.run.process, id: w.run.id } });
+          if (w.loop && !scopesUnread.some(function (u) { return u.file === b.file && u.loop && u.loop.process === w.loop.process && u.loop.run === w.loop.run && u.loop.step === w.loop.step; })) scopesUnread.push({ file: b.file, why: b.why, loop: w.loop });
+          if (w.plan && !plansUnread.some(function (u) { return u.file === b.file && u.id === w.plan; })) plansUnread.push({ file: b.file, why: b.why, kind: b.kind, id: w.plan });
+        });
+      });
+      return { plans: plans, statuses: statuses, scopes: scopes, scopesUnread: scopesUnread, todos: todos, todosUnread: todosUnread, plansUnread: plansUnread, refused: refused, torn: torn || [] };
     });
   }
   /* Reading for other apps: a view of a folder that writes down, by path, every list, read, stat or blob that failed (as
@@ -3389,7 +3411,8 @@ PF.repo = (function () {
              copies that differ are named and nothing the work claims is confirmed. */
           var planFiles = Object.create(null); (Pr.plans || []).forEach(function (pl) { if (pl && pl._file) (planFiles[pl.id] = planFiles[pl.id] || []).push(pl); });
           D.plans.forEach(function (id) {
-            var g = planFiles[id] || [];
+            var g = planFiles[id] || [], gu = (Pr.plansUnread || []).filter(function (u) { return u.id === id; })[0];
+            if (gu) L.missing.push('proposals/' + gu.file + ': a copy of the evidence plan a to-do was done on (' + id + ') can\'t be read (' + String(gu.why).slice(0, 200) + ').');
             if (!g.length) { L.missing.push('proposals/' + id + '.json: a to-do was done on this evidence plan, but it isn\'t in the folder as read.'); return; }
             g.forEach(function (pl) { L.runTexts['proposals/' + pl._file] = recHashes[pl._file] || ''; add('proposals/' + pl._file, { role: 'evidence plan', label: 'The evidence plan a to-do was done on' }); });
             if (!g.every(function (pl) { return PF.requests.same(pl, g[0]); })) L.missing.push('proposals/' + id + '.json: a to-do was done on this evidence plan, but the folder has two different copies of it.');

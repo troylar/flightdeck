@@ -4597,6 +4597,17 @@ def main():
             why = "has copies under one id (" + sid + ") that are different kinds of record, so which is meant isn't known. Keep one of them"
             split_unread.extend((n, "malformed", why) for n, _ in fams)
 
+    # DA: every file under proposals/ by its file-name id, whatever family read it: one any reader refused (a plan, a scope
+    # record, a file of no family) is unread under that id too, so a witness with such a copy is never confirmed.
+    have = {n for n, _, _ in split_unread + rcpt_unread}
+    kinds = {n: k for n, k, _ in refused_decisions}
+    named_unread = []
+    for x in out["refused"]:
+        n = x["file"][len("proposals/"):] if x["file"].startswith("proposals/") else ""
+        if n and n not in have:
+            have.add(n)
+            named_unread.append((n, "newer" if kinds.get(n) == "newer" else "malformed", x["why"]))
+
     runs_dir = os.path.join(root, "runs")
     for proc in sorted(os.listdir(runs_dir)) if os.path.isdir(runs_dir) else []:
         pdir = os.path.join(runs_dir, proc)
@@ -4615,7 +4626,7 @@ def main():
                     if m and (m.group(1) + "." + m.group(2)) not in lineage and time.time() - os.path.getmtime(os.path.join(rdir, n)) >= 60:
                         copies.append(n)
                 receipts = [n for n in names if n.startswith("candidate-")]
-                v = receipt_verdict(read_app_text(os.path.join(rdir, "run.json")), rcpt_read, split_unread + rcpt_unread)
+                v = receipt_verdict(read_app_text(os.path.join(rdir, "run.json")), rcpt_read, split_unread + rcpt_unread + named_unread)
                 if v:
                     out.setdefault("runReceipts", []).append(dict({"run": proc + "/" + rid}, **v))
                 if copies:

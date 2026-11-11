@@ -25,8 +25,8 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "1bb6749a2fbbee1982d677cac787ccfb91e885cce3467cee9cbbeffb5123e8f2",
-      "reviewed": "CF: one problem formatter"
+      "sha256": "38ea08b0447829e8a5ba01e629baf29767119b8e487ccfc84b07949a1d663e87",
+      "reviewed": "DA: index proposals/ by file-name id"
     },
     "docs/evidence.md": {
       "sha256": "8828d4ade3981b60bb45d9f25431de63af40dd49e2385a68bcb06d34ddf5e56c",
@@ -53,8 +53,8 @@
       "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "36ea1318f9798658455eaea58718d495b46ebfed104817438d2c05c04fecd6e6",
-      "reviewed": "CF: one problem formatter"
+      "sha256": "6555239d4146f1b2236c2c9b519605dd2d120705c07777369a60a0a2f4f00fb8",
+      "reviewed": "DA: index proposals/ by file-name id"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
       "sha256": "197779e5fb047d6137527db0211659a2db320470f3086d61b5126d6e868b0cf8",
@@ -197,8 +197,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "50dcadf2043c74a62c5375827cae2903dfa2d5cb360b2f8c7655ff87a5d2bf20",
-      "reviewed": "CF: one problem formatter"
+      "sha256": "2a5dca379946b207108bc22242dc5143dce33cca6bc3039101f4e90eeb269e1d",
+      "reviewed": "DA: index proposals/ by file-name id"
     },
     "src/core/appjson.js": {
       "sha256": "98019ea60f70df332d6774d2ac26d0bbd028e95f1f76f543cbe54c89cb8cd4fe",
@@ -369,8 +369,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "0370f961d52998338259a671d9b0667e5865d13b5793527ea8265fa2488cbc6b",
-      "reviewed": "slice 6 round 2 GC: one receipt verdict in every reader, view, copied text and the checker"
+      "sha256": "e445b5f1e858cb0259a1a333e7f942729a39bbb57562669a3ded7a730d38cb0c",
+      "reviewed": "DA: index proposals/ by file-name id"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",
@@ -421,8 +421,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "280fe90235aca9ac9c9f1180b14329ab2294beae163f5edb02c4931ba5ddc534",
-      "reviewed": "AC: evidence plan copies"
+      "sha256": "08342e5eb12e87b4a85903e692ae614032390b91b7cdba226271e5a872349efa",
+      "reviewed": "DA: index proposals/ by file-name id"
     },
     "src/ui/app.js": {
       "sha256": "39be5a253c8a6e084821e36cb17b6bac885e2fb1f0f98a53e2c1fc707c52aa51",
