@@ -212,6 +212,14 @@ const approverIs = (app, fn) => {
   app.fs.files['people.json'] = { t: JSON.stringify(out, null, 2), m: Date.now() };
   return () => { app.fs.files['people.json'] = kept; };
 };
+/* Round 16 (UB): the source a recovery chose, replaced (by another window) with a valid copy that carries one more log entry:
+   the copy beside the run, its lost-save twin, or the copy kept in this browser. */
+const TWIN = 'candidate-twin-abcdefgh.json';
+const newer = (t) => { const j = JSON.parse(t); j.log = (j.log || []).concat([{ at: new Date().toISOString(), by: (j.recorder && j.recorder.person) || 'person-avery', what: 'Noted from another window while the copy was being kept' }]); return JSON.stringify(j, null, 2); };
+const replaceFile = (app, f) => { if (!f || !app.fs.files[f]) return null; const kept = app.fs.files[f]; app.fs.files[f] = { t: newer(kept.t), m: Date.now() }; return () => { app.fs.files[f] = kept; }; };
+const otherPath = (app) => parentPath(app).replace('run.json', 'run-OTHER.json');
+const twinPath = (app) => parentPath(app).replace('run.json', TWIN);
+const replaceLocal = (app) => { const k = localKeyOf(app, parentRun(app).id), kept = app.store[k]; if (!kept) return null; app.store[k] = JSON.stringify(JSON.parse(newer(kept))); return () => { app.store[k] = kept; }; };
 const isList = (op, p, dir) => op === 'list' && p.replace(/\/$/, '') === dir;
 /* A read point by its role, the same in every app: the run, the story's run, the first scope record, the story's application. */
 function namer(app, kid) {
@@ -241,6 +249,10 @@ const CHANGES = {
   /* Round 15 (SB): who may approve can't be read. */
   'people.json EIO': { make: (app) => eio(app, 'people.json'), sees: (op, p) => op === 'read' && p === 'people.json' },
   'the approver taken out of people.json': { make: (app) => approverIs(app, (list, me) => list.filter(x => x.id !== me)), sees: (op, p) => op === 'read' && p === 'people.json' },
+  'the copy replaced with a newer one': { paths: ['Use copy'], make: (app) => replaceFile(app, otherPath(app)), sees: (op, p) => op === 'read' && p === 'runs/release-readiness/<run>/run-OTHER.json', kept: (app, mid) => !!app.fs.files[otherPath(app)] && app.fs.files[otherPath(app)].t === mid },
+  'the copy\'s twin replaced with a newer one': { paths: ['Use copy'], make: (app) => replaceFile(app, twinPath(app)), sees: (op, p) => op === 'read' && p === 'runs/release-readiness/<run>/' + TWIN, kept: (app, mid) => !!app.fs.files[twinPath(app)] && app.fs.files[twinPath(app)].t === mid, of: twinPath },
+  /* Asked of the browser copy itself, at the judgment, after every read: any point sees it. */
+  'the browser copy replaced with a newer one': { paths: ['Restore browser copy'], make: replaceLocal, sees: () => true, kept: (app, mid) => app.store[localKeyOf(app, parentRun(app).id)] === mid, local: true },
   'the approver marked inactive': { make: (app) => approverIs(app, (list, me) => list.map(x => x.id === me ? Object.assign(x, { inactive: true }) : x)), sees: (op, p) => op === 'read' && p === 'people.json' }
 };
 const localKeyOf = (app, id) => 'preflight:unsaved:' + app.fs.kind + ':' + (app.fs.id || app.fs.name) + ':' + id;
@@ -258,7 +270,7 @@ const passedCopy = async (app, o, local) => {
   if (!passed.gates || !passed.gates[gid(app)] || passed.gates[gid(app)].s !== 'passed') return;
   await app.fs.write(p, approvedText);
   if (local) { await o.reread(app); app.store[localKeyOf(app, passed.id)] = JSON.stringify(passed); }
-  else await app.fs.write(p.replace('run.json', 'run-OTHER.json'), JSON.stringify(passed));
+  else { await app.fs.write(p.replace('run.json', 'run-OTHER.json'), JSON.stringify(passed)); await app.fs.write(p.replace('run.json', TWIN), JSON.stringify(passed)); }
   await o.reread(app);
 };
 const PATHS = {
@@ -364,6 +376,7 @@ async function suspension(o, how, changes, shard) {
   const todo = [];
   for (const ch of changes || Object.keys(CHANGES)) {
     if (ch === 'the story\'s to-do changed' && !hasHead) continue;
+    if (CHANGES[ch].paths && !CHANGES[ch].paths.includes(how)) continue;
     /* Round 15 (SC): every read point, whether or not the guard reads that input again after it. */
     for (let k = 0; k < points.length; k++) { cells++; todo.push([ch, points[k]]); }
   }
@@ -387,6 +400,8 @@ async function suspension(o, how, changes, shard) {
     const nm = namer(app, kid);
     const undo = C.make(app, kid);
     if (!undo) { off.push(tag + ': set-up: the change couldn\'t be made'); hold.open(); w.off(); continue; }
+    /* What the change left (its new bytes), so a source it replaced can be checked for after (UB). */
+    const mid = C.local ? app.store[localKeyOf(app, parentRun(app).id)] : C.kept ? (app.fs.files[(C.of || otherPath)(app)] || {}).t : null;
     /* Watched from outside the change (an EIO answers before any read under it): a read of the changed input, inside the
        guard, from here on. */
     const inner = { read: app.fs.read, list: app.fs.list, write: app.fs.write, remove: app.fs.remove }, late = [];
@@ -411,6 +426,7 @@ async function suspension(o, how, changes, shard) {
     required++;
     if (late.length) off.push(tag + ': written after the change' + (pt.phase === 'stable' ? ' (its stability pass reread it)' : ' (made before the stability pass)') + ': ' + names(late));
     else if (P.kept && !P.kept(app)) off.push(tag + ': the recovery source was removed');
+    else if (C.kept && !C.kept(app, mid)) off.push(tag + ': the source as replaced wasn\'t kept');
     w.off(); undo();
   }
   return { cells, applicable, required, limit, points: points.length, todo: todo.length, off };
@@ -445,3 +461,5 @@ async function stalled(o, how, waitMs) {
 module.exports.stalled = stalled;
 module.exports.HOLD_PATHS = Object.keys(PATHS);
 module.exports.HOLD_CHANGES = Object.keys(CHANGES);
+/* Whether a change applies to a path (a recovery's own source applies to that recovery only). */
+module.exports.holdApplies = (how, ch) => !CHANGES[ch].paths || CHANGES[ch].paths.includes(how);

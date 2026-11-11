@@ -1189,7 +1189,7 @@ rule('HA: a request refused while a scope record can\'t be read is answered once
    guard x every input change made while that read waits. Where the guard reads the changed input at or after that point,
    nothing more is written and any recovery source stays. Each rule prints its cell count. */
 const HA_CHANGES = BB.HOLD_CHANGES;
-for (const how of BB.HOLD_PATHS) for (const ch of HA_CHANGES) rule('HA: ' + how + ' on a plain loop, ' + ch + ' while a read of its guard waits, writes nothing', async () => {
+for (const how of BB.HOLD_PATHS) for (const ch of HA_CHANGES.filter(c => BB.holdApplies(how, c))) rule('HA: ' + how + ' on a plain loop, ' + ch + ' while a read of its guard waits, writes nothing', async () => {
   const r = await BB.suspension(bbLoop, how, [ch]);
   console.log('HA cells · a plain loop · ' + how + ' · ' + ch + ' · ran ' + r.applicable + ' of ' + r.cells + ' cells, none left out (' + r.required + ' judged, ' + r.limit + ' at the stated limit)');
   assert.deepStrictEqual(r.off, []);
