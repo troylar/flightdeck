@@ -712,7 +712,7 @@ flightdeck spread stop    <same> --spread <spread id> --reason <why> --tool ... 
 
 `sync` asks each owed item's own run for its addition: one `add` request per obligation not yet asked, before the spread's child gate, named by the obligation (`fulfills: { run, spread, uid, attempt }`), so any tool's retry is the same request. Each is written once and on its own: if one can't be written, the rest stand, the exit code is 4, and the next `sync` asks only what is missing. No key is needed; nothing it asks is decided by the parent's approval.
 
-Adding, including or binding needs a person, or a delegation that may add on the loop step; on an approved loop it sends that approval back for review, so a person decides. Stopping releases work, so a person decides.
+Adding or binding needs a person, or a delegation that may add on the loop step; on an approved loop it sends that approval back for review, so a person decides. Including a cleared item opts it in (it owes work it didn't) and stopping releases work, so a person always decides those, whatever a delegation covers.
 
 While what a spread is owed on can't all be read (a scope record of its loop is missing or can't be read), its `complete` is false and its coverage is never read as empty: `list` exits 4 with the reason in `held`, and `sync` (its dry run too), `include` and `stop` write nothing and give `status: "held"` with the reason in `why`, exit 4.
 

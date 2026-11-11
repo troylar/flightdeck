@@ -13,16 +13,16 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "406920d5c3817e3a00b6415893f82df43e0822d5be695370c96bd10f63950c3e",
-      "reviewed": "EC: parent filter loads its stories' dependencies"
+      "sha256": "deef464e8f4bc2e5348d1f82433232ef3664a863f668f407926104b6d7f0ac78",
+      "reviewed": "round 17 VD: only add and bind can be delegated"
     },
     "build.py": {
       "sha256": "1dce012e7269422f84c2c2aeb7b327b242a28e4990a5c5c95a22dc98228122dc",
       "reviewed": "slice 3 commit 1: spreads core (spreads.js), todos reduction and holds, run.js todoLand, app wiring, Python checker parity; no direct writes or unconditional deletes"
     },
     "docs/apps.md": {
-      "sha256": "2816dbf6a4781d1556576c2bb2bc7acfae4c62ddd95d7b2c10abce790810eeec",
-      "reviewed": "Round 6 XD: sync dry-run partial status from preparation refusals"
+      "sha256": "7ea4846a1ab91143e9d13da6efbc251e6592c7e2730cb3e44ff353506089957d",
+      "reviewed": "round 17 VD: only add and bind can be delegated"
     },
     "docs/design.md": {
       "sha256": "ae235388a7364e15b21da6bac0470fb6e9bfa5507b13c2c74bf36721a43167cf",
@@ -61,8 +61,8 @@
       "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
     },
     "example-folder/.flightdeck/skills/_flightdeck/command-guide.md": {
-      "sha256": "9482f70f1d2ac751835c0a63208274a3c90baf87a050449ecd83d098b4ca0bbe",
-      "reviewed": "slice 3 commit 2: flightdeck spread (list/add/sync/include/stop), CLI run/next read loop inputs for spreads, the spread row and Accept N additions in the app, docs, command guide, AGENTS.md row and the living-run skill; sync writes each request once through writeOnce; no direct writes or unconditional deletes"
+      "sha256": "d6b0e303e9863294aac8ba4e28cd88031c05ecfdbd92d85f81d2b3315e296d6d",
+      "reviewed": "round 17 VD: only add and bind can be delegated"
     },
     "example-folder/.flightdeck/skills/_flightdeck/file-formats.md": {
       "sha256": "3e696299bc5971a578831ad4c25330bcb87a4036c10666469e39b794a9a1bba3",
@@ -85,8 +85,8 @@
       "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
     },
     "example-folder/.flightdeck/skills/flightdeck-living-run/SKILL.md": {
-      "sha256": "028c5fd3af15367be2b414da02b439dd02b8abe16773e35cdca2f208c90c9ba9",
-      "reviewed": "4.0.0 notes name spreads; the living-run skill names no facts; section 45 says slices 1 to 3 are built"
+      "sha256": "95f363f0c034228ed2de563d6d79c8b617308811323ab3920c0dad3f384d23e6",
+      "reviewed": "round 17 VD: only add and bind can be delegated"
     },
     "example-folder/.flightdeck/skills/flightdeck-new-checklist/SKILL.md": {
       "sha256": "3a6eb58e264583f36fb072835912f61bbb9a3fcf619f5932b2f0bdea2cfa6099",
@@ -197,8 +197,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "94d6228cd5f1ec52f944c6ef4770fe46d04bc6b42bc851438d31c32e9758b143",
-      "reviewed": "Round 7 YA: stops are causal (cut, 4.0 scope head); checker mirrors; no direct writes or deletes added"
+      "sha256": "ae453917cb754c5261593e906d5901fae383608f1ae19c125514c849247a546a",
+      "reviewed": "round 17 VD: only add and bind can be delegated; baselines after the skill wording"
     },
     "src/core/appjson.js": {
       "sha256": "aa5c7391f87ec2fa5ddacaf9f74b7b99c7413e77989cdaf9bc359397ce96807b",

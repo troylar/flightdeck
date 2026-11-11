@@ -2862,7 +2862,8 @@ default goes to .flightdeck/updates/<version>/, with a README.md to hand to your
    always mean the same request: a retry writes nothing; the key with other content is refused. */
 /* ---- flightdeck spread (4.0, docs/apps.md "Spreads", docs/design.md section 45.1) ---- */
 /* Spreads (4.0 slice 3, docs/design.md 45.1, docs/apps.md): a standing requirement on a loop, "every open story here". A spread
-   is asked on the parent run (add, include, stop: one request each, decided by a person or a delegation, applied by the
+   is asked on the parent run (add, include, stop: one request each; add and bind decided by a person or a delegation that
+   may add on the loop step, include and stop always by a person; applied by the
    recorder); sync asks each story's own run for it, one request per obligation, each decided by that run's people. The CLI
    asks; it never decides and never writes run.json. */
 const SPREAD_SUBS = ['list', 'add', 'sync', 'include', 'stop'];
