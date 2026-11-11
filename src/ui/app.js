@@ -3089,7 +3089,19 @@
     if (pin && pin.path) jobs.push(fs.read(pin.path).then(function (f) { return (f ? f.text : null) === (pin.text == null ? null : pin.text); }, no));
     return Promise.all(jobs).then(function (all) { return all.every(Boolean); }, no);
   }
+  /* Round 15 (SD): the snapshot and its stability pass have a deadline (Folder health's slow-refresh limit): a read that
+     never settles refuses (the write is dropped: put back, or kept for Try again; a recovery keeps its copy), and its
+     answer, if it ever comes, is ignored, since this call has already answered. */
+  var GUARD_MS = (PF.health && PF.health.LIMITS && PF.health.LIMITS.slowRefreshMs) || 15000;
   function approvalSnapshot(cx, fs, pin) {
+    var answered = false, timer = null;
+    return new Promise(function (res) {
+      var answer = function (ok) { if (answered) return; answered = true; if (timer != null) clearTimeout(timer); res(ok === true); };
+      timer = setTimeout(function () { answer(false); }, GUARD_MS);
+      snapshotOnce(cx, fs, pin).then(answer, function () { answer(false); });
+    });
+  }
+  function snapshotOnce(cx, fs, pin) {
     var rk = cx && (cx.run || cx.holdRun), r = rk ? findRun(rk) : null, h = cx && cx.holds;
     if (!h) return Promise.resolve(true);
     if (!r) return Promise.resolve(false);
