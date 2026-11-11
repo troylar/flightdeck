@@ -3301,7 +3301,10 @@ async function todoMain(argv) {
     if (!one.found) return failOut('not-found', 'There\'s no run ' + proc + '/' + runId + ' in the team folder.' + nothing, problems());
     const r = one.run;
     if (!r) return failOut('failed', 'The run ' + proc + '/' + runId + ' couldn\'t be read, so its to-dos can\'t be.' + nothing, problems());
-    if (newerRun(PF, r)) return failOut('failed', 'The run ' + proc + '/' + runId + ' was made with a newer Flightdeck: ' + r._unrunnable + nothing, problems());
+    /* The run verdict every reader gives (judgeRun: newer, an end or a time it can't read, records it drops), ledgered before
+       anything is read from its to-dos or its receipt is judged, as run, next and runs ledger it. */
+    judgeRun(PF, r, one.pub).forEach((x) => L.note(x.path, x.kind, x.why));
+    if (newerRun(PF, r)) return failOut('failed', 'The run ' + proc + '/' + runId + ' was made with a newer Flightdeck: ' + r._unrunnable + nothing, problems(), writes ? null : EXIT.partial);
     let map; try { map = R.mapOf(r); } catch (e) { return failOut('failed', 'The run\'s checklist can\'t be read here.' + nothing, problems()); }
     if (one.peopleWhy) L.note('people.json', one.peopleKind || 'unreadable', fileWhy(one.peopleWhy));
     const pw = peopleWhy(one.people);

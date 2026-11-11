@@ -332,4 +332,38 @@ rule('This version: run, next, runs and todo list name an unattributable unread 
     } finally { try { fs.chmodSync(path.join(dir, 'proposals'), 0o755); } catch (e) { /* gone */ } fs.rmSync(root, { recursive: true, force: true }); }
   }
 });
+/* DB: one complete end validation (its fields, their types and caps, an unknown field is newer, its time): each end field
+   with each invalid value is refused by every reader alike (run, next, runs and todo list exit 4 naming run.json), the export
+   is partial, and the checker names the same path, kind and reason as run before any receipt verdict. */
+rule('This version: each end field with each invalid value is refused by the four readers, the export and the checker alike', async () => {
+  const { files } = await folder(), rp = 'runs/release-notes/run-l/run.json', X81 = 'x'.repeat(81);
+  const CASES = [['outcome', 'Done'], ['outcome', 42], ['outcome', null], ['by', 42], ['by', X81], ['byName', 42], ['byName', X81], ['byName', true],
+    ['at', 'bad'], ['at', null], ['at', '+275760-09-13T00:00:00.001Z'], ['extra', 1], ['future', true], ['the end itself', 'yes'], ['the end itself', []]];
+  for (const [k, v] of CASES) {
+    const r = JSON.parse(files[rp]); if (k === 'the end itself') r.ended = v; else r.ended[k] = v;
+    const { root, dir } = tree(Object.assign({}, files, { [rp]: JSON.stringify(r, null, 2) + '\n' })), tag = k + ' = ' + JSON.stringify(v).slice(0, 20);
+    try {
+      const outs = {
+        run: cli(MINE, 'run', dir, 'release-notes/run-l', '--contract', '2', '--json'),
+        next: cli(MINE, 'next', dir, 'release-notes/run-l', '--as', 'person-avery', '--contract', '2', '--json'),
+        runs: cli(MINE, 'runs', dir, '--contract', '2', '--json'),
+        'todo list': cli(MINE, 'todo', 'list', dir, 'release-notes/run-l', '--json')
+      };
+      const seen = Object.keys(outs).map((n) => [n, outs[n].code, (outs[n].json.problems || []).filter((x) => x.path === rp).map((x) => [x.kind, x.why])]);
+      const want = seen[0][2];
+      assert.strictEqual(want.length, 1, tag + ': run names run.json once: ' + outs.run.out.slice(0, 400));
+      same(seen, Object.keys(outs).map((n) => [n, 4, want]), tag + ': ' + JSON.stringify(seen).slice(0, 800));
+      const out = path.join(root, 'out'), ex = cli(MINE, 'export', dir, '--run', 'release-notes/run-l', '--out', out, '--tz', 'UTC');
+      const zip = fs.existsSync(out) ? fs.readdirSync(out).filter((n) => /\.zip$/.test(n))[0] : null;
+      if (zip) {
+        const man = JSON.parse(cp.execFileSync(PY || 'python3', ['-I', '-c', 'import sys, zipfile; print(zipfile.ZipFile(sys.argv[1]).read("manifest.json").decode())', path.join(out, zip)], { encoding: 'utf8' }));
+        assert.strictEqual(man.status, 'partial', tag + ': the export is partial: ' + JSON.stringify(man.runs.map((x) => x.living)).slice(0, 400));
+      } else assert.notStrictEqual(ex.code, 0, tag + ': the export made no pack and said why: ' + ex.out.slice(0, 300));
+      if (!PY) continue;
+      const res = JSON.parse(cp.execFileSync(PY, ['-I', path.join(ROOT, 'example-folder', '.flightdeck', 'skills', '_flightdeck', 'check_folder.py'), dir], { encoding: 'utf8' }));
+      const mine = (res.runReceipts || []).filter((x) => x.run === 'release-notes/run-l');
+      same(mine.map((x) => [x.path, x.kind, x.why]), [[rp, want[0][0], want[0][1]]], tag + ' checker: ' + JSON.stringify(res.runReceipts));
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
+});
 run();

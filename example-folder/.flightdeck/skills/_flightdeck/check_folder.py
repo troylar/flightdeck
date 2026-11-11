@@ -4351,6 +4351,46 @@ def iso_or_null(v):
     return v if abs(t) <= 8.64e15 else None
 
 
+RUN_NEWER = "This run uses checklist features this copy of Flightdeck doesn't understand. Update Flightdeck to run it."
+ENDED_FIELDS = ("outcome", "by", "byName", "at")
+
+
+def end_problem(r):
+    """PF.run.endProblem: the one end validation every reader applies to a run file's ended record (newer() first: an unknown
+    field, an outcome this copy doesn't know, a receipt named without an end; then the time badTimes() can't read and what
+    repairs() drops or cuts), as (kind, why), or None when the end is read as written."""
+    if not isinstance(r, dict) or r.get("ended") is None:
+        return None
+    e = r["ended"]
+    is_obj = isinstance(e, dict)
+    if is_obj:
+        extra = next((k for k in e.keys() if k not in ENDED_FIELDS), None)
+        if extra is not None:
+            return "newer", RUN_NEWER + ' How it ended has "' + js_slice(str(extra), 40) + '".'
+        if e.get("outcome") is not None and e.get("outcome") not in R_OUTCOMES:
+            return "newer", RUN_NEWER + ' How it ended is "' + js_slice(js_String(e.get("outcome")), 40) + '".'
+    elif isinstance(r.get("living"), dict) and "receipt" in r["living"]:
+        return "newer", RUN_NEWER + " It names the receipt it ended with, but it hasn't ended."
+    parts, fixed = [], []
+    known = is_obj and isinstance(e.get("outcome"), str) and e.get("outcome") in R_OUTCOMES
+    if known and not iso_or_null(e.get("at")):
+        parts.append("Some times in this file couldn't be read (the end).")
+    if not known:
+        fixed.append("ended (dropped: not an outcome this copy knows)")
+    else:
+        for k in ("by", "byName"):
+            v = e.get(k)
+            if v is None:
+                continue
+            if not isinstance(v, str):
+                fixed.append("ended." + k + " (dropped: not text)")
+            elif js_len(v) > 80:
+                fixed.append("ended." + k + " (cut to 80 characters)")
+    if fixed:
+        parts.append("Records this copy dropped or changed: " + ", ".join(fixed) + ".")
+    return ("malformed", " ".join(parts) + " The run is shown as the app shows it, without them.") if parts else None
+
+
 def receipt_verdict(text, read, unread):
     """PF.receipts.verdict for an ended living run.json: its state, the receipt's path, the problem's kind and why (same order
     and words), or None for a run that isn't an ended living run."""
@@ -4358,16 +4398,21 @@ def receipt_verdict(text, read, unread):
         r = json.loads(text, parse_constant=_no_constant) if text and not json_too_deep(text) else None
     except (ValueError, RecursionError):
         r = None
-    if not isinstance(r, dict) or not isinstance(r.get("ended"), dict):
+    if not isinstance(r, dict) or r.get("ended") is None:
         return None
     lv = clean_living(r.get("living"))
     if not lv:
         return None
-    # The app reads an end only with an outcome it knows and a time it reads (PF.run.sanitize): one it drops leaves the run
-    # malformed as every reader names it (PF.appjson's runProblems), and its receipt is never confirmed.
-    if r["ended"].get("outcome") in R_OUTCOMES and not iso_or_null(r["ended"].get("at")):
-        return {"state": "unread", "path": "runs/" + str(r.get("process")) + "/" + str(r.get("id")) + "/run.json", "kind": "malformed",
-                "why": "Some times in this file couldn't be read (the end). The run is shown as the app shows it, without them."}
+    # The one end validation every reader applies (end_problem), before any receipt verdict: an end the app refuses as newer
+    # or drops or changes leaves run.json named, with the readers' path, kind and reason, and its receipt is never confirmed.
+    ep = end_problem(r)
+    if ep:
+        key = str(r.get("process")) + "/" + str(r.get("id"))
+        title = js_slice(r["title"], 200) if isinstance(r.get("title"), str) else ""
+        return {"state": "unread", "path": "runs/" + key + "/run.json", "kind": ep[0],
+                "why": ('"' + title + '" (' + key + "): " + ep[1]) if ep[0] == "newer" else ep[1]}
+    if not isinstance(r.get("ended"), dict):
+        return None
     rid = lv.get("receipt")
     if not rid:
         return {"state": "none", "path": "", "kind": "", "why": "It ended without a receipt record."}

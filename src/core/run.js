@@ -2400,6 +2400,26 @@ PF.run = (function () {
     if (lost.length) { b.log = lost.map(function (l) { return { what: str(l.what, 300) }; }); n++; }
     return n ? b : null;
   }
+  /* The one end validation (DB): how every reader judges a run file's ended record, as newer() (an unknown field, an outcome
+     this copy doesn't know, a receipt named without an end), badTimes() (a time it can't read) and repairs() (an end it drops,
+     a who or name that isn't text or is over 80 characters) judge it, in that order and those words. null when the end is
+     read as written. { kind: 'newer' | 'malformed', why }: a newer why is newer()'s (NEWER and the place); a malformed one is
+     the reader's sentence for the file. The export keeps it for the run it packs; check_folder.py ports it. */
+  function endProblem(o) {
+    if (!o || typeof o !== 'object' || o.ended == null) return null;
+    var e = o.ended, isObj = typeof e === 'object' && !Array.isArray(e);
+    if (isObj) {
+      var extra = Object.keys(e).filter(function (f) { return !Object.prototype.hasOwnProperty.call(KNOWN.ended, f); })[0];
+      if (extra != null) return { kind: 'newer', why: NEWER + ' How it ended has "' + String(extra).slice(0, 40) + '".' };
+      if (e.outcome != null && !Object.prototype.hasOwnProperty.call(OUTCOMES, e.outcome)) return { kind: 'newer', why: NEWER + ' How it ended is "' + String(e.outcome).slice(0, 40) + '".' };
+    } else if (o.living && typeof o.living === 'object' && o.living.receipt !== undefined) return { kind: 'newer', why: NEWER + ' It names the receipt it ended with, but it hasn\'t ended.' };
+    var parts = [], fixed = [];
+    if (isObj && OUTCOMES[e.outcome] && !isoOrNull(e.at)) parts.push('Some times in this file couldn\'t be read (the end).');
+    if (!isObj || !OUTCOMES[e.outcome]) fixed.push('ended (dropped: not an outcome this copy knows)');
+    else ['by', 'byName'].forEach(function (k) { var v = e[k]; if (v == null) return; if (typeof v !== 'string') fixed.push('ended.' + k + ' (dropped: not text)'); else if (v.length > 80) fixed.push('ended.' + k + ' (cut to 80 characters)'); });
+    if (fixed.length) parts.push('Records this copy dropped or changed: ' + fixed.join(', ') + '.');
+    return parts.length ? { kind: 'malformed', why: parts.join(' ') + ' The run is shown as the app shows it, without them.' } : null;
+  }
   /* Reading for other apps: every record in a run file that sanitize drops, cuts short or replaces, by where it is
      (gates.ready, followUps[2], steps.tests.values.url, log[40]…), worked out from the file as parsed. Pure, never saved, and
      never called by the app, which reads runs exactly as before. Times sanitize can't read are badTimes' (not repeated
@@ -2705,7 +2725,7 @@ PF.run = (function () {
   return { answerable: answerable, reopenIds: reopenIds, gateInputs: gateInputs, detailValueDef: detailValueDef, detailUnit: detailUnit,
     childCheck: childCheck, childMarks: childMarks, edgeHolds: edgeHolds, linkShape: linkShape, CHILD_HEIGHT: CHILD_HEIGHT, CHILD_LINKS: CHILD_LINKS, isSearchStep: isSearchStep, searchSteps: searchSteps, searchState: searchState, searchProblem: searchProblem, reopenNotice: reopenNotice, searchId: searchId, searchCheck: searchCheck, genDamaged: genDamaged, refreshSearch: refreshSearch, rereadable: rereadable, mergeOverflow: mergeOverflow, SEARCH_PREFIX: SEARCH_PREFIX,
     RUN_ID: RUN_ID, isTest: isTest, pubDir: pubDir, testProblem: testProblem, testLast: testLast,
-    FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, canonical: canonical, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk, phaseHeld: phaseHeld,
+    FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, endProblem: endProblem, repairs: repairs, unexplained: unexplained, canonical: canonical, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk, phaseHeld: phaseHeld,
     phaseOpen: phaseOpen, applies: applies, held: held, stepNeeded: stepNeeded, canStartChild: canStartChild, phaseSkipped: phaseSkipped, condFields: condFields, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, fillOffered: fillOffered, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence, checkFill: checkFill,
     pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, resultMoved: resultMoved, resultChanged: resultChanged, resultMarks: resultMarks, RESULT_CHANGED: RESULT_CHANGED, unsettleResult: unsettleResult, todoLand: todoLand, unsettleLoop: unsettleLoop, resultFit: resultFit, answerOf: answerOf, resultOf: resultOf, outcomeText: outcomeText, resultHeld: resultHeld, acceptsOf: acceptsOf, boundSource: boundSource, teamUnrecorded: teamUnrecorded, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, jiraFor: jiraFor, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, effStep: effStep, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,
