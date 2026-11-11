@@ -884,4 +884,35 @@ rule('A byte-order mark added to a record the work rests on after discovery read
   const e = unzip(zip), f = manifestOf(zip).files.filter((y) => y.path === hp)[0], bytes = f && e[f.pack];
   assert.ok((res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(hp) >= 0)) || (bytes && bytes.equals(was)), 'named, or packed as judged: ' + res.status + ' ' + JSON.stringify(res.col.unresolved));
 });
+/* WC: every closure read is bounded by bytes, not only by its stat: a dependency's version file over the one-file limit is
+   never read whole, and a file that grows past what was reserved for its final reread is refused, named. */
+const measured = (fsx, paths) => {
+  const max = {}, note = (p, n) => { max[p] = Math.max(max[p] || 0, n); };
+  const blob = fsx.blob.bind(fsx), read = fsx.read.bind(fsx);
+  fsx.blob = (p, o) => blob(p, o).then((b) => { if (!b || paths.indexOf(p) < 0) return b; const ab = b.arrayBuffer.bind(b), tx = b.text.bind(b); b.arrayBuffer = () => ab().then((x) => { note(p, x.byteLength); return x; }); b.text = () => tx().then((x) => { note(p, x.length); return x; }); return b; });
+  fsx.read = (p, o) => read(p, o).then((f) => { if (f && paths.indexOf(p) >= 0) note(p, f.text.length); return f; });
+  return max;
+};
+rule('A dependency\'s version file over the one-file limit is never read whole: the export names it and is partial', async () => {
+  const W = await loopMade(), K = JSON.parse(W.files[W.kidPath]), files = Object.assign({}, W.files), LIM = 65536;
+  const pub = Object.keys(files).find((p) => p.indexOf('publications/' + K.process + '/' + K.folder + '/publication.json') === 0);
+  assert.ok(pub, 'set-up: the child\'s version');
+  files[pub] = files[pub] + ' '.repeat(2 * 1048576);
+  const fsx = new BytesFS(files), max = measured(fsx, [pub]);
+  const res = await W.PF.repo.exportEvidence(fsx, { run: W.key }, { sink: () => {}, now: () => Date.now(), tz: 'UTC', maxFile: LIM });
+  assert.ok(!(max[pub] > LIM + 1), 'read whole: ' + max[pub]);
+  assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(pub) >= 0 || u.indexOf(K.process + '/' + K.id) >= 0), res.status + ' ' + JSON.stringify(res.col.unresolved).slice(0, 400));
+});
+rule('A file that shrinks for its final stat and then grows is never reread past what was reserved: refused and named', async () => {
+  const W = await made({ todos: 1 }), op = 'proposals/plan-other.json', small = JSON.stringify({ kind: 'plan', id: 'plan-other', process: 'other', title: 'Another plan' }), LIM = 65536;
+  const files = Object.assign({}, W.files, { [op]: small });
+  let reads = 0;
+  const big = Buffer.from(small + ' '.repeat(2100000));
+  const fsx = new BytesFS(files, { hooks: { stat: (p, x) => { if (p === op) x.files.set(op, Buffer.from(small)); }, read: (p, x) => { if (p === op && reads++) x.files.set(op, big); }, blob: (p, x) => { if (p === op && reads++) x.files.set(op, big); } } });
+  const max = measured(fsx, [op]);
+  const res = await W.PF.repo.exportEvidence(fsx, { run: W.key }, { sink: () => {}, now: () => Date.now(), tz: 'UTC', maxFile: LIM });
+  assert.ok(reads >= 2, 'set-up: read again at the end');
+  assert.ok(!(max[op] > LIM + 1), 'reread past the limit: ' + max[op]);
+  assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(op) >= 0), res.status + ' ' + JSON.stringify(res.col.unresolved).slice(0, 400));
+});
 run();

@@ -26310,9 +26310,10 @@ PF.repo = (function () {
     function rawBytes(p, n) {
       return ro.blob(p).then(function (b) {
         if (!b) return null;
-        return b.arrayBuffer().then(function (ab) {
+        /* Never more than its stat said, plus one byte to see that it grew: what was reserved is all that is read. */
+        return b.slice(0, n + 1).arrayBuffer().then(function (ab) {
           var u = new Uint8Array(ab);
-          if (u.length > n) throw new Error(p + ' grew while it was read, so it wasn\'t read');
+          if (u.length > n) throw new Error(p + ' grew past the ' + E.size(n) + ' reserved for it while it was read, so it wasn\'t read');
           var h = S.create(); h.update(u); var hash = h.digest(); rawOf[p] = hash; rawKept[hash] = true;
           return { u: u, hash: hash };
         });
@@ -26320,7 +26321,24 @@ PF.repo = (function () {
     }
     var lists = Object.create(null), listKey = function (items) { return (items || []).map(function (i) { return i.kind + ':' + i.name; }).sort(); };
     var lro = readOnlyView({
-      list: function (p, o) { return ro.list(p, o).then(function (items) { if (!(p in lists)) lists[p] = listKey(items); return items; }); }, stat: function (p, o) { return ro.stat(p, o); }, blob: function (p, o) { return ro.blob(p, o); },
+      list: function (p, o) { return ro.list(p, o).then(function (items) { if (!(p in lists)) lists[p] = listKey(items); return items; }); }, stat: function (p, o) { return ro.stat(p, o); },
+      /* A file's bytes (a version's files and its screenshots too): sized first, over the one-file limit never read, what it
+         holds reserved before it is read, and never read past that (one that grew is refused, named). */
+      blob: function (p, o) {
+        return ro.stat(p).then(function (st) {
+          if (!st) return ro.blob(p, o);
+          if (st.size > recordMax) throw new Error(p + ' is ' + E.size(st.size) + ', over ' + E.size(recordMax) + ', the most one file can be in a pack made here, so it wasn\'t read');
+          var n = st.size;
+          if (retained.now + n > retained.limit) { retained.full = true; throw new Error(p + ' wasn\'t read: the pack reached the most it may hold in memory here (' + E.size(retained.limit) + ')'); }
+          hold(n);
+          return ro.blob(p, o).then(function (b) {
+            if (!b) { retained.now -= n; return null; }
+            var whole = function () { return b.slice(0, n + 1).arrayBuffer().then(function (ab) { if (ab.byteLength > n) throw new Error(p + ' grew past the ' + E.size(n) + ' reserved for it while it was read, so it wasn\'t read'); return ab; }); };
+            return { size: Math.min(b.size, n), type: b.type, lastModified: b.lastModified, slice: function (a, z) { return b.slice(a, Math.min(z == null ? n : z, n)); }, arrayBuffer: whole,
+              text: function () { return whole().then(function (ab) { return new TextDecoder('utf-8').decode(ab); }); }, close: function () { if (b.close) b.close(); } };
+          }, function (e) { retained.now -= n; throw e; });
+        });
+      },
       read: function (p, o) {
         return ro.stat(p).then(function (st) {
           if (!st) return null;
