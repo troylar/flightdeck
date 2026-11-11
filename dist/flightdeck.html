@@ -36549,7 +36549,9 @@ PF.examples = (function () {
     if (q.ops[0] === 'resolve') {
       var t = PF.loop.actionsOf(V).filter(function (y) { return y.id === q.record; })[0], rw = PF.loop.resolveWhy(r, id, t, q.outcome, data.runs, V.records);
       if (rw) return Promise.resolve({ ok: false, why: rw });
-      return loopOutcome(V, t, q.outcome, 'Resolved at ' + personName(q.as) + '\'s request: it was ' + q.outcome + '.', cx, q.id, true).then(function (wrote) {
+      /* Round 18 (WB): a new decision, guarded as one: the run, its step and the request that asks for it are carried through
+         the fresh guard, which asks the requester's authority again and rebuilds the resolution from what it reads. */
+      return loopOutcome(V, t, q.outcome, 'Resolved at ' + personName(q.as) + '\'s request: it was ' + q.outcome + '.', loopGuard({ q: q, run: key, step: id }), q.id, { run: key, step: id, asker: q }).then(function (wrote) {
         if (wrote === false) throw new Error('The folder changed while this request was carried out.');
         return { ok: true, why: q.record + ' is recorded as ' + q.outcome + '.' };
       });
@@ -36980,24 +36982,38 @@ PF.examples = (function () {
     var q = PF.loop.actionsOf(V).filter(function (y) { return y.id === qid; })[0], w = PF.loop.resolveWhy(r, id, q, outcome, data.runs, V.records);
     if (w) { say(w, 'warn'); render(); return; }
     var cx = loopGuard();
-    loopOutcome(V, q, outcome, 'Resolved by ' + personName(state.me) + ': it was ' + outcome + '.', cx, '', true).then(function (wrote) { if (wrote === false) return; say('Recorded: it was ' + outcome + '.', 'good'); return load(true); },
+    loopOutcome(V, q, outcome, 'Resolved by ' + personName(state.me) + ': it was ' + outcome + '.', cx, '', { run: r.process + '/' + r.id, step: id, asker: null }).then(function (wrote) { if (wrote === false) return; say('Recorded: it was ' + outcome + '.', 'good'); return load(true); },
       function (err) { say('Couldn\'t record it: ' + (err && err.message || err), 'bad'); render(); });
   }
   /* resolves (round 17): a resolution, a person's decision on how a request ended, asks the fresh guard right before it is
      written. The outcome of a request just carried out (applied or refused) reports what its own guarded write did, so it
      is written as it is: holding it back would leave a write that happened unrecorded. */
-  /* resolves (round 17): a resolution, a person's decision on how a request ended, asks the fresh guard right before it is
-     written. The outcome of a request just carried out (applied or refused) reports what its own guarded write did, so it
-     is written as it is: holding it back would leave a write that happened unrecorded. */
+  /* resolves (round 18, WB): { run, step, asker }: the loop's run and step, and the resolve request asking for it (null for
+     the button). Right before the write the fresh guard reads the folder, and the resolution is rebuilt from what it read:
+     the request resolved still recorded both ways, exactly as shown, with this outcome still the one resolveWhy allows; the
+     same scope records seen; the recorder in people.json and active; and a resolve request still pending, unchanged, and
+     its asker still allowed to ask. Any difference refuses: nothing is written. */
   function loopOutcome(V, q, op, why, cx, resolver, resolves) {
     if (!guardOk(cx)) return Promise.resolve(false);
-    var d = PF.loop.buildDecision({ proposal: q.id, loop: V.loop, op: op, items: [], seen: PF.loop.seenFor(V.ledger, [], [q.id]).seen, reason: String(why || '').slice(0, 300), by: cx.me, resolver: resolver || '', writer: 'w' + loopHex(10), rev: loopHex(8), now: new Date().toISOString(), app: APP_VERSION });
+    var seen = PF.loop.seenFor(V.ledger, [], [q.id]).seen;
+    var d = PF.loop.buildDecision({ proposal: q.id, loop: V.loop, op: op, items: [], seen: seen, reason: String(why || '').slice(0, 300), by: cx.me, resolver: resolver || '', writer: 'w' + loopHex(10), rev: loopHex(8), now: new Date().toISOString(), app: APP_VERSION });
     var ow = PF.loop.fileWhy(d.name, d.file); if (ow) return Promise.reject(new Error(ow));
-    var ok0 = V.loop && findRun(V.loop.process + '/' + V.loop.run), ok = ok0 ? runKeysFor(ok0) : null;
     var opts = { still: function () { return guardOk(cx); } };
-    if (resolves) opts.recheck = function (fs) { return ok ? freshGuard(cx, fs, ok, function () { return true; }) : false; };
+    if (resolves) opts.recheck = function (fs) { return freshGuard(cx, fs, keysOf(resolves.run), resolveJudge(resolves, q, op, seen, cx.me)); };
     else opts.report = true;
     return scopeSave(cx.fs, d.name, d.file, opts).then(function (res) { return res && res.dropped ? false : res; });
+  }
+  function resolveJudge(res, q, op, seen, me) {
+    return function (d) {
+      var r = findRun(res.run);
+      if (!r || actorWhy(r, d.people, me)) return false;
+      var V = viewIn(r, res.step, d), t = actionIn(V, q.id);
+      if (!t || JSON.stringify(t) !== JSON.stringify(q) || PF.loop.resolveWhy(r, res.step, t, op, d.runs, V.records)) return false;
+      if (JSON.stringify(PF.loop.seenFor(V.ledger, [], [q.id]).seen) !== JSON.stringify(seen)) return false;
+      if (!res.asker) return true;
+      var a = actionIn(V, res.asker.id);
+      return !!a && a.status === 'pending' && JSON.stringify(a) === JSON.stringify(res.asker) && a.outcome === op && !PF.loop.requestCheck(r, V, a, d.people);
+    };
   }
   /* Round 18: every scope record this window writes (a request, a decision, a resolution) goes through here, and is refused
      unless it names its fresh guard (opts.recheck), or says it only reports what a guarded write already did (opts.report:
