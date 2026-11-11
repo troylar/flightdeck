@@ -2732,10 +2732,15 @@ PF.repo = (function () {
      read, for a caller that must know nothing in proposals/ changed between two reads (evidence read from the first). */
   function proposalsFinal(fs, o) {
     o = o || {};
-    var dep = null, n0 = null;
-    var names = function () { return fs.list('proposals').then(function (items) { return (items || []).filter(function (v) { return v && v.kind !== 'dir'; }).map(function (v) { return String(v.name); }).sort().join('\n'); }); };
-    return Promise.resolve(o.deps ? o.deps(fs) : null).then(function (d) { dep = d; return names(); }).then(function (n) { n0 = n; return readPlans(fs, o.bad || null, null, !!o.two); })
-      .then(function (got) { return names().then(function (n1) { return { got: got, deps: dep, moved: n0 !== n1, sig: proposalsSig(got) }; }); });
+    var dep = null, n0 = null, mid = [];
+    var namesOf = function (items) { return (items || []).filter(function (v) { return v && v.kind !== 'dir'; }).map(function (v) { return String(v.name); }).sort().join('\n'); };
+    var names = function () { return fs.list('proposals').then(namesOf); };
+    /* The files are read from readPlans' own listing: that listing is compared too, so a file there and gone again before
+       the last listing is a move, never a read that agrees. */
+    var rf = Object.create(fs);
+    rf.list = function (d) { return fs.list(d).then(function (items) { if (d === 'proposals') mid.push(namesOf(items)); return items; }); };
+    return Promise.resolve(o.deps ? o.deps(fs) : null).then(function (d) { dep = d; return names(); }).then(function (n) { n0 = n; return readPlans(rf, o.bad || null, null, !!o.two); })
+      .then(function (got) { return names().then(function (n1) { return { got: got, deps: dep, moved: n0 !== n1 || !mid.length || mid.some(function (m) { return m !== n0; }), sig: proposalsSig(got) }; }); });
   }
   /* Every record readPlans gave, by file and content, and every file it couldn't read: equal exactly when two reads agree. */
   function proposalsSig(got, test) {

@@ -315,6 +315,34 @@ rule('A keep filed after its final read of proposals/ files nothing when a 500th
   assert.ok(x.code !== 0, '501st: refused: ' + JSON.stringify([x.code, x.error]));
 });
 
+/* PB: the final check compares the listing its files were read from with the listings around it: a copy of this keep that
+   appears for that middle listing and is gone before the last one is still-syncing, never "already" with nothing on disk. */
+rule('A copy of a keep that shows in the final read of proposals/ and is gone before its last listing holds the keep', async () => {
+  const hookOf = (k) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-keep-hook-')), hook = path.join(dir, 'hook.js');
+    fs.writeFileSync(hook, "const fs = require('fs'), path = require('path'); let n = 0, l = 0, put = null; const K = +process.env.KEEP_AT;" +
+      " const rd = fs.readdirSync; fs.readdirSync = function (p) { const q = String(p); if (n >= 2 && /\\/proposals\\/?$/.test(q)) { l++; if (l === K + 1 && put) { fs.unlinkSync(put); put = null; } if (l === K) { const f = JSON.parse(process.env.KEEP_FILES); Object.keys(f).forEach((x) => { put = path.join(process.env.KEEP_ROOT, 'proposals', x); fs.writeFileSync(put, f[x]); }); } } return rd.apply(this, arguments); };" +
+      " const after = () => {};" +
+      " const hit = (p) => { if (String(p).indexOf('/runs/release-readiness/r-41/run.json') >= 0) n++; };" +
+      " for (const x of ['openSync', 'readFileSync']) { const o = fs[x]; fs[x] = function (p) { hit(p); const r = o.apply(this, arguments); after(p); return r; }; } const pr = fs.promises; for (const x of ['open', 'readFile']) { const o = pr[x]; pr[x] = function (p) { hit(p); return o.apply(this, arguments).then((r) => { after(p); return r; }); }; }");
+    return hook;
+  };
+  const F0 = await folder(), copy = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-keep-copy-')); fs.cpSync(F0.root, copy, { recursive: true });
+  const k = json('todo', 'keep', copy, PR, '--todo', F0.phaseTodo, '--json', ...TOOL);
+  assert.strictEqual(k.data.status, 'kept', 'set-up: it would be kept');
+  const name = path.basename(k.data.keep.file), text = fs.readFileSync(path.join(copy, k.data.keep.file), 'utf8');
+  let hit = 0;
+  for (let at = 1; at <= 6; at++) {
+    const F = await folder();
+    let code = 0, out = '';
+    try { out = execFileSync(process.execPath, ['-r', hookOf(), BIN, 'todo', 'keep', F.root, PR, '--todo', F.phaseTodo, '--json', ...TOOL], { encoding: 'utf8', stdio: 'pipe', env: Object.assign({}, process.env, { KEEP_AT: String(at), KEEP_ROOT: F.root, KEEP_FILES: JSON.stringify({ [name]: text }) }) }); } catch (e) { code = e.status; out = String(e.stdout); }
+    const x = JSON.parse(out), st = x.data && x.data.status, there = fs.existsSync(path.join(F.root, 'proposals', name));
+    if (st === 'already' || st === 'kept') assert.ok(there, 'listing ' + at + ': said ' + st + ' with no keep on disk: ' + JSON.stringify([code, x.problems]));
+    if (code === 4) hit++;
+  }
+  assert.ok(hit > 0, 'some listing was the final read\'s middle one');
+});
+
 /* LD: a keep at this place from another source run that can't be read leaves the count unknown: the keep holds (exit 4),
    naming that file, at the first check and at the final one, as the app does. */
 rule('A keep beside one that can\'t be read from another source run at its place holds (exit 4), naming that file', async () => {

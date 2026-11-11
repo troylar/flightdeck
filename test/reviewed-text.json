@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "e79382af7c31f73e55357c15942adc8060ca6a241e3608898a706943d2428c75",
-      "reviewed": "LC: runs --process keeps the evidence paths its listed runs' to-dos rest on in its problems; checked for direct writes and unconditional deletes"
+      "sha256": "48d09a5a89e1db48dab203e5d40368cc9ef339c3ca0ea88b31078bdef66a0b74",
+      "reviewed": "PB: design.md says the final check compares all three listings; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "e641a0f9f4655b4634b9d2661fe4e4b97222f23ece79f5917e6c99f174218087",
@@ -25,8 +25,8 @@
       "reviewed": "LA: keeps, to-do writes and requests read proposals/ last through proposalsFinal; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "c2792985d41938e9f08e1c9ecc9dc800d0a7abf01bcfa408595eaac671cfd328",
-      "reviewed": "LE: a tool's keep gets no personal acknowledgment and is named as a tool in the brief; checked for direct writes and unconditional deletes"
+      "sha256": "d2d60ca6bc7312ed2f315fdad45dd8f0428edb6fca70126d6073a77fa2c5cf0e",
+      "reviewed": "PB: design.md says the final check compares all three listings; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -417,8 +417,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "4de64c09b059856539086c3c1f46ca37c7cbfd42c5ced7a6d52534bc6adae9ea",
-      "reviewed": "LA: keeps, to-do writes and requests read proposals/ last through proposalsFinal; checked for direct writes and unconditional deletes"
+      "sha256": "974dd00650d119c01695f0e24c1097eb16fea839894bf77e3e85fb6697121e3f",
+      "reviewed": "PB: proposalsFinal compares the listing readPlans read from with the outer listings; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "bace58a70f4e216d443f96dd94d7a9b150241015b76ce97efea6fb949fc5bf5e",
