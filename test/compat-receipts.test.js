@@ -108,6 +108,13 @@ rule('This version: run, next, runs and todo list name the same receipt problem 
   [['a plan-family copy', '{"format":"flightdeck-plan/2"}\n'], ['a scope-family copy', '{"format":"flightdeck-plan/3","features":["loops"]}\n'],
     ['an unknown-format copy', '{"format":"flightdeck-elsewhere/1","id":"x"}\n'], ['a copy that isn\'t JSON', '{ bad']]
     .forEach(([what, text]) => cases.push([what, (dir) => fs.writeFileSync(path.join(dir, 'proposals', receipt.replace(/\.json$/, ' (1).json')), text), 'malformed']));
+  /* EA: a copy under the receipt's file-name id that reads whole as another record (a plan, a plan decision, another to-do
+     record) is grouped with the receipt too: which is meant isn't known. */
+  const DEC = { proposal: 'plan-other', proposalHash: 'x', status: 'declined', run: null, by: 'person-avery', at: AT };
+  [['a valid 1.x plan of another id', { kind: 'plan', id: 'plan-other', process: 'release-notes' }], ['a valid 1.x plan decision', Object.assign({ kind: 'status' }, DEC)],
+    ['a valid plan-status/2 decision', Object.assign({ format: 'flightdeck-plan-status/2', app: '4.0.0' }, DEC)]]
+    .forEach(([what, o]) => cases.push([what, (dir) => fs.writeFileSync(path.join(dir, 'proposals', receipt.replace(/\.json$/, ' (1).json')), JSON.stringify(o, null, 2) + '\n'), 'malformed']));
+  cases.push(['a valid to-do record of another id', (dir) => { const q = fs.readdirSync(path.join(dir, 'proposals')).filter((n) => /^req-notes-bot-/.test(n))[0]; fs.copyFileSync(path.join(dir, 'proposals', q), path.join(dir, 'proposals', receipt.replace(/\.json$/, ' (1).json'))); }, 'malformed']);
   if (process.getuid && process.getuid() !== 0) cases.push(['unreadable', (dir) => fs.chmodSync(path.join(dir, 'proposals', receipt), 0), 'unreadable']);
   for (const [state, damage, kind] of cases) {
     const { root, dir } = tree(files);

@@ -1200,6 +1200,38 @@ rule('A copy of any witness the work rests on, of another family, malformed, of 
     }
   }
 });
+/* EA: the file-name index groups every result, successful reads too: a copy under a witness's name that reads whole as
+   another record (a 1.x plan, a plan/2, a plan decision of either format, a to-do record of another id, a scope record) holds
+   that witness in the loader and the export, as a copy that differs. A matrix: each witness family × each valid record. */
+rule('A copy under any witness\'s name that reads whole as another valid record (any family) holds that witness in the loader and the export', async () => {
+  const W = await made({ todos: 1, requested: true, keep: true, pending: true }), L = await loopMade(), E = (await roleWorlds()).filter((w) => w.role === 'evidence')[0];
+  const byKind = {}, wit = [];
+  Object.keys(W.files).filter((p) => /^proposals\/req-/.test(p)).sort().forEach((p) => { let o; try { o = JSON.parse(String(W.files[p])); } catch (e) { return; } if (o && o.kind && !byKind[o.kind]) byKind[o.kind] = p; });
+  ['receipt', 'compound', 'proposal', 'decision', 'application', 'keep'].forEach((k) => wit.push([k, W, byKind[k]]));
+  const scopeP = Object.keys(L.files).filter((p) => /^proposals\/req-/.test(p) && /"loop"/.test(String(L.files[p])))[0], planP = Object.keys(E.files).filter((p) => /^proposals\/plan-ev-[a-z]+\.json$/.test(p))[0];
+  wit.push(['scope', L, scopeP]); wit.push(['evidence plan', E, planP]);
+  const DEC = { proposal: 'plan-other', proposalHash: 'x', status: 'declined', run: null, by: 'person-avery', at: '2026-11-09T09:00:00.000Z' };
+  const VALID = [['a 1.x plan', String(W.files['proposals/plan-release-2026-10-24.json'])], ['a plan/2', String(E.files[planP])],
+    ['a 1.x plan decision', JSON.stringify(Object.assign({ kind: 'status' }, DEC), null, 2) + '\n'],
+    ['a plan-status/2 decision', JSON.stringify(Object.assign({ format: 'flightdeck-plan-status/2', app: '4.0.0' }, DEC), null, 2) + '\n'],
+    ['a to-do record of another id', String(W.files[Object.keys(W.files).filter((p) => /^proposals\/req-notes-bot-[0-9a-f]+\.json$/.test(p))[0]])],
+    ['a scope record', String(L.files[scopeP])]];
+  for (const [fam, X, p] of wit) {
+    assert.ok(p, 'set-up: a ' + fam);
+    const o = JSON.parse(String(X.files[p]));
+    for (const [what, text] of VALID) {
+      if (text === String(X.files[p])) continue;
+      const name = copyOf(p), f = name.slice('proposals/'.length), files = Object.assign({}, X.files, { [name]: text }), tag = fam + ' × ' + what;
+      const Pr = await X.PF.repo.readPlans(new BytesFS(files), null, null, true);
+      const held = fam === 'scope' ? Pr.scopesUnread.some((u) => u.file === f && u.loop && u.loop.run === o.loop.run && u.loop.step === o.loop.step)
+        : fam === 'evidence plan' ? (Pr.plansUnread || []).some((u) => u.file === f && u.id === o.id)
+        : Pr.todosUnread.some((u) => u.file === f && u.run && u.run.process === o.run.process && u.run.id === o.run.id);
+      assert.ok(held, tag + ': the loader holds the witness: ' + JSON.stringify(fam === 'scope' ? Pr.scopesUnread : fam === 'evidence plan' ? Pr.plansUnread : Pr.todosUnread).slice(0, 400));
+      const { res } = await pack(X.PF, new BytesFS(files), X.key);
+      assert.strictEqual(res.status, 'partial', tag + ': ' + JSON.stringify(res.col.unresolved).slice(0, 300));
+    }
+  }
+});
 /* DC: Python dispatches every packed record by its family before any filter or gate: a request record, a scope record or a
    file of no family that the app can't read and whose run or loop can't be told is part of every checked run's work, whether
    or not the pack has a living section, as the export of the same folder is partial. A matrix: each kind of unreadable

@@ -542,13 +542,16 @@ const caCopy = (app, rid, what) => {
   const T = app.PF.todos, r0 = theRun(app), name = 'proposals/' + rid + ' (1).json';
   if (what === 'a plan-family copy') return [name, '{"format":"flightdeck-plan/2"}\n'];
   if (what === 'a scope-family copy') return [name, '{"format":"flightdeck-plan/3","features":["loops"]}\n'];
+  /* EA: a copy that reads whole as another record (a plan of another id, a plan decision) is grouped under the id too. */
+  if (what === 'a valid plan of another id') return [name, JSON.stringify({ kind: 'plan', id: 'plan-other', process: r0.process }, null, 2) + '\n'];
+  if (what === 'a valid plan decision') return [name, JSON.stringify({ kind: 'status', proposal: 'plan-other', proposalHash: 'x', status: 'declined', run: null, by: 'person-avery', at: '2026-11-09T09:00:00.000Z' }, null, 2) + '\n'];
   if (what === 'unreadable copy') { const o = JSON.parse(app.fs.files['proposals/' + rid + '.json'].t); o.run.id = 'someone-else'; return [name, JSON.stringify(o, null, 2) + '\n']; }
   const q = T.buildProposal({ run: { process: r0.process, id: 'someone-else' }, id: rid, by: 'person-avery', seen: [], at: new Date().toISOString(), body: { op: 'add', text: 'Another kind', target: { phase: 'review' }, placement: T.placementFor(app.PF.run.mapOf(app.PF.run.sanitize(r0)), { phase: 'review' }) }, app: '4.0.0' });
   return [name, T.text(q)];
 };
 const CA_STAGES = [['after the receipt', /^proposals\/req-receipt-[0-9a-f]{24}\.json$/], ['after the candidate', /\/candidate-/], ['after the history', /\/history/]];
 rule('A copy under the receipt\'s id that can\'t be read, or is another kind of record, filed at any write of the save that ends the run ends nothing', async () => {
-  for (const what of ['unreadable copy', 'another kind', 'a plan-family copy', 'a scope-family copy']) {
+  for (const what of ['unreadable copy', 'another kind', 'a plan-family copy', 'a scope-family copy', 'a valid plan of another id', 'a valid plan decision']) {
     for (const [when, at] of CA_STAGES) {
       const app = await setup(); await added(app, 'Post the release notes');
       const fs = app.fs, write = fs.write.bind(fs), runText = app.fs.files[runPath(app)].t;
@@ -566,7 +569,7 @@ rule('A copy under the receipt\'s id that can\'t be read, or is another kind of 
   }
 });
 rule('Use copy of an ended living copy ends nothing when a copy under its receipt\'s id can\'t be read or is another kind of record, and the copy stays', async () => {
-  for (const what of ['unreadable copy', 'another kind', 'a plan-family copy', 'a scope-family copy']) {
+  for (const what of ['unreadable copy', 'another kind', 'a plan-family copy', 'a scope-family copy', 'a valid plan of another id', 'a valid plan decision']) {
     const app = await setup(); await added(app, 'Post the release notes');
     const c = await endedCopy(app), before = app.fs.files[runPath(app)].t;
     /* Filed after this window read the folder: only the guard's fresh read before the save's writes sees it. */

@@ -2698,6 +2698,7 @@ PF.repo = (function () {
       });
     }, Promise.resolve()).then(function () { return { runs: runs, unreadRuns: unreadRuns, plans: plans, paths: keys.map(function (k) { return 'runs/' + k; }) }; });
   }
+  var OTHER_COPY = 'holds another record than the one its name stands for, so which is meant isn\'t known. Keep one of them';
   function readPlans(fs, bad, only, two, hashes) {
     var refused = [], torn = [];
     /* A to-do, fact or scope record that fails to read is named by its path (torn, with its kind), never the whole folder
@@ -2762,15 +2763,24 @@ PF.repo = (function () {
          to-do record, a scope record or a plan read whole) that can't be read, whatever family it parsed as or failed as (a
          refusal, a torn file, another run's record), holds that witness: the to-do record's run, the scope record's loop, the
          plan's id (plansUnread). Every verdict that asks for unread records sees it there. */
-      var wit = Object.create(null), keyed = function (f, w) { PF.todos.nameKeys(f).forEach(function (k) { (wit[k] = wit[k] || []).push(w); }); };
-      todos.forEach(function (x) { keyed(x._file, { run: PF.todos.runOf(x) }); });
-      scopes.forEach(function (x) { keyed(x._file, { loop: PF.loop.loopOf(x) }); });
-      plans.forEach(function (x) { keyed(x._file, { plan: x.id }); });
+      var wit = Object.create(null), keyed = function (f, w) { w.file = f; PF.todos.nameKeys(f).forEach(function (k) { (wit[k] = wit[k] || []).push(w); }); };
+      todos.forEach(function (x) { keyed(x._file, { fam: 'todo', id: x.id, run: PF.todos.runOf(x) }); });
+      scopes.forEach(function (x) { keyed(x._file, { fam: 'scope', id: x.id, loop: PF.loop.loopOf(x) }); });
+      plans.forEach(function (x) { keyed(x._file, { fam: 'plan', id: x.id, plan: x.id }); });
       var badFiles = [], badSeen = Object.create(null), bad1 = function (f, why, kind) { f = String(f || ''); if (!f || badSeen[f]) return; badSeen[f] = true; badFiles.push({ file: f, why: String(why || 'unreadable'), kind: kind === 'newer' || kind === 'unreadable' ? kind : 'malformed' }); };
       todosUnread.forEach(function (u) { bad1(u.file, u.why, u.kind); });
       scopesUnread.forEach(function (u) { bad1(u.file, u.why, 'malformed'); });
       refused.forEach(function (x) { if (/^proposals\//.test(x.path)) bad1(x.path.slice(10), x.why, x.kind); });
       (torn || []).forEach(function (t) { bad1(t._file, t.why, t.kind); });
+      /* EA: successful reads are grouped too. A file read whole (any family) under a witness's name that isn't the same
+         family and id as that witness is a copy that differs, unless the name is its own (its id is its whole stem). */
+      var good = todos.map(function (x) { return { fam: 'todo', id: x.id, file: x._file }; }).concat(scopes.map(function (x) { return { fam: 'scope', id: x.id, file: x._file }; }),
+        plans.map(function (x) { return { fam: 'plan', id: x.id, file: x._file }; }), statuses.map(function (x) { return { fam: 'status', id: x.id, file: x._file }; }));
+      good.forEach(function (g) {
+        var ks = PF.todos.nameKeys(g.file);
+        if (typeof g.id === 'string' && g.id === ks[0]) return;
+        if (ks.some(function (k) { return (wit[k] || []).some(function (w) { return w.file !== g.file && (w.fam !== g.fam || w.id !== g.id); }); })) bad1(g.file, OTHER_COPY, 'malformed');
+      });
       var plansUnread = [], sameRun = function (a, b) { return !!a && !!b && a.process === b.process && a.id === b.id; };
       badFiles.forEach(function (b) {
         var ws = []; PF.todos.nameKeys(b.file).forEach(function (k) { (wit[k] || []).forEach(function (w) { if (ws.indexOf(w) < 0) ws.push(w); }); });

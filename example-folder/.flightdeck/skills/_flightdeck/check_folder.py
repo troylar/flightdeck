@@ -1948,6 +1948,22 @@ def todo_status_file(name):
     return m.group(1) + ".status-" + m.group(2) + "-" + m.group(3) + ".json" if m and _tcopy_mark(m.group(4)) else ""
 
 
+def name_keys(name):
+    """PF.todos.nameKeys: the ids a proposals/ file may stand for by its name alone: its stem, and the stem without each
+    suffix that is a synced copy's mark."""
+    st = re.sub(r"\.json\Z", "", str(name or ""), flags=re.I)
+    out = [st]
+    for i in range(1, len(st)):
+        if js_len(st[:i]) >= 240:
+            break
+        if st[i] in " -" and _tcopy_mark(st[i:]):
+            out.append(st[:i])
+    return out
+
+
+OTHER_COPY = "holds another record than the one its name stands for, so which is meant isn't known. Keep one of them"
+
+
 def todo_request_file(name, rid):
     return _tstr(name) and js_len(name) <= 240 and name.startswith(rid) and name.endswith(".json") and _tcopy_mark(name[len(rid):-5] or None)
 
@@ -4481,7 +4497,7 @@ def main():
     plans, decisions, torn, refused_decisions = {}, {}, [], []
     out["scopes"] = []
     todo_unchecked = []
-    rcpt_read, rcpt_unread, id_families = {}, [], {}
+    rcpt_read, rcpt_unread, id_families, good_reads = {}, [], {}, []
     for name in sorted(os.listdir(prop_dir)) if os.path.isdir(prop_dir) else []:
         if not name.lower().endswith(".json") or not os.path.isfile(os.path.join(prop_dir, name)):
             continue
@@ -4522,6 +4538,7 @@ def main():
             bad = todo_why(obj, name, os.path.getsize(os.path.join(prop_dir, name)), un)
             if not bad:
                 rcpt_read.setdefault(obj.get("id"), []).append((name, obj))
+                good_reads.append((name, "todo", obj.get("id")))
             elif bad:
                 rcpt_unread.append((name, "newer" if " newer Flightdeck" in bad else "malformed", bad))
             note = (un[0] + ": an international domain name; Flightdeck decides whether it reads") if un else ""
@@ -4539,6 +4556,7 @@ def main():
                 out["refused"].append(dict({"file": "proposals/" + name, "why": why}, **({"linkUnchecked": unchecked} if unchecked else {})))
                 refused_decisions.append((name, kind, needs))
             else:
+                good_reads.append((name, "scope", obj.get("id")))
                 out["scopes"].append(dict({"file": "proposals/" + name, "type": "decision" if obj["format"] == SCOPE_DECISION else "request", "loop": obj.get("loop")}, **({"linkUnchecked": unchecked} if unchecked else {})))
             continue
         # The app's one reader of plans and plan decisions (PF.plans.clean): a file from a newer Flightdeck (flightdeck-plan/2,
@@ -4568,6 +4586,7 @@ def main():
             if isinstance(obj.get("id"), str) and isinstance(obj.get("process"), str):
                 plain = {k: v for k, v in obj.items() if not k.startswith("_")}
                 plans.setdefault(obj["id"], []).append((name, text_hash(js_json(plain)), plain))
+                good_reads.append((name, "plan", obj["id"]))
         else:
             # A decision not in its format (a switch without its version among them) is refused and named, as the app does,
             # and decides nothing. A plan/2 switched to another version (plan-status/2, retargeted) is a switch, not a decision.
@@ -4575,8 +4594,10 @@ def main():
             if bad:
                 out["refused"].append({"file": "proposals/" + name, "why": bad})
                 refused_decisions.append((name, "malformed", ""))
-            elif obj.get("status") != "retargeted":
-                decisions.setdefault(obj.get("proposal"), []).append(obj)
+            else:
+                good_reads.append((name, "status", obj.get("id")))
+                if obj.get("status") != "retargeted":
+                    decisions.setdefault(obj.get("proposal"), []).append(obj)
     for pid, copies in sorted(plans.items()):
         # OneDrive can keep two files of one plan (written on two computers while disconnected). Copies that say the same
         # thing (apart from when each was written, and which version of the same tool wrote a request) are one plan; copies
@@ -4652,6 +4673,20 @@ def main():
         if n and n not in have:
             have.add(n)
             named_unread.append((n, "newer" if kinds.get(n) == "newer" else "malformed", x["why"]))
+    # EA: successful reads too. A file read whole (any family) under a witness's name (a to-do record, a scope record or a
+    # plan) that isn't the same family and id is a copy that differs, unless its name is its own (its id is its whole stem).
+    wit = {}
+    for n, fam, i in good_reads:
+        if fam != "status":
+            for k in name_keys(n):
+                wit.setdefault(k, []).append((n, fam, i))
+    for n, fam, i in good_reads:
+        ks = name_keys(n)
+        if n in have or (isinstance(i, str) and i == ks[0]):
+            continue
+        if any(wn != n and (wf != fam or wi != i) for k in ks for wn, wf, wi in wit.get(k, [])):
+            have.add(n)
+            named_unread.append((n, "malformed", OTHER_COPY))
 
     runs_dir = os.path.join(root, "runs")
     for proc in sorted(os.listdir(runs_dir)) if os.path.isdir(runs_dir) else []:
