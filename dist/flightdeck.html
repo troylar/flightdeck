@@ -25744,8 +25744,8 @@ PF.repo = (function () {
         return limited(items.filter(function (i) { return i.kind === 'dir' && /^[a-z0-9-]{1,40}$/i.test(i.name); }).map(function (i) { return i.name; }).sort(), 4, function (cid) {
           var key = cp + '/' + cid;
           return readRunOnly(fs, cp, cid).then(function (one) {
-            if (!one || !one.found) return;
-            var c = one.run, bad = (one.bad || []).filter(function (b) { return String(b.path || '').indexOf('runs/' + key + '/') === 0; });
+            /* Listed, then gone before it was read: named missing (depVerdict), so the end is refused, never skipped. */
+            var c = one && one.found ? one.run : null, bad = (one.bad || []).filter(function (b) { return String(b.path || '').indexOf('runs/' + key + '/') === 0; });
             /* Another run's child (read whole, with nothing wrong in its file) isn't this run's to judge. */
             if (c && !bad.length && !one.nofile && !(c.parent && c.parent.item && c.parent.process === self.process && c.parent.id === self.id)) return;
             var v = depVerdict(cp, cid, one);

@@ -996,4 +996,15 @@ rule('A dependency\'s publication record with bytes that aren\'t UTF-8 in its ch
     assert.ok(c.ok, seq + ': Python reads it: ' + c.out);
   }
 });
+/* ZB: a child folder listed under a loop's process and gone before it is read is named, so the end is refused: the ending
+   guard's reread of the loop children never skips it. */
+rule('A child folder listed and then gone before it is read is unread, named missing, in the ending guard\'s reread of the loop children', async () => {
+  const W = await loopMade(), fsx = new BytesFS(W.files), list = fsx.list.bind(fsx);
+  let first = true;
+  fsx.list = (p) => list(p).then((items) => { if (p !== 'runs/' + W.kid.process || !first) return items; first = false; return items.concat([{ name: 'new-child', kind: 'dir' }]); });
+  const out = await W.PF.repo.readLoopChildren(fsx, W.PF.run.sanitize(JSON.parse(JSON.stringify(W.run))));
+  assert.ok(out.runs.some((r) => r.id === W.kid.id), 'set-up: the story run is read');
+  const u = out.unread.filter((x) => x.path === 'runs/' + W.kid.process + '/new-child/run.json')[0];
+  assert.ok(u && u.kind === 'missing', JSON.stringify(out.unread));
+});
 run();
