@@ -788,4 +788,77 @@ rule('Use copy of an ended living copy ends nothing when a copy under its receip
     assert.ok(app.fs.files[c.copy], what + ': the copy stays to keep again');
   }
 });
+/* NA: what each ending guard saw is held per parent across the whole dependency closure, not only the root's children: a
+   grandchild (release-readiness -> validate-story -> validate-task) read by one guard and gone by a later one ends nothing,
+   named by its path, in an end and in Use copy, and Use copy keeps the copy. */
+const TASK = KID.replace('process: validate-story', 'process: validate-task').replace('title: Validate a story', 'title: Validate a task');
+const KID3 = KID.replace('## Assess · DO-CONFIRM {#assess}\n', ['## Assess · DO-CONFIRM {#assess}', '- [!] {for.each} Validate every part {#eachpart}', '  process: validate-task', '  items: jira.issue', '  pass: issue=item:key', '  accepts: cleared', ''].join('\n'));
+const taskPaths = (app) => app.files('runs/validate-task/').filter(p => /run\.json$/.test(p));
+async function nestedSetup() {
+  const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(80); app.choose('person-avery'); await app.tick();
+  const PF = app.PF, people = JSON.parse(app.fs.files['people.json'].t), now = new Date().toISOString();
+  const put = (md, id, rand) => {
+    const b = PF.publish.build(md, { people, ...require('./harness').exampleSetup(PF), by: 'person-avery', changes: 'First', existing: [], now, rand, app: '4.0.0' });
+    assert.ok(!b.blockers, JSON.stringify(b.blockers));
+    Object.keys(b.files).forEach(k => { app.fs.files['publications/' + id + '/' + b.folder + '/' + k] = { t: b.files[k], m: Date.now() }; });
+  };
+  put(TASK, 'validate-task', 'vt000001'); put(KID3, 'validate-story', 'vs000001'); put(PARENT, 'release-readiness', 'rr000001');
+  app.click('refresh'); await app.tick(80);
+  app.click('start', 'release-readiness'); await app.settle();
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
+  await addStories(app, 'ABC-101');
+  app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(150);
+  assert.strictEqual(kidPaths(app).length, 1, 'set-up: one story run');
+  const story = JSON.parse(app.fs.files[kidPaths(app)[0]].t);
+  app.click('open-run', story.process + '/' + story.id); await app.tick(80);
+  app.click('select', 'eachpart'); await app.tick(80);
+  app.set('loop-add-eachpart', 'ABC-201'); app.click('loop-add', 'eachpart'); await app.tick(150);
+  app.click('loop-start', 'eachpart', { item: 'ABC-201' }); await app.tick(150);
+  assert.strictEqual(taskPaths(app).length, 1, 'set-up: one task run under the story: ' + JSON.stringify(app.files('runs/')));
+  const r = pRun(app); app.click('open-run', r.process + '/' + r.id); await app.tick(80);
+  app.set('td-add', 'Post the release notes'); app.click('td-add'); await app.tick(120); await refresh(app, 400);
+  assert.ok(pRun(app).living, 'set-up: the parent is living');
+  return app;
+}
+/* Deletes the grandchild's folder when the parent's run.json gets its candidate (after the receipt, so a later guard reads). */
+function dropAtCandidate(app, pp) {
+  const fs = app.fs, write = fs.write.bind(fs), task = taskPaths(app)[0], dir = task.replace(/run\.json$/, '');
+  const st = { gone: false, task };
+  fs.write = (p, t, o) => write(p, t, o).then((x) => {
+    if (!st.gone && p.indexOf(pp.replace(/run\.json$/, '') + 'candidate-') === 0) { st.gone = true; app.files(dir).forEach((f) => { delete app.fs.files[f]; }); }
+    return x;
+  });
+  st.restore = () => { fs.write = write; };
+  return st;
+}
+rule('A grandchild seen by one ending guard and gone by a later one ends nothing, named by its path', async () => {
+  const app = await nestedSetup(), pp = pPath(app), runText = app.fs.files[pp].t;
+  const st = dropAtCandidate(app, pp);
+  app.click('end', 'Cancelled'); await app.tick(600);
+  st.restore();
+  assert.ok(st.gone, 'the save reached its candidate write, so the later guard is what refuses');
+  assert.ok(!pRun(app).ended, 'not ended: ' + JSON.stringify(pRun(app).living));
+  assert.strictEqual(app.fs.files[pp].t, runText, 'the run is as it was');
+  assert.ok(txt(app.html()).indexOf(st.task) >= 0, 'named by its path: ' + txt(app.html()).slice(0, 600));
+});
+rule('Use copy with a grandchild gone between its guards ends nothing, names it, and keeps the copy', async () => {
+  const app = await nestedSetup(), pp = pPath(app), before = app.fs.files[pp].t;
+  app.click('end', 'Cancelled'); await app.tick(500);
+  assert.ok(pRun(app).ended, 'set-up: the parent ended');
+  const ended = JSON.parse(app.fs.files[pp].t), copy = pp.replace('run.json', 'run-OTHER.json');
+  await app.fs.write(copy, JSON.stringify(ended, null, 2));
+  const r0 = JSON.parse(before); r0.rev = (ended.rev || 0) + 1;
+  await app.fs.write(pp, JSON.stringify(r0, null, 2));
+  await refresh(app, 300);
+  app.click('open-run', r0.process + '/' + r0.id); await app.tick(80);
+  assert.ok(!pRun(app).ended && /data-act="use-copy"/.test(app.html()), 'set-up: the ended copy is offered');
+  const runText = app.fs.files[pp].t, st = dropAtCandidate(app, pp);
+  app.click('use-copy', 'run-OTHER.json'); await app.tick(600);
+  st.restore();
+  assert.ok(st.gone, 'the recovery reached its candidate write');
+  assert.ok(!pRun(app).ended, 'not ended: ' + JSON.stringify(pRun(app).living));
+  assert.strictEqual(app.fs.files[pp].t, runText, 'the run is as it was');
+  assert.ok(app.fs.files[copy], 'the copy stays');
+  assert.ok(txt(app.html()).indexOf(st.task) >= 0, 'named by its path: ' + txt(app.html()).slice(0, 600));
+});
 run();

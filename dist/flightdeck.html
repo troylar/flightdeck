@@ -38514,6 +38514,17 @@ PF.examples = (function () {
           var gone2 = rcptAbsent(self, cl.kids, d.todos || [], s.scopes || [], (data.runs || []).filter(mine), x[1].runs.concat(seenList()));
           if (gone2) { cx.rcptWhy = gone2; return null; }
           note(cl.kids);
+          /* Every parent the closure listed children of, at any depth (a story's parts too), is held the same way: each child
+             an earlier listing in this ending attempt gave it must be in its listing now (4.0, NA). */
+          var by = cx.kidsBy || (cx.kidsBy = Object.create(null)), lost = '';
+          Object.keys(by).sort().forEach(function (pk) {
+            if (lost) return;
+            var now = Object.create(null);
+            (cl.kidsBy[pk] || []).forEach(function (c) { now[c.process + '/' + c.id] = true; });
+            Object.keys(by[pk]).sort().forEach(function (ck) { if (!lost && !now[ck]) lost = 'runs/' + ck + '/run.json: a child run of ' + pk + ' that isn\'t in the folder now (an earlier read while ending this run listed it as one), so the receipt can\'t say what was done.'; });
+          });
+          if (lost) { cx.rcptWhy = lost; return null; }
+          Object.keys(cl.kidsBy).forEach(function (pk) { var m = by[pk] || (by[pk] = Object.create(null)); (cl.kidsBy[pk] || []).forEach(function (c) { m[c.process + '/' + c.id] = true; }); });
           /* One checked dependency snapshot: the receipt is prepared and asked again on the very runs the closure read and
              checked (its loop children, evidence runs and the runs it fulfills), never on an earlier read of them. */
           var dep = cl.runs, have = Object.create(null);
@@ -38539,7 +38550,7 @@ PF.examples = (function () {
     }).then(function (res) {
       var m = res.D.missing[0];
       if (m) return { why: String(m).slice(0, 400) + ' The work this run depends on isn\'t all in the folder as every reader reads it.' };
-      return { why: '', runs: Object.keys(res.known).sort().map(function (k) { return res.known[k]; }), kids: res.kids[self.process + '/' + self.id] || [] };
+      return { why: '', runs: Object.keys(res.known).sort().map(function (k) { return res.known[k]; }), kids: res.kids[self.process + '/' + self.id] || [], kidsBy: res.kids };
     }, function (e) { return { why: 'The work this run depends on can\'t all be checked here: ' + String(e && e.message || e).slice(0, 300) }; });
   }
   /* The other runs the receipt depends on, besides the loop children: each run one of this run's records names as a to-do's
@@ -38656,6 +38667,7 @@ PF.examples = (function () {
       var lcx = loopGuard({ run: key, readable: true });
       /* The children the receipt's write saw are carried into the save's guards: one ending attempt, one set. */
       lcx.kidsSeen = cx.kidsSeen || Object.create(null);
+      lcx.kidsBy = cx.kidsBy || Object.create(null);
       var ed = loopEdit(lcx, key, function (rr, m, me, now) {
         if (!rr.living || rr.living.head !== P.record.head) throw new Error('The run\'s to-dos changed since its receipt was prepared, so it wasn\'t ended. End it again.');
         var pre = todoPre(rr);
