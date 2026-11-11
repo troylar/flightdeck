@@ -318,6 +318,59 @@ rule('A running living run\'s progress counts items as its receipt would: an exc
   assert.ok(/^This checklist: \d+ of \d+ current steps answered$/.test(lines[0]), 'the comparison\'s own words: ' + JSON.stringify(lines));
 });
 
+/* IA: the end asks the whole bounded closure every reader of an evidence pack asks (repo.depClosure, PF.receipts.deps, the
+   export's own walk) of the folder read again before each of its writes: a loop child that is itself a living run, cleared
+   and ended with its receipt, whose receipt or current application is deleted right after the parent's receipt or a
+   candidate of the parent's save is written, ends nothing, named by its path. The control ends with the child counted. */
+async function livingKid() {
+  const app = await loopSetup(), kp = kidPaths(app)[0], k0 = JSON.parse(app.fs.files[kp].t), kkey = k0.process + '/' + k0.id;
+  app.click('open-run', kkey); await app.tick(120);
+  app.set('td-add', 'Check the story notes'); app.click('td-add'); await app.tick(150); await refresh(app, 400);
+  app.click('open-run', kkey); await app.tick(120);
+  const tid = (app.html().match(/data-act="td-done" data-id="([^"]+)"/) || [])[1];
+  assert.ok(tid, 'set-up: the child\'s to-do can be checked off');
+  app.click('td-done', tid); await app.tick(150); await refresh(app, 400); await refresh(app, 400);
+  const kid = JSON.parse(app.fs.files[kp].t), at = new Date(Date.now() + 1000).toISOString(), R = app.PF.run;
+  assert.ok(kid.living && kid.living.head, 'set-up: the child is living: ' + JSON.stringify(kid.living));
+  kid.steps.verdict = { s: 'done', by: 'person-avery', at, values: { decision: 'cleared' } };
+  kid.details.disposition = 'cleared';
+  const rr = R.sanitize(JSON.parse(JSON.stringify(kid))), mm = R.mapOf(rr);
+  mm.phases.forEach(p => { if (p.gate) kid.gates[p.gate.id] = { s: 'passed', by: 'person-avery', at, approved: R.gateInputs(rr, mm, p.gate) }; });
+  delete kid.gates[mm.phases[0].gate.id];
+  kid.rev = (kid.rev || 0) + 1;
+  await app.fs.write(kp, JSON.stringify(kid, null, 2)); await refresh(app, 400);
+  app.click('open-run', kkey); await app.tick(120);
+  app.click('pass', '0'); await app.tick(200);
+  app.click('end', 'Completed'); await app.tick(400); await refresh(app, 400);
+  const k2 = JSON.parse(app.fs.files[kp].t);
+  assert.ok(k2.ended && k2.living && k2.living.receipt, 'set-up: the child ended with its receipt: ' + JSON.stringify([k2.ended, k2.living]) + ' ' + ((app.html().match(/id="live"[^>]*>([\s\S]{0,600})/) || [])[1] || '') + ' | ' + txt(app.html()).slice(0, 1500));
+  const r = pRun(app); app.click('open-run', r.process + '/' + r.id); await app.tick(120);
+  return { app, kid: k2 };
+}
+rule('A living loop child whose receipt or current application is deleted while the parent ends ends nothing, named by its path', async () => {
+  const ctl = await livingKid();
+  ctl.app.click('end', 'Cancelled'); await ctl.app.tick(400);
+  const r = pRun(ctl.app), rec = r.ended && JSON.parse(ctl.app.fs.files['proposals/' + r.living.receipt + '.json'].t);
+  assert.ok(rec, 'control: ended with its receipt');
+  assert.strictEqual(rec.counts.cleared + ' of ' + rec.counts.items, '1 of 2', 'control: the living child counted cleared');
+  for (const what of ['receipt', 'application']) {
+    for (const at of [/^proposals\/req-receipt-/, /\/candidate-[^/]*\.json$/]) {
+      const { app, kid } = await livingKid(), gone = 'proposals/' + (what === 'receipt' ? kid.living.receipt : kid.living.head) + '.json';
+      assert.ok(app.fs.files[gone], 'set-up: the child\'s ' + what + ' is in the folder (' + gone + ')');
+      const pp = pPath(app), fs = app.fs, write = fs.write.bind(fs), runText = app.fs.files[pp].t;
+      let hit = false;
+      fs.write = (p, t, o) => write(p, t, o).then((x) => { if (!hit && at.test(p) && (at.source.indexOf('candidate') < 0 || p.indexOf(pp.replace(/run\.json$/, '')) === 0)) { hit = true; delete app.fs.files[gone]; } return x; });
+      app.click('end', 'Cancelled'); await app.tick(500);
+      fs.write = write;
+      const tag = what + ' after ' + at.source;
+      assert.ok(hit, tag + ': the write was made');
+      assert.ok(!pRun(app).ended, tag + ': not ended');
+      assert.strictEqual(app.fs.files[pp].t, runText, tag + ': the run is as it was');
+      assert.ok(txt(app.html()).indexOf(gone) >= 0, tag + ': named by its path: ' + txt(app.html()).slice(0, 1200));
+    }
+  }
+});
+
 rule('An ended living run shows the receipt\'s frozen progress lines, the counts now apart; Copy for Jira carries the frozen summary and arrivals', async () => {
   const app = await loopSetup();
   app.click('end', 'Cancelled'); await app.tick(400);

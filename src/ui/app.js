@@ -3604,10 +3604,30 @@
       return rcptDepsJudged(cx, self, d.todos || []).then(function (bad) {
         if (!bound()) return null;
         if (bad) { cx.rcptWhy = String(bad.path) + ': a run this run\'s work depends on can\'t be read as every reader reads it (' + String(bad.kind) + ': ' + String(bad.why).slice(0, 200) + ').'; return null; }
-        return { records: d.todos || [], unread: d.todosUnread || [], people: s.people || data.people, evidence: s.evidence || null, loops: { records: s.scopes || [], unread: s.scopesUnread || [] },
-          runs: (data.runs || []).filter(function (c) { return !mine(c); }).concat(x[1].runs), procOf: procOf, rcpt: true };
+        return rcptClosure(cx, self, s).then(function (miss) {
+          if (!bound()) return null;
+          if (miss) { cx.rcptWhy = miss; return null; }
+          return { records: d.todos || [], unread: d.todosUnread || [], people: s.people || data.people, evidence: s.evidence || null, loops: { records: s.scopes || [], unread: s.scopesUnread || [] },
+            runs: (data.runs || []).filter(function (c) { return !mine(c); }).concat(x[1].runs), procOf: procOf, rcpt: true };
+        });
       });
     });
+  }
+  /* The whole bounded closure every reader of an evidence pack asks of the run's work (repo.depClosure: PF.receipts.deps,
+     walked as the export walks it), on this same fresh read of proposals/ and the runs read again: each run it depends on
+     with its own living chain, each application's request, authority and what it saw, and its receipt. Its first missing
+     piece, named by its path, or ''. */
+  function rcptClosure(cx, self, s) {
+    var got = Object.create(null);
+    var Pr = { todos: s.records || [], todosUnread: (s.unread || []).filter(function (u) { return u && u.file !== 'people.json'; }), scopes: s.scopes || [], scopesUnread: s.scopesUnread || [] };
+    return repo.depClosure(self, Pr, {
+      depRun: function (proc, id) { var k = proc + '/' + id; return got[k] ? Promise.resolve(got[k]) : repo.depRead(cx.fs, proc, id).then(function (y) { got[k] = y; return y; }); },
+      childrenOf: function (X) { return repo.readLoopChildren(cx.fs, X).then(function (o) { return { runs: o.runs, bad: o.unread.map(function (b) { return { key: '', path: b.path, kind: b.kind, why: b.why }; }) }; }); },
+      count: function () { return Object.keys(got).length; }
+    }).then(function (res) {
+      var m = res.D.missing[0];
+      return m ? String(m).slice(0, 400) + ' The work this run depends on isn\'t all in the folder as every reader reads it.' : '';
+    }, function (e) { return 'The work this run depends on can\'t all be checked here: ' + String(e && e.message || e).slice(0, 300); });
   }
   /* The other runs the receipt depends on, besides the loop children: each run one of this run's records names as a to-do's
      evidence, and each run whose spread one of its requests fulfills. Each is read again and judged as the export judges it

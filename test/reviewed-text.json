@@ -25,8 +25,8 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "771573365a7588c9fa1cc1943033db4df8fa42676f6aa85a490c892f5c4451b9",
-      "reviewed": "IB: design notes for check_pack's root read; checked for direct writes and unconditional deletes"
+      "sha256": "2c0a637d23e7cd09b59f1ee035ae754240cb928b09e5b10f4ae2e24ad72f8e84",
+      "reviewed": "IA: depClosure is the export's dependency walk moved out whole and shared with the ending guard (rcptClosure); reads only; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "8828d4ade3981b60bb45d9f25431de63af40dd49e2385a68bcb06d34ddf5e56c",
@@ -425,12 +425,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "eb0894f908be7134ebf1e966d9c1be3d0130b961c26664a313328dfd736ad104",
-      "reviewed": "GA: the readers' whole run.json verdict everywhere: repo.judgeRunFile (export, before any gate), run_verdict.py shipped beside check_folder.py (moved from test/, reader_problem added; check_folder.run_problem and check_pack root_problem ask it), todo list exits 4 naming a run.json no reader reads; checked for direct writes and unconditional deletes: export and checker only read; run_verdict.py writes only its own temporary version folder (mkdtemp) for the pack reader's version check, removed after, never called by check_folder.py; nothing in the team folder written or deleted"
+      "sha256": "8b5a50faf33ffb400767ddd44d98d613232a76a594e086bf13a991bc492177ad",
+      "reviewed": "IA: depClosure is the export's dependency walk moved out whole and shared with the ending guard (rcptClosure); reads only; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "5fe82cb8e3d725f01ca31ceccd9b0d63001ce13acacb2d6f275849389099d88e",
-      "reviewed": "rcptFresh rereads the loops' publication indexes and carries that procOf; checked for direct writes and unconditional deletes"
+      "sha256": "e503326a2a93f9f7d0026035aac733626706b25d36fe29652d2acb588f80d731",
+      "reviewed": "IA: depClosure is the export's dependency walk moved out whole and shared with the ending guard (rcptClosure); reads only; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

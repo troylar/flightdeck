@@ -2674,6 +2674,43 @@ PF.repo = (function () {
     if (c._canonical) return { bad: { key: key, path: path, kind: 'malformed', why: 'it isn\'t exactly as the app writes it, at ' + c._canonical } };
     return { run: c, pub: one.pub || null };
   }
+  /* One run the work depends on, read as the readers read it (readRunOnly) and judged as they judge it (depVerdict). */
+  function depRead(fs, proc, id) {
+    var key = proc + '/' + id, path = 'runs/' + key + '/run.json';
+    return readRunOnly(fs, proc, id).then(function (one) { return depVerdict(proc, id, one); }, function (e) { return { bad: { key: key, path: path, kind: errKind(e), why: why(e) } }; });
+  }
+  /* A living run's bounded dependency closure (PF.receipts.deps), walked until it holds every run it depends on: the shared
+     collector names the runs it found that aren't read yet; they are read (and their loop children listed), and it is asked
+     again. Pr: one checked read of proposals/ ({ todos, todosUnread, scopes, scopesUnread }). io: { depRun(proc, id) ->
+     { run } | { bad }, childrenOf(run) -> { runs, bad }, count() -> how many runs were read }. Resolves to { D, known }, and
+     rejects past the one shared bound or with runs left unread. The export (collectEvidence) and the app's ending guard
+     (rcptFresh, before every write that ends a living run) both walk it here, so they ask the same closure. */
+  function depClosure(self, Pr, io) {
+    var known = Object.create(null), kids = Object.create(null), runBad = [], listed = Object.create(null), DEP_RUNS = PF.receipts.DEP_CAP;
+    var ask = function () { return PF.receipts.deps(self, { records: Pr.todos, unread: Pr.todosUnread, scopes: Pr.scopes, scopesUnread: Pr.scopesUnread, runs: known, kids: kids, runBad: runBad }); };
+    var listKids = function (X) {
+      var k = X.process + '/' + X.id;
+      if (listed[k]) return Promise.resolve(); listed[k] = true;
+      return io.childrenOf(X).then(function (ch) { kids[k] = ch.runs; ch.runs.forEach(function (c) { known[c.process + '/' + c.id] = c; }); runBad = runBad.concat(ch.bad); });
+    };
+    var step = function () {
+      var D = ask();
+      if (D.over) throw new Error(D.over);
+      var fresh = Object.keys(known).filter(function (k) { return !listed[k]; }).map(function (k) { return known[k]; });
+      if (!D.toRead.length && !fresh.length) return null;
+      /* Within the one shared bound: past it the export is refused, never cut and never called complete. */
+      if (io.count() + D.toRead.length > DEP_RUNS) throw new Error('The work of ' + self.process + '/' + self.id + ' depends on more than ' + DEP_RUNS + ' runs; a pack made here holds at most that many. Nothing was packed.');
+      return limited(D.toRead, 4, function (x) {
+        return io.depRun(x.process, x.id).then(function (y) { if (y.bad) runBad.push(y.bad); else known[x.process + '/' + x.id] = y.run; });
+      }).then(function () { return limited(fresh, 2, listKids); }).then(step);
+    };
+    return listKids(self).then(step).then(function () {
+      var D = ask();
+      if (D.over) throw new Error(D.over);
+      if (D.toRead.length) throw new Error('The runs the work of ' + self.process + '/' + self.id + ' depends on weren\'t all read, so no pack was made.');
+      return { D: D, known: known };
+    });
+  }
   function readLoopChildren(fs, self) {
     var map = null; try { map = R.mapOf(self); } catch (e) { map = null; }
     var procs = [], out = { runs: [], unread: [] };
@@ -3369,10 +3406,7 @@ PF.repo = (function () {
     }
     /* One run the work depends on, read as the readers read it (readRunOnly) and judged as they judge it: { run } or { bad:
        { key, path, kind, why } } for one that isn't there, can't be read, or whose version can't be read or doesn't verify. */
-    function depRun(proc, id) {
-      var key = proc + '/' + id, path = 'runs/' + key + '/run.json';
-      return readRunOnly(lro, proc, id).then(function (one) { return depVerdict(proc, id, one); }, function (e) { return { bad: { key: key, path: path, kind: errKind(e), why: why(e) } }; });
-    }
+    function depRun(proc, id) { return depRead(lro, proc, id); }
     /* A run's loop children: every run folder under each {for.each} step's process, read. A listing that fails, or a folder
        whose run.json is missing or can't be read, is named (it may be a child: nothing tells it apart); a run there naming
        another parent isn't this run's child. */
@@ -3419,29 +3453,13 @@ PF.repo = (function () {
         if (!whole) { p.living = hollow(); return; }
         /* The closure, walked until it holds every run it depends on: the shared collector (PF.receipts.deps) names the runs it
            found that aren't read yet; they are read (and their loop children listed), and it is asked again. Bounded. */
-        var got = Object.create(null), known = Object.create(null), kids = Object.create(null), runBad = [], listed = Object.create(null), D = null, DEP_RUNS = PF.receipts.DEP_CAP;
-        var ask = function () { return PF.receipts.deps(self, { records: Pr.todos, unread: Pr.todosUnread, scopes: Pr.scopes, scopesUnread: Pr.scopesUnread, runs: known, kids: kids, runBad: runBad }); };
-        var listKids = function (X) {
-          var k = X.process + '/' + X.id;
-          if (listed[k]) return Promise.resolve(); listed[k] = true;
-          return childrenOf(X, got).then(function (ch) { kids[k] = ch.runs; ch.runs.forEach(function (c) { known[c.process + '/' + c.id] = c; }); runBad = runBad.concat(ch.bad); });
-        };
-        var step = function () {
-          D = ask();
-          if (D.over) throw new Error(D.over);
-          var fresh = Object.keys(known).filter(function (k) { return !listed[k]; }).map(function (k) { return known[k]; });
-          if (!D.toRead.length && !fresh.length) return null;
-          /* Within the one shared bound: past it the export is refused, never cut and never called complete. */
-          if (Object.keys(got).length + D.toRead.length > DEP_RUNS) throw new Error('The work of ' + self.process + '/' + self.id + ' depends on more than ' + DEP_RUNS + ' runs; a pack made here holds at most that many. Nothing was packed.');
-          return limited(D.toRead, 4, function (x) {
-            var k = x.process + '/' + x.id;
-            return (got[k] ? Promise.resolve(got[k]) : depRun(x.process, x.id).then(function (y) { got[k] = y; return y; })).then(function (y) { if (y.bad) runBad.push(y.bad); else known[k] = y.run; });
-          }).then(function () { return limited(fresh, 2, listKids); }).then(step);
-        };
-        return listKids(self).then(step).then(function () {
-          D = ask();
-          if (D.over) throw new Error(D.over);
-          if (D.toRead.length) throw new Error('The runs the work of ' + self.process + '/' + self.id + ' depends on weren\'t all read, so no pack was made.');
+        var got = Object.create(null);
+        return depClosure(self, Pr, {
+          depRun: function (proc, id) { var k = proc + '/' + id; return got[k] ? Promise.resolve(got[k]) : depRun(proc, id).then(function (y) { got[k] = y; return y; }); },
+          childrenOf: function (X) { return childrenOf(X, got); },
+          count: function () { return Object.keys(got).length; }
+        }).then(function (res) {
+          var D = res.D, known = res.known;
           /* The run's own end and living record (PF.run.rawProblem, judged above), before anything about its receipt is
              derived: one the readers refuse or drop leaves the work unconfirmed, named at run.json. */
           var L = p.living = { head: self.living ? self.living.head : '', chain: D.chain, receipt: D.receipt ? { id: self.living.receipt || '', state: D.receipt.state, why: D.receipt.why } : null, missing: rawMiss.concat(D.missing), recs: {}, recTexts: {}, deps: [], runTexts: {} };
@@ -3805,5 +3823,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readTodos: readTodos, readLoopChildren: readLoopChildren, depVerdict: depVerdict, judgeRunFile: judgeRunFile, readEvidence: readEvidence, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, saveScope: saveScope, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readTodos: readTodos, readLoopChildren: readLoopChildren, depVerdict: depVerdict, depRead: depRead, depClosure: depClosure, judgeRunFile: judgeRunFile, readEvidence: readEvidence, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, saveScope: saveScope, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();
