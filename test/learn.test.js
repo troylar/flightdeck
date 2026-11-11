@@ -489,6 +489,21 @@ rule('A tool named like a person never withdraws as that person: members say whi
   assert.ok(K.id);
 });
 
+/* LE: a tool's keep stays a tool's outside the process page too: no Home acknowledgment for the person of its name, and an
+   assistant's brief says a tool kept it, never that person. */
+rule('A tool named like a person gets no personal acknowledgment and is a tool in the correction brief', () => {
+  const W = world(), t1 = W.todo('Post the release notes', { phase: 'ship' });
+  W.kept({ todo: t1 }, null, { tool: 'person-avery', version: '1.0' });
+  const g = W.groups('release-readiness').filter(x => x.keep)[0];
+  const declined = Object.assign({}, g, { status: 'declined', tie: false, decision: { by: 'person-morgan', at: '2026-11-10T09:00:00.000Z', rev: 1 } });
+  same(C.acks([declined], 'person-avery').length, 0, 'no "declined your correction" for the person of the tool\'s name');
+  const asPerson = Object.assign({}, declined, { members: declined.members.map(m => Object.assign({}, m, { byKind: 'person' })) });
+  same(C.acks([asPerson], 'person-avery').length, 1, 'a person\'s own is acknowledged');
+  const b = C.brief({ id: 'release-readiness', title: 'Release readiness' }, [g], { nameOf: (x) => x === 'person-avery' ? 'Avery Lee' : x });
+  assert.ok(/person-avery \(a tool\)/.test(b), 'the brief says a tool kept it: ' + b);
+  assert.ok(!/Avery Lee/.test(b), 'never the person: ' + b);
+});
+
 rule('The 501st keep that would join a group is refused, naming the limit; a group at 500 is still decided and withdrawn', () => {
   const W = world(), t1 = W.todo('Post the release notes', { phase: 'ship' }), K = W.kept({ todo: t1 });
   for (let i = 1; i < 500; i++) W.push(Object.assign(JSON.parse(JSON.stringify(K.record)), { id: 'req-keep-' + i.toString(16).padStart(24, '0'), change: Object.assign({}, K.record.change, { text: 'Wording ' + i }) }));

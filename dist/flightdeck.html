@@ -11768,7 +11768,8 @@ PF.corrections = (function () {
     var out = [], by = Object.create(null);
     if (!me) return out;
     (gs || []).forEach(function (g) {
-      var mine = g.members.some(function (c) { return c.by === me; });
+      /* LE: only what the person wrote is theirs: a tool's keep under their name never is. */
+      var mine = g.members.some(function (c) { return c.by === me && c.byKind !== 'tool'; });
       if (!mine) return;
       if (g.landed && (!since || !g.landed.at || g.landed.at >= since)) {
         var k = 'l.' + g.process + '.' + g.landed.folder;
@@ -11785,6 +11786,8 @@ PF.corrections = (function () {
   function brief(proc, gs, opts) {
     opts = opts || {};
     var map = opts.map, nameOf = opts.nameOf || function (x) { return x; }, images = 'images/' + proc.id + '/';
+    /* LE: a keep a tool filed is said to be the tool's, by its name, never a person's. */
+    var who = function (m) { return m.byKind === 'tool' ? m.by + ' (a tool)' : nameOf(m.by); };
     var todo = gs.filter(function (g) { return g.status === 'open' && !g.landed; });
     /* People's words go in as quoted lines, so nothing in them reads as part of the brief. */
     var quote = function (t) { return String(t).split(/\r?\n/).map(function (l) { return '  > ' + l; }).join('\n'); };
@@ -11798,13 +11801,13 @@ PF.corrections = (function () {
       var c = g.first, x = g.target.step && map && M.findStep(map, g.target.step);
       var tid = g.target.step || g.target.gate || g.target.phase;
       L.push('## ' + (i + 1) + '. ' + OP_LABEL[g.change.op] + ': ' + (x ? '"' + x.step.text + '"' : g.target.step ? 'step ' + tid : g.target.gate ? 'the note of the gate ' + tid : 'the note of the phase ' + tid) + ' {#' + tid + '}', '');
-      L.push('- Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + ': ' + g.members.map(function (m) { return nameOf(m.by) + ' in "' + m.runTitle + '" (' + (m.test ? 'test run, staged v' : 'v') + m.version + ')' + (m.at ? ', ' + m.at.slice(0, 10) : ''); }).join('; '));
+      L.push('- Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + ': ' + g.members.map(function (m) { return who(m) + ' in "' + m.runTitle + '" (' + (m.test ? 'test run, staged v' : 'v') + m.version + ')' + (m.at ? ', ' + m.at.slice(0, 10) : ''); }).join('; '));
       if (g.from) L.push('- From (what v' + c.version + ' said):', quote(g.from));
       var p = proposal(c, map); if (p) L.push('- Proposed:', quote(p));
       if (g.change.op === 'screenshot' && g.change.shot) L.push('- Screenshot: `' + g.change.shot + '`');
       g.members.forEach(function (m) {
-        if (m.why) L.push('- ' + (g.change.op === 'describe' ? 'Problem' : 'Why') + ' (' + nameOf(m.by) + '): ' + m.why.replace(/\n/g, ' '));
-        if (m.happened) L.push('- What happened (' + nameOf(m.by) + '): ' + m.happened.replace(/\n/g, ' '));
+        if (m.why) L.push('- ' + (g.change.op === 'describe' ? 'Problem' : 'Why') + ' (' + who(m) + '): ' + m.why.replace(/\n/g, ' '));
+        if (m.happened) L.push('- What happened (' + who(m) + '): ' + m.happened.replace(/\n/g, ' '));
         (m.files || []).forEach(function (f) { L.push('- Attached: `' + f + '`' + (g.change.op === 'screenshot' && PF.attach.kindOf(f) === 'image' ? ' (the right screenshot: add it as a new file under `' + images + '` and point the step at it)' : '')); });
       });
       L.push('');
