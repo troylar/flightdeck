@@ -25,8 +25,8 @@
       "reviewed": "round 17 VD: only add and bind can be delegated"
     },
     "docs/design.md": {
-      "sha256": "7895ee59fef3edd5d53e2678c80efd36ff216ee75b6ee9773ef0bfe4521c699c",
-      "reviewed": "Round 19 (XC): a loop start judged on the guard's read"
+      "sha256": "4637bdab79329f39e95db8eea60c98ee5256db728dc5292a547cfd9f781e463f",
+      "reviewed": "Round 19 (XD): an excepted arrival's notice"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -337,8 +337,8 @@
       "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
     },
     "src/core/spreads.js": {
-      "sha256": "93d0639f701e69a1d9edc28efee9f60c5cd6b5d89b158f63f4376f95cce473ca",
-      "reviewed": "Round 19 (XA): writer-boundary tokens, save() through the fresh guard, X on a loop as a send-back"
+      "sha256": "0b3e66bd2241d1f35f53d9f82153e52cb66ef9f76834a39ab9413941a5bab68f",
+      "reviewed": "Round 19 (XD): an excepted arrival's notice"
     },
     "src/core/staging.js": {
       "sha256": "d01a3204178bd0b055c05524916f55774c4404cca10f86fbb10a2ca675bd6b07",

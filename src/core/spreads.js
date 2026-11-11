@@ -293,7 +293,7 @@ PF.spreads = (function () {
       if (i.resolved) n.resolved++;
       if (i.arrival) n.arrivals++;
       if (!i.resolved) C.unresolved.push('Spread "' + C.text + '" on ' + (i.key || i.uid) + ': ' + i.words.toLowerCase() + (i.why ? ' (' + i.why + ')' : '') + '.');
-      if (i.arrival) C.notices.push((i.key || i.uid) + (i.attempt > 1 ? ' started attempt ' + i.attempt + '.' : ' joined.') + ' ' + C.text + (i.requested ? ' requested.' : ' is owed; not requested yet.'));
+      if (i.arrival) C.notices.push((i.key || i.uid) + (i.attempt > 1 ? ' started attempt ' + i.attempt + '.' : ' joined.') + ' ' + C.text + (i.state === 'excepted' || (i.resolved && !i.requested) ? ': ' + i.words.toLowerCase() + '.' : i.requested ? ' requested.' : ' is owed; not requested yet.'));
     });
     C.counts = n;
     var N = C.noun || { one: 'item', many: 'items' }, word = function (k) { return k === 1 ? N.one : N.many; };
