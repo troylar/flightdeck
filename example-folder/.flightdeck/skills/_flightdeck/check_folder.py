@@ -4375,18 +4375,21 @@ def end_problem(r):
     """PF.run.endProblem: the one end validation every reader applies to a run file's ended record (newer() first: an unknown
     field, an outcome this copy doesn't know, a receipt named without an end; then the time badTimes() can't read and what
     repairs() drops or cuts), as (kind, why), or None when the end is read as written."""
-    if not isinstance(r, dict) or r.get("ended") is None:
+    if not isinstance(r, dict):
         return None
-    e = r["ended"]
+    e = r.get("ended")
     is_obj = isinstance(e, dict)
+    # A receipt named without an end (no end, null, or an end that isn't a record) first, before an absent end means "not ended".
+    if not is_obj and isinstance(r.get("living"), dict) and "receipt" in r["living"]:
+        return "newer", RUN_NEWER + " It names the receipt it ended with, but it hasn't ended."
+    if e is None:
+        return None
     if is_obj:
         extra = next((k for k in e.keys() if k not in ENDED_FIELDS), None)
         if extra is not None:
             return "newer", RUN_NEWER + ' How it ended has "' + js_slice(str(extra), 40) + '".'
-        if e.get("outcome") is not None and e.get("outcome") not in R_OUTCOMES:
+        if e.get("outcome") is not None and not (isinstance(e.get("outcome"), str) and e["outcome"] in R_OUTCOMES):
             return "newer", RUN_NEWER + ' How it ended is "' + js_slice(js_String(e.get("outcome")), 40) + '".'
-    elif isinstance(r.get("living"), dict) and "receipt" in r["living"]:
-        return "newer", RUN_NEWER + " It names the receipt it ended with, but it hasn't ended."
     parts, fixed = [], []
     known = is_obj and isinstance(e.get("outcome"), str) and e.get("outcome") in R_OUTCOMES
     if known and not iso_or_null(e.get("at")):
@@ -4414,10 +4417,7 @@ def receipt_verdict(text, read, unread):
         r = json.loads(text, parse_constant=_no_constant) if text and not json_too_deep(text) else None
     except (ValueError, RecursionError):
         r = None
-    if not isinstance(r, dict) or r.get("ended") is None:
-        return None
-    lv = clean_living(r.get("living"))
-    if not lv:
+    if not isinstance(r, dict) or not isinstance(r.get("living"), dict):
         return None
     # The one end validation every reader applies (end_problem), before any receipt verdict: an end the app refuses as newer
     # or drops or changes leaves run.json named, with the readers' path, kind and reason, and its receipt is never confirmed.
@@ -4427,7 +4427,8 @@ def receipt_verdict(text, read, unread):
         title = js_slice(r["title"], 200) if isinstance(r.get("title"), str) else ""
         return {"state": "unread", "path": "runs/" + key + "/run.json", "kind": ep[0],
                 "why": ('"' + title + '" (' + key + "): " + ep[1]) if ep[0] == "newer" else ep[1]}
-    if not isinstance(r.get("ended"), dict):
+    lv = clean_living(r.get("living"))
+    if not isinstance(r.get("ended"), dict) or not lv:
         return None
     rid = lv.get("receipt")
     if not rid:

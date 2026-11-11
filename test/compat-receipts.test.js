@@ -343,12 +343,25 @@ rule('This version: run, next, runs and todo list name an unattributable unread 
    with each invalid value is refused by every reader alike (run, next, runs and todo list exit 4 naming run.json), the export
    is partial, and the checker names the same path, kind and reason as run before any receipt verdict. */
 rule('This version: each end field with each invalid value is refused by the four readers, the export and the checker alike', async () => {
-  const { files } = await folder(), rp = 'runs/release-notes/run-l/run.json', X81 = 'x'.repeat(81);
+  const { files, receipt } = await folder(), rp = 'runs/release-notes/run-l/run.json', X81 = 'x'.repeat(81);
   const CASES = [['outcome', 'Done'], ['outcome', 42], ['outcome', null], ['by', 42], ['by', X81], ['byName', 42], ['byName', X81], ['byName', true],
-    ['at', 'bad'], ['at', null], ['at', '+275760-09-13T00:00:00.001Z'], ['extra', 1], ['future', true], ['the end itself', 'yes'], ['the end itself', []]];
-  for (const [k, v] of CASES) {
-    const r = JSON.parse(files[rp]); if (k === 'the end itself') r.ended = v; else r.ended[k] = v;
-    const { root, dir } = tree(Object.assign({}, files, { [rp]: JSON.stringify(r, null, 2) + '\n' })), tag = k + ' = ' + JSON.stringify(v).slice(0, 20);
+    ['at', 'bad'], ['at', null], ['at', '+275760-09-13T00:00:00.001Z'], ['extra', 1], ['future', true], ['the end itself', 'yes'], ['the end itself', []],
+    /* EB: a receipt named without an end (null or no end at all), and an outcome that is only text when made into text. */
+    ['the end itself', null], ['the end itself', undefined], ['outcome', ['Cancelled']], ['outcome', ['Cancelled'], 'no receipt']];
+  const NEW = H.loadMain();
+  for (const [k, v, how] of CASES) {
+    const r = JSON.parse(files[rp]);
+    if (how === 'living') r.living = v === 'head-and-more' ? Object.assign({}, r.living, { more: 1 }) : v === 'bad receipt' ? Object.assign({}, r.living, { receipt: 'rcpt' }) : v && v.head === '' ? Object.assign({}, r.living, { head: '' }) : v;
+    else if (k === 'the end itself') { if (v === undefined) delete r.ended; else r.ended = v; } else r.ended[k] = v;
+    if (how === 'no receipt') delete r.living.receipt;
+    const patch = { [rp]: null };
+    if (v === 'both heads empty') {
+      const o = JSON.parse(files['proposals/' + receipt]); o.head = ''; o.id = NEW.receipts.idFor(o.run, o, o.by);
+      r.living = { head: '', receipt: o.id }; patch['proposals/' + receipt] = undefined; patch['proposals/' + o.id + '.json'] = NEW.todos.text(o);
+    }
+    patch[rp] = JSON.stringify(r, null, 2) + '\n';
+    const fx = Object.assign({}, files, patch); Object.keys(fx).forEach((x) => { if (fx[x] === undefined) delete fx[x]; });
+    const { root, dir } = tree(fx), tag = k + ' = ' + String(JSON.stringify(v)).slice(0, 20) + (how ? ' (' + how + ')' : '');
     try {
       const outs = {
         run: cli(MINE, 'run', dir, 'release-notes/run-l', '--contract', '2', '--json'),

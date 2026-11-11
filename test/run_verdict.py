@@ -130,6 +130,11 @@ def own(table, v):
     return v is not MISSING and CF.js_String(v) in table
 
 
+def outcome_ok(v):
+    """run.js outcomeOk: exactly one of the outcomes as text (a list that reads as one when made into text isn't)."""
+    return isinstance(v, str) and v in OUTCOMES
+
+
 def s(v, n):
     return CF.js_slice(v, n) if isinstance(v, str) else ""
 
@@ -1246,7 +1251,9 @@ def newer(o):
     look(g(o.get("recorder", MISSING), "handoff") if truthy(o.get("recorder", MISSING)) else MISSING, "handoff", "Its hand-off")
     look(o.get("ended"), "ended", "How it ended")
     if is_obj(o.get("ended")):
-        state(OUTCOMES, o["ended"].get("outcome", MISSING), "How it ended")
+        oc = o["ended"].get("outcome", MISSING)
+        if not why[0] and oc is not MISSING and oc is not None and not outcome_ok(oc):
+            why[0] = "How it ended state"
     look(o.get("paused"), "paused", "Its pause")
     each(o.get("pauses"), "pause", "A pause")
     each(o.get("followUps"), "followUp", "A follow-up")
@@ -1443,7 +1450,7 @@ def bad_times(o, r):
     if o.get("created") is not None and "created" in o and not iso(o["created"]):
         n += 1
     e = o.get("ended")
-    if js_object(e) and is_obj(e) and own(OUTCOMES, e.get("outcome", MISSING)) and r.get("ended") is None:
+    if js_object(e) and is_obj(e) and outcome_ok(e.get("outcome", MISSING)) and r.get("ended") is None:
         n += 1
     if isinstance(o.get("pauses"), list) and any(truthy(p) and not (iso(get(p, "from")) and iso(get(p, "to"))) for p in o["pauses"][:500]):
         n += 1
@@ -1637,7 +1644,7 @@ def sanitize(o):
         if truthy(x) and iso(get(x, "at")):
             r["log"].append({"at": get(x, "at"), "by": s(get(x, "by"), 80), "what": s(get(x, "what"), 300)})
     e = o.get("ended", MISSING)
-    if truthy(e) and own(OUTCOMES, get(e, "outcome")) and iso(get(e, "at")):
+    if truthy(e) and outcome_ok(get(e, "outcome")) and iso(get(e, "at")):
         r["ended"] = {"outcome": e["outcome"], "by": s(e.get("by"), 80), "byName": s(e.get("byName"), 80), "at": e["at"]}
     r["_bad_times"] = bad_times(o, r)
     why = ""
@@ -2118,7 +2125,7 @@ def repairs(o):
             text(pa.get("reason", MISSING), 120, "paused.reason")
     e = o.get("ended", MISSING)
     if e is not MISSING and e is not None:
-        if not is_obj(e) or not own(OUTCOMES, e.get("outcome", MISSING)):
+        if not is_obj(e) or not outcome_ok(e.get("outcome", MISSING)):
             add("ended")
         else:
             text(e.get("by", MISSING), 80, "ended.by")
