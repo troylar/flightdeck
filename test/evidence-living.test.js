@@ -821,5 +821,36 @@ rule('A run whose ended.by isn\'t its receipt\'s by leaves the pack partial, and
   const bad = checkPack(await repacked(W.PF, zip, (e, man) => forced(man)));
   assert.ok(!bad.ok && /receipt/.test(bad.out), 'Python refuses it: ' + bad.out);
   assert.ok(rp);
+});/* TA: every proposals/ original discovery read is kept by its SHA-256 and read again at the end, one it left out included, and
+   those final reads reserve memory as the first ones do. */
+rule('A request on another run retargeted to this run during capture, keeping its name, is never missed by a complete pack', async () => {
+  const W = await made({ todos: 1 }), PF = W.PF, T = PF.todos, r0 = PF.run.sanitize(JSON.parse(W.files[W.runPath]));
+  const mk = (run) => T.buildProposal({ run, producer: { name: 'notes-bot', version: '1.0' }, key: 'k-move1', seen: [], at: '2026-11-10T09:00:00.000Z', body: { op: 'add', text: 'Moved here', target: { phase: 'review' }, placement: T.placementFor(PF.run.mapOf(r0), { phase: 'review' }) } });
+  const there = mk({ process: r0.process, id: 'elsewhere1' }), here = mk({ process: r0.process, id: r0.id }), qp = 'proposals/' + there.id + '.json';
+  assert.strictEqual(here.id, there.id, 'set-up: the same name either way');
+  /* Each capture point after the checked read of it: the k-th folder call after that read retargets it. */
+  for (let k = 1; k <= 9; k++) {
+    let seen = false, n = 0, moved = false;
+    const swap = (x) => { if (seen && !moved && ++n === k) { x.files.set(qp, Buffer.from(T.text(here))); moved = true; } };
+    const fsx = new BytesFS(Object.assign({}, W.files, { [qp]: T.text(there) }), { hooks: { read: (p, x) => { swap(x); if (p === qp) seen = true; }, blob: (p, x) => swap(x), stat: (p, x) => swap(x), list: (p, x) => swap(x) } });
+    const { zip, res } = await pack(PF, fsx, W.key);
+    if (!moved) continue;
+    const packed = manifestOf(zip).files.some((f) => f.path === qp);
+    assert.ok(packed || (res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(qp) >= 0)), 'point ' + k + ': packed, or named: ' + res.status + ' ' + JSON.stringify(res.col.unresolved));
+  }
+});
+rule('The final rereads of what discovery read reserve memory first: the peak the pack reports covers them', async () => {
+  const W = await loopMade(), K = JSON.parse(W.files[W.kidPath]), files = Object.assign({}, W.files), SIZE = 200000, kids = [];
+  for (let i = 0; i < 4; i++) {
+    const id = 'other-kid' + i, o = Object.assign({}, K, { id, parent: Object.assign({}, K.parent, { id: 'someone-else' }) }), p = 'runs/' + K.process + '/' + id + '/run.json';
+    files[p] = ' '.repeat(SIZE) + JSON.stringify(o, null, 2); kids.push(p);
+  }
+  const reads = {}, fsx = new BytesFS(files, { hooks: { read: (p) => { if (kids.indexOf(p) >= 0) reads[p] = (reads[p] || 0) + 1; } } });
+  const res = await W.PF.repo.exportEvidence(fsx, { run: W.key }, { sink: () => {}, now: () => Date.now(), tz: 'UTC' });
+  assert.ok(kids.every((p) => reads[p] >= 2), 'set-up: each was read by discovery and again at the end: ' + JSON.stringify(reads));
+  assert.ok(res.col.retained.peak >= (kids.length + 1) * SIZE * 2, 'peak ' + res.col.retained.peak + ' counts the discovery reads and a reread');
+  const tight = await W.PF.repo.exportEvidence(new BytesFS(files), { run: W.key }, { sink: () => {}, now: () => Date.now(), tz: 'UTC', cap: kids.length * SIZE * 2 + 300000 });
+  assert.ok(tight.col.retained.peak <= kids.length * SIZE * 2 + 300000, 'within the cap: ' + tight.col.retained.peak);
+  assert.ok(tight.status === 'complete' || tight.col.unresolved.length, 'a pack that isn\'t complete says why');
 });
 run();

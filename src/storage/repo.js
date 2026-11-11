@@ -3249,6 +3249,19 @@ PF.repo = (function () {
         });
       }
     });
+    /* A discovery input read again at the end, within the same budget: its size first (over the one-file limit is a change),
+       then what its text may take reserved before the read starts and given back once it is hashed. { hash }, { gone },
+       { changed } or { why } (it couldn't be read again, or didn't fit in the memory a pack may use). */
+    function reread(path) {
+      return ro.stat(path).then(function (st) {
+        if (!st) return { gone: true };
+        if (st.size > recordMax) return { changed: true };
+        var want = st.size * 2;
+        if (retained.now + want > retained.limit) return { why: 'it couldn\'t be read again within the most the pack may hold in memory here (' + E.size(retained.limit) + ')' };
+        hold(want);
+        return ro.read(path).then(function (f) { retained.now -= want; return f && f.text != null ? { hash: fileHash(f.text) } : { gone: true }; }, function (e) { retained.now -= want; return { why: 'it couldn\'t be read again (' + why(e) + ')' }; });
+      }, function (e) { return { why: 'it couldn\'t be read again (' + why(e) + ')' }; });
+    }
     function proposalsRead() {
       if (!propsOnce) propsOnce = readPlans(lro, null, null, false, recHashes).then(null, function (e) { return { failed: why(e) }; });
       return propsOnce;
@@ -3287,7 +3300,7 @@ PF.repo = (function () {
       if (!self) return Promise.resolve();
       return proposalsRead().then(function (Pr) {
         /* What discovery listed and read is checked again at the end on every path, a run with no to-dos yet included. */
-        p.discovery = { lists: lists, hashes: seenHashes };
+        p.discovery = { lists: lists, hashes: seenHashes, recs: recHashes };
         /* Whether the run has to-do records at all is only known from this read: one that fails is named, living or not yet. */
         if (Pr.failed) { p.living = { head: self.living ? self.living.head : '', chain: [], receipt: null, missing: ['proposals/ ' + Pr.failed + ', so the run\'s work can\'t be packed.'], recs: {}, listing: null, deps: [], runTexts: {} }; return; }
         /* A record that can't be read but names this run (a malformed request, say) is part of its work too, living or not; one
@@ -3397,12 +3410,15 @@ PF.repo = (function () {
                discovery read, one it left out included, is read again and compared by its SHA-256. */
             if (!p.discovery) return;
             var D0 = p.discovery;
-            return limited(Object.keys(D0.hashes).sort(), 8, function (rp) {
-              var was = D0.hashes[rp];
-              return statOf(rp).then(function (z) {
-                if (z == null) { note(rp, rp + ' was removed', p.key); return; }
-                if (z > recordMax) { note(rp, rp + ' changed', p.key); return; }
-                return ro.read(rp).then(function (f) { if (!f || fileHash(f.text) !== was) note(rp, rp + ' changed', p.key); }, function (e) { note(rp, rp + ' couldn\'t be read again (' + why(e) + ')', p.key); });
+            /* Every proposals/ original it read, one it left out (another run's) included, by its SHA-256 too. */
+            var was = Object.create(null);
+            Object.keys(D0.hashes).forEach(function (rp) { was[rp] = D0.hashes[rp]; });
+            Object.keys(D0.recs || {}).forEach(function (n) { var rp = 'proposals/' + n; if (!inPack[rp]) was[rp] = D0.recs[n]; });
+            return limited(Object.keys(was).sort(), 8, function (rp) {
+              return reread(rp).then(function (x) {
+                if (x.gone) note(rp, rp + ' was removed', p.key);
+                else if (x.why) note(rp, rp + ': ' + x.why, p.key);
+                else if (x.changed || x.hash !== was[rp]) note(rp, rp + ' changed', p.key);
               });
             }).then(function () { return limited(Object.keys(D0.lists).sort(), 8, function (dir) {
               var was = D0.lists[dir];
@@ -3585,7 +3601,7 @@ PF.repo = (function () {
           attempt++;
           paths.forEach(function (pth) { forget(pth); delete decHash[pth]; });
           Object.keys(rc.runs).forEach(function (k) { var base = 'runs/' + k + '/'; Object.keys(done).forEach(function (pth) { if (pth.indexOf(base) === 0) forget(pth); }); });
-          procCache = {}; decHash = {}; propsOnce = null; lists = Object.create(null); seenHashes = Object.create(null);
+          procCache = {}; decHash = {}; propsOnce = null; recHashes = Object.create(null); lists = Object.create(null); seenHashes = Object.create(null);
           /* Every attempt starts as the first did: sizes and the cap checked before anything new is read. */
           return preEstimate(keysAll).then(function () { return planAll(keysAll); }).then(fullEstimate).then(round);
         });
