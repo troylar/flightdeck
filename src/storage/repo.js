@@ -2683,7 +2683,7 @@ PF.repo = (function () {
      collector names the runs it found that aren't read yet; they are read (and their loop children listed), and it is asked
      again. Pr: one checked read of proposals/ ({ todos, todosUnread, scopes, scopesUnread }). io: { depRun(proc, id) ->
      { run } | { bad }, childrenOf(run) -> { runs, bad }, count() -> how many runs were read }. Resolves to { D, known, plans
-     (each evidence plan's copies by id) }, its evidence plans' checks in D.missing, and
+     (each evidence plan's copies by id), kids (each run's loop children as listed) }, its evidence plans' checks in D.missing, and
      rejects past the one shared bound or with runs left unread. The export (collectEvidence) and the app's ending guard
      (rcptFresh, before every write that ends a living run) both walk it here, so they ask the same closure. */
   function depClosure(self, Pr, io) {
@@ -2721,7 +2721,7 @@ PF.repo = (function () {
         plans[id] = g;
         if (!g.every(function (pl) { return PF.requests.same(pl, g[0]); })) D.missing.push('proposals/' + id + '.json: a to-do was done on this evidence plan, but the folder has two different copies of it.');
       });
-      return { D: D, known: known, plans: plans };
+      return { D: D, known: known, plans: plans, kids: kids };
     });
   }
   function readLoopChildren(fs, self) {

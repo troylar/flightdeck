@@ -3607,6 +3607,10 @@
         return rcptClosure(cx, self, s).then(function (cl) {
           if (!bound()) return null;
           if (cl.why) { cx.rcptWhy = cl.why; return null; }
+          /* The children the closure listed last are held to every child read before: the guard's first read and this
+             window's. One gone between those listings is named, never left out of what the receipt counts. */
+          var gone2 = rcptAbsent(self, cl.kids, d.todos || [], s.scopes || [], (data.runs || []).filter(mine).concat(x[1].runs));
+          if (gone2) { cx.rcptWhy = gone2; return null; }
           /* One checked dependency snapshot: the receipt is prepared and asked again on the very runs the closure read and
              checked (its loop children, evidence runs and the runs it fulfills), never on an earlier read of them. */
           var dep = cl.runs, have = Object.create(null);
@@ -3620,8 +3624,8 @@
   /* The whole bounded closure every reader of an evidence pack asks of the run's work (repo.depClosure: PF.receipts.deps,
      walked as the export walks it), on this same fresh read of proposals/ and the runs read again: each run it depends on
      with its own living chain, each application's request, authority and what it saw, and its receipt. { why }: its first
-     missing piece, named by its path; else { why: '', runs }: every run it read and checked, which the receipt is then
-     prepared on. */
+     missing piece, named by its path; else { why: '', runs, kids }: every run it read and checked, which the receipt is then
+     prepared on, and this run's loop children as the closure listed them. */
   function rcptClosure(cx, self, s) {
     var got = Object.create(null);
     var Pr = { todos: s.records || [], todosUnread: (s.unread || []).filter(function (u) { return u && u.file !== 'people.json'; }), scopes: s.scopes || [], scopesUnread: s.scopesUnread || [], plans: s.plans || [], plansUnread: s.plansUnread || [] };
@@ -3632,7 +3636,7 @@
     }).then(function (res) {
       var m = res.D.missing[0];
       if (m) return { why: String(m).slice(0, 400) + ' The work this run depends on isn\'t all in the folder as every reader reads it.' };
-      return { why: '', runs: Object.keys(res.known).sort().map(function (k) { return res.known[k]; }) };
+      return { why: '', runs: Object.keys(res.known).sort().map(function (k) { return res.known[k]; }), kids: res.kids[self.process + '/' + self.id] || [] };
     }, function (e) { return { why: 'The work this run depends on can\'t all be checked here: ' + String(e && e.message || e).slice(0, 300) }; });
   }
   /* The other runs the receipt depends on, besides the loop children: each run one of this run's records names as a to-do's

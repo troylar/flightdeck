@@ -399,6 +399,28 @@ rule('A cleared child that changes between the guard\'s reads before the parent\
   }
 });
 
+/* KA: the children the closure lists last are held to every child read before (the guard's first read, this window's): an
+   open child whose whole folder is deleted after the guard's first read of it, before the closure lists the children,
+   ends nothing, named by its path. */
+rule('An open child deleted between the guard\'s first read and the closure\'s listing ends nothing, named by its path', async () => {
+  /* After each of the child's reads following the parent's candidate write: the third is the last guard's first read. */
+  for (const at of [1, 2, 3]) {
+    const app = await loopSetup();
+    const kp = kidPaths(app)[0], dir = kp.replace(/run\.json$/, ''), pp = pPath(app), fs = app.fs, write = fs.write.bind(fs), read = fs.read.bind(fs), runText = app.fs.files[pp].t;
+    let armed = false, gone = false, nth = 0;
+    const after = (p) => (x) => { if (armed && !gone && p === kp && ++nth === at) { gone = true; app.files(dir).forEach((f) => { delete app.fs.files[f]; }); } return x; };
+    fs.write = (p, t, o) => write(p, t, o).then((x) => { if (!armed && p.indexOf(pp.replace(/run\.json$/, '') + 'candidate-') === 0) armed = true; return x; });
+    fs.read = (p, o) => read(p, o).then(after(p));
+    app.click('end', 'Cancelled'); await app.tick(500);
+    fs.write = write; fs.read = read;
+    const tag = 'after read ' + at;
+    assert.ok(armed && gone, tag + ': the child was deleted between the guard\'s reads');
+    assert.ok(!pRun(app).ended, tag + ': not ended: ' + JSON.stringify(pRun(app).living));
+    assert.strictEqual(app.fs.files[pp].t, runText, tag + ': the run is as it was');
+    assert.ok(txt(app.html()).indexOf(dir + 'run.json') >= 0, tag + ': named by its path: ' + txt(app.html()).slice(0, 800));
+  }
+});
+
 rule('An ended living run shows the receipt\'s frozen progress lines, the counts now apart; Copy for Jira carries the frozen summary and arrivals', async () => {
   const app = await loopSetup();
   app.click('end', 'Cancelled'); await app.tick(400);

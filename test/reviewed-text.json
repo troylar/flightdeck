@@ -25,8 +25,8 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "82f6865f70d0fca494aa6b59812803564a6c2cc3837e1804a0cb4b3d6450b6a7",
-      "reviewed": "KB-KD: design note for check_pack's manifest_problem; checked for direct writes and unconditional deletes"
+      "sha256": "429c7374a02951cb03441d3be72b9c7f1d301ec386422190fd2ad60bc1c46ff8",
+      "reviewed": "KA: the closure's last child listing is held to every earlier child read (rcptAbsent); reads only; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "8828d4ade3981b60bb45d9f25431de63af40dd49e2385a68bcb06d34ddf5e56c",
@@ -425,12 +425,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "0928fef6affb85b1cc10576bb944c01b42895093314baca8a0d08090ea134ea1",
-      "reviewed": "JB: the evidence plans' checks move into depClosure, shared by the export and the ending guard; readTodos passes on the plans from its one read; checked for direct writes and unconditional deletes"
+      "sha256": "fdc26c6878b6f7748821226c88e392f83906f4866ae51e018363d9b76f890123",
+      "reviewed": "KA: the closure's last child listing is held to every earlier child read (rcptAbsent); reads only; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "292693909341a61df6ed0ab5136d96af6c2f3b9f063d0e28aa9d22044fa63bd6",
-      "reviewed": "JB: the evidence plans' checks move into depClosure, shared by the export and the ending guard; readTodos passes on the plans from its one read; checked for direct writes and unconditional deletes"
+      "sha256": "814786b3459ff1249f71c1e53061156114a5d2704c750e521104aab4e2c0ef13",
+      "reviewed": "KA: the closure's last child listing is held to every earlier child read (rcptAbsent); reads only; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
