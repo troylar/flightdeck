@@ -23446,7 +23446,8 @@ PF.repo = (function () {
   function tagged(o, name, f) {
     var sup = null;
     LOADER_KEYS.forEach(function (k) { if (Object.prototype.hasOwnProperty.call(o, k)) { sup = sup || Object.create(null); sup[k] = o[k]; } });
-    if (sup) { try { Object.defineProperty(o, '_supplied', { value: sup, enumerable: false }); } catch (e) { /* frozen */ } }
+    /* BF: with the file's own field order (order, not enumerable), so each is put back where the file had it. */
+    if (sup) { try { Object.defineProperty(sup, 'order', { value: Object.keys(o), enumerable: false }); Object.defineProperty(o, '_supplied', { value: sup, enumerable: false }); } catch (e) { /* frozen */ } }
     o._file = name;
     /* A keep's file carries the SHA-256 of its bytes (_sha, not enumerable): withdrawing removes only what was read (YA). */
     if (/^req-keep-/.test(String(name)) && typeof f.text === 'string') { try { Object.defineProperty(o, '_sha', { value: PF.sha256.hex(f.text), enumerable: false }); } catch (e) { /* frozen */ } }
@@ -23455,8 +23456,13 @@ PF.repo = (function () {
   /* A record as its file wrote it, with no prototype: the loader's fields left out, the file's own put back. */
   function asWritten(p) {
     var raw = Object.create(null), sup = p._supplied || null;
-    Object.keys(p).forEach(function (k) { if (LOADER_KEYS.indexOf(k) < 0) raw[k] = p[k]; });
-    if (sup) Object.keys(sup).forEach(function (k) { raw[k] = sup[k]; });
+    /* BF: a supplied loader key goes back where the file had it, so the first refusal names the same field as every reader. */
+    var own = function (o, k) { return Object.prototype.hasOwnProperty.call(o, k); };
+    (sup && sup.order ? sup.order : []).concat(Object.keys(p)).forEach(function (k) {
+      if (own(raw, k)) return;
+      if (sup && own(sup, k)) raw[k] = sup[k]; else if (LOADER_KEYS.indexOf(k) < 0 && own(p, k)) raw[k] = p[k];
+    });
+    if (sup) Object.keys(sup).forEach(function (k) { if (!own(raw, k)) raw[k] = sup[k]; });
     return raw;
   }
   function loadJsonDir(fs, dir, ok, bad, only, torn, perFile) {

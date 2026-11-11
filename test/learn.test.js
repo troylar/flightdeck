@@ -427,6 +427,27 @@ rule('A keep that supplies "_sha" is refused alike by the core reader, the folde
   same(res.refused.map(x => x.file), ['proposals/' + K.name], 'the checker refuses it');
 });
 
+/* BF: a supplied loader key is put back where the file had it, so the folder reader's first refusal names the same field
+   as the core reader and the checker: "_sha" before "extra" when the file starts with both. */
+rule('A keep starting with a supplied "_sha" and then an unknown field is refused for "_sha" first by every reader', async () => {
+  const fs = require('fs'), os = require('os'), path = require('path'), cp = require('child_process');
+  const W = world(), t1 = W.todo('Post the release notes', { phase: 'ship' }), K = W.keep({ todo: t1 });
+  const o = Object.assign({ _sha: 'first', extra: 'second' }, JSON.parse(T.text(K.file))), text = JSON.stringify(o);
+  const raw = Object.create(null); Object.keys(o).forEach((x) => { raw[x] = o[x]; });
+  const core = T.cleanFile(raw, K.name);
+  assert.ok(!core.ok && /_sha/.test(core.why) && !/extra/.test(core.why), 'the core reader names _sha: ' + core.why);
+  const m = new PF.fs.MemoryFS('bf-' + Math.random(), null); m.files['proposals/' + K.name] = { t: text, m: 1 };
+  const d = await PF.repo.readPlans(m), u = d.todosUnread.filter(x => x.file === K.name)[0];
+  assert.ok(u && /_sha/.test(u.why) && !/extra/.test(u.why), 'the folder reader names _sha first: ' + (u && u.why));
+  const py = ['python3', 'python'].filter((c) => { try { cp.execFileSync(c, ['--version'], { stdio: 'ignore' }); return true; } catch (e) { return false; } })[0];
+  if (!py) return;
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-keep-bf-')); fs.mkdirSync(path.join(root, 'proposals'));
+  fs.writeFileSync(path.join(root, 'proposals', K.name), text);
+  const res = JSON.parse(cp.execFileSync(py, ['-I', path.join(__dirname, '..', 'example-folder', '.flightdeck', 'skills', '_flightdeck', 'check_folder.py'), root], { encoding: 'utf8' }));
+  const r = res.refused.filter(x => x.file === 'proposals/' + K.name)[0];
+  assert.ok(r && /_sha/.test(JSON.stringify(r)) && !/extra/.test(JSON.stringify(r)), 'the checker names _sha: ' + JSON.stringify(r));
+});
+
 rule('The 501st keep that would join a group is refused, naming the limit; a group at 500 is still decided and withdrawn', () => {
   const W = world(), t1 = W.todo('Post the release notes', { phase: 'ship' }), K = W.kept({ todo: t1 });
   for (let i = 1; i < 500; i++) W.push(Object.assign(JSON.parse(JSON.stringify(K.record)), { id: 'req-keep-' + i.toString(16).padStart(24, '0'), change: Object.assign({}, K.record.change, { text: 'Wording ' + i }) }));
