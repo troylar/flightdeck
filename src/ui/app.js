@@ -3551,7 +3551,7 @@
     if (q.ops[0] === 'resolve') {
       var t = PF.loop.actionsOf(V).filter(function (y) { return y.id === q.record; })[0], rw = PF.loop.resolveWhy(r, id, t, q.outcome, data.runs, V.records);
       if (rw) return Promise.resolve({ ok: false, why: rw });
-      return loopOutcome(V, t, q.outcome, 'Resolved at ' + personName(q.as) + '\'s request: it was ' + q.outcome + '.', cx, q.id).then(function (wrote) {
+      return loopOutcome(V, t, q.outcome, 'Resolved at ' + personName(q.as) + '\'s request: it was ' + q.outcome + '.', cx, q.id, true).then(function (wrote) {
         if (wrote === false) throw new Error('The folder changed while this request was carried out.');
         return { ok: true, why: q.record + ' is recorded as ' + q.outcome + '.' };
       });
@@ -3979,15 +3979,20 @@
     var q = PF.loop.actionsOf(V).filter(function (y) { return y.id === qid; })[0], w = PF.loop.resolveWhy(r, id, q, outcome, data.runs, V.records);
     if (w) { say(w, 'warn'); render(); return; }
     var cx = loopGuard();
-    loopOutcome(V, q, outcome, 'Resolved by ' + personName(state.me) + ': it was ' + outcome + '.', cx).then(function (wrote) { if (wrote === false) return; say('Recorded: it was ' + outcome + '.', 'good'); return load(true); },
+    loopOutcome(V, q, outcome, 'Resolved by ' + personName(state.me) + ': it was ' + outcome + '.', cx, '', true).then(function (wrote) { if (wrote === false) return; say('Recorded: it was ' + outcome + '.', 'good'); return load(true); },
       function (err) { say('Couldn\'t record it: ' + (err && err.message || err), 'bad'); render(); });
   }
-  function loopOutcome(V, q, op, why, cx, resolver) {
+  /* resolves (round 17): a resolution, a person's decision on how a request ended, asks the fresh guard right before it is
+     written. The outcome of a request just carried out (applied or refused) reports what its own guarded write did, so it
+     is written as it is: holding it back would leave a write that happened unrecorded. */
+  function loopOutcome(V, q, op, why, cx, resolver, resolves) {
     if (!guardOk(cx)) return Promise.resolve(false);
     var d = PF.loop.buildDecision({ proposal: q.id, loop: V.loop, op: op, items: [], seen: PF.loop.seenFor(V.ledger, [], [q.id]).seen, reason: String(why || '').slice(0, 300), by: cx.me, resolver: resolver || '', writer: 'w' + loopHex(10), rev: loopHex(8), now: new Date().toISOString(), app: APP_VERSION });
     var ow = PF.loop.fileWhy(d.name, d.file); if (ow) return Promise.reject(new Error(ow));
     var ok0 = V.loop && findRun(V.loop.process + '/' + V.loop.run), ok = ok0 ? runKeysFor(ok0) : null;
-    return repo.saveScope(cx.fs, d.name, d.file, { still: function () { return guardOk(cx); }, recheck: function (fs) { return ok ? freshGuard(cx, fs, ok, function () { return true; }) : false; } }).then(function (res) { return res && res.dropped ? false : res; });
+    var opts = { still: function () { return guardOk(cx); } };
+    if (resolves) opts.recheck = function (fs) { return ok ? freshGuard(cx, fs, ok, function () { return true; }) : false; };
+    return repo.saveScope(cx.fs, d.name, d.file, opts).then(function (res) { return res && res.dropped ? false : res; });
   }
   /* Counts what the person did since a start was submitted: every click on a control but Refresh, every key, navigation and
      every form opened or closed. A refused start reopens its form only when nothing happened since (childRetry); otherwise
