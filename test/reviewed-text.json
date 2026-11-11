@@ -25,8 +25,8 @@
       "reviewed": "round 17 VD: only add and bind can be delegated"
     },
     "docs/design.md": {
-      "sha256": "68c484b44c915af82ca6134bea8ee2c9ed2e184cba0049437383a0159a68fb57",
-      "reviewed": "Round 19 (XB): the fresh guard asks the publication verdict"
+      "sha256": "7895ee59fef3edd5d53e2678c80efd36ff216ee75b6ee9773ef0bfe4521c699c",
+      "reviewed": "Round 19 (XC): a loop start judged on the guard's read"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -409,8 +409,8 @@
       "reviewed": "Round 19: writer-boundary tokens, save() through the fresh guard, publication verdict, start rebuilt from the guard's read, excepted arrival wording"
     },
     "src/ui/app.js": {
-      "sha256": "ca538cdd019613b1b504f22bf81b2873437921cbc889020cb4a88ed6ac8f6345",
-      "reviewed": "Round 19 (XB): the fresh guard asks the publication verdict"
+      "sha256": "d61272940936ec811e50e49c0a6c4c3d08fbb8b3a88f7f2928acab5e5ab83ed0",
+      "reviewed": "Round 19 (XC): a loop start judged on the guard's read"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

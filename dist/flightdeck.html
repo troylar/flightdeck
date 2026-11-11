@@ -36557,9 +36557,11 @@ PF.examples = (function () {
         if ((data.runs || []).some(function (c) { var it = c.parent && c.parent.item; return it && c.parent.process === c2.process && c.parent.id === c2.id && c.parent.step === id && it.uid === n2.uid && +it.attempt === attempt; })) return false;
         return !(cx.q && PF.loop.requestCheck(c2, loopView(c2, id), cx.q, data.people));
       };
-      /* Round 17: a story's run joins the loop's coverage, so its start asks the fresh guard too (the person, the parent's run
-         and the records read now; a request's asker asked of the people read then). */
-      var lk = runKeysFor(cur), recheck = function (fs) { return freshGuard(cx, fs, lk, function (d) { var c2 = findRun(rkey); return !!c2 && !(cx.q && PF.loop.requestCheck(c2, loopView(c2, id), cx.q, d.people)); }, { create: child.process + '/' + child.id }); };
+      /* Round 17: a story's run joins the loop's coverage, so its start asks the fresh guard too. Round 19 (XC): judged on the
+         guard's snapshot alone: the loop's view rebuilt from the records read then, this story still startable as this very
+         attempt, and a request still pending, exactly as taken up, whose asker may ask on that view (an owner changed by a
+         scope record read then is the owner asked). */
+      var lk = runKeysFor(cur), recheck = function (fs) { return freshGuard(cx, fs, lk, function (d) { return startStill(rkey, id, key, attempt, cx.q, d); }, { create: child.process + '/' + child.id }); };
       return repo.saveRun(cx.fs, child, SESSION, { writer: WRITER, lock: LOCKS ? lock : null, still: still, recheck: recheck });
     }).then(function () { delete mem.starting[flight]; return child; }, function (err) {
       delete mem.starting[flight];
@@ -36567,6 +36569,16 @@ PF.examples = (function () {
       if (err && err.dropped) throw moved() ? stopped() : Object.assign(new Error(key + ' changed while it waited to start, so it and the rest weren\'t started.'), { stopped: true });
       throw err;
     });
+  }
+  /* Round 19 (XC): whether a start of key (attempt) on loop step id of run rkey still holds on the fresh guard's snapshot d. */
+  function startStill(rkey, id, key, attempt, q, d) {
+    var r = findRun(rkey), V = r && viewIn(r, id, d);
+    if (!V) return false;
+    var S = PF.loop.launchable(r, V, [key], ctx.procOf), s0 = S.start.filter(function (x) { return x.key === key; })[0];
+    if (!s0 || s0.attempt !== attempt) return false;
+    if (!q) return true;
+    var f = actionIn(V, q.id);
+    return !!f && f.status === 'pending' && JSON.stringify(f) === JSON.stringify(q) && !PF.loop.requestCheck(r, V, f, d.people);
   }
   /* The child run a start of key would write, from run r as it is: { child, attempt, uid } or { err } saying why it can't. */
   function loopChild(r, id, key, request) {
