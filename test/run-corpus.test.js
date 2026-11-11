@@ -1,4 +1,4 @@
-// The differential corpus (4.0, slice 6, LA): every run a living run's work depends on, in each of its three roles, mutated
+// The differential corpus (4.0, slice 6, LA): every run a living run's work depends on, in each of its roles, mutated
 // one place at a time (test/run-corpus.js). The app's verdict on each (readRunOnly, then repo.depVerdict, whose run part is
 // PF.appjson.judgeRun) and the pack reader's (run_verdict.py, shipped beside check_folder.py, which test/check_pack.py asks) must be the same: both
 // accept, or both refuse at the same first path. The export says the same on a sample of them, and the pack reader holds a
@@ -39,10 +39,10 @@ function pyVerdicts(worlds, cases) {
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
 
-rule('the corpus mutates every place of a dependency run in all three roles, and each base run holds', async () => {
+rule('the corpus mutates every place of a dependency run in every role (a reverse fulfillment included), and each base run holds', async () => {
   const { roles, cases } = await corpus();
-  assert.strictEqual(roles.length, 4);
-  assert.deepStrictEqual(roles.map((R) => R.X.role).join(), 'child,fulfills,evidence,full');
+  assert.strictEqual(roles.length, 5);
+  assert.deepStrictEqual(roles.map((R) => R.X.role).join(), 'child,fulfills,evidence,reverse,full');
   roles.forEach((R) => {
     const mine = cases.filter((c) => c.role === R.X.role);
     assert.ok(mine.length > 500, R.X.role + ': ' + mine.length + ' cases');
@@ -306,7 +306,7 @@ function pyReads(cases) {
 rule('coverage: every place of a run file the app\'s cleaner reads, the pack reader\'s port reads too (no field left unmirrored)', async () => {
   if (!PY) { console.log('    (skipped: no Python)'); return; }
   const { cases } = await corpus(), pick = cases.filter((c) => c.name === 'as written' || c.name === 'a pause left on an ended run (dropped)');
-  assert.strictEqual(pick.length, 8, 'every role, as written and ended');
+  assert.strictEqual(pick.length, 10, 'every role, as written and ended');
   const py = pyReads(pick), off = new Set(), all = new Set();
   pick.forEach((c) => {
     const js = jsReads(c.R.X.PF, c.text), p = py[c.id] || new Set();

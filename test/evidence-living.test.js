@@ -727,6 +727,33 @@ rule('An unlanded application whose effect rests on a run not in the folder: the
   assert.ok(!c.ok && c.out.indexOf('ghost-run') >= 0, 'Python: ' + c.out);
 });
 
+/* HB: a reverse fulfillment (the run's own record names a spread, a request on another run fulfills it) makes that other run
+   part of the work, transitively, in the export and in Python alike: missing or refused by the readers, the export is partial
+   naming it, and Python refuses a pack claiming the work complete with that run left out of the manifest. The valid world
+   is a complete pack Python accepts. */
+rule('A run that fulfills a spread the run holds is part of its work: missing or malformed, the export is partial and Python refuses a complete claim without it', async () => {
+  const X = (await roleWorlds()).filter(w => w.role === 'reverse')[0], PF = X.PF;
+  const ok = await pack(PF, new BytesFS(X.files), X.key);
+  assert.strictEqual(ok.res.status, 'complete', JSON.stringify(ok.res.col.unresolved).slice(0, 300));
+  if (PY) { const c = checkPack(ok.zip); assert.ok(c.ok, 'Python accepts the valid pack: ' + c.out); }
+  const q = JSON.parse(String(X.files[X.path])), bad = Object.assign({}, q, { title: 42 });
+  for (const [what, patch] of [['missing', { [X.path]: undefined }], ['its title not text', { [X.path]: JSON.stringify(bad, null, 2) }]]) {
+    const files = Object.assign({}, X.files, patch); Object.keys(files).forEach((k) => { if (files[k] === undefined) delete files[k]; });
+    const got = await pack(PF, new BytesFS(files), X.key);
+    assert.strictEqual(got.res.status, 'partial', what + ': ' + JSON.stringify(got.res.col.unresolved).slice(0, 300));
+    assert.ok(got.res.col.unresolved.some((u) => u.indexOf(X.path) >= 0), what + ': the export names ' + X.path + ': ' + JSON.stringify(got.res.col.unresolved).slice(0, 400));
+    if (!PY) continue;
+    const c = checkPack(await repacked(PF, got.zip, (e, man) => {
+      man.files.filter((f) => f.path.indexOf('runs/' + X.depKey + '/') === 0).forEach((f) => { delete e[f.pack]; });
+      man.files = man.files.filter((f) => f.path.indexOf('runs/' + X.depKey + '/') !== 0);
+      man.runs = man.runs.filter((r) => r.key !== X.depKey);
+      man.runs.forEach((r) => { if (r.living) r.living.deps = (r.living.deps || []).filter((d) => d.key !== X.depKey); });
+      forced(man);
+    }));
+    assert.ok(!c.ok && c.out.indexOf(X.depKey) >= 0, what + ': Python: ' + c.out);
+  }
+});
+
 /* RE: every original the closure reaches is read by its own family's reader (the shipped checker's: a to-do record's
    proposal, compound, decision, application, fact or keep, and a loop's scope record), in the export and in Python alike. A
    fact the work rests on is one witness under its id, carrying that id. Each family's damage is made in the folder (the

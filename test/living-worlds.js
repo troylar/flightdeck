@@ -127,6 +127,19 @@ async function roleWorlds() {
     files['proposals/' + ev.plan + '.json'] = JSON.stringify(PF.plans.make(one.pub, { id: ev.plan, process: base.process, title: 'Evidence plan', from: F.key, by: 'person-avery', created: new Date().toISOString() }, true, '4.0.0'), null, 2) + '\n';
     out.push({ role: 'evidence', PF, files, key: F.key, path: 'runs/' + base.process + '/evrun1/run.json', depKey: base.process + '/evrun1', force: true });
   }
+  /* HB: a reverse fulfillment. The run's own record names a spread (a stop), and a request on another run fulfills that
+     spread: that other run is part of the work, found from the spread, never from a record naming the run. */
+  {
+    const files = Object.assign({}, F.files), r = F.PF.run.sanitize(JSON.parse(files[F.runPath])), at = new Date().toISOString();
+    const S = 'sp-' + 'd'.repeat(24), pair = { uid: 'jira.issue:key:ABC-7', attempt: 1 };
+    clone(files, 'rev-1');
+    const stop = T.buildProposal({ run: { process: base.process, id: base.id }, id: T.idFor('flightdeck', 'rev-stop'), by: 'person-avery', seen: [], at, body: { op: 'spread-stop', spread: S, reason: 'Covered elsewhere', owed: [pair] } });
+    const ful = T.buildProposal({ run: { process: base.process, id: 'rev-1' }, producer: { name: 'notes-bot', version: '1.0' }, key: F.PF.spreads.obligationId(S, pair.uid, 1), seen: [], at,
+      body: { op: 'add', text: 'Covered', target: { phase: 'draft' }, placement: T.placementFor(F.PF.run.mapOf(r), { phase: 'draft' }), fulfills: { run: { process: base.process, id: base.id }, spread: S, uid: pair.uid, attempt: 1 } } });
+    files['proposals/' + stop.id + '.json'] = T.text(stop);
+    files['proposals/' + ful.id + '.json'] = T.text(ful);
+    out.push({ role: 'reverse', PF: F.PF, files, key: F.key, path: 'runs/' + base.process + '/rev-1/run.json', depKey: base.process + '/rev-1', force: false });
+  }
   return out;
 }
 

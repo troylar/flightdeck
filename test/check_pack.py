@@ -377,6 +377,26 @@ def check_living(z, man):
                     dv = (b or {}).get("dest")
                     if isinstance(dv, dict) and isinstance(dv.get("process"), str):
                         out.add(dv["process"] + "/" + str(dv.get("id")))
+        # HB: the spreads this run's own records hold (asked, included, bound or stopped), and every checked to-do record, on any
+        # run, fulfilling one of them: that record is part of the work, and its run is a run the work depends on (as
+        # PF.receipts.deps finds them; the walk follows each in turn).
+        todos = []
+        for path in by_path:
+            if path.startswith("proposals/") and CF.json_name(path):
+                d = dispatch(path)
+                if d["fam"] == "todo" and not d["bad"] and isinstance(packed(path), dict):
+                    todos.append((path, packed(path)))
+        held = set()
+        for path, o in todos:
+            if run_of(o) == me:
+                for b in (o, o.get("effect"), (o.get("application") or {}).get("effect") if isinstance(o.get("application"), dict) else None):
+                    if isinstance(b, dict) and isinstance(b.get("spread"), str) and b["spread"]:
+                        held.add(b["spread"])
+        for path, o in todos:
+            ff, by = o.get("fulfills"), run_of(o)
+            if isinstance(ff, dict) and isinstance(ff.get("spread"), str) and ff["spread"] in held and by:
+                reached.add(path)
+                out.add(by["process"] + "/" + by["id"])
         # A loop item's choice names a child run by id, of the process its loop step starts (that step's process with Fill in's
         # changes, as PF.receipts.deps finds it): exactly that run, packed or not; a step that can't be told is never matched.
         def proc_of_step(step_id):
