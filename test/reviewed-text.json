@@ -25,8 +25,8 @@
       "reviewed": "Round 6 XD: sync dry-run partial status from preparation refusals"
     },
     "docs/design.md": {
-      "sha256": "aabffcecc586fd184f000e10fffcc1e948cc7e11619a2ce87e8a0ade58c474d5",
-      "reviewed": "round 16 UB: recovery bound to the exact bytes of the source it chose"
+      "sha256": "d8e626e32d72e8868cd5519b1595fa650241e4b501974edcda307eeebf8fe96c",
+      "reviewed": "round 16 UC: spread-include always needs a person"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -353,8 +353,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "c54b9cf74d58ba0ed6190d9ccaccaab871876cc0c5e4b4f5eaa140bea763473a",
-      "reviewed": "Round 7 YA: stops are causal (cut, 4.0 scope head); checker mirrors; no direct writes or deletes added"
+      "sha256": "9457e20b1dffd71b0d44cca2cda2d6a949b67bfdf2ecc778a76a359638ec8b2a",
+      "reviewed": "round 16 UC: spread-include always needs a person"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",
