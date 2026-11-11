@@ -3750,10 +3750,10 @@
     if (!state.me || !kid || !pid) return;
     var rec = (data.todos || []).filter(function (k) { return k && k.kind === 'keep' && k.id === kid; })[0];
     if (!rec) { say('That keep isn\'t here anymore. Nothing was withdrawn.', 'warn'); render(); return; }
-    var name = rec._file || kid + '.json', path = 'proposals/' + name, R = null, proc = null, fail = '', endBusy = busyStart(), sg = gen, MAX = PF.corrections.MEMBERS_MAX;
+    var name = rec._file || kid + '.json', path = 'proposals/' + name, R = null, proc = null, fail = '', copies = null, endBusy = busyStart(), sg = gen, MAX = PF.corrections.MEMBERS_MAX;
     var kg = writeGuard({
       fresh: function (fx) {
-        R = null; proc = null; fail = '';
+        R = null; proc = null; fail = ''; copies = null;
         /* The keep itself is the checked reader's (repo.readKept): its record under this file name, never a parse of its own. */
         return repo.readKept(fx, function () { return repo.readProcess(fx, pid).then(function (p) { proc = p; }, function () { proc = null; }); })
           .then(function (x) { R = x; return true; }, function (e) { fail = fail || 'what was kept for next time couldn\'t be read again right before it was removed (' + (e && e.message || e) + ').'; return true; });
@@ -3763,15 +3763,20 @@
         if (!R) return 'what was kept for next time couldn\'t be read again.';
         if ((R.keepUnread || []).length) return 'a record kept for next time can\'t be read now (proposals/' + R.keepUnread[0].file + '), so how many are kept at this place can\'t be counted.';
         if ((R.decUnread || []).some(function (u) { return u && u.process === pid; })) return 'a decision on its checklist\'s corrections can\'t be read now, so whether one names this keep can\'t be told.';
-        if ((R.decisions || []).some(function (d) { return d.process === pid && (d.members || []).indexOf(kid) >= 0; })) return 'a decision on its correction names it, so it is withdrawn or decided with the whole correction, never alone.';
-        var kr = (R.keeps || []).filter(function (x) { return x && x.id === kid && x._file === name; })[0];
-        if (!kr) return path + ' isn\'t that keep in the folder now.';
+        var kr = (R.keeps || []).filter(function (x) { return x && x.id === kid; })[0], cp = PF.learn.copiesOf(R.keepFiles, kid);
+        if (!kr || cp.files.indexOf(name) < 0) return path + ' isn\'t that keep in the folder now.';
+        if (!cp.same) return 'copies of that keep say different things (' + cp.files.map(function (f) { return 'proposals/' + f; }).join(', ') + '), so which one to withdraw can\'t be told. Remove the one that\'s wrong first.';
+        copies = cp.files;
+        var g = PF.corrections.groups(PF.learn.members(R.keeps, [], pid)).filter(function (x) { return x.members.some(function (m) { return m.id === kid; }); })[0], over = !!g && g.members.length > MAX;
+        /* A keep a decision names goes with its whole correction. While the place is over (decided on two computers), one
+           no applied or included decision names may be withdrawn on its own; the decisions stay as they are. */
+        var named = (R.decisions || []).filter(function (d) { return d.process === pid && (d.members || []).indexOf(kid) >= 0; });
+        if (named.length && (!over || named.some(function (d) { return d.status === 'applied' || d.status === 'included'; }))) return 'a decision on its correction names it, so it is withdrawn or decided with the whole correction, never alone.';
         if (kr.by && kr.by.person === me) return '';
-        var g = PF.corrections.groups(PF.learn.members(R.keeps, [], pid)).filter(function (x) { return x.members.some(function (m) { return m.id === kid; }); })[0];
-        if (!g || g.members.length <= MAX) return 'only whoever kept it can withdraw it. Its checklist\'s owner withdraws keeps only while a place holds more than ' + MAX + '.';
+        if (!over) return 'only whoever kept it can withdraw it. Its checklist\'s owner withdraws keeps only while a place holds more than ' + MAX + '.';
         return PF.learn.ownerWhy({ keep: true, members: [] }, proc && !proc.unlisted ? proc : null, ppl, me, false);
       } });
-    placeLock(keepPlace(rec), function () { return repo.withdrawKeep(state.fs, name, { fresh: kg.fresh, still: kg.still }); }).then(function (res) {
+    placeLock(keepPlace(rec), function () { return repo.withdrawKeep(state.fs, name, { id: kid, fresh: kg.fresh, still: kg.still, copies: function () { return copies; } }); }).then(function (res) {
       endBusy(); if (sg !== gen) return;
       if (res && res.dropped) { say('Nothing was withdrawn: ' + kg.why(), 'warn'); render(); return; }
       data.todos = (data.todos || []).filter(function (x) { return !(x && x.kind === 'keep' && x.id === kid); });

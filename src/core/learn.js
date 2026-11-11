@@ -166,6 +166,11 @@ PF.learn = (function () {
     return out;
   }
   function keepsOf(records) { return oneCopy(records).filter(function (x) { return x && x.kind === 'keep'; }); }
+  /* Every file of one keep (QE): its own name and each OneDrive copy the reader read. same is false when they differ. */
+  function copiesOf(records, id) {
+    var all = (records || []).filter(function (x) { return x && x.kind === 'keep' && x.id === id && typeof x._file === 'string'; });
+    return { files: all.map(function (x) { return x._file; }), same: all.every(function (x) { return canon(x) === canon(all[0]); }) };
+  }
 
   /* ---- Where it goes. Item work (a to-do on a loop's item, a spread) teaches the checklist the items run; phase and step
      work the run's own. Returns { template, map, anchor, base, where } or { needs, template? } (never a guessed place). ---- */
@@ -456,6 +461,6 @@ PF.learn = (function () {
     return '';
   }
 
-  return { LIMITS: LIMITS, idFor: idFor, keyFor: keyFor, phaseSig: phaseSig, cleanFile: cleanFile, build: build, keepsOf: keepsOf, route: route, prepare: prepare, previewOf: previewOf, stepTextWhy: stepTextWhy,
+  return { LIMITS: LIMITS, idFor: idFor, keyFor: keyFor, phaseSig: phaseSig, cleanFile: cleanFile, build: build, keepsOf: keepsOf, copiesOf: copiesOf, route: route, prepare: prepare, previewOf: previewOf, stepTextWhy: stepTextWhy,
     members: members, keptIn: keptIn, keptCapWhy: keptCapWhy, groupKey: groupKey, alternatives: alternatives, ownerWhy: ownerWhy, label: label, forSource: forSource, sourceKey: sourceKey };
 })();

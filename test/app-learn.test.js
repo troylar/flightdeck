@@ -379,6 +379,55 @@ rule('A group over 500 stays recoverable: its owner sees the overflow and withdr
   assert.strictEqual(app.files('proposals/req-keep-').length, 499, 'the owner withdraws nothing once it is within the limit');
 });
 
+/* QE: every name the checked reader knows for a keep (its own, " (1)", "-COMPUTER") is withdrawn like its own; identical
+   copies of it are one keep, so withdrawing it removes each of them. */
+rule('A keep under a OneDrive copy name is withdrawn like its own, and identical copies go with it', async () => {
+  for (const how of [' (1)', '-LAPTOP', 'both']) {
+    const app = await setup(), id = await added(app, 'Post the release notes');
+    app.click('keep', id, { kind: 'todo' }); await app.tick(120);
+    const k = keeps(app)[0], own = 'proposals/' + k.id + '.json', text = app.fs.files[own].t;
+    assert.ok(text, how + ': set-up: kept');
+    if (how === 'both') app.fs.files['proposals/' + k.id + ' (1).json'] = { t: text, m: Date.now() };
+    else { app.fs.files['proposals/' + k.id + how + '.json'] = { t: text, m: Date.now() }; delete app.fs.files[own]; }
+    await refresh(app, 400); await openPage(app);
+    assert.ok(new RegExp('data-act="keep-withdraw"[^>]*data-id="' + k.id + '"').test(app.html()), how + ': offered Withdraw');
+    app.click('keep-withdraw', k.id, { process: 'release-notes' }); await app.tick(400);
+    assert.deepStrictEqual(app.files('proposals/req-keep-'), [], how + ': withdrawn: ' + (txt(app.html()).match(/(Nothing was withdrawn|Couldn't withdraw)[^.]*\.[^.]*\./) || [])[0]);
+  }
+});
+/* QE: two computers each declining 500 keeps (499 shared, one different) make 501 that decisions all name. While the place
+   is over, a keep no applied decision names is withdrawable (its author, or the owner), and the decisions stay as they are;
+   back within 500, a keep a decision names is withdrawn only with its correction again. */
+rule('A place pushed past 500 by keeps declined on two computers stays recoverable: guarded Withdraw, decisions kept', async () => {
+  const app = await setup(), id = await added(app, 'Post the release notes'), PF = app.PF;
+  const recs = await keeps499(app, id), people = JSON.parse(app.fs.files['people.json'].t), r0 = PF.run.sanitize(theRun(app));
+  const base = (await PF.repo.loadAll(app.fs, {})).todos.filter(x => x.kind !== 'keep'), late = [];
+  for (const w of ['Late wording A', 'Late wording B']) { const K = PF.learn.prepare(r0, { source: { todo: id }, text: w, by: { person: 'person-casey' }, records: base, unread: [], people, at: new Date().toISOString(), app: '4.0.0' }); assert.ok(!K.why, K.why); late.push(Object.assign(K.record, { _file: K.name })); app.fs.files['proposals/' + K.name] = { t: PF.todos.text(K.file), m: Date.now() }; }
+  const d = await PF.repo.loadAll(app.fs, {}), g = PF.corrections.forProcess(d.runs, 'release-notes', d.corrDecisions, null, PF.learn.members(d.todos, d.runs, 'release-notes'))[0];
+  assert.strictEqual(g.members.length, 501, 'set-up: one group of 501');
+  /* Each computer declined the 500 it had. */
+  const decs = [];
+  late.forEach((k, i) => {
+    const other = late[1 - i].id, part = Object.assign({}, g, { members: g.members.filter(m => m.id !== other) });
+    const dec = PF.corrections.decision(part, 'person-morgan', 'declined', 'Not for this checklist', new Date().toISOString());
+    const f = 'corrections/release-notes/' + g.id + '.w' + i + '.' + dec.rev + '.json'; decs.push(f);
+    app.fs.files[f] = { t: JSON.stringify(dec, null, 2) + '\n', m: Date.now() };
+  });
+  const decText = decs.map(f => app.fs.files[f].t);
+  app.choose('person-morgan'); await app.tick(80); await refresh(app, 1500); await openPage(app);
+  assert.ok(/501 keeps/.test(txt(app.html())), 'set-up: the overflow is said');
+  assert.ok(new RegExp('data-act="keep-withdraw"[^>]*data-id="' + late[0].id + '"').test(app.html()), 'a keep only declined decisions name is offered Withdraw while over');
+  /* Its author withdraws one: back to 500, every decision as it was. */
+  app.choose('person-casey'); await app.tick(80); await refresh(app, 1500); await openPage(app);
+  app.click('keep-withdraw', late[0].id, { process: 'release-notes' }); await app.tick(400);
+  assert.strictEqual(app.files('proposals/req-keep-').length, 500, 'withdrawn, down to 500: ' + (txt(app.html()).match(/Nothing was withdrawn[^.]*\.[^.]*\./) || [])[0]);
+  assert.deepStrictEqual(decs.map(f => app.fs.files[f] && app.fs.files[f].t), decText, 'the decisions are kept as they were');
+  /* Within the limit, the owner withdraws nothing a decision names. */
+  app.choose('person-morgan'); await app.tick(80); await refresh(app, 1500); await openPage(app);
+  app.click('keep-withdraw', late[1].id, { process: 'release-notes' }); await app.tick(400);
+  assert.strictEqual(app.files('proposals/req-keep-').length, 500, 'nothing more withdrawn once within the limit');
+});
+
 /* OE: more than 50 wordings page, so Show more reveals the 51st and on. */
 rule('A keep group\'s wordings page 50 at a time: Show more reveals the 51st', async () => {
   const app = await setup(), id = await added(app, 'Post the release notes');

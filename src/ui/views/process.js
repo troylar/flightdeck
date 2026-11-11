@@ -320,16 +320,16 @@
         keyOf: function (a) { return a.members[0]; }, focusOf: function (key) { return K.byId('kalt-' + K.domKey(g.id + '-' + key)); } });
       /* A place pushed past what one decision names (two computers at once, OB): said, with each keep no decision names, its
          author's and, while it is over, the checklist owner's to withdraw. Nothing is applied or decided until it is within. */
-      var MAX = C.MEMBERS_MAX, n = g.members.length, named = Object.create(null);
-      (ctx.data.corrDecisions || []).forEach(function (d) { if (d && d.process === p.id && d.group === g.id) (d.members || []).forEach(function (m) { named[m] = true; }); });
+      var MAX = C.MEMBERS_MAX, n = g.members.length, named = Object.create(null), proof = Object.create(null);
+      (ctx.data.corrDecisions || []).forEach(function (d) { if (d && d.process === p.id && d.group === g.id) (d.members || []).forEach(function (m) { named[m] = true; if (d.status === 'applied' || d.status === 'included') proof[m] = true; }); });
       /* Your own keeps here that no decision names: each withdrawn on its own. */
       var mineFree = n > MAX || !st.me ? [] : g.members.filter(function (m) { return m.by === st.me && !named[m.id]; });
       if (mineFree.length) h += K.list(st, 'keep-mine-' + g.id, mineFree, { noun: 'keep',
         draw: function (shown) { return '<ul class="small fx-mine">' + shown.map(function (m) { return '<li id="' + esc('kmy-' + K.domKey(m.id)) + '" tabindex="-1">You kept: ' + esc(m.change.text) + ' <button class="mini" data-act="keep-withdraw" data-id="' + esc(m.id) + '" data-process="' + esc(p.id) + '">Withdraw</button></li>'; }).join('') + '</ul>'; },
         keyOf: function (m) { return m.id; }, focusOf: function (key) { return K.byId('kmy-' + K.domKey(key)); } });
       if (n > MAX) {
-        var ow = ctx.keepOwnerWhy ? ctx.keepOwnerWhy(g, p.id) : 'no', free = g.members.filter(function (m) { return !named[m.id]; }).slice().reverse();
-        h += '<div class="notice warn fx-over" role="note"><span>This place has ' + n.toLocaleString('en-US') + ' keeps, more than the ' + MAX + ' one decision can name, so nothing is applied or decided until ' + (n - MAX) + ' ' + (n - MAX === 1 ? 'is' : 'are') + ' withdrawn. Each keep no decision names can be withdrawn by whoever kept it, or by the checklist\'s owner while the place is over.</span></div>';
+        var ow = ctx.keepOwnerWhy ? ctx.keepOwnerWhy(g, p.id) : 'no', free = g.members.filter(function (m) { return !proof[m.id]; }).slice().reverse();
+        h += '<div class="notice warn fx-over" role="note"><span>This place has ' + n.toLocaleString('en-US') + ' keeps, more than the ' + MAX + ' one decision can name, so nothing is applied or decided until ' + (n - MAX) + ' ' + (n - MAX === 1 ? 'is' : 'are') + ' withdrawn. Each keep no applied decision names can be withdrawn by whoever kept it, or by the checklist\'s owner while the place is over; the decisions stay as they are.</span></div>';
         h += K.list(st, 'keep-over-' + g.id, free, { noun: 'keep',
           draw: function (shown) { return '<ul class="small fx-over-list">' + shown.map(function (m) { var can = !!st.me && (m.by === st.me || !ow); return '<li id="' + esc('kov-' + K.domKey(m.id)) + '" tabindex="-1">' + esc(m.change.text) + ' · ' + esc(nameOf(ctx, m.by)) + (can ? ' <button class="mini" data-act="keep-withdraw" data-id="' + esc(m.id) + '" data-process="' + esc(p.id) + '">Withdraw</button>' : '') + '</li>'; }).join('') + '</ul>'; },
           keyOf: function (m) { return m.id; }, focusOf: function (key) { return K.byId('kov-' + K.domKey(key)); } });

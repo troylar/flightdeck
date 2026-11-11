@@ -2101,15 +2101,23 @@ PF.repo = (function () {
   /* Withdrawing one keep (4.0 slice 5, OB): its record is removed only after opts.fresh read the folder again and opts.still
      allowed it on that read; refused, nothing is removed ({ dropped: true }). A removal that says it failed may still have
      happened: only a file still there is a failure. */
+  /* name: any name the checked reader knows for the keep opts.id (its own, " (n)" or "-COMPUTER", PF.todos.requestFile).
+     opts.copies(), asked once still() has passed, gives every file of that keep read under the guard (its identical copies),
+     each removed in turn; each must be a name of opts.id too. */
   function withdrawKeep(fs, name, opts) {
-    if (!/^req-keep-[a-z0-9-]{1,80}\.json$/.test(String(name))) return Promise.reject(new Error('That isn\'t the name of a keep.'));
+    var id = opts && typeof opts.id === 'string' ? opts.id : String(name).replace(/\.json$/, '');
+    var isName = function (n) { return /^req-keep-[a-z0-9-]{1,80}$/.test(id) && PF.todos.requestFile(String(n), id) && !/[\/\\]/.test(String(n)); };
+    if (!isName(name)) return Promise.reject(new Error('That isn\'t the name of a keep.'));
     if (!opts || typeof opts.fresh !== 'function' || typeof opts.still !== 'function') return Promise.reject(new Error('A keep is withdrawn only under its guard.'));
-    var path = 'proposals/' + name;
     return Promise.resolve().then(function () { return opts.fresh(fs); }).then(function (ok) {
       if (ok === false || !opts.still()) return { dropped: true };
-      return fs.remove(path).then(function () { return { ok: true }; }, function (e) {
-        return fs.read(path).then(function (left) { if (left) throw e; return { ok: true }; }, function () { throw e; });
-      });
+      var names = typeof opts.copies === 'function' ? opts.copies() : [name];
+      if (!Array.isArray(names) || names.indexOf(name) < 0 || !names.every(isName)) throw new Error('That isn\'t the name of a keep.');
+      var one = function (n) {
+        var path = 'proposals/' + n;
+        return fs.remove(path).then(null, function (e) { return fs.read(path).then(function (left) { if (left) throw e; }, function () { throw e; }); });
+      };
+      return names.reduce(function (p, n) { return p.then(function () { return one(n); }); }, Promise.resolve()).then(function () { return { ok: true }; });
     });
   }
   /* A plan made in the app is a new file this window creates once (expect null: "doesn't exist yet"), so it never replaces one. */
@@ -2690,7 +2698,7 @@ PF.repo = (function () {
   function readKept(fs, mid, after) {
     var decs = null, pl = null;
     return loadCorrectionDecisions(fs, {}, null).then(function (d) { decs = d; return mid ? mid() : null; }).then(function () { return readPlans(fs, null); }).then(function (x) { pl = x; return after ? after() : null; }).then(function () {
-      return { keeps: PF.learn.keepsOf(pl.todos || []), keepUnread: (pl.todosUnread || []).filter(function (u) { return u && /^req-keep-/.test(String(u.file)); }),
+      return { keeps: PF.learn.keepsOf(pl.todos || []), keepFiles: (pl.todos || []).filter(function (x) { return x && x.kind === 'keep'; }), keepUnread: (pl.todosUnread || []).filter(function (u) { return u && /^req-keep-/.test(String(u.file)); }),
         decisions: decs.filter(function (d) { return !d._unread; }), decUnread: decs.filter(function (d) { return d._unread; }) };
     });
   }
