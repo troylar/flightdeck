@@ -981,4 +981,19 @@ rule('An export through the command line\'s reader closes every file it opens, w
   assert.strictEqual(res.status, 'complete', JSON.stringify(res.col && res.col.unresolved));
   assert.strictEqual(open.size, 0, open.size + ' file handles left open');
 });
+/* XC: a dependency's version is read by Python with the replacement decoder, as the app reads it: bytes that aren't UTF-8
+   inside its publication record (a child's change note) give the same verdict in both, through the real version checks. */
+rule('A dependency\'s publication record with bytes that aren\'t UTF-8 in its change note is verified by the export and by Python alike', async () => {
+  const W = await loopMade(), K = JSON.parse(W.files[W.kidPath]), pub = 'publications/' + K.process + '/' + K.folder + '/publication.json';
+  const t = String(W.files[pub]), at = t.indexOf('"changes": "') + 12;
+  assert.ok(at > 12, 'set-up: a change note');
+  for (const seq of [[0xff], [0xfe], [0x80], [0xc0, 0xaf], [0xed, 0xa0, 0x80], [0xf4, 0x90, 0x80, 0x80], [0xf5], [0xe0, 0xa0], [0xe2, 0x82], [0xf0, 0x9f, 0x98], [0xef, 0xbb, 0xbf]]) {
+    const files = Object.assign({}, W.files, { [pub]: Buffer.concat([Buffer.from(t.slice(0, at)), Buffer.from(seq), Buffer.from(t.slice(at))]) });
+    const { zip, res } = await pack(W.PF, new BytesFS(files), W.key);
+    assert.strictEqual(res.status, 'complete', seq + ': ' + JSON.stringify(res.col.unresolved));
+    if (!PY) continue;
+    const c = checkPack(zip);
+    assert.ok(c.ok, seq + ': Python reads it: ' + c.out);
+  }
+});
 run();

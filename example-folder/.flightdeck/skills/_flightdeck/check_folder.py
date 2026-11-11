@@ -3646,8 +3646,8 @@ def payload_needs(info):
     return "%d.%d" % (a[0], a[1]) if a and a[0] >= 2 else "2.0"
 
 
-def check_publication(folder, name):
-    files = {n: read_text(os.path.join(folder, n)) for n in ("map.md", "types.json", "publication.json")}
+def check_publication(folder, name, read=read_text):
+    files = {n: read(os.path.join(folder, n)) for n in ("map.md", "types.json", "publication.json")}
     if files["publication.json"] is None:
         return "syncing", "publication.json hasn't arrived", None
     try:

@@ -2299,6 +2299,15 @@ def utf8_text(raw):
     return text[1:] if text.startswith("\ufeff") and raw.startswith(b"\xef\xbb\xbf") else text
 
 
+def utf8_read(path):
+    """A file's text as the app reads it (utf8_text: TextDecoder's replacement decoding), or None when it can't be read."""
+    try:
+        with open(path, "rb") as f:
+            return utf8_text(f.read())
+    except OSError:
+        return None
+
+
 def parse(text):
     def no_constant(_):
         raise ValueError("not JSON")
@@ -2331,7 +2340,7 @@ def stage_problem(info, folder):
 def check_stage(folder, name):
     """CF.check_publication for a stage under staged/ (PF.publish.verify with stage): the same envelope, hashes, payload,
     checklist and screenshot checks, with the stage record in place of the version's folder name and number."""
-    files = {n: CF.read_text(os.path.join(folder, n)) for n in ("map.md", "types.json", "publication.json")}
+    files = {n: utf8_read(os.path.join(folder, n)) for n in ("map.md", "types.json", "publication.json")}
     if files["publication.json"] is None:
         return "syncing", "publication.json hasn't arrived", None
     try:
@@ -2414,7 +2423,8 @@ def version_verdict(r, read):
             if texts[n] is not None:
                 with open(os.path.join(vdir, n), "wb") as f:
                     f.write(texts[n])
-        state, why, info = (check_stage if test else CF.check_publication)(vdir, r["folder"])
+        # Its files decoded as the app decodes them (utf8_read), published or staged alike; the payload is over the raw bytes.
+        state, why, info = check_stage(vdir, r["folder"]) if test else CF.check_publication(vdir, r["folder"], utf8_read)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     # A screenshot is verified when the run is judged in the folder; it isn't packed with a dependency's version.
