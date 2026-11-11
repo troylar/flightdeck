@@ -266,4 +266,24 @@ rule('This version: a receipt or run.json with a byte that isn\'t UTF-8 is read 
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   }
 });
+/* CC: the checker reads an ended run's end as the app does before it looks at its receipt: an end whose time isn't one the app
+   reads (not a time, null, past the date range, left out) is dropped by the app, and run names run.json as malformed; the
+   checker never confirms the receipt then, and names the same path, kind and first reason. */
+rule('This version: an end whose time the app can\'t read is never confirmed by the checker; both name run.json, malformed, with the same reason', async () => {
+  const { files } = await folder(), rp = 'runs/release-notes/run-l/run.json';
+  for (const at of ['bad', null, '+275760-09-13T00:00:00.001Z', undefined]) {
+    const r = JSON.parse(files[rp]); if (at === undefined) delete r.ended.at; else r.ended.at = at;
+    const { root, dir } = tree(Object.assign({}, files, { [rp]: JSON.stringify(r, null, 2) + '\n' }));
+    try {
+      const rl = cli(MINE, 'run', dir, 'release-notes/run-l', '--contract', '2', '--json');
+      const p = (rl.json.problems || []).filter((x) => x.path === rp);
+      same([rl.code, p.length, p[0] && p[0].kind], [4, 1, 'malformed'], JSON.stringify(at) + ': ' + rl.out.slice(0, 400));
+      if (!PY) continue;
+      const res = JSON.parse(cp.execFileSync(PY, ['-I', path.join(ROOT, 'example-folder', '.flightdeck', 'skills', '_flightdeck', 'check_folder.py'), dir], { encoding: 'utf8' }));
+      const mine = (res.runReceipts || []).filter((x) => x.run === 'release-notes/run-l');
+      same(mine.map((x) => [x.path, x.kind, x.why]), [[rp, 'malformed', p[0].why]], JSON.stringify(at) + ' checker: ' + JSON.stringify(res.runReceipts));
+      assert.notStrictEqual(mine[0].state, 'confirmed');
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
+});
 run();

@@ -4323,6 +4323,34 @@ def clean_living(v):
     return None
 
 
+RUN_ISO = re.compile(r"^(\d{4}|[+-]\d{6})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d{3})Z\Z", re.A)
+
+
+def iso_or_null(v):
+    """PF.run's isoOrNull: exactly the form Flightdeck writes (toISOString), a real calendar time within ECMAScript's date
+    range (8.64e15 ms either side of 1970), else None."""
+    if not isinstance(v, str):
+        return None
+    m = RUN_ISO.match(v)
+    if not m:
+        return None
+    y = int(m.group(1))
+    mo, d, h, mi, se, ms = (int(x) for x in m.group(2, 3, 4, 5, 6, 7))
+    if (0 <= y <= 9999) != (len(m.group(1)) == 4) or m.group(1) == "-000000":
+        return None
+    leap = (y % 4 == 0 and y % 100 != 0) or y % 400 == 0
+    days = [31, 29 if leap else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    if not 1 <= mo <= 12 or not 1 <= d <= days[mo - 1] or h > 23 or mi > 59 or se > 59:
+        return None
+    yy = y - (1 if mo <= 2 else 0)
+    era = yy // 400
+    yoe = yy - era * 400
+    doy = (153 * (mo + (-3 if mo > 2 else 9)) + 2) // 5 + d - 1
+    doe = yoe * 365 + yoe // 4 - yoe // 100 + doy
+    t = (era * 146097 + doe - 719468) * 86400000 + ((h * 60 + mi) * 60 + se) * 1000 + ms
+    return v if abs(t) <= 8.64e15 else None
+
+
 def receipt_verdict(text, read, unread):
     """PF.receipts.verdict for an ended living run.json: its state, the receipt's path, the problem's kind and why (same order
     and words), or None for a run that isn't an ended living run."""
@@ -4335,6 +4363,11 @@ def receipt_verdict(text, read, unread):
     lv = clean_living(r.get("living"))
     if not lv:
         return None
+    # The app reads an end only with an outcome it knows and a time it reads (PF.run.sanitize): one it drops leaves the run
+    # malformed as every reader names it (PF.appjson's runProblems), and its receipt is never confirmed.
+    if r["ended"].get("outcome") in R_OUTCOMES and not iso_or_null(r["ended"].get("at")):
+        return {"state": "unread", "path": "runs/" + str(r.get("process")) + "/" + str(r.get("id")) + "/run.json", "kind": "malformed",
+                "why": "Some times in this file couldn't be read (the end). The run is shown as the app shows it, without them."}
     rid = lv.get("receipt")
     if not rid:
         return {"state": "none", "path": "", "kind": "", "why": "It ended without a receipt record."}
