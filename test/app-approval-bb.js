@@ -201,6 +201,17 @@ const handedOff = (app) => {
   app.fs.files[p] = { t: JSON.stringify(j, null, 2), m: Date.now() };
   return () => { app.fs.files[p] = kept; };
 };
+/* Round 16 (UA): the approver (the run's recorder, the person in this window) taken out of people.json, or marked inactive
+   there, by another window: people.json stays one this copy reads. */
+const approverIs = (app, fn) => {
+  const kept = app.fs.files['people.json'], doc = JSON.parse(kept.t), me = parentRun(app).recorder.person;
+  const list = Array.isArray(doc) ? doc : doc.people;
+  if (!Array.isArray(list) || !list.some(x => x && x.id === me)) return null;
+  const next = fn(list.map(x => Object.assign({}, x)), me); if (!next) return null;
+  const out = Array.isArray(doc) ? next : Object.assign({}, doc, { people: next });
+  app.fs.files['people.json'] = { t: JSON.stringify(out, null, 2), m: Date.now() };
+  return () => { app.fs.files['people.json'] = kept; };
+};
 const isList = (op, p, dir) => op === 'list' && p.replace(/\/$/, '') === dir;
 /* A read point by its role, the same in every app: the run, the story's run, the first scope record, the story's application. */
 function namer(app, kid) {
@@ -228,7 +239,9 @@ const CHANGES = {
   'the run\'s version rebuilt with another step': { make: rebuiltPub, sees: (op, p) => op === 'read' && /^publications\/release-readiness\/[^/]+\//.test(p) && (rebuiltPub.changed || []).includes(p.replace(/^publications\/release-readiness\/[^/]+\//, '')) },
   'the run handed to another session': { make: handedOff, sees: (op, p) => op === 'read' && p === 'runs/release-readiness/<run>/run.json' },
   /* Round 15 (SB): who may approve can't be read. */
-  'people.json EIO': { make: (app) => eio(app, 'people.json'), sees: (op, p) => op === 'read' && p === 'people.json' }
+  'people.json EIO': { make: (app) => eio(app, 'people.json'), sees: (op, p) => op === 'read' && p === 'people.json' },
+  'the approver taken out of people.json': { make: (app) => approverIs(app, (list, me) => list.filter(x => x.id !== me)), sees: (op, p) => op === 'read' && p === 'people.json' },
+  'the approver marked inactive': { make: (app) => approverIs(app, (list, me) => list.map(x => x.id === me ? Object.assign(x, { inactive: true }) : x)), sees: (op, p) => op === 'read' && p === 'people.json' }
 };
 const localKeyOf = (app, id) => 'preflight:unsaved:' + app.fs.kind + ':' + (app.fs.id || app.fs.name) + ':' + id;
 const failCand = (app) => { const write = app.fs.write; let n = 0; app.fs.write = (q, t, x) => CAND_RE.test(q) && ++n === 1 ? Promise.reject(new Error('EIO')) : write.call(app.fs, q, t, x); return { n: () => n, off: () => { app.fs.write = write; } }; };
