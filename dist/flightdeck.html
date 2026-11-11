@@ -30539,7 +30539,11 @@ PF.vk = (function () {
     /* An ended living run's progress is what its receipt froze; the counts now (anything that arrived after the end
        included) are said apart, never mixed into it. */
     var pv = !prOf(ctx) && r.ended && r.living && ctx.planVsNow ? ctx.planVsNow(r) : null, now = '';
-    if (pv && pv.ended && pv.lines && pv.lines.length) { now = '<p class="small rw-now">' + esc('Counted now, after the end: ' + out.join(' · ')) + '</p>'; out = pv.lines; }
+    if (pv && pv.ended && pv.lines && pv.lines.length) {
+      /* The counts now by the shared comparison rules (PF.receipts.compare), as the frozen lines were made. */
+      if (pv.now && pv.now.lines) out = pv.now.lines.concat(pv.now.unread && pv.now.unread.length ? ['The loop ' + pv.now.unread[0] + ' can\'t be read here, so its items aren\'t counted'] : []);
+      now = '<p class="small rw-now">' + esc('Counted now, after the end: ' + out.join(' · ')) + '</p>'; out = pv.lines;
+    }
     return '<ul class="rw-counts small" aria-label="Progress">' + out.map(function (o) { return '<li>' + esc(o) + '</li>'; }).join('') + '</ul>' + now + (prOf(ctx) ? '' : planVsNow(ctx, r));
   }
   /* Plan versus now (4.0 slice 6): for a living run, what was asked and what landed, each with its own denominator (chips:
@@ -38335,6 +38339,8 @@ PF.examples = (function () {
         var S = PF.receipts.stateOf(r, data.todos || [], data.todosUnread || []);
         v = { ended: true, state: S, lines: [], chips: [], since: null };
         if (S && S.record) { var w = PF.receipts.words(S.record.counts, S.record.coverage); v.lines = w.lines; v.chips = w.chips; v.since = PF.receipts.since(r, S.record, data.todos || [], spreadCoverageOf(r)); }
+        /* The counts now, by the same comparison rules as the frozen ones, so the two differ only by what changed since. */
+        try { var Cn = PF.receipts.compare(r, PF.run.mapOf(r), todoViewFor(r), spreadCoverageOf(r), rcptInputs()); v.now = { lines: Cn.lines, unread: Cn.unread }; } catch (e) { v.now = null; }
       } else {
         var C = PF.receipts.compare(r, PF.run.mapOf(r), todoViewFor(r), spreadCoverageOf(r), rcptInputs());
         v = { ended: false, lines: C.lines, chips: C.chips, phases: C.phases, unread: C.unread };

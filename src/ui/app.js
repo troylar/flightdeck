@@ -3701,6 +3701,8 @@
         var S = PF.receipts.stateOf(r, data.todos || [], data.todosUnread || []);
         v = { ended: true, state: S, lines: [], chips: [], since: null };
         if (S && S.record) { var w = PF.receipts.words(S.record.counts, S.record.coverage); v.lines = w.lines; v.chips = w.chips; v.since = PF.receipts.since(r, S.record, data.todos || [], spreadCoverageOf(r)); }
+        /* The counts now, by the same comparison rules as the frozen ones, so the two differ only by what changed since. */
+        try { var Cn = PF.receipts.compare(r, PF.run.mapOf(r), todoViewFor(r), spreadCoverageOf(r), rcptInputs()); v.now = { lines: Cn.lines, unread: Cn.unread }; } catch (e) { v.now = null; }
       } else {
         var C = PF.receipts.compare(r, PF.run.mapOf(r), todoViewFor(r), spreadCoverageOf(r), rcptInputs());
         v = { ended: false, lines: C.lines, chips: C.chips, phases: C.phases, unread: C.unread };

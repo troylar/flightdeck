@@ -1343,7 +1343,11 @@
     /* An ended living run's progress is what its receipt froze; the counts now (anything that arrived after the end
        included) are said apart, never mixed into it. */
     var pv = !prOf(ctx) && r.ended && r.living && ctx.planVsNow ? ctx.planVsNow(r) : null, now = '';
-    if (pv && pv.ended && pv.lines && pv.lines.length) { now = '<p class="small rw-now">' + esc('Counted now, after the end: ' + out.join(' · ')) + '</p>'; out = pv.lines; }
+    if (pv && pv.ended && pv.lines && pv.lines.length) {
+      /* The counts now by the shared comparison rules (PF.receipts.compare), as the frozen lines were made. */
+      if (pv.now && pv.now.lines) out = pv.now.lines.concat(pv.now.unread && pv.now.unread.length ? ['The loop ' + pv.now.unread[0] + ' can\'t be read here, so its items aren\'t counted'] : []);
+      now = '<p class="small rw-now">' + esc('Counted now, after the end: ' + out.join(' · ')) + '</p>'; out = pv.lines;
+    }
     return '<ul class="rw-counts small" aria-label="Progress">' + out.map(function (o) { return '<li>' + esc(o) + '</li>'; }).join('') + '</ul>' + now + (prOf(ctx) ? '' : planVsNow(ctx, r));
   }
   /* Plan versus now (4.0 slice 6): for a living run, what was asked and what landed, each with its own denominator (chips:

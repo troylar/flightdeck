@@ -465,5 +465,16 @@ rule('Use copy of an ended copy over a run that already ended with another outco
     assert.ok(app.fs.files[copy], n + ': the copy stays');
   }
 });
-
+/* TF: the counts now beside an ended living run's frozen lines come from the same comparison rules (PF.receipts.compare), so
+   with nothing changed after the end they read exactly as the frozen lines do. */
+rule('With nothing changed after the end, the counts now read exactly as the receipt\'s frozen lines: one set of rules for both', async () => {
+  const app = await loopSetup();
+  app.click('end', 'Cancelled'); await app.tick(400);
+  const r = pRun(app), rec = JSON.parse(app.fs.files['proposals/' + r.living.receipt + '.json'].t);
+  const frozen = app.PF.receipts.words(rec.counts, rec.coverage).lines;
+  app.click('open-run', r.process + '/' + r.id); await app.tick(120);
+  const m = /<p class="small rw-now">([\s\S]*?)<\/p>/.exec(app.html());
+  assert.ok(m, 'the counts now are shown');
+  assert.strictEqual(txt(m[1]).trim(), 'Counted now, after the end: ' + frozen.join(' · '));
+});
 run();
