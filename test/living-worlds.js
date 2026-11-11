@@ -61,6 +61,12 @@ async function pack(PF, fsx, key) {
   const res = await PF.repo.exportEvidence(fsx, { run: key }, { sink: u => { parts.push(Buffer.from(u)); }, now: () => Date.now(), tz: 'UTC' });
   return { zip: Buffer.concat(parts), res };
 }
+/* A pack of every run of a process created today (the process + date range scope). */
+async function datePack(PF, fsx, proc) {
+  const parts = [], day = new Date().toISOString().slice(0, 10);
+  const res = await PF.repo.exportEvidence(fsx, { process: proc, from: day, through: day }, { sink: u => { parts.push(Buffer.from(u)); }, now: () => Date.now(), tz: 'UTC' });
+  return { zip: Buffer.concat(parts), res };
+}
 const KID = ['---', 'process: validate-story', 'title: Validate a story', 'owner: person-avery', 'context: issue, disposition:choice(cleared|needs-work)', 'result: disposition', '---', '',
   '## Assess · DO-CONFIRM {#assess}', '- [!] {decide} Record the validation result {#verdict}', '  options: cleared, needs-work', '  sets: disposition=decision', ''].join('\n');
 const PARENT = ['---', 'process: release-readiness', 'title: Release 4.1', 'owner: person-avery', '---', '',
@@ -185,4 +191,4 @@ async function repacked(PF, zip, edit) {
 /* The manifest made to claim the run's work complete (an evidence run's plan isn't in these folders): only Python's own checks can then refuse it. */
 const forced = (man) => { man.status = 'complete'; man.runs.forEach((r) => { if (r.living) { r.living.complete = true; r.living.missing = []; (r.living.deps || []).forEach((d) => { d.confirmed = true; }); } }); };
 
-module.exports = { MD, made, pack, KID, PARENT, SHOT, loopMade, roleWorlds, PY, sha, unzip, rezip, checkPack, manifestOf, repacked, forced };
+module.exports = { MD, made, pack, datePack, KID, PARENT, SHOT, loopMade, roleWorlds, PY, sha, unzip, rezip, checkPack, manifestOf, repacked, forced };

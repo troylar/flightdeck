@@ -8,7 +8,7 @@ const assert = require('assert');
 const crypto = require('crypto');
 const { rule, run } = require('./harness');
 const { BytesFS } = require('./evidence-fixture');
-const { made, pack, SHOT, loopMade, roleWorlds, PY, sha, unzip, rezip, checkPack, manifestOf, repacked, forced } = require('./living-worlds');
+const { made, pack, datePack, SHOT, loopMade, roleWorlds, PY, sha, unzip, rezip, checkPack, manifestOf, repacked, forced } = require('./living-worlds');
 
 rule('A living run\'s pack holds its whole application chain and its receipt, says so, and writes nothing to the folder', async () => {
   const W = await made({ todos: 2 }), fsx = new BytesFS(W.files);
@@ -1343,6 +1343,72 @@ rule('Python accepts an honest partial pack whose root run.json is no run, and r
     const claimed = checkPack(await repacked(W.PF, zip, (e, man) => { forced(man); }));
     assert.ok(!claimed.ok && claimed.out.indexOf(W.key) >= 0, text + ': claimed complete: ' + claimed.out);
   }
+});
+/* KB-KD: Python checks the manifest's shape once, before anything else (manifest_problem): a scope in neither form the export
+   writes, two files from one source path, a run named twice, and the packed run.json originals not matching the manifest's
+   runs one to one (a run.json packed as a run without its entry, or not named by any run's work; a run's entry without its
+   run.json, unless the pack says partial), in both scope forms and both entry orders. */
+const otherRoot = (W, id) => { const o = JSON.parse(String(W.files['runs/' + W.key + '/run.json'])); o.id = id; delete o.living; delete o.ended; o.state = 'running'; if (Array.isArray(o.features)) o.features = o.features.filter(f => f !== 'living-runs'); return JSON.stringify(o, null, 2) + '\n'; };
+rule('Python refuses a date-range pack whose manifest drops a run or leaves one out, in either entry order', async () => {
+  const W = await made({ todos: 1, pending: true }), proc = W.key.split('/')[0];
+  const files = Object.assign({}, W.files, { ['runs/' + proc + '/aa-other/run.json']: otherRoot(W, 'aa-other'), ['runs/' + proc + '/zz-other/run.json']: otherRoot(W, 'zz-other') });
+  const full = await datePack(W.PF, new BytesFS(files), proc), man0 = manifestOf(full.zip);
+  assert.strictEqual(full.res.status, 'complete', JSON.stringify(full.res.col.unresolved));
+  assert.strictEqual(man0.runs.length, 3, 'set-up: three runs in the range');
+  if (!PY) return;
+  assert.ok(checkPack(full.zip).ok, 'control: ' + checkPack(full.zip).out);
+  const rjOf = (man, key) => man.files.filter((f) => f.path === 'runs/' + key + '/run.json')[0];
+  const cases = [
+    ['runs emptied, the living run\'s run.json made []', (e, man) => { e[rjOf(man, W.key).pack] = Buffer.from('[]'); man.runs = []; }],
+    ['the first run left out, its run.json made []', (e, man) => { const k = man.runs[0].key; e[rjOf(man, k).pack] = Buffer.from('[]'); man.runs = man.runs.slice(1); }],
+    ['the last run left out, its run.json made []', (e, man) => { const k = man.runs[man.runs.length - 1].key; e[rjOf(man, k).pack] = Buffer.from('[]'); man.runs = man.runs.slice(0, -1); }],
+    ['the first run left out, its run.json relabeled', (e, man) => { const k = man.runs[0].key; rjOf(man, k).role = 'child run'; man.runs = man.runs.slice(1); }],
+    ['a run named twice, the copy first', (e, man) => { man.runs = [JSON.parse(JSON.stringify(man.runs[1]))].concat(man.runs); }],
+    ['a run named twice, the copy last', (e, man) => { man.runs = man.runs.concat([JSON.parse(JSON.stringify(man.runs[1]))]); }],
+    ['a run of another process', (e, man) => { man.runs[0].key = 'release/' + man.runs[0].key.split('/')[1]; }],
+    ['a run whose run.json isn\'t packed, in a complete pack', (e, man) => { man.runs = man.runs.concat([Object.assign({}, man.runs[0], { key: proc + '/not-packed', living: undefined })]); }]
+  ];
+  for (const [what, edit] of cases) {
+    const c = checkPack(await repacked(W.PF, full.zip, edit));
+    assert.ok(!c.ok, what + ': Python: ' + c.out);
+  }
+});
+rule('Python refuses a pack whose scope is missing, null, a list or neither form, in a single-run pack and a date-range pack', async () => {
+  if (!PY) return;
+  const W = await made({ todos: 1, pending: true }), proc = W.key.split('/')[0];
+  for (const [form, made2] of [['single run', () => pack(W.PF, new BytesFS(W.files), W.key)], ['date range', () => datePack(W.PF, new BytesFS(W.files), proc)]]) {
+    const full = await made2();
+    assert.ok(checkPack(full.zip).ok, form + ' control');
+    for (const [what, scope] of [['missing', undefined], ['null', null], ['a list', []], ['empty', {}], ['a process without its dates', { process: proc, tz: 'UTC' }], ['a run that isn\'t a key', { run: 42, tz: 'UTC' }], ['both forms', { run: W.key, process: proc, from: '2026-01-01', through: '2026-01-01', tz: 'UTC' }]]) {
+      const c = checkPack(await repacked(W.PF, full.zip, (e, man) => { if (scope === undefined) delete man.scope; else man.scope = scope; }));
+      assert.ok(!c.ok, form + ', scope ' + what + ': Python: ' + c.out);
+    }
+  }
+});
+rule('Python refuses a pack that holds two files from one source path, the copy first or last', async () => {
+  if (!PY) return;
+  const W = await made({ todos: 1, pending: true }), full = await pack(W.PF, new BytesFS(W.files), W.key);
+  const head = JSON.parse(String(W.files['runs/' + W.key + '/run.json'])).living.head, src = 'proposals/' + head + '.json';
+  assert.ok(manifestOf(full.zip).files.some((f) => f.path === src), 'set-up: the application is packed');
+  for (const first of [true, false]) {
+    const c = checkPack(await repacked(W.PF, full.zip, (e, man) => {
+      e['originals/proposals/dup.json'] = Buffer.from('[]');
+      const f = { pack: 'originals/proposals/dup.json', path: src, size: 2, sha256: '', role: 'living', label: 'A copy' };
+      man.files = first ? [f].concat(man.files) : man.files.concat([f]);
+    }));
+    assert.ok(!c.ok, (first ? 'first' : 'last') + ': Python: ' + c.out);
+  }
+});
+/* KC: an honest partial date-range pack whose other run.json is no run (42) is read without reading that file's fields. */
+rule('Python accepts an honest partial date-range pack with a run.json that is no run beside a living run, and refuses it claimed complete', async () => {
+  const W = await made({ todos: 1, pending: true }), proc = W.key.split('/')[0];
+  const { res, zip } = await datePack(W.PF, new BytesFS(Object.assign({}, W.files, { ['runs/' + proc + '/zz-broken/run.json']: '42' })), proc);
+  assert.strictEqual(res.status, 'partial', 'the export');
+  if (!PY) return;
+  const c = checkPack(zip);
+  assert.ok(c.ok, 'the honest partial pack: ' + c.out);
+  const claimed = checkPack(await repacked(W.PF, zip, (e, man) => { forced(man); }));
+  assert.ok(!claimed.ok, 'claimed complete: ' + claimed.out);
 });
 /* FD: living work needs run/3. An ended living run written back as run/2 (no run/3 field but its living record) is refused
    by every reader as newer, so the export of it is partial and Python refuses a pack of it that says complete. */

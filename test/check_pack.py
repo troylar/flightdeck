@@ -30,6 +30,9 @@ def main(path):
                 sys.exit("non-ASCII name without the UTF-8 flag: " + info.filename)
         digest = {n: hashlib.sha256(z.read(n)).hexdigest() for n in names}
         man = json.loads(z.read("manifest.json").decode("utf-8"))
+        bad = manifest_problem(man)
+        if bad:
+            sys.exit("manifest: " + bad)
         listed = [f["pack"] for f in man["files"]] + [g["path"] for g in man["generated"]]
         payload = sorted(n for n in names if n not in ("manifest.json", "SHA256SUMS"))
         if sorted(listed) != payload:
@@ -51,6 +54,98 @@ def main(path):
                 sys.exit("SHA256SUMS differs: " + name)
         living = check_living(z, man)
         print("ok %d entries, living %d" % (len(names), living))
+
+
+KEY = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}/[a-z0-9-]{1,40}\Z", re.I | re.A)
+DAY = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}\Z", re.A)
+RUN_FILE = re.compile(r"^runs/([^/]+)/([^/]+)/run\.json\Z")
+DEP_ROLES = ("child run", "evidence run", "fulfilled run")
+
+
+def obj(x):
+    """A value read as an object only when it is one: anything else reads as having no fields."""
+    return x if isinstance(x, dict) else {}
+
+
+def arr(x):
+    """A value read as a list only when it is one: anything else reads as empty."""
+    return x if isinstance(x, list) else []
+
+
+def manifest_problem(man):
+    """The manifest's shape, checked once before anything reads it (KB-KD): why it isn't a manifest the export writes, or ''.
+    Its scope in one of the two forms (a run, or a process and a date range), every file and generated entry with its names
+    and hash, no source path packed twice, every run named once with a living section of the export's shape, and the
+    packed run.json originals matching the manifest's runs one to one: each packed run.json is a run's own (an entry under
+    its key) or one a run's work names (living.deps), and each run's run.json is packed unless the pack says partial."""
+    if not isinstance(man, dict):
+        return "it isn't an object"
+    if man.get("status") not in ("complete", "partial"):
+        return "its status isn't complete or partial"
+    for k in ("files", "generated", "runs"):
+        if not isinstance(man.get(k), list):
+            return "its " + k + " isn't a list"
+    sc = man.get("scope")
+    if not isinstance(sc, dict):
+        return "its scope isn't an object"
+    if "run" in sc:
+        if any(k in sc for k in ("process", "from", "through")) or not isinstance(sc["run"], str) or not KEY.match(sc["run"]):
+            return "its scope isn't a run's key"
+    elif not (isinstance(sc.get("process"), str) and KEY.match(sc["process"] + "/x") and isinstance(sc.get("from"), str) and DAY.match(sc["from"])
+              and isinstance(sc.get("through"), str) and DAY.match(sc["through"])):
+        return "its scope is neither a run nor a process with a date range"
+    paths, packs = set(), set()
+    for f in man["files"]:
+        if not isinstance(f, dict) or not all(isinstance(f.get(k), str) for k in ("pack", "path", "sha256", "role")):
+            return "a file entry isn't a file"
+        if f["path"] in paths:
+            return "two files are packed from " + f["path"]
+        if f["pack"] in packs:
+            return "two files are packed as " + f["pack"]
+        paths.add(f["path"])
+        packs.add(f["pack"])
+    for g in man["generated"]:
+        if not isinstance(g, dict) or not isinstance(g.get("path"), str) or not isinstance(g.get("sha256"), str):
+            return "a generated entry isn't a file"
+    keys, named = [], set()
+    for r in man["runs"]:
+        if not isinstance(r, dict) or not isinstance(r.get("key"), str) or not KEY.match(r["key"]):
+            return "a run entry doesn't name a run"
+        if r["key"] in keys:
+            return r["key"] + " is named twice"
+        keys.append(r["key"])
+        lv = r.get("living")
+        if lv is None:
+            continue
+        if not (isinstance(lv, dict) and isinstance(lv.get("complete"), bool) and isinstance(lv.get("head"), str)
+                and isinstance(lv.get("chain"), list) and all(isinstance(x, str) for x in lv["chain"])
+                and (lv.get("receipt") is None or isinstance(lv["receipt"], dict)) and isinstance(lv.get("deps", []), list)
+                and isinstance(lv.get("missing", []), list)):
+            return "the living section of " + r["key"] + " isn't the export's"
+        for d in lv.get("deps", []):
+            if not (isinstance(d, dict) and isinstance(d.get("key"), str) and KEY.match(d["key"]) and isinstance(d.get("head", ""), str)
+                    and isinstance(d.get("chain", []), list)):
+                return "a run the work of " + r["key"] + " depends on isn't named as the export names it"
+            named.add(d["key"])
+    if "run" in sc:
+        if keys != [sc["run"]]:
+            return "the pack was made for " + sc["run"] + ", but its manifest doesn't name that run, and only it, once"
+    elif any(k.split("/")[0] != sc["process"] for k in keys):
+        return "a run in it isn't a run of " + sc["process"]
+    packed_runs = {}
+    for f in man["files"]:
+        m = RUN_FILE.match(f["path"])
+        if m:
+            packed_runs[m.group(1) + "/" + m.group(2)] = f
+    for k, f in sorted(packed_runs.items()):
+        if f["role"] == "run" and k not in keys:
+            return "runs/" + k + "/run.json is packed as a run of the pack, but the manifest doesn't name it"
+        if k not in keys and k not in named:
+            return "runs/" + k + "/run.json is packed, but neither the manifest nor any run's work names it"
+    for k in keys:
+        if k not in packed_runs and man["status"] != "partial":
+            return "runs/" + k + "/run.json isn't in the pack, but the pack doesn't say it is partial"
+    return ""
 
 
 def decode(raw):
@@ -124,11 +219,11 @@ def check_living(z, man):
                 reached.add(path)
                 if isinstance(lp, dict) and o.get("run") != me:
                     scopes.append(o)
-                for b in (o, o.get("effect") or {}, (o.get("application") or {}).get("effect") or {}):
-                    ev = (b or {}).get("evidence") if isinstance(b, dict) else None
+                for b in (o, obj(o.get("effect")), obj(obj(o.get("application")).get("effect"))):
+                    ev = obj(b).get("evidence")
                     if o.get("run") == me and isinstance(ev, dict) and isinstance(ev.get("run"), dict):
                         plans_wanted.add(str(ev.get("plan")))
-                    fact = ((b or {}).get("support") or {}).get("fact") if isinstance((b or {}).get("support"), dict) else None
+                    fact = obj(obj(b).get("support")).get("fact")
                     if o.get("run") == me and isinstance(fact, str):
                         facts_wanted.add(fact)
                     if isinstance(fact, str):
@@ -220,7 +315,7 @@ def check_living(z, man):
     def check_run(run):
         """One run's closure, replayed on its own: its chain from living.head (every link a unique witness), each application's
         request, its authority and every record it saw, and its receipt. Returns (whole, chain, closed, receipt ok, copies)."""
-        own = run.get("living") or {}
+        own = obj(run.get("living"))
         head = own.get("head", "")
         me = {"process": run.get("process"), "id": run.get("id")}
         copies = [""]
@@ -230,7 +325,8 @@ def check_living(z, man):
             rec, amb = witness(rid)
             if amb and not copies[0]:
                 copies[0] = rid
-            return rec
+            # A witness that isn't an object is there but is no record: it has no fields to match.
+            return rec if rec is None or isinstance(rec, dict) else {}
 
         # Every record the run's work reaches is held to its copies (a pending request and a loop's scope record included), as
         # in the export: the id each packed name stands for, its copies compared by the one rule.
@@ -254,7 +350,7 @@ def check_living(z, man):
                 whole = False
                 break
             if rec.get("kind") == "compound":
-                prev = (rec.get("application") or {}).get("previous", "")
+                prev = obj(rec.get("application")).get("previous", "")
             elif rec.get("kind") == "application":
                 prev = rec.get("previous", "")
             else:
@@ -265,7 +361,7 @@ def check_living(z, man):
         closed, want, asked = whole, [], set()
 
         def saw(rec):
-            for x in rec.get("seen") or []:
+            for x in arr(rec.get("seen")):
                 if isinstance(x, str) and x not in asked:
                     asked.add(x)
                     want.append(x)
@@ -280,7 +376,7 @@ def check_living(z, man):
                 closed = False
                 continue
             saw(req)
-            au = rec.get("authority") or {}
+            au = obj(rec.get("authority"))
             if au.get("decision"):
                 w = wit(str(au["decision"]))
                 good = w is not None and w.get("kind") == "decision" and w.get("proposal") == rec.get("proposal") and w.get("run") == me
@@ -319,7 +415,7 @@ def check_living(z, man):
         good_receipt = True
         if receipt:
             rec = wit(receipt)
-            ended = run.get("ended") or {}
+            ended = obj(run.get("ended"))
             good_receipt = (rec is not None and rec.get("kind") == "receipt" and rec.get("id") == receipt and rec.get("head") == head
                             and rec.get("outcome") == ended.get("outcome") and rec.get("by") == ended.get("by") and rec.get("run") == me)
             # Read as the shipped checker reads it: its format, limits and the id its content gives.
@@ -335,11 +431,11 @@ def check_living(z, man):
                 good_receipt = bool(paths) and all(whole(p) for p in paths)
             # Every record it names as seen (pending requests included) is in the pack, and what each of those saw, in turn.
             if good_receipt:
-                for x in rec.get("seen") or []:
+                for x in arr(rec.get("seen")):
                     if wit(str(x)) is None:
                         good_receipt = False
                 # Every keep it names is a keep on this run, one witness under its id.
-                for x in rec.get("keeps") or []:
+                for x in arr(rec.get("keeps")):
                     kx = wit(str(x))
                     if kx is None or kx.get("kind") != "keep" or kx.get("run") != me:
                         good_receipt = False
@@ -357,7 +453,7 @@ def check_living(z, man):
             parts = path.split("/")
             if len(parts) == 4 and parts[0] == "runs" and parts[3] == "run.json":
                 o = packed(path)
-                par = (o or {}).get("parent") or {}
+                par = obj(obj(o).get("parent"))
                 if isinstance(par, dict) and par.get("item") and par.get("process") == me["process"] and par.get("id") == me["id"]:
                     out.add(parts[1] + "/" + parts[2])
             # GB: every checked to-do record naming the run, its decisions and applications (status files) and their effects
@@ -366,15 +462,15 @@ def check_living(z, man):
                 o = packed(path) if dispatch(path)["fam"] == "todo" and not dispatch(path)["bad"] else None
                 if not isinstance(o, dict) or run_of(o) != me:
                     continue
-                for b in (o, o.get("effect") or {}, (o.get("application") or {}).get("effect") or {}):
-                    ev = (b or {}).get("evidence") or {}
+                for b in (o, obj(o.get("effect")), obj(obj(o.get("application")).get("effect"))):
+                    ev = obj(obj(b).get("evidence"))
                     if isinstance(ev, dict) and isinstance(ev.get("run"), dict):
                         out.add(str(ev["run"].get("process")) + "/" + str(ev["run"].get("id")))
                 ff = o.get("fulfills") or {}
                 if isinstance(ff, dict) and isinstance(ff.get("run"), dict):
                     out.add(str(ff["run"].get("process")) + "/" + str(ff["run"].get("id")))
-                for b in (o, o.get("effect") or {}, (o.get("application") or {}).get("effect") or {}):
-                    dv = (b or {}).get("dest")
+                for b in (o, obj(o.get("effect")), obj(obj(o.get("application")).get("effect"))):
+                    dv = obj(b).get("dest")
                     if isinstance(dv, dict) and isinstance(dv.get("process"), str):
                         out.add(dv["process"] + "/" + str(dv.get("id")))
         # HB: the spreads this run's own records hold (asked, included, bound or stopped), and every checked to-do record, on any
@@ -389,7 +485,7 @@ def check_living(z, man):
         held = set()
         for path, o in todos:
             if run_of(o) == me:
-                for b in (o, o.get("effect"), (o.get("application") or {}).get("effect") if isinstance(o.get("application"), dict) else None):
+                for b in (o, o.get("effect"), obj(o.get("application")).get("effect")):
                     if isinstance(b, dict) and isinstance(b.get("spread"), str) and b["spread"]:
                         held.add(b["spread"])
         for path, o in todos:
@@ -414,10 +510,10 @@ def check_living(z, man):
             if not path.startswith("proposals/") or not CF.json_name(path):
                 continue
             o = packed(path) if dispatch(path)["fam"] == "scope" and not dispatch(path)["bad"] else None
-            lp = (o or {}).get("loop") if isinstance(o, dict) else None
+            lp = obj(o).get("loop")
             if not isinstance(lp, dict) or lp.get("process") != me["process"] or lp.get("run") != me["id"]:
                 continue
-            for ch in o.get("changes") or []:
+            for ch in arr(o.get("changes")):
                 if isinstance(ch, dict) and ch.get("op") == "choose" and isinstance(ch.get("run"), str) and ch["run"]:
                     cp = proc_of_step(lp.get("step"))
                     out.add((cp or "?") + "/" + ch["run"])
@@ -500,11 +596,6 @@ def check_living(z, man):
             return ("malformed", "it isn't a run this copy can read")
         return root_problem(key, run)
 
-    # The run a pack was made for is named in its manifest exactly once, as every export names it, partial ones included.
-    sel = (man.get("scope") or {}).get("run") if isinstance(man.get("scope"), dict) else None
-    if sel is not None and sum(1 for r in man["runs"] if r.get("key") == sel) != 1:
-        sys.exit("living: the pack was made for " + str(sel) + ", but its manifest doesn't name that run exactly once")
-
     n = 0
     for r in man["runs"]:
         lv = r.get("living")
@@ -527,14 +618,14 @@ def check_living(z, man):
                 sys.exit("living: " + r["key"] + " says its work is complete, but its run.json isn't one every reader reads (" + ru[0] + ": " + ru[1] + ")")
             continue
         run = packed("runs/" + r["key"] + "/run.json")
-        head = (run.get("living") or {}).get("head", "")
+        head = obj(run.get("living")).get("head", "")
         reached.clear()
         plans_wanted.clear()
         facts_wanted.clear()
         if lv.get("head") != head:
             sys.exit("living: " + r["key"] + " names another work head than its run.json")
-        own_receipt = (run.get("living") or {}).get("receipt", "")
-        if own_receipt and (lv.get("receipt") or {}).get("id") != own_receipt:
+        own_receipt = obj(run.get("living")).get("receipt", "")
+        if own_receipt and obj(lv.get("receipt")).get("id") != own_receipt:
             sys.exit("living: " + r["key"] + " names another receipt than its run.json")
         whole, chain, closed, good_receipt, copies = check_run(run)
         if not lv.get("complete"):
@@ -582,7 +673,7 @@ def check_living(z, man):
                 d = named[k]
                 if cp2:
                     sys.exit("living: " + r["key"] + " says its work is complete, but the pack holds two different copies of proposals/" + cp2 + ".json, a record " + k + " rests on")
-                if not w2 or c2 != d.get("chain") or (dep_run.get("living") or {}).get("head", "") != d.get("head", ""):
+                if not w2 or c2 != d.get("chain") or obj(dep_run.get("living")).get("head", "") != d.get("head", ""):
                     sys.exit("living: " + r["key"] + " says its work is complete, but the application chain of " + k + " isn't all in the pack")
                 if not cl2:
                     sys.exit("living: " + r["key"] + " says its work is complete, but a request, an authority or a record " + k + " saw isn't in the pack")
