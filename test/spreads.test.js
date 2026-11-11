@@ -247,6 +247,36 @@ rule('Including a cleared story is one opt-in; on an approved loop it reopens ap
   same(inc.preview.consequence.reopens, ['loop:each']);
   same(inc.preview.status, 'waiting', 'a delegation never reopens an approval');
 });
+/* Review round 16 (UC): opting a cleared item in turns it from exempt to owing, so it always needs a person: no delegation
+   covers spread-include, whatever its scope, whether or not an approval reopens. Stopping (which releases work) and a
+   reopened approval follow the same rule. */
+rule('Round 16 (UC): no delegation covers spread-include, spread-stop or a reopened approval, whatever its scope', () => {
+  const scopes = [
+    { subject: { tool: 'release-helper' }, ops: ['add'], by: { tool: 'release-helper', version: '1.0' } },
+    { subject: { tool: 'release-helper' }, ops: ['add', 'done'], by: { tool: 'release-helper', version: '1.0' } },
+    { subject: { tool: 'release-helper' }, ops: ['add', 'done', 'reopen'], by: { tool: 'release-helper', version: '1.0' } },
+    { subject: { person: 'person-blake' }, ops: ['add', 'done', 'reopen'], by: { person: 'person-blake' } }
+  ];
+  const off = [];
+  scopes.forEach((sc, n) => {
+    for (const approved of [false, true]) for (const op of ['spread-include', 'spread-stop']) {
+      const W = world([101]); W.kid(101, { cleared: true }); W.spreadAdd(); W.land(W.r);
+      if (approved) { const V = W.loopView(); W.mark(); R.done(W.r, R.mapOf(W.r), 'each', 'person-morgan', AT, { _loop: { ok: true, snapshot: LP.approval(V.ledger, V.rollup, { by: 'person-morgan', at: AT }) } }); }
+      const g = T.grantOf(W.r, { subject: sc.subject, ops: sc.ops, targets: [{ step: 'each' }], adds: 10, by: 'person-morgan', key: 'g-uc' + n, records: W.recs, people: PEOPLE, at: AT });
+      if (g.why) { off.push('grant ' + n + ': ' + g.why); continue; }
+      W.push(g.record, g.name);
+      const sp = spreadOf(W), before = W.one().items.map(i => i.state).join(',');
+      const body = op === 'spread-include' ? { op, spread: sp.id, item: { uid: uid(101), attempt: 1 } } : { op, spread: sp.id, reason: 'Covered elsewhere', owed: W.one().items.filter(i => i.owed).map(i => ({ uid: i.uid, attempt: i.attempt })) };
+      const q = W.ask(W.r, body, Object.assign({ key: 'uc-' + n + '-' + op + '-' + approved }, sc.by));
+      W.land(W.r);
+      const tag = op + ' by ' + JSON.stringify(sc.subject) + ' ' + sc.ops.join('+') + (approved ? ', loop approved' : ', loop not approved');
+      if (q.preview.status !== 'waiting') off.push(tag + ': ' + q.preview.status + ' (' + (q.preview.why || '') + ')');
+      if (W.one().items.map(i => i.state).join(',') !== before) off.push(tag + ': landed without a person (' + before + ' -> ' + W.one().items.map(i => i.state).join(',') + ')');
+      if (op === 'spread-stop' && spreadOf(W).state === 'stopped') off.push(tag + ': stopped without a person');
+    }
+  });
+  same(off, []);
+});
 rule('Stopping needs a person, ends future inheritance only, and keeps every obligation it had', () => {
   const W = world([101, 102]); W.kid(101); W.kid(102);
   W.spreadAdd(); W.land(W.r);
