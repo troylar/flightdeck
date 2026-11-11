@@ -286,4 +286,24 @@ rule('This version: an end whose time the app can\'t read is never confirmed by 
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   }
 });
+/* CE: the shipped checker reads publication.json with the app's replacement decoder (its payload still checked over the raw
+   bytes): a byte that isn't UTF-8 (FF) in a version's change note is the version the app reads, current for both. */
+rule('This version: a publication.json with a byte that isn\'t UTF-8 in its change note is current for the app and the checker alike', async () => {
+  const { files } = await folder(), pp = Object.keys(files).filter((k) => /^publications\/release-notes\/v\d+-[a-z0-9]+\/publication\.json$/.test(k))[0];
+  assert.ok(pp, 'set-up: the publication record');
+  const t = String(files[pp]), b = Buffer.from(t), at = b.indexOf(Buffer.from('"First"'));
+  assert.ok(at >= 0, 'set-up: the change note');
+  const f = Object.assign({}, files, { [pp]: Buffer.concat([b.slice(0, at + 4), Buffer.from([0xff]), b.slice(at + 5)]) });
+  const folderName = pp.split('/')[2], { root, dir } = tree(f);
+  try {
+    /* The app's reader (the command reads the folder's bytes with the app's decoder): the version is current, complete. */
+    const pr = cli(MINE, 'process', dir, 'release-notes', '--contract', '2', '--json');
+    assert.strictEqual(pr.code, 0, pr.out.slice(0, 600));
+    same([pr.json.data.version.folder, pr.json.data.version.usable, pr.json.problems || []], [folderName, true, []], 'the app reads it: ' + pr.out.slice(0, 600));
+    if (!PY) return;
+    const res = JSON.parse(cp.execFileSync(PY, ['-I', path.join(ROOT, 'example-folder', '.flightdeck', 'skills', '_flightdeck', 'check_folder.py'), dir], { encoding: 'utf8' }));
+    const pub = res.publications['release-notes'];
+    same([pub.current, pub.versions.map((v) => v.status)], [folderName, ['complete']], JSON.stringify(pub));
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
 run();

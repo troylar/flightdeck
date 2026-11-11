@@ -4416,7 +4416,8 @@ def main():
         versions = []
         for name in sorted(os.listdir(pdir)):
             if os.path.isdir(os.path.join(pdir, name)) and re.match(r"^v\d+-", name, re.A):
-                status, why, info = check_publication(os.path.join(pdir, name), name)
+                # Read as the app reads a version's files (its replacement decoder); the payload is still over the raw bytes.
+                status, why, info = check_publication(os.path.join(pdir, name), name, read_app_text)
                 versions.append({"folder": name, "version": info.get("version") if info else None, "status": status, "why": why,
                                  "publishedBy": info.get("publishedBy") if info else None, "publishedAt": info.get("publishedAt") if info else None})
         # Same choice as the app: versions published twice under one number are set aside, and the highest of the rest is current.
