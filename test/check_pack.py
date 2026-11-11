@@ -6,6 +6,8 @@ any of it must say it is partial. Run with python3 -I."""
 import hashlib, json, os, re, sys, zipfile
 
 # The shipped checker's own record reader (Python, independent of the app): a packed receipt is read by its rules.
+# Like the shipped checker, it writes no bytecode cache beside the files it loads.
+sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "example-folder", ".flightdeck", "skills", "_flightdeck"))
 import check_folder as CF  # noqa: E402
 # Every run is judged as every reader of the app judges it, ported once in the shipped run_verdict.py: the root run as the

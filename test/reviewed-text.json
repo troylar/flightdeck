@@ -53,8 +53,8 @@
       "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "cd04d15caf0a55cd120b8d4d8d890fbaa9d8e00dd503074514cfc0bf38cff129",
-      "reviewed": "GA: check_folder.py registers itself for run_verdict only when it is in sys.modules (loaded by a path alone, run_verdict imports its own copy); checked for direct writes and unconditional deletes: none"
+      "sha256": "d6f84d7d5287d63bba265e0860d9df8e4f1cb22548a1d502fd52aa78fa0a6823",
+      "reviewed": "HA: check_folder.py sets sys.dont_write_bytecode before loading run_verdict.py, so the checker writes no __pycache__ in the team folder; checked for direct writes and unconditional deletes: this removes the only write"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
       "sha256": "197779e5fb047d6137527db0211659a2db320470f3086d61b5126d6e868b0cf8",
@@ -201,8 +201,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "867f2686b1071dd12ad9cbff3edf28357a4c25b56cdb995dcd3bc6ce42210b5c",
-      "reviewed": "GA: check_folder.py registers itself for run_verdict only when it is in sys.modules (loaded by a path alone, run_verdict imports its own copy); checked for direct writes and unconditional deletes: none"
+      "sha256": "7adca134d3a11d09c1fa77b182c10748b3b3818924d748eb2e59672d8cac82d3",
+      "reviewed": "HA: check_folder.py sets sys.dont_write_bytecode before loading run_verdict.py, so the checker writes no __pycache__ in the team folder; checked for direct writes and unconditional deletes: this removes the only write"
     },
     "src/core/appjson.js": {
       "sha256": "98019ea60f70df332d6774d2ac26d0bbd028e95f1f76f543cbe54c89cb8cd4fe",

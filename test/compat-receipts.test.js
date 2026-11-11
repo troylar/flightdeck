@@ -436,4 +436,22 @@ rule('This version: an ended living run whose run.json any reader refuses, for a
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   }
 });
+/* HA: the folder checker writes nothing, a cold import of the run port it ships included: run from a team folder's own skills,
+   with no bytecode cached beside it, judging an ended living run's receipt (which loads run_verdict.py), every file in the
+   team folder is the same afterward, and no __pycache__ appears. */
+rule('This version: the folder checker, run from the team folder\'s own skills with nothing cached, writes nothing there, the run port it loads included', () => {
+  if (!PY) return;
+  return folder().then(({ files }) => {
+    const { root, dir } = tree(files), skills = path.join(dir, '.flightdeck', 'skills', '_flightdeck'), src = path.join(ROOT, 'example-folder', '.flightdeck', 'skills', '_flightdeck');
+    try {
+      fs.mkdirSync(skills, { recursive: true });
+      fs.readdirSync(src).filter((n) => /\.py$/.test(n)).forEach((n) => fs.copyFileSync(path.join(src, n), path.join(skills, n)));
+      const snap = () => { const out = []; const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).forEach((e) => { const p = path.join(d, e.name); if (e.isDirectory()) { out.push(path.relative(dir, p) + '/'); walk(p); } else { const st = fs.statSync(p); out.push(path.relative(dir, p) + ' ' + st.size + ' ' + st.mtimeMs); } }); walk(dir); return out.sort(); };
+      const before = snap();
+      const res = JSON.parse(cp.execFileSync(PY, ['-I', path.join(skills, 'check_folder.py'), dir], { encoding: 'utf8', env: Object.assign({}, process.env, { PYTHONDONTWRITEBYTECODE: '' }) }));
+      assert.ok((res.runReceipts || []).some((x) => x.run === 'release-notes/run-l' && x.state === 'confirmed'), 'set-up: the living run\'s receipt is judged (the run port loaded): ' + JSON.stringify(res.runReceipts));
+      same(snap(), before, 'the team folder is unchanged');
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+});
 run();

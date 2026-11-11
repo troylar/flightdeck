@@ -40,6 +40,8 @@ import time
 
 # The whole run port (run_verdict.py, beside this file) imports this module by name: under python -I this folder isn't on the
 # path, and run as a script this module is __main__, so both are made so here (loaded by a path alone, it imports its own).
+# The checker writes nothing in the team folder: no bytecode cache beside the files it loads either.
+sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 if __name__ in sys.modules:
     sys.modules.setdefault("check_folder", sys.modules[__name__])
