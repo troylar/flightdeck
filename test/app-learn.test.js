@@ -762,69 +762,177 @@ rule('A spread\'s keep is held when its checklist\'s publication can\'t be read 
   assert.strictEqual(keeps(app)[0].template.process, 'validate-story');
 });
 
+/* BC: a copy that arrives during the last read before the last delete (people.json, which no guard can follow) is never
+   said withdrawn: the folder is listed again once the deletes are done, and the copy still there is named. */
+rule('A keep copy arriving during the last read before a withdrawal\'s last delete is said, by path, never "Withdrawn"', async () => {
+  const app = await setup(), id = await added(app, 'Post the release notes');
+  app.click('keep', id, { kind: 'todo' }); await app.tick(120); await refresh(app, 300);
+  const k = keeps(app)[0], own = 'proposals/' + k.id + '.json', o = JSON.parse(app.fs.files[own].t); o.reason = 'Another reason';
+  await openPage(app);
+  const fs = app.fs, rd = fs.read.bind(fs), rm = fs.remove.bind(fs); let armed = false, removed = 0;
+  fs.remove = (p, ...a) => { removed++; return rm(p, ...a); };
+  fs.read = (p, x) => { if (armed && p === 'people.json') { armed = false; fs.files['proposals/' + k.id + ' (2).json'] = { t: JSON.stringify(o, null, 2) + '\n', m: Date.now() }; } return rd(p, x); };
+  armed = true; app.click('keep-withdraw', k.id, { process: 'release-notes' }); await app.tick(500);
+  fs.read = rd; fs.remove = rm;
+  assert.ok(!armed && removed === 1 && !app.fs.files[own], 'set-up: the copy arrived during the last read, and the original was removed');
+  const t = txt(app.html());
+  assert.ok(!/Withdrawn: that keep is no longer suggested/.test(t), 'never said withdrawn');
+  assert.ok(t.indexOf(k.id + ' (2).json') >= 0 && /Withdrawn in part/.test(t), 'the copy still there is named: ' + (t.match(/Withdrawn[^.]*\.[^.]*\./) || [])[0]);
+});
+
+/* BA-BC: the one guard order of every keep and publication write, as a full matrix: every path, a pause at every read
+   before its writes, and each change: a differing copy, a torn copy, the keep deleted, a version published that moves
+   ownership (where the path has an owner), the person or the folder switched, the person marked inactive, people.json
+   made unreadable. Nothing the path writes lands after the change. */
+/* A keep file still there (its own, or a copy left by a delete before the pause) and its id: a new " (2)" copy is that id's. */
+const MX_COPY = (fs) => { const p = Object.keys(fs.files).filter(q => /^proposals\/req-keep-/.test(q)).sort()[0]; if (!p) return null; try { const o = JSON.parse(fs.files[p].t); return { o, to: 'proposals/' + o.id + ' (2).json' }; } catch (e) { return null; } };
+const MX_CHANGES = {
+  differs: (fs) => { const c = MX_COPY(fs); if (!c) return; c.o.reason = 'Another reason'; fs.files[c.to] = { t: JSON.stringify(c.o, null, 2) + '\n', m: Date.now() }; },
+  torn: (fs) => { const c = MX_COPY(fs); if (!c) return; fs.files[c.to] = { t: '{ "kind": "ke', m: Date.now() }; },
+  gone: (fs) => { Object.keys(fs.files).filter(q => /^proposals\/req-keep-/.test(q)).forEach(q => { delete fs.files[q]; }); }
+};
+const mxCorr = (p) => /^corrections\//.test(p), mxProps = (p) => /^proposals\/req-/.test(p), mxPub = (p) => /^publications\//.test(p) && !/\/v\d+-ow/.test(p);
+/* Each case starts from the same folder: built once per kind (a keep, three identical copies, applied, staged, applied
+   with its decision lost), then copied into a fresh window, where only the clicks of the path are made again. */
+const MX_BASE = {
+  kept: async () => { const app = await setup(), id = await added(app, 'Post the release notes'); app.click('keep', id, { kind: 'todo' }); await app.tick(120); await refresh(app, 300); app.mxGid = groupId(app); return app; },
+  copies: async () => { const app = await MX_BASE.kept(), k = keeps(app)[0], t = app.fs.files['proposals/' + k.id + '.json'].t;
+    app.fs.files['proposals/' + k.id + ' (1).json'] = { t, m: Date.now() }; app.fs.files['proposals/' + k.id + '-LAPTOP.json'] = { t, m: Date.now() }; return app; },
+  applied: async () => { const { app, gid } = await appliedKeep(); app.mxGid = gid; return app; },
+  staged: async () => { const { app, gid } = await appliedKeep(); app.mxGid = gid; await openPage(app); app.set('change-note', 'Post the notes'); app.click('stage-draft', 'release-notes'); await app.tick(300); return app; },
+  lost: async () => { const app = await MX_BASE.kept(), gid = app.mxGid, orig = app.PF.repo.decideCorrection; let fails = 1;
+    app.click('keep-open', gid, { process: 'release-notes' }); await app.tick(120); app.choose('person-morgan'); await app.tick(80); app.click('corr-review', gid); await app.tick(60);
+    app.PF.repo.decideCorrection = function () { if (fails-- > 0) return Promise.reject(new Error('OneDrive is offline')); return orig.apply(this, arguments); };
+    app.click('corr-apply', gid); await app.tick(300); app.PF.repo.decideCorrection = orig;
+    assert.ok(/Post the release notes/.test(app.fs.files['maps/drafts/release-notes.md'].t) && !app.files('corrections/release-notes/').length, 'set-up: the draft has it, its decision was lost');
+    return app; }
+};
+const mxSnaps = Object.create(null);
+async function mxFrom(kind, who) {
+  if (!mxSnaps[kind]) mxSnaps[kind] = MX_BASE[kind]().then((app) => ({ files: structuredClone(app.fs.files), gid: app.mxGid }));
+  const { files, gid } = await mxSnaps[kind], app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(80);
+  Object.keys(app.fs.files).forEach((k) => { delete app.fs.files[k]; });
+  Object.keys(files).forEach((k) => { app.fs.files[k] = structuredClone(files[k]); });
+  app.choose(who); await app.tick(40); await refresh(app, 300);
+  app.mxGid = gid;
+  return app;
+}
+/* A keep's correction opened and reviewed by its owner (Morgan): the overlay the decision paths act from. */
+async function mxReviewed(kind) {
+  const app = await mxFrom(kind || 'kept', 'person-morgan'), gid = app.mxGid;
+  app.click('keep-open', gid, { process: 'release-notes' }); await app.tick(120);
+  app.click('corr-review', gid); await app.tick(60);
+  return { app, gid };
+}
+const MX_PATHS = {
+  applied: async () => { const app = await mxFrom('kept', 'person-morgan'), gid = app.mxGid; await openPage(app);
+    return { app, act: () => app.click('corr-applied', gid), mine: mxCorr, who: 'person-morgan', other: 'person-avery', owned: true }; },
+  'decline-page': async () => { const app = await mxFrom('kept', 'person-morgan'), gid = app.mxGid; await openPage(app);
+    app.click('pick', gid, { kind: 'corr-decline' }); await app.tick(20); app.set('pick-input', 'Not for this checklist');
+    return { app, act: () => app.click('corr-decline', gid), mine: mxCorr, who: 'person-morgan', other: 'person-avery', owned: true }; },
+  'decline-review': async () => { const { app, gid } = await mxReviewed(); app.click('corr-ca-declining', gid); await app.tick(20); app.set('ca-reason', 'Not for this checklist');
+    return { app, act: () => app.click('corr-ca-decline', gid), mine: mxCorr, who: 'person-morgan', other: 'person-avery', owned: true }; },
+  addressed: async () => { const { app, gid } = await mxReviewed();
+    return { app, act: () => app.click('corr-addressed', gid), mine: mxCorr, who: 'person-morgan', other: 'person-avery', owned: true }; },
+  link: async () => { const { app, gid } = await mxReviewed('lost');
+    assert.ok(/data-act="corr-link"/.test(app.overlay()), 'set-up: Link this correction');
+    return { app, act: () => app.click('corr-link', gid), mine: mxCorr, who: 'person-morgan', other: 'person-avery', owned: true }; },
+  apply: async () => { const { app, gid } = await mxReviewed();
+    return { app, act: () => app.click('corr-apply', gid), mine: (p) => mxCorr(p) || /^maps\/drafts\//.test(p), who: 'person-morgan', other: 'person-avery', owned: true }; },
+  withdraw: async () => { const app = await mxFrom('kept', 'person-avery'), gid = app.mxGid;
+    return { app, act: () => app.click('corr-withdraw', gid, { process: 'release-notes' }), mine: mxCorr, who: 'person-avery', other: 'person-casey' }; },
+  'withdraw-one': async () => { const app = await mxFrom('kept', 'person-avery'), k = keeps(app)[0]; await openPage(app);
+    return { app, act: () => app.click('keep-withdraw', k.id, { process: 'release-notes' }), mine: mxProps, removes: true, who: 'person-avery', other: 'person-casey' }; },
+  'withdraw-copies': async () => { const app = await mxFrom('copies', 'person-avery'), k = keeps(app)[0]; await openPage(app);
+    assert.strictEqual(app.files('proposals/req-keep-').length, 3, 'set-up: three identical copies');
+    return { app, act: () => app.click('keep-withdraw', k.id, { process: 'release-notes' }), mine: mxProps, removes: true, who: 'person-avery', other: 'person-casey' }; },
+  publish: async () => { const app = await mxFrom('applied', 'person-morgan'); await openPage(app); app.set('change-note', 'Post the notes');
+    return { app, act: () => app.click('publish', 'release-notes'), mine: mxPub, who: 'person-morgan', other: 'person-avery', owned: true }; },
+  promote: async () => { const app = await mxFrom('staged', 'person-morgan'); await openPage(app);
+    const st = app.files('staged/release-notes/').filter(f => /publication\.json$/.test(f)), folder = JSON.parse(app.fs.files[st[0]].t).folder;
+    return { app, act: () => app.click('promote-stage', folder), mine: mxPub, who: 'person-morgan', other: 'person-avery', owned: true }; }
+};
+/* The longest paths run in parts (every nth case), so the suite's shards share them. */
+const MX_PARTS = { publish: 4, promote: 4, 'withdraw-copies': 2 };
+for (const way of Object.keys(MX_PATHS)) for (let part = 0; part < (MX_PARTS[way] || 1); part++) {
+  const n = MX_PARTS[way] || 1, tag = n > 1 ? way + ', part ' + (part + 1) + ' of ' + n : way;
+  rule('The one keep guard order, as a matrix: ' + tag + ' writes nothing after a change at any read (a differing or torn copy, the keep deleted, ownership moved, the person, folder, activity or people.json)', async () => {
+    const r = await race('matrix ' + tag, async () => {
+      const c = await MX_PATHS[way]();
+      return Object.assign(c, { extra: MX_CHANGES }, c.owned ? { transfer: (fs) => transfer(c.app, fs) } : {});
+    }, { every: true, dry: !!process.env.MX_DRY, part: n > 1 ? [part, n] : null });
+    if (process.env.RACE_SAY) console.log(tag + ' ' + JSON.stringify(r));
+  });
+}
+
 /* Every write path of keeping for next time, raced (test/race-harness.js): each async read before its writes paused in turn,
    the person switched, the folder switched, the person marked inactive or people.json made unreadable, then released. */
-rule('Every keep write path is guarded after every read and right before every write: a pause and a change of person, folder, activity or people.json writes nothing after it', async () => {
-  const only = process.env.RACE ? process.env.RACE.split(',') : null, want = (n) => !only || only.indexOf(n) >= 0, out = {};
-  const proposals = (p) => /^proposals\/req-/.test(p), corr = (p) => /^corrections\//.test(p);
-  /* MA: the keep a published or promoted version rests on is deleted mid-write: it holds for everyone, the owner too. */
-  const keepGone = { keepgone: (fs) => { Object.keys(fs.files).filter(p => /^proposals\/req-keep-/.test(p)).forEach(p => { delete fs.files[p]; }); } };
-  const kept = async (who) => { const app = await setup(), id = await added(app, 'Post the release notes'); app.click('keep', id, { kind: 'todo' }); await app.tick(120); await refresh(app, 300); const gid = groupId(app); if (who) { app.choose(who); await app.tick(80); } return { app, gid }; };
-  if (want('keep')) out.keep = await race('keep', async () => {
-    const app = await setup(), id = await added(app, 'Post the release notes');
-    return { app, act: () => app.click('keep', id, { kind: 'todo' }), mine: proposals, who: 'person-avery', other: 'person-casey' };
-  });
-  if (want('withdraw')) out.withdraw = await race('withdraw', async () => {
-    const { app, gid } = await kept();
-    return { app, act: () => app.click('corr-withdraw', gid, { process: 'release-notes' }), mine: corr, who: 'person-avery', other: 'person-casey' };
-  });
-  /* OB: withdrawing one keep removes its record, under the same guard. */
-  if (want('withdraw-keep')) out['withdraw-keep'] = await race('withdraw-keep', async () => {
-    const app = await setup(), id = await added(app, 'Post the release notes'); app.click('keep', id, { kind: 'todo' }); await app.tick(120); await refresh(app, 300);
-    const k = keeps(app)[0]; assert.ok(k, 'set-up: a keep'); await openPage(app);
-    return { app, act: () => app.click('keep-withdraw', k.id, { process: 'release-notes' }), mine: proposals, removes: true, who: 'person-avery', other: 'person-casey' };
-  });
-  /* YA: a keep with three identical copies: every delete is guarded right before it removes, at every position, against a
-     change of person, folder, activity, people.json, or a copy's bytes. */
-  const touch = { bytes: (fs) => { Object.keys(fs.files).filter(p => /^proposals\/req-keep-/.test(p)).forEach(p => { fs.files[p] = { t: fs.files[p].t + ' ', m: Date.now() }; }); } };
-  if (want('withdraw-copies')) out['withdraw-copies'] = await race('withdraw-copies', async () => {
-    const app = await setup(), id = await added(app, 'Post the release notes'); app.click('keep', id, { kind: 'todo' }); await app.tick(120);
-    const k = keeps(app)[0], t = app.fs.files['proposals/' + k.id + '.json'].t;
-    app.fs.files['proposals/' + k.id + ' (1).json'] = { t, m: Date.now() }; app.fs.files['proposals/' + k.id + '-LAPTOP.json'] = { t, m: Date.now() };
-    await refresh(app, 300); await openPage(app);
-    assert.strictEqual(app.files('proposals/req-keep-').length, 3, 'set-up: three identical copies');
-    return { app, act: () => app.click('keep-withdraw', k.id, { process: 'release-notes' }), mine: proposals, removes: true, who: 'person-avery', other: 'person-casey', extra: touch };
-  });
-  /* YB: withdrawing the whole correction reads the keep's copies again too: a differing copy arriving refuses it. */
-  const differs = { copy: (fs) => { const p = Object.keys(fs.files).filter(q => /^proposals\/req-keep-[a-z0-9-]+\.json$/.test(q))[0], o = JSON.parse(fs.files[p].t); o.reason = 'Another reason'; fs.files[p.replace(/\.json$/, ' (1).json')] = { t: JSON.stringify(o, null, 2) + '\n', m: Date.now() }; } };
-  if (want('withdraw-differs')) out['withdraw-differs'] = await race('withdraw-differs', async () => {
-    const { app, gid } = await kept();
-    return { app, act: () => app.click('corr-withdraw', gid, { process: 'release-notes' }), mine: corr, who: 'person-avery', other: 'person-casey', extra: differs };
-  });
-  if (want('decide')) out.decide = await race('decide', async () => {
-    const { app, gid } = await kept('person-morgan'); await openPage(app);
-    return { app, act: () => app.click('corr-applied', gid), mine: corr, who: 'person-morgan', other: 'person-avery', transfer: (fs) => transfer(app, fs) };
-  });
-  if (want('apply')) out.apply = await race('apply', async () => {
-    const { app, gid } = await kept();
-    app.click('keep-open', gid, { process: 'release-notes' }); await app.tick(120);
-    app.choose('person-morgan'); await app.tick(80);
-    app.click('corr-review', gid); await app.tick(60);
-    return { app, act: () => app.click('corr-apply', gid), mine: (p) => corr(p) || /^maps\/drafts\//.test(p), who: 'person-morgan', other: 'person-avery', transfer: (fs) => transfer(app, fs) };
-  });
-  if (want('publish')) out.publish = await race('publish', async () => {
-    const { app } = await appliedKeep(); await openPage(app);
-    app.set('change-note', 'Post the notes');
-    return { app, act: () => app.click('publish', 'release-notes'), mine: (p) => /^publications\//.test(p) && !/\/v\d+-ow/.test(p), who: 'person-morgan', other: 'person-avery', transfer: (fs) => transfer(app, fs), extra: keepGone };
-  });
-  if (want('promote')) out.promote = await race('promote', async () => {
-    const { app } = await appliedKeep(); await openPage(app);
-    app.set('change-note', 'Post the notes'); app.click('stage-draft', 'release-notes'); await app.tick(300);
-    const st = app.files('staged/release-notes/').filter(f => /publication\.json$/.test(f)), folder = JSON.parse(app.fs.files[st[0]].t).folder;
-    await refresh(app, 200); await openPage(app);
-    return { app, act: () => app.click('promote-stage', folder), mine: (p) => /^publications\//.test(p) && !/\/v\d+-ow/.test(p), who: 'person-morgan', other: 'person-avery', transfer: (fs) => transfer(app, fs), extra: keepGone };
-  });
-  if (process.env.RACE_SAY) console.log(JSON.stringify(out));
+/* Every write path of keeping for next time, one rule each (RACE=<names> picks them while working on one). */
+const OLD_RACES = {};
+const proposals = (p) => /^proposals\/req-/.test(p), corr = (p) => /^corrections\//.test(p);
+/* MA: the keep a published or promoted version rests on is deleted mid-write: it holds for everyone, the owner too. */
+const keepGone = { keepgone: (fs) => { Object.keys(fs.files).filter(p => /^proposals\/req-keep-/.test(p)).forEach(p => { delete fs.files[p]; }); } };
+const kept = async (who) => { const app = await setup(), id = await added(app, 'Post the release notes'); app.click('keep', id, { kind: 'todo' }); await app.tick(120); await refresh(app, 300); const gid = groupId(app); if (who) { app.choose(who); await app.tick(80); } return { app, gid }; };
+OLD_RACES['keep'] = () => race('keep', async () => {
+  const app = await setup(), id = await added(app, 'Post the release notes');
+  return { app, act: () => app.click('keep', id, { kind: 'todo' }), mine: proposals, who: 'person-avery', other: 'person-casey' };
 });
+OLD_RACES['withdraw'] = () => race('withdraw', async () => {
+  const { app, gid } = await kept();
+  return { app, act: () => app.click('corr-withdraw', gid, { process: 'release-notes' }), mine: corr, who: 'person-avery', other: 'person-casey' };
+});
+/* OB: withdrawing one keep removes its record, under the same guard. */
+OLD_RACES['withdraw-keep'] = () => race('withdraw-keep', async () => {
+  const app = await setup(), id = await added(app, 'Post the release notes'); app.click('keep', id, { kind: 'todo' }); await app.tick(120); await refresh(app, 300);
+  const k = keeps(app)[0]; assert.ok(k, 'set-up: a keep'); await openPage(app);
+  return { app, act: () => app.click('keep-withdraw', k.id, { process: 'release-notes' }), mine: proposals, removes: true, who: 'person-avery', other: 'person-casey' };
+});
+/* YA: a keep with three identical copies: every delete is guarded right before it removes, at every position, against a
+   change of person, folder, activity, people.json, or a copy's bytes. */
+const touch = { bytes: (fs) => { Object.keys(fs.files).filter(p => /^proposals\/req-keep-/.test(p)).forEach(p => { fs.files[p] = { t: fs.files[p].t + ' ', m: Date.now() }; }); } };
+OLD_RACES['withdraw-copies'] = () => race('withdraw-copies', async () => {
+  const app = await setup(), id = await added(app, 'Post the release notes'); app.click('keep', id, { kind: 'todo' }); await app.tick(120);
+  const k = keeps(app)[0], t = app.fs.files['proposals/' + k.id + '.json'].t;
+  app.fs.files['proposals/' + k.id + ' (1).json'] = { t, m: Date.now() }; app.fs.files['proposals/' + k.id + '-LAPTOP.json'] = { t, m: Date.now() };
+  await refresh(app, 300); await openPage(app);
+  assert.strictEqual(app.files('proposals/req-keep-').length, 3, 'set-up: three identical copies');
+  return { app, act: () => app.click('keep-withdraw', k.id, { process: 'release-notes' }), mine: proposals, removes: true, who: 'person-avery', other: 'person-casey', extra: touch };
+});
+/* YB: withdrawing the whole correction reads the keep's copies again too: a differing copy arriving refuses it. */
+const differs = { copy: (fs) => { const p = Object.keys(fs.files).filter(q => /^proposals\/req-keep-[a-z0-9-]+\.json$/.test(q))[0], o = JSON.parse(fs.files[p].t); o.reason = 'Another reason'; fs.files[p.replace(/\.json$/, ' (1).json')] = { t: JSON.stringify(o, null, 2) + '\n', m: Date.now() }; } };
+OLD_RACES['withdraw-differs'] = () => race('withdraw-differs', async () => {
+  const { app, gid } = await kept();
+  return { app, act: () => app.click('corr-withdraw', gid, { process: 'release-notes' }), mine: corr, who: 'person-avery', other: 'person-casey', extra: differs };
+});
+OLD_RACES['decide'] = () => race('decide', async () => {
+  const { app, gid } = await kept('person-morgan'); await openPage(app);
+  return { app, act: () => app.click('corr-applied', gid), mine: corr, who: 'person-morgan', other: 'person-avery', transfer: (fs) => transfer(app, fs) };
+});
+OLD_RACES['apply'] = () => race('apply', async () => {
+  const { app, gid } = await kept();
+  app.click('keep-open', gid, { process: 'release-notes' }); await app.tick(120);
+  app.choose('person-morgan'); await app.tick(80);
+  app.click('corr-review', gid); await app.tick(60);
+  return { app, act: () => app.click('corr-apply', gid), mine: (p) => corr(p) || /^maps\/drafts\//.test(p), who: 'person-morgan', other: 'person-avery', transfer: (fs) => transfer(app, fs) };
+});
+OLD_RACES['publish'] = () => race('publish', async () => {
+  const { app } = await appliedKeep(); await openPage(app);
+  app.set('change-note', 'Post the notes');
+  return { app, act: () => app.click('publish', 'release-notes'), mine: (p) => /^publications\//.test(p) && !/\/v\d+-ow/.test(p), who: 'person-morgan', other: 'person-avery', transfer: (fs) => transfer(app, fs), extra: keepGone };
+});
+OLD_RACES['promote'] = () => race('promote', async () => {
+  const { app } = await appliedKeep(); await openPage(app);
+  app.set('change-note', 'Post the notes'); app.click('stage-draft', 'release-notes'); await app.tick(300);
+  const st = app.files('staged/release-notes/').filter(f => /publication\.json$/.test(f)), folder = JSON.parse(app.fs.files[st[0]].t).folder;
+  await refresh(app, 200); await openPage(app);
+  return { app, act: () => app.click('promote-stage', folder), mine: (p) => /^publications\//.test(p) && !/\/v\d+-ow/.test(p), who: 'person-morgan', other: 'person-avery', transfer: (fs) => transfer(app, fs), extra: keepGone };
+});
+for (const name of Object.keys(OLD_RACES)) {
+  rule('Every keep write path is guarded after every read and right before every write: ' + name + ', a pause and a change of person, folder, activity or people.json writes nothing after it', async () => {
+    if (process.env.RACE && process.env.RACE.split(',').indexOf(name) < 0) return;
+    const r = await OLD_RACES[name]();
+    if (process.env.RACE_SAY) console.log(name + ' ' + JSON.stringify(r));
+  });
+}
 
 run();

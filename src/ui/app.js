@@ -3661,6 +3661,51 @@
      a keep is its author's (every keep in it theirs). */
   /* Ownership comes from the checklist's publications read again inside the guard (its usable latest now), never this
      window's copy: a version published meanwhile that moves ownership moves it at the write. Unreadable, it refuses. */
+  /* BA-BC (4.0 slice 5): the one read order of every keep and publication write, so no check is made before a read that
+     could change what it approved. Inside the write guard, before every write:
+       1. the contents: the checklist's publications (o.pid), the keep records and every correction decision (repo.readKept),
+          then o.bytes(R)'s files read again in that order (a delete's other copies, then the one it removes last);
+       2. the memberships those contents rest on, listed again: proposals/ (the copy names of o.ids(R), every keep when it
+          gives null; none listed when it gives []) and publications/<pid>/ (its versions: ownership), the one the write
+          rests on most listed last: the versions for a decision or a publication (its owner), proposals/ for a withdrawal
+          (o.last: what it removes), whose copy (o.last(R)) is read once more between the two, so a change to it during
+          the versions' listing is seen too;
+       3. people.json last (writeGuard), then the synchronous check and the write, nothing awaited between.
+     Resolves what it read and what moved; the caller says why, by path. */
+  function keepReads(fx, o) {
+    var S = { proc: null, procErr: null, R: null, keptErr: null, bytes: Object.create(null), keepMoved: '', listErr: false, pubMoved: false, pubErr: false, seen: '' };
+    var vers = function (p) { return (p.all || []).concat(p.broken || []).map(function (x) { return x && (x.info ? x.info.folder : x.folder); }).filter(Boolean).sort().join('|'); };
+    var pub = o.pid ? repo.readProcess(fx, o.pid).then(function (p) { S.proc = p; if (p && !p.unlisted) S.seen = vers(p); }, function (e) { S.procErr = e || new Error('unreadable'); }) : Promise.resolve();
+    var copies = function () {
+      if (!S.R) return;
+      var ids = o.ids ? o.ids(S.R) : null;
+      if (ids && !ids.length) return;
+      var mine = function (n) { n = String(n); return ids ? ids.some(function (id) { return PF.todos.requestFile(n, id); }) : /^req-keep-/.test(n); };
+      var read = (S.R.keepFiles || []).map(function (x) { return x && x._file; }).concat((S.R.keepUnread || []).map(function (u) { return u && u.file; })).filter(function (n) { return typeof n === 'string' && mine(n); });
+      return fx.list('proposals').then(function (items) {
+        var now = (items || []).filter(function (v) { return v.kind !== 'dir' && mine(v.name); }).map(function (v) { return String(v.name); });
+        S.keepMoved = now.filter(function (f) { return read.indexOf(f) < 0; }).concat(read.filter(function (f) { return now.indexOf(f) < 0; })).sort()[0] || '';
+      }, function () { S.listErr = true; });
+    };
+    var versions = function () {
+      var p = S.proc;
+      if (!o.pid || S.procErr || !p || p.unlisted || !p.latest) return;
+      return fx.list('publications/' + o.pid).then(function (items) {
+        var now = (items || []).filter(function (v) { return v.kind === 'dir' && PF.publish.versionOf(v.name); }).map(function (v) { return v.name; }).sort().join('|');
+        S.pubMoved = now !== S.seen;
+      }, function () { S.pubErr = true; });
+    };
+    var again = function () {
+      var f = S.R && o.last ? o.last(S.R) : null;
+      if (!f) return;
+      return fx.read('proposals/' + f).then(function (x) { var h = x && typeof x.text === 'string' ? PF.sha256.hex(x.text) : null; if (S.bytes[f] !== h) S.bytes[f] = null; }, function () { S.bytes[f] = null; });
+    };
+    var steps = o.last ? [versions, again, copies] : [copies, versions];
+    return pub.then(function () { return repo.readKept(fx); }).then(function (R) { S.R = R; }, function (e) { S.keptErr = e || new Error('unreadable'); }).then(function () {
+      var fs0 = S.R && o.bytes ? o.bytes(S.R) || [] : [];
+      return fs0.reduce(function (pr, f) { return pr.then(function () { return fx.read('proposals/' + f).then(function (x) { S.bytes[f] = x && typeof x.text === 'string' ? PF.sha256.hex(x.text) : null; }, function () { S.bytes[f] = null; }); }); }, Promise.resolve());
+    }).then(function () { return steps.reduce(function (pr, f) { return pr.then(f); }, Promise.resolve()); }).then(function () { return S; });
+  }
   function keepGuard(g, pid, withdraw, at) {
     if (!g || !g.keep) return null;
     var proc = null, pw = '', authors = null;
@@ -3671,29 +3716,19 @@
       fresh: function (fx) {
         proc = null; pw = ''; authors = null;
         var gone = 'its checklist\'s publications couldn\'t be read again right before it was written, so its owner can\'t be told.';
-        /* Its owner from the publications read now (Withdraw needs only its author, so none are read for it). */
-        var owner = withdraw ? Promise.resolve() : repo.readProcess(fx, pid).then(function (p) {
-          if (!p || p.unlisted || !p.latest) { pw = gone; return; }
-          /* Listed again after every version was read: one published meanwhile (it may move ownership) refuses the write. */
-          var seen = (p.all || []).concat(p.broken || []).map(function (x) { return x && (x.info ? x.info.folder : x.folder); }).filter(Boolean).sort().join('|');
-          return fx.list('publications/' + pid).then(function (items) {
-            var now = (items || []).filter(function (v) { return v.kind === 'dir' && PF.publish.versionOf(v.name); }).map(function (v) { return v.name; }).sort().join('|');
-            if (now !== seen) pw = 'a version of its checklist was published while it was being written, so its owner is asked again: look again, then decide.'; else proc = p;
-          }, function () { pw = gone; });
-        }, function (e) { pw = 'its checklist\'s publications couldn\'t be read again right before it was written (' + (e && e.message || e) + '), so its owner can\'t be told.'; });
-        /* Then the group's keeps, last before people.json: every reviewed member present and exactly as reviewed (AA), no
-           copy of one that differs or can't be read (VA), and proposals/ listed again after the contents were read, so a
-           copy that arrived or went during the read refuses the write (AB). */
-        var rr = null;
-        return owner.then(function () { return repo.readKept(fx); }).then(function (r) { rr = r; return fx.list('proposals'); }).then(function (items) {
-          if (pw) return true;
-          var r = rr;
+        /* The one read order (keepReads): its owner's publications (none for Withdraw, which needs only its author), the
+           group's keeps, then proposals/ and the publications listed again, then people.json last. Every reviewed member
+           present and exactly as reviewed (AA), no copy of one that differs or can't be read (VA), and a copy, a keep or a
+           version that arrived or went during the reads refuses the write by path (AB, BA). */
+        var ids = g.members.map(function (m) { return m.id; });
+        return keepReads(fx, { pid: withdraw ? null : pid, ids: function () { return ids; } }).then(function (S) {
+          if (!withdraw && S.procErr) { pw = 'its checklist\'s publications couldn\'t be read again right before it was written (' + (S.procErr.message || S.procErr) + '), so its owner can\'t be told.'; return true; }
+          if (!withdraw && (!S.proc || S.proc.unlisted || !S.proc.latest)) { pw = gone; return true; }
+          if (S.keptErr) { pw = 'what was kept for next time couldn\'t be read again right before it was written (' + (S.keptErr.message || S.keptErr) + ').'; return true; }
+          var r = S.R;
           for (var i = 0; i < g.members.length; i++) {
             var id = g.members[i].id, cp = PF.learn.copiesOf(r.keepFiles, id);
             var torn = (r.keepUnread || []).filter(function (u) { return u && PF.todos.requestFile(String(u.file), id); });
-            var now = (items || []).filter(function (v) { return v.kind !== 'dir' && PF.todos.requestFile(String(v.name), id); }).map(function (v) { return v.name; }).sort();
-            var read = cp.files.concat(torn.map(function (u) { return u.file; })).sort();
-            if (now.join('/') !== read.join('/')) { var odd = now.filter(function (f) { return read.indexOf(f) < 0; }).concat(read.filter(function (f) { return now.indexOf(f) < 0; }))[0]; pw = 'proposals/' + odd + ' arrived or went while what was kept for next time was being read, so this correction isn\'t the one reviewed. Look again, then decide.'; return true; }
             if (torn.length) { pw = 'a copy of a keep in this correction can\'t be read now (proposals/' + torn[0].file + '), so whether it says the same can\'t be told.'; return true; }
             if (!cp.files.length) { pw = 'proposals/' + id + '.json, a keep in this correction, isn\'t in the folder now, so this correction isn\'t the one reviewed. Look again, then decide.'; return true; }
             if (!cp.same) { pw = PF.learn.copiesWhy({ keep: true, members: [{ copiesDiffer: cp.files }] }); return true; }
@@ -3701,8 +3736,14 @@
             if (!reviewed[id] || PF.learn.keepSig(rec) !== reviewed[id]) { pw = 'proposals/' + cp.files[0] + ' changed since this correction was reviewed, so it isn\'t the one reviewed. Look again, then decide.'; return true; }
             authors = authors || []; authors.push(rec.by && (rec.by.person || rec.by.tool));
           }
+          if (S.listErr) { pw = 'proposals/ couldn\'t be listed again right before it was written, so whether a copy of a keep in this correction arrived can\'t be told.'; return true; }
+          if (S.keepMoved) { pw = 'proposals/' + S.keepMoved + ' arrived or went while what was kept for next time was being read, so this correction isn\'t the one reviewed. Look again, then decide.'; return true; }
+          if (withdraw) return true;
+          if (S.pubErr) { pw = gone; return true; }
+          if (S.pubMoved) { pw = 'a version of its checklist was published while it was being written, so its owner is asked again: look again, then decide.'; return true; }
+          proc = S.proc;
           return true;
-        }, function (e) { if (!pw) pw = 'what was kept for next time couldn\'t be read again right before it was written (' + (e && e.message || e) + ').'; return true; });
+        });
       },
       who: function (ppl, me) {
         if (pw) return pw;
@@ -3725,30 +3766,25 @@
     return writeGuard({ at: at,
       fresh: function (fx) {
         K = null; proc = null; pw = ''; fail = '';
-        var gone = 'its checklist\'s publications couldn\'t be read again right before it was written, so its owner can\'t be told.', p = null;
-        /* The checklist's versions between the decisions and proposals/, then listed again after proposals/ (a version
-           published meanwhile, which may move ownership, refuses), then people.json last (repo.readKept, writeGuard). */
-        var seen = '';
-        var mid = function () {
-          return repo.readProcess(fx, pid).then(function (x) {
-            p = x;
-            if (x && x.unlisted) { pw = gone; return; }
-            seen = x ? (x.all || []).concat(x.broken || []).map(function (v) { return v && (v.info ? v.info.folder : v.folder); }).filter(Boolean).sort().join('|') : '';
-          }, function (e) { pw = 'its checklist\'s publications couldn\'t be read again right before it was written (' + (e && e.message || e) + '), so its owner can\'t be told.'; p = { unlisted: true }; });
-        };
-        var after = function () {
-          if (pw || !p || !p.latest) return;
-          return fx.list('publications/' + pid).then(function (items) {
-            var now = (items || []).filter(function (v) { return v.kind === 'dir' && PF.publish.versionOf(v.name); }).map(function (v) { return v.name; }).sort().join('|');
-            if (now !== seen) pw = 'a version of its checklist was published while it was being written, so its owner is asked again: look again, then try again.'; else proc = p;
-          }, function () { pw = gone; });
-        };
-        return repo.readKept(fx, mid, after).then(function (R) {
+        var gone = 'its checklist\'s publications couldn\'t be read again right before it was written, so its owner can\'t be told.';
+        /* The one read order (keepReads, BB): the checklist's versions, the keep records and decisions, then proposals/ listed
+           again for every keep a decision on this checklist names (a copy that arrived, went or was deleted during the read
+           holds it for everyone), then the versions listed again (one published meanwhile, which may move ownership,
+           refuses), then people.json last. */
+        var named = function (R) { var ids = []; (R.decisions || []).forEach(function (d) { if (d && d.process === pid) (d.members || []).forEach(function (m) { if (ids.indexOf(m) < 0) ids.push(m); }); }); return ids; };
+        return keepReads(fx, { pid: pid, ids: named }).then(function (S) {
+          var p = S.proc;
+          if (S.procErr) { pw = 'its checklist\'s publications couldn\'t be read again right before it was written (' + (S.procErr.message || S.procErr) + '), so its owner can\'t be told.'; p = { unlisted: true }; }
+          else if (p && p.unlisted) pw = gone;
+          if (S.keptErr) { fail = 'what was kept for next time couldn\'t be read again right before it was written (' + (S.keptErr.message || S.keptErr) + '), so whether this version includes it can\'t be told. Try again.'; return true; }
+          if (S.listErr) { fail = 'proposals/ couldn\'t be listed again right before it was written, so whether what was kept for next time changed can\'t be told. Try again.'; return true; }
+          if (S.keepMoved) { fail = 'proposals/' + S.keepMoved + ' arrived or went while what was kept for next time was being read, so whether this version includes it can\'t be told. Look again, then try again.'; return true; }
+          if (!pw && p && p.latest) { if (S.pubErr) pw = gone; else if (S.pubMoved) pw = 'a version of its checklist was published while it was being written, so its owner is asked again: look again, then try again.'; else proc = p; }
           /* What was published before can't be told when the versions couldn't be read: every applied keep then counts as new. */
-          K = PF.learn.keptIn(text(), p && p.latest ? p.latest.md : null, Object.assign({ listed: listed() }, R), pid);
+          K = PF.learn.keptIn(text(), p && p.latest ? p.latest.md : null, Object.assign({ listed: listed() }, S.R), pid);
           if (K.owner && !proc && !pw) pw = gone;
           return true;
-        }, function (e) { fail = 'what was kept for next time couldn\'t be read again right before it was written (' + (e && e.message || e) + '), so whether this version includes it can\'t be told. Try again.'; return true; });
+        });
       },
       open: function () { return !fail && !!K && !K.owner; },
       who: function (ppl, me) {
@@ -3787,22 +3823,22 @@
     var name = rec._file || kid + '.json', path = 'proposals/' + name, R = null, proc = null, fail = '', copies = null, planned = null, endBusy = busyStart(), sg = gen, MAX = PF.corrections.MEMBERS_MAX;
     /* YA: what is withdrawn is exactly what this window read: each copy's file and the SHA-256 of its bytes, as shown. */
     var shown = Object.create(null); (data.todos || []).forEach(function (k) { if (k && k.kind === 'keep' && k.id === kid && typeof k._file === 'string') shown[k._file] = k._sha || ''; });
-    var bytes = Object.create(null), aim = null, listed = null;
+    var bytes = Object.create(null), aim = null, kMoved = '', listFail = false, pubMoved = false;
     var kg = writeGuard({
       fresh: function (fx) {
-        R = null; proc = null; fail = ''; copies = null; bytes = Object.create(null); listed = null;
-        /* The keep itself is the checked reader's (repo.readKept): its record under this file name, never a parse of its own.
-           Then each copy's bytes are read again, last before people.json, so a copy changed during any earlier read is seen. */
-        return repo.readKept(fx, function () { return repo.readProcess(fx, pid).then(function (p) { proc = p; }, function () { proc = null; }); })
-          .then(function (x) { R = x; return true; }, function (e) { fail = fail || 'what was kept for next time couldn\'t be read again right before it was removed (' + (e && e.message || e) + ').'; return true; })
-          /* AB: proposals/ listed again after the contents were read: a copy that arrived or went meanwhile refuses it. */
-          .then(function () { return R ? fx.list('proposals').then(function (items) { listed = (items || []).filter(function (v) { return v.kind !== 'dir' && PF.todos.requestFile(String(v.name), kid); }).map(function (v) { return v.name; }).sort(); }, function () { listed = null; }) : null; })
-          .then(function () {
-            /* AD: the copy about to be removed (aim) is read last of all, after every other copy, right before people.json. */
-            var fs0 = R ? PF.learn.copiesOf(R.keepFiles, kid).files : [], t = aim && fs0.indexOf(aim) >= 0 ? aim : fs0[0];
-            var order = fs0.filter(function (f) { return f !== t; }).concat(t ? [t] : []);
-            return order.reduce(function (p, f) { return p.then(function () { return fx.read('proposals/' + f).then(function (x) { bytes[f] = x && typeof x.text === 'string' ? PF.sha256.hex(x.text) : null; }, function () { bytes[f] = null; }); }); }, Promise.resolve());
-          }).then(function () { return true; });
+        R = null; proc = null; fail = ''; copies = null; bytes = Object.create(null); kMoved = ''; listFail = false; pubMoved = false;
+        /* The one read order (keepReads, BC): its checklist's publications (its owner, while a place holds more than 500), the
+           checked reader's keep records, then each copy's bytes read again, the one this delete removes last (aim, AD), then its
+           versions listed again, then the copy it removes read once more, then proposals/ listed again (a copy that arrived
+           or went during any of those reads refuses it), then people.json last. */
+        var target = function (R0) { var fs0 = PF.learn.copiesOf(R0.keepFiles, kid).files; return aim && fs0.indexOf(aim) >= 0 ? aim : fs0[0] || null; };
+        var order = function (R0) { var t = target(R0); return PF.learn.copiesOf(R0.keepFiles, kid).files.filter(function (f) { return f !== t; }).concat(t ? [t] : []); };
+        return keepReads(fx, { pid: pid, ids: function () { return [kid]; }, bytes: order, last: target }).then(function (S) {
+          if (S.keptErr) { fail = 'what was kept for next time couldn\'t be read again right before it was removed (' + (S.keptErr.message || S.keptErr) + ').'; return true; }
+          R = S.R; bytes = S.bytes; kMoved = S.keepMoved; listFail = S.listErr;
+          proc = S.procErr || S.pubErr ? null : S.proc; pubMoved = S.pubMoved;
+          return true;
+        });
       },
       who: function (ppl, me) {
         if (fail) return fail;
@@ -3810,7 +3846,7 @@
         if ((R.keepUnread || []).length) return 'a record kept for next time can\'t be read now (proposals/' + R.keepUnread[0].file + '), so how many are kept at this place can\'t be counted.';
         if ((R.decUnread || []).some(function (u) { return u && u.process === pid; })) return 'a decision on its checklist\'s corrections can\'t be read now, so whether one names this keep can\'t be told.';
         var kr = (R.keeps || []).filter(function (x) { return x && x.id === kid; })[0], cp = PF.learn.copiesOf(R.keepFiles, kid);
-        if (!listed || listed.join('/') !== cp.files.slice().sort().join('/')) return 'a copy of that keep arrived or went while it was being read' + (listed ? ' (' + listed.concat(cp.files).filter(function (f) { return listed.indexOf(f) < 0 || cp.files.indexOf(f) < 0; }).slice(0, 3).map(function (f) { return 'proposals/' + f; }).join(', ') + ')' : '') + ', so what is withdrawn can\'t be told. Look again, then withdraw it.';
+        if (listFail || kMoved) return 'a copy of that keep arrived or went while it was being read' + (kMoved ? ' (proposals/' + kMoved + ')' : '') + ', so what is withdrawn can\'t be told. Look again, then withdraw it.';
         if (planned ? !kr || !cp.files.length || cp.files.some(function (f) { return planned.indexOf(f) < 0; }) : !kr || !cp.files.length) return path + ' isn\'t that keep in the folder now.';
         /* Each copy is still exactly what this window read: listed then, its bytes the same in the reader and read last. */
         var moved = cp.files.filter(function (f) { return !shown[f] || bytes[f] !== shown[f] || !(R.keepFiles || []).some(function (x) { return x && x._file === f && x._sha === shown[f]; }); })[0];
@@ -3824,6 +3860,7 @@
         if (named.length && (!over || named.some(function (d) { return d.status === 'applied' || d.status === 'included'; }))) return 'a decision on its correction names it, so it is withdrawn or decided with the whole correction, never alone.';
         if (kr.by && kr.by.person === me) return '';
         if (!over) return 'only whoever kept it can withdraw it. Its checklist\'s owner withdraws keeps only while a place holds more than ' + MAX + '.';
+        if (pubMoved) return 'a version of its checklist was published while it was being removed, so its owner is asked again: look again, then withdraw it.';
         return PF.learn.ownerWhy({ keep: true, members: [] }, proc && !proc.unlisted ? proc : null, ppl, me, false);
       } });
     placeLock(keepPlace(rec), function () { return repo.withdrawKeep(state.fs, name, { id: kid, fresh: kg.fresh, still: kg.still, copies: function () { return copies; }, aim: function (n) { aim = n; } }); }).then(function (res) {
@@ -3835,9 +3872,21 @@
         say('Withdrawn in part: ' + few(res.removed) + ' was removed, and ' + few(res.left) + ' is still in the folder: ' + kg.why() + ' Withdraw it again to finish.', 'warn');
         return load(true);
       }
-      data.todos = (data.todos || []).filter(function (x) { return !(x && x.kind === 'keep' && x.id === kid); });
-      fixMemo = Object.create(null); lastAll = -Infinity;
-      say('Withdrawn: that keep is no longer suggested for next time.', 'good'); render();
+      /* BC: a copy that arrived during the last read before the last delete is never said withdrawn: the folder is listed
+         once more, and one still there is said, by path. */
+      var wfs = state.fs;
+      return wfs.list('proposals').then(function (items) {
+        if (sg !== gen) return;
+        var left = (items || []).filter(function (v) { return v.kind !== 'dir' && PF.todos.requestFile(String(v.name), kid); }).map(function (v) { return String(v.name); });
+        fixMemo = Object.create(null); lastAll = -Infinity;
+        if (left.length) { say('Withdrawn in part: ' + left.slice(0, 3).map(function (f) { return 'proposals/' + f; }).join(', ') + (left.length > 3 ? ' and ' + (left.length - 3) + ' more' : '') + ' arrived while it was being withdrawn and is still in the folder. Look again, then withdraw it.', 'warn'); return load(true); }
+        data.todos = (data.todos || []).filter(function (x) { return !(x && x.kind === 'keep' && x.id === kid); });
+        say('Withdrawn: that keep is no longer suggested for next time.', 'good'); render();
+      }, function () {
+        if (sg !== gen) return;
+        fixMemo = Object.create(null); lastAll = -Infinity;
+        say('Withdrawn, but proposals/ couldn\'t be listed again afterwards, so whether a copy of that keep arrived meanwhile can\'t be told. Read the folder again.', 'warn'); return load(true);
+      });
     }, function (err) { endBusy(); if (sg !== gen) return; say('Couldn\'t withdraw it: ' + (err && err.message || err) + ' It may or may not have been removed; read the folder again.', 'bad'); render(); });
   }
   function keepWrite(r, source) {

@@ -160,7 +160,14 @@ test/app-todos-ui.test.js -
 test/app-todos-inbox.test.js -
 test/app-spreads.test.js -
 test/app-facts.test.js -
-test/app-learn.test.js -
+test/app-learn.test.js 0/8
+test/app-learn.test.js 1/8
+test/app-learn.test.js 2/8
+test/app-learn.test.js 3/8
+test/app-learn.test.js 4/8
+test/app-learn.test.js 5/8
+test/app-learn.test.js 6/8
+test/app-learn.test.js 7/8
 test/app-detours.test.js -
 test/staging-app.test.js -
 test/test-runs-app.test.js -

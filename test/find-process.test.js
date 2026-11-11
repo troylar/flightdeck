@@ -869,8 +869,7 @@ const D10_JOIN_OK = [
   { file: 'run.js', has: 'V.review.slice(0, 50).map(esc).join', why: 'why a loop\'s approval needs review, at most 50 drawn, with how many more' },
   { file: 'app.js', has: 'c.errors.slice(0, 5).join', why: 'what is wrong with a loop change, at most 5' },
   { file: 'app.js', has: 'cp.files.slice(0, 3).map(', why: 'the copies of one keep that differ, at most 3 named, with how many more' },
-  { file: 'app.js', has: "if (now.join('/') !== read.join('/'))", why: NOT_TEXT },
-  { file: 'app.js', has: "listed.join('/') !== cp.files.slice().sort().join('/')", why: NOT_TEXT + '; the files named in its message are at most 3' },
+  { file: 'app.js', has: 'left.slice(0, 3).map(function (f) { return \'proposals/\' + f; }).join', why: 'the copies of a keep that arrived while it was withdrawn, at most 3 named, with how many more' },
   { file: 'app.js', has: 'fs.slice(0, 3).map(function (f) { return \'proposals/\' + f; }).join', why: 'the files of a keep partly withdrawn, at most 3 named each, with how many more' },
   { file: 'run.js', has: 'esc(c.accepts.join(\' or \'))', why: 'the results a checklist-linked to-do accepts, at most 20 (PF.detours LIMITS.accepts), a record with more is refused when read' },
   { file: 'app.js', has: 'got.missing.join', why: 'the inputs a loop\'s pass: line can\'t fill, at most PF.loop.LIMITS.inputs (40)' },
@@ -958,8 +957,7 @@ const D10_JOIN_OK = [
   { file: 'overlays.js', has: 'ids = now.map(function (x) { return x.run.process', why: NOT_TEXT + ': a batch\'s request ids, at most the 50 one click accepts' },
   { file: 'run.js', has: 'C.notices.slice(0, 10).map(esc).join', why: 'the first 10 and "And N more"' },
   { file: 'app.js', has: 'failed.slice(0, 5).map(function (f) { return f.why; }).join', why: 'the first 5 reasons; how many couldn\'t be saved is said in full' },
-  { file: 'app.js', has: 'var seen = (p.all || []).concat(p.broken || [])', why: NOT_TEXT + ': the version folders listed, compared with a listing again inside the keep guard' },
-  { file: 'app.js', has: "seen = x ? (x.all || []).concat(x.broken || [])", why: NOT_TEXT + ': the version folders listed, compared with a listing again inside the kept-content guard' },
+  { file: 'app.js', has: 'var vers = function (p) { return (p.all || []).concat(p.broken || [])', why: NOT_TEXT + ': the version folders read, compared with a listing again inside the one keep guard order (keepReads)' },
   { file: 'app.js', has: 'var now = (items || []).filter(function (v) { return v.kind === \'dir\' && PF.publish.versionOf(v.name); })', why: NOT_TEXT + ': the version folders listed again, compared inside the keep guard' }
 ];
 /* Every .join( in the views and app.js whose separator isn't '', with its line number and file. */

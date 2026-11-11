@@ -40,7 +40,9 @@ async function perturb(app, how, ctx, was) {
   if (how === 'owner') { await ctx.transfer(was); return; }
   if (ctx.extra && ctx.extra[how]) { await ctx.extra[how](was); return; }
   if (how === 'person') { app.choose(ctx.other); return; }
-  if (how === 'folder') { app.click('reset-examples'); return; }
+  /* The switch is made once the window is on the other folder: a write that landed before that was before the switch. */
+  /* A switch the window holds back (a dialog with something typed in it asks first) never happened: the case is skipped. */
+  if (how === 'folder') { const said = () => /Examples reset\./.test(app.html() + app.live()); app.click('reset-examples'); for (let k = 0; k < 200 && !said(); k++) await app.tick(5); return said(); }
   const f = was.files['people.json'];
   if (how === 'people') { was.files['people.json'] = { t: '{ torn', m: Date.now() }; return; }
   const ppl = JSON.parse(f.t), list = Array.isArray(ppl) ? ppl : ppl.people;
@@ -78,10 +80,15 @@ async function race(name, make, o) {
   const nextIsLast = (i) => !!steps[i + 1] && steps[i + 1].writes === steps[i].writes && lastRead(steps[i + 1], i + 1);
   steps.forEach((s, i) => {
     const before = steps[i + 1] ? steps[i + 1].writes > s.writes : true;
-    (before ? perts : [perts[i % perts.length]]).filter((how) => !((how === 'owner' || extra.indexOf(how) >= 0) && lastRead(s, i)) && !(extra.indexOf(how) >= 0 && nextIsLast(i))).forEach((how) => cases.push({ s, how }));
+    /* o.every: every change at every read (the full matrix), not one change in turn at reads before the last. */
+    (before || o.every ? perts : [perts[i % perts.length]]).filter((how) => !((how === 'owner' || extra.indexOf(how) >= 0) && lastRead(s, i)) && !(extra.indexOf(how) >= 0 && nextIsLast(i))).forEach((how) => cases.push({ s, how }));
   });
+  /* o.dry: only count the steps and cases (sizing a matrix). o.part [i, n]: only every nth case from the ith (a shard). */
+  if (o.dry) return { steps: steps.length, cases: cases.length, ran: 0 };
   let ran = 0;
-  for (const c of cases) {
+  /* RACE_CASE=<text>: only the cases whose label has it, while working on one. */
+  const one = (c) => !process.env.RACE_CASE || (c.s.sig + ' #' + c.s.n + ' · ' + c.how).indexOf(process.env.RACE_CASE) >= 0;
+  for (const c of (o.part ? cases.filter((x, i) => i % o.part[1] === o.part[0]) : cases).filter(one)) {
     const ctx = await make(), app = ctx.app, was = app.fs, st = instrument(was);
     st.target = { sig: c.s.sig, n: c.s.n }; st.armed = true;
     ctx.act();
@@ -90,11 +97,12 @@ async function race(name, make, o) {
     if (!st.paused) { st.armed = false; continue; }
     ran++;
     const at = st.writes.length, before = snapshot(was);
-    await perturb(app, c.how, ctx, was);
+    const made = await perturb(app, c.how, ctx, was);
     await app.tick(20);
     st.release();
     await app.tick(settle);
     st.armed = false;
+    if (made === false) { ran--; continue; }
     const label = name + ' · paused ' + c.s.sig + ' #' + c.s.n + ' · ' + c.how;
     const landed = st.writes.slice(at).filter(mineW(ctx)).map((w) => w.p)
       .filter((p, i, a) => a.indexOf(p) === i && (textOf(was, p) !== null ? textOf(was, p) !== before[p] : before[p] != null))
@@ -105,7 +113,7 @@ async function race(name, make, o) {
     Object.keys(was.files).forEach((p) => { const m = /^(publications|staged)\/[^/]+\/[^/]+\//.exec(p); if (m) (dirs[m[0]] = dirs[m[0]] || []).push(p); });
     Object.keys(dirs).forEach((d) => assert.ok(dirs[d].indexOf(d + 'publication.json') >= 0, label + ': ' + d + ' left without its record: ' + dirs[d].join(', ')));
   }
-  assert.ok(ran >= Math.min(cases.length, 1), name + ': no step could be paused');
+  assert.ok(ran >= Math.min(o.part ? cases.filter((x, i) => i % o.part[1] === o.part[0]).length : cases.length, 1), name + ': no step could be paused');
   return { steps: steps.length, cases: cases.length, ran };
 }
 
