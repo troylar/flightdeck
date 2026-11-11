@@ -302,7 +302,9 @@ const PATHS = {
     disk: (app, o) => passedCopy(app, o, false),
     offered: (app) => /data-act="use-copy"/.test(app.html()) ? '' : 'the copy isn\'t offered',
     go: async (app) => { app.click('use-copy', 'run-OTHER.json'); },
-    kept: (app) => !!app.fs.files[parentPath(app).replace('run.json', 'run-OTHER.json')]
+    kept: (app) => !!app.fs.files[parentPath(app).replace('run.json', 'run-OTHER.json')],
+    /* Once the copy is removed (the run written from it), what a later refusal keeps is its same-content twin. */
+    keptLater: (app) => !!app.fs.files[twinPath(app)]
   },
   'Restore browser copy': {
     disk: (app, o) => passedCopy(app, o, true),
@@ -410,6 +412,8 @@ async function suspension(o, how, changes, shard) {
     if (!hit) { off.push(tag + ': set-up: never reached that read'); hold.open(); w.off(); continue; }
     /* Names as the folder was before the change: once a record is gone, "the first scope record" would be another one. */
     const nm = namer(app, kid);
+    /* Round 16 (UB): a change made after the recovery removed its source (its twin's removal guard) keeps the twin instead. */
+    const later = !!(P.kept && P.keptLater && !P.kept(app));
     const undo = C.make(app, kid);
     if (!undo) { off.push(tag + ': set-up: the change couldn\'t be made'); hold.open(); w.off(); continue; }
     /* What the change left (its new bytes), so a source it replaced can be checked for after (UB). */
@@ -441,7 +445,7 @@ async function suspension(o, how, changes, shard) {
     const notSource = C.notSource || undo.added;
     if (notSource) late.splice(0, late.length, ...late.filter(x => x.q === '-' + (C.of || otherPath)(app)));
     if (late.length) off.push(tag + ': written after the change' + (pt.phase === 'stable' ? ' (its stability pass reread it)' : ' (made before the stability pass)') + ': ' + names(late));
-    else if (!notSource && P.kept && !P.kept(app)) off.push(tag + ': the recovery source was removed');
+    else if (!notSource && P.kept && !(later ? P.keptLater(app) : P.kept(app))) off.push(tag + (later ? ': the source\'s twin was removed' : ': the recovery source was removed'));
     else if (C.kept && !C.kept(app, mid)) off.push(tag + ': the source as replaced wasn\'t kept');
     w.off(); undo();
   }
