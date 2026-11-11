@@ -418,6 +418,45 @@ rule('A keep under a OneDrive copy name is withdrawn like its own, and identical
     assert.deepStrictEqual(app.files('proposals/req-keep-'), [], how + ': withdrawn: ' + (txt(app.html()).match(/(Nothing was withdrawn|Couldn't withdraw)[^.]*\.[^.]*\./) || [])[0]);
   }
 });
+/* VB: withdrawing a keep with copies guards each delete: the person, their authority and the copy's bytes are
+   checked again before every one. Refused after the first, it stops, says what was and wasn't removed, and withdrawing
+   again finishes it. */
+rule('Withdrawing a keep with copies guards each delete: a change after the first stops it, said as partial, and Withdraw again finishes', async () => {
+  for (const how of ['person', 'inactive', 'people', 'bytes']) {
+    const app = await setup(), id = await added(app, 'Post the release notes');
+    app.click('keep', id, { kind: 'todo' }); await app.tick(120);
+    const k = keeps(app)[0], own = 'proposals/' + k.id + '.json', text = app.fs.files[own].t, ppl0 = app.fs.files['people.json'].t;
+    app.fs.files['proposals/' + k.id + ' (1).json'] = { t: text, m: Date.now() };
+    await refresh(app, 400); await openPage(app);
+    assert.strictEqual(app.files('proposals/req-keep-').length, 2, how + ': set-up: two identical copies');
+    const fs = app.fs, rm = fs.remove; let n = 0;
+    fs.remove = function (p) {
+      const r = rm.apply(this, arguments);
+      return Promise.resolve(r).then((x) => {
+        if (/req-keep-/.test(p) && ++n === 1) {
+          const left = app.files('proposals/req-keep-')[0];
+          if (how === 'person') app.choose('person-blake');
+          if (how === 'inactive') { const ppl = JSON.parse(fs.files['people.json'].t); (Array.isArray(ppl) ? ppl : ppl.people).forEach(q => { if (q.id === 'person-avery') q.inactive = true; }); fs.files['people.json'] = { t: JSON.stringify(ppl), m: Date.now() }; }
+          if (how === 'people') fs.files['people.json'] = { t: '{"peo', m: Date.now() };
+          if (how === 'bytes') fs.files[left] = { t: fs.files[left].t + ' ', m: Date.now() };
+        }
+        return x;
+      });
+    };
+    app.click('keep-withdraw', k.id, { process: 'release-notes' }); await app.tick(500);
+    fs.remove = rm;
+    const left = app.files('proposals/req-keep-');
+    assert.strictEqual(left.length, 1, how + ': stopped after the first delete');
+    assert.ok(/in part/i.test(txt(app.html())) && txt(app.html()).indexOf(left[0].replace('proposals/', '')) >= 0, how + ': said as partial, naming what is left: ' + (txt(app.html()).match(/[^.]*(in part|withdraw)[^.]*\./i) || [])[0]);
+    /* Put back as it was, the same person withdraws again and it is finished. */
+    fs.files['people.json'] = { t: ppl0, m: Date.now() };
+    if (how === 'bytes') fs.files[left[0]] = { t: text, m: Date.now() };
+    app.choose('person-avery'); await app.tick(80); await refresh(app, 400); await openPage(app);
+    app.click('keep-withdraw', k.id, { process: 'release-notes' }); await app.tick(500);
+    assert.deepStrictEqual(app.files('proposals/req-keep-'), [], how + ': withdrawing again finishes it');
+  }
+});
+
 /* QE: two computers each declining 500 keeps (499 shared, one different) make 501 that decisions all name. While the place
    is over, a keep no applied decision names is withdrawable (its author, or the owner), and the decisions stay as they are;
    back within 500, a keep a decision names is withdrawn only with its correction again. */

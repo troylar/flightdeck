@@ -24930,7 +24930,9 @@ PF.repo = (function () {
      happened: only a file still there is a failure. */
   /* name: any name the checked reader knows for the keep opts.id (its own, " (n)" or "-COMPUTER", PF.todos.requestFile).
      opts.copies(), asked once still() has passed, gives every file of that keep read under the guard (its identical copies),
-     each removed in turn; each must be a name of opts.id too. */
+     each removed in turn; each must be a name of opts.id too. Each delete after the first is guarded again (VB): fresh, still
+     and copies asked again, and the file's bytes must be the ones read before the first. Refused, it stops and resolves
+     { partial: true, removed, left }; withdrawing again finishes it. */
   function withdrawKeep(fs, name, opts) {
     var id = opts && typeof opts.id === 'string' ? opts.id : String(name).replace(/\.json$/, '');
     var isName = function (n) { return /^req-keep-[a-z0-9-]{1,80}$/.test(id) && PF.todos.requestFile(String(n), id) && !/[\/\\]/.test(String(n)); };
@@ -24939,12 +24941,31 @@ PF.repo = (function () {
     return Promise.resolve().then(function () { return opts.fresh(fs); }).then(function (ok) {
       if (ok === false || !opts.still()) return { dropped: true };
       var names = typeof opts.copies === 'function' ? opts.copies() : [name];
-      if (!Array.isArray(names) || names.indexOf(name) < 0 || !names.every(isName)) throw new Error('That isn\'t the name of a keep.');
+      if (!Array.isArray(names) || !names.length || !names.every(isName)) throw new Error('That isn\'t the name of a keep.');
+      names = names.slice();
+      var texts = Object.create(null), removed = [], i = 0;
+      var textOf = function (n) { return fs.read('proposals/' + n).then(function (r) { return r ? String(r.text) : null; }); };
       var one = function (n) {
         var path = 'proposals/' + n;
         return fs.remove(path).then(null, function (e) { return fs.read(path).then(function (left) { if (left) throw e; }, function () { throw e; }); });
       };
-      return names.reduce(function (p, n) { return p.then(function () { return one(n); }); }, Promise.resolve()).then(function () { return { ok: true }; });
+      var stop = function () { return removed.length ? { partial: true, removed: removed.slice(), left: names.slice(i) } : { dropped: true }; };
+      var next = function () {
+        if (i >= names.length) return { ok: true, removed: removed.slice() };
+        var n = names[i];
+        var gate = i === 0 ? Promise.resolve(true) : Promise.resolve().then(function () { return opts.fresh(fs); }).then(function (ok) {
+          if (ok === false || !opts.still()) return false;
+          var now = opts.copies(); return Array.isArray(now) && now.indexOf(n) >= 0;
+        }, function () { return false; });
+        return gate.then(function (go) {
+          if (!go) return stop();
+          return textOf(n).then(function (t) {
+            if (t == null || t !== texts[n]) return stop();
+            return one(n).then(function () { removed.push(n); i++; return next(); });
+          });
+        });
+      };
+      return names.reduce(function (p, n) { return p.then(function () { return textOf(n).then(function (t) { texts[n] = t; }); }); }, Promise.resolve()).then(next);
     });
   }
   /* A plan made in the app is a new file this window creates once (expect null: "doesn't exist yet"), so it never replaces one. */
@@ -38003,7 +38024,7 @@ PF.examples = (function () {
     if (!state.me || !kid || !pid) return;
     var rec = (data.todos || []).filter(function (k) { return k && k.kind === 'keep' && k.id === kid; })[0];
     if (!rec) { say('That keep isn\'t here anymore. Nothing was withdrawn.', 'warn'); render(); return; }
-    var name = rec._file || kid + '.json', path = 'proposals/' + name, R = null, proc = null, fail = '', copies = null, endBusy = busyStart(), sg = gen, MAX = PF.corrections.MEMBERS_MAX;
+    var name = rec._file || kid + '.json', path = 'proposals/' + name, R = null, proc = null, fail = '', copies = null, planned = null, endBusy = busyStart(), sg = gen, MAX = PF.corrections.MEMBERS_MAX;
     var kg = writeGuard({
       fresh: function (fx) {
         R = null; proc = null; fail = ''; copies = null;
@@ -38017,9 +38038,9 @@ PF.examples = (function () {
         if ((R.keepUnread || []).length) return 'a record kept for next time can\'t be read now (proposals/' + R.keepUnread[0].file + '), so how many are kept at this place can\'t be counted.';
         if ((R.decUnread || []).some(function (u) { return u && u.process === pid; })) return 'a decision on its checklist\'s corrections can\'t be read now, so whether one names this keep can\'t be told.';
         var kr = (R.keeps || []).filter(function (x) { return x && x.id === kid; })[0], cp = PF.learn.copiesOf(R.keepFiles, kid);
-        if (!kr || cp.files.indexOf(name) < 0) return path + ' isn\'t that keep in the folder now.';
+        if (planned ? !kr || !cp.files.length || cp.files.some(function (f) { return planned.indexOf(f) < 0; }) : !kr || !cp.files.length) return path + ' isn\'t that keep in the folder now.';
         if (!cp.same) return 'copies of that keep say different things (' + cp.files.map(function (f) { return 'proposals/' + f; }).join(', ') + '), so which one to withdraw can\'t be told. Remove the one that\'s wrong first.';
-        copies = cp.files;
+        copies = cp.files; if (!planned) planned = cp.files.slice();
         var g = PF.corrections.groups(PF.learn.members(R.keeps, [], pid)).filter(function (x) { return x.members.some(function (m) { return m.id === kid; }); })[0], over = !!g && g.members.length > MAX;
         /* A keep a decision names goes with its whole correction. While the place is over (decided on two computers), one
            no applied or included decision names may be withdrawn on its own; the decisions stay as they are. */
@@ -38032,6 +38053,11 @@ PF.examples = (function () {
     placeLock(keepPlace(rec), function () { return repo.withdrawKeep(state.fs, name, { id: kid, fresh: kg.fresh, still: kg.still, copies: function () { return copies; } }); }).then(function (res) {
       endBusy(); if (sg !== gen) return;
       if (res && res.dropped) { say('Nothing was withdrawn: ' + kg.why(), 'warn'); render(); return; }
+      if (res && res.partial) {
+        fixMemo = Object.create(null); lastAll = -Infinity;
+        say('Withdrawn in part: ' + res.removed.map(function (f) { return 'proposals/' + f; }).join(', ') + ' was removed, and ' + res.left.map(function (f) { return 'proposals/' + f; }).join(', ') + ' is still in the folder: ' + kg.why() + ' Withdraw it again to finish.', 'warn');
+        return load(true);
+      }
       data.todos = (data.todos || []).filter(function (x) { return !(x && x.kind === 'keep' && x.id === kid); });
       fixMemo = Object.create(null); lastAll = -Infinity;
       say('Withdrawn: that keep is no longer suggested for next time.', 'good'); render();

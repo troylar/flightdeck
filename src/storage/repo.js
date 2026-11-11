@@ -2103,7 +2103,9 @@ PF.repo = (function () {
      happened: only a file still there is a failure. */
   /* name: any name the checked reader knows for the keep opts.id (its own, " (n)" or "-COMPUTER", PF.todos.requestFile).
      opts.copies(), asked once still() has passed, gives every file of that keep read under the guard (its identical copies),
-     each removed in turn; each must be a name of opts.id too. */
+     each removed in turn; each must be a name of opts.id too. Each delete after the first is guarded again (VB): fresh, still
+     and copies asked again, and the file's bytes must be the ones read before the first. Refused, it stops and resolves
+     { partial: true, removed, left }; withdrawing again finishes it. */
   function withdrawKeep(fs, name, opts) {
     var id = opts && typeof opts.id === 'string' ? opts.id : String(name).replace(/\.json$/, '');
     var isName = function (n) { return /^req-keep-[a-z0-9-]{1,80}$/.test(id) && PF.todos.requestFile(String(n), id) && !/[\/\\]/.test(String(n)); };
@@ -2112,12 +2114,31 @@ PF.repo = (function () {
     return Promise.resolve().then(function () { return opts.fresh(fs); }).then(function (ok) {
       if (ok === false || !opts.still()) return { dropped: true };
       var names = typeof opts.copies === 'function' ? opts.copies() : [name];
-      if (!Array.isArray(names) || names.indexOf(name) < 0 || !names.every(isName)) throw new Error('That isn\'t the name of a keep.');
+      if (!Array.isArray(names) || !names.length || !names.every(isName)) throw new Error('That isn\'t the name of a keep.');
+      names = names.slice();
+      var texts = Object.create(null), removed = [], i = 0;
+      var textOf = function (n) { return fs.read('proposals/' + n).then(function (r) { return r ? String(r.text) : null; }); };
       var one = function (n) {
         var path = 'proposals/' + n;
         return fs.remove(path).then(null, function (e) { return fs.read(path).then(function (left) { if (left) throw e; }, function () { throw e; }); });
       };
-      return names.reduce(function (p, n) { return p.then(function () { return one(n); }); }, Promise.resolve()).then(function () { return { ok: true }; });
+      var stop = function () { return removed.length ? { partial: true, removed: removed.slice(), left: names.slice(i) } : { dropped: true }; };
+      var next = function () {
+        if (i >= names.length) return { ok: true, removed: removed.slice() };
+        var n = names[i];
+        var gate = i === 0 ? Promise.resolve(true) : Promise.resolve().then(function () { return opts.fresh(fs); }).then(function (ok) {
+          if (ok === false || !opts.still()) return false;
+          var now = opts.copies(); return Array.isArray(now) && now.indexOf(n) >= 0;
+        }, function () { return false; });
+        return gate.then(function (go) {
+          if (!go) return stop();
+          return textOf(n).then(function (t) {
+            if (t == null || t !== texts[n]) return stop();
+            return one(n).then(function () { removed.push(n); i++; return next(); });
+          });
+        });
+      };
+      return names.reduce(function (p, n) { return p.then(function () { return textOf(n).then(function (t) { texts[n] = t; }); }); }, Promise.resolve()).then(next);
     });
   }
   /* A plan made in the app is a new file this window creates once (expect null: "doesn't exist yet"), so it never replaces one. */
