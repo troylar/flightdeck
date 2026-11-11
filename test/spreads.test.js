@@ -217,6 +217,17 @@ rule('A story that joins later owes it at once, before any sync, and is announce
   W.request(k5, spreadOf(W));
   same(W.one().notices, ['ABC-105 joined. Security sign-off requested.']);
 });
+/* Round 19 (XD): an arrival's notice says how it stands: one approved without a run never reads as work still to request. */
+rule('XD: a story that joins and is approved without a run is announced as approved without a run, never as not requested', () => {
+  const W = world([101]); const k1 = W.kid(101);
+  W.spreadAdd(); W.land(W.r);
+  W.fulfil(k1, spreadOf(W));
+  W.scopes.push(scope('s2', [101, 105], [W.scopes[0].id])); W.kid(105);
+  loopChange(W, 'ex-xd', { op: 'exception', item: { key: 'ABC-105' }, reason: 'Docs only', approver: 'person-morgan' });
+  const C = W.one(), late = C.items.filter(i => i.key === 'ABC-105')[0];
+  same([late.state, late.resolved, late.arrival], ['excepted', true, true], 'set-up: excepted, resolved, an arrival');
+  same(C.notices, ['ABC-105 joined. Security sign-off: approved without a run.']);
+});
 rule('A cleared story stays unchanged, but its new attempt owes the requirement; becoming cleared while waiting never erases it', () => {
   const W = world([101, 102]); W.kid(101, { cleared: true }); const k2 = W.kid(102);
   W.spreadAdd(); W.land(W.r);

@@ -97,7 +97,7 @@ async function matrix(o, only, breaks) {
     const undo = BREAKS[brk](app, o.kid(app));
     if (!undo) { cases--; w.hold.open(); w.off(); await app.tick(300); continue; }
     w.hold.open(); await app.tick(500);
-    if (app.fs.files[p].t !== before) off.push(tag + ': run.json written: ' + JSON.stringify([(JSON.parse(app.fs.files[p].t).gates || {})[gid(app)] || null, JSON.parse(app.fs.files[p].t).steps.each.s]));
+    if (app.fs.files[p].t !== before) off.push(tag + ': run.json written: ' + JSON.stringify([(JSON.parse(app.fs.files[p].t).gates || {})[gid(app)] || null, ((JSON.parse(app.fs.files[p].t).steps || {}).each || {}).s]));
     else if (files(app) !== mid) off.push(tag + ': something more was written');
     undo(); w.off();
     await o.reread(app);
@@ -422,6 +422,23 @@ const PATHS = {
     pre: (app) => requestApprove(app, SEND_BACK),
     go: async (app) => { app.click('refresh'); await app.tick(300); }
   },
+  /* Round 19 (XA): the ordinary edits that change approval state or who records: X on the approved loop (now a send-back),
+     Reopen on the passed gate, and Hand off. */
+  'X on the loop': {
+    changes: AUTH, disk: approveLoop,
+    offered: (app) => approved(app) ? '' : 'the loop isn\'t approved',
+    go: async (app) => { app.set('loop-why-each', 'Check the stories again'); app.click('toggle', 'each'); }
+  },
+  Reopen: {
+    changes: AUTH, disk: async (app) => { await approveLoop(app); app.click('pass', '0'); await app.tick(250); },
+    offered: (app) => { const g = (parentRun(app).gates || {})[gid(app)]; return g && g.s === 'passed' ? '' : 'the gate isn\'t passed'; },
+    go: async (app) => { app.click('reopen', '0'); }
+  },
+  'Hand off': {
+    changes: AUTH,
+    offered: () => '',
+    go: async (app) => { app.click('pick', 'recorder', { kind: 'handoff' }); app.set('handoff-to', 'person-blake'); app.click('handoff'); }
+  },
   'Land a delegated fulfillment': {
     needs: 'grantTool', changes: AUTH.concat(['the story\'s run handed to another session', 'the delegation revoked']),
     disk: (app, o) => o.grantTool(app, 'ABC-104'), pre: (app, o) => o.syncTool(app, 'ABC-104'), kid: (app, o) => o.storyOf(app, 'ABC-104'),
@@ -638,7 +655,7 @@ module.exports.raced = raced;
 /* Round 18 (WA): a send-back paused where the reviewers paused it: at its save's read of the parent (the first read of
    run.json once repo.saveRun is called for it), or once its candidate is written. The change is made while it waits. Nothing
    more is written to run.json, and the request (on that path) is never recorded applied. Returns what was off. */
-async function sendBackRace(o, how, wait, ch) {
+async function writeRace(o, how, wait, ch) {
   const P = PATHS[how], C = CHANGES[ch], tpl = await template(o, P), { app, why } = await opened(tpl, P), tag = how + ' · ' + wait + ' · ' + ch;
   if (why) return [tag + ': set-up: ' + why];
   if (P.pre) await P.pre(app, o);
@@ -650,7 +667,7 @@ async function sendBackRace(o, how, wait, ch) {
   const off = () => { R.saveRun = sr; fs0.read = read; fs0.write = write; };
   await P.go(app); await app.tick(80);
   for (let t = 0; t < 40 && !hit; t++) await app.tick(50);
-  if (!hit) { hold.open(); off(); return [tag + ': set-up: the send-back never reached that point']; }
+  if (!hit) { hold.open(); off(); return [tag + ': set-up: the save never reached that point']; }
   const had = new Set(app.files('proposals/'));
   const undo = C.make(app, kidFor(P, o, app));
   if (!undo) { hold.open(); off(); return [tag + ': set-up: the change couldn\'t be made']; }
@@ -659,13 +676,15 @@ async function sendBackRace(o, how, wait, ch) {
   for (let i = 0; i < 40; i++) await app.tick(50);
   off();
   const out = [];
-  if (app.fs.files[p].t !== mid) out.push(tag + ': run.json written after the change: ' + JSON.stringify([JSON.parse(app.fs.files[p].t).steps.each.s, JSON.parse(app.fs.files[p].t).recorder]));
+  if (app.fs.files[p].t !== mid) out.push(tag + ': run.json written after the change: ' + JSON.stringify([((JSON.parse(app.fs.files[p].t).steps || {}).each || {}).s, JSON.parse(app.fs.files[p].t).recorder]));
   const applied = app.files('proposals/').filter(f => !had.has(f) && (() => { try { return JSON.parse(app.fs.files[f].t).op === 'applied'; } catch (e) { return false; } })());
   if (applied.length) out.push(tag + ': recorded applied: ' + JSON.stringify(applied));
   undo();
   return out;
 }
+const sendBackRace = writeRace;
 module.exports.sendBackRace = sendBackRace;
+module.exports.writeRace = writeRace;
 module.exports.paths = PATHS;
 module.exports.HOLD_PATHS = Object.keys(PATHS);
 /* The paths a fixture can set up (round 17: the to-do writers need the spread fixture's hooks). */

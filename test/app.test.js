@@ -7193,7 +7193,7 @@ rule('Pins: a run/2 parent with an existing link to a completed 2.0 child, input
   const kid = app.PF.run.create(v2, { id: 'twokid1', title: 'Check in (2.0)', details: Object.assign({}, inputs), roles: parent.roles, by: 'person-casey', session: 'w-other', now: new Date().toISOString(), parent: { process: parent.process, id: parent.id, step: 'notes', inputs }, app: '2.0.0', pins: {} });
   assert.strictEqual(kid.format, 'preflight-run/3', 'set-up: a 2.0 child');
   kid.state = 'completed'; kid.ended = { outcome: 'Completed', by: 'person-casey', at: new Date().toISOString() };
-  await app.PF.repo.saveRun(app.fs, kid, 'w-other');
+  await app.PF.repo.saveRun(app.otherWindow(), kid, 'w-other');
   parent.steps.notes = { s: 'open', child: { process: 'check-in', id: 'twokid1', inputs } };
   await app.fs.write(parentPath, JSON.stringify(parent, null, 2));
   app.click('refresh'); await app.tick(200);
@@ -7238,7 +7238,7 @@ rule('Pins: a run/3 never adopts or settles from a child run on another version 
   const k = JSON.parse(app.fs.files['runs/check-in/' + linked.id + '/run.json'].t);
   // A run of check-in v1 that names the same step as its parent: an orphan on the wrong version, newer than the right one.
   const o = app.PF.run.create(v1, { id: 'wrongver1', title: 'Check in on v1', details: k.details, roles: k.roles, by: 'person-casey', session: 'w-other', now: new Date(Date.now() + 60000).toISOString(), parent: k.parent });
-  await app.PF.repo.saveRun(app.fs, o, 'w-other');
+  await app.PF.repo.saveRun(app.otherWindow(), o, 'w-other');
   // The link that didn't land: the step has no child yet.
   const unl = JSON.parse(app.fs.files[runPath].t); delete unl.steps.notes; await app.fs.write(runPath, JSON.stringify(unl, null, 2));
   app.click('refresh'); await app.tick(80);
@@ -7262,7 +7262,7 @@ rule('Pins: a step whose linked run fails its pin shows "Start a new … run", a
   app.click('start-child', 'notes'); await app.tick(120);
   const k = JSON.parse(app.fs.files['runs/check-in/' + JSON.parse(app.fs.files[runPath].t).steps.notes.child.id + '/run.json'].t);
   const o = app.PF.run.create(v1, { id: 'wrongver2', title: 'Check in on v1', details: k.details, roles: k.roles, by: 'person-casey', session: 'w-other', now: new Date().toISOString(), parent: k.parent });
-  await app.PF.repo.saveRun(app.fs, o, 'w-other');
+  await app.PF.repo.saveRun(app.otherWindow(), o, 'w-other');
   // A hand-edited link to the wrong version, with the inputs still current.
   const hand = JSON.parse(app.fs.files[runPath].t); hand.steps.notes = { s: 'open', child: { process: 'check-in', id: 'wrongver2', inputs: k.parent.inputs, folder: v2folder } }; await app.fs.write(runPath, JSON.stringify(hand, null, 2));
   app.click('refresh'); await app.tick(80);
@@ -7288,7 +7288,7 @@ rule('Pins: Link it on an orphan child, for a step with no pin yet, pins the ste
   await app.fs.write(runPath, JSON.stringify(p, null, 2));
   const d = await app.PF.repo.loadAll(app.fs), ci = d.processes.find(x => x.process === 'check-in'), v2 = ci.index.all.find(x => x.info.folder === v2folder);
   const o = app.PF.run.create(v2, { id: 'orphan2', title: 'Check in, recovered', details: k.details, roles: k.roles, by: 'person-casey', session: 'w-other', now: new Date(Date.now() + 60000).toISOString(), parent: k.parent, app: '2.0.0', pins: {} });
-  await app.PF.repo.saveRun(app.fs, o, 'w-other');
+  await app.PF.repo.saveRun(app.otherWindow(), o, 'w-other');
   app.click('refresh'); await app.tick(80);
   app.click('open-run', 'release/' + n.id); await app.tick(40);
   app.click('select', 'notes'); await app.tick();

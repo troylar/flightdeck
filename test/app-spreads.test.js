@@ -24,6 +24,17 @@ rule('The loop shows one spread row with a chip per story; a story that joins is
   assert.ok(!/data-act="sp-/.test(app.html()), 'adding, including and stopping go through flightdeck spread, not buttons here');
 });
 
+rule('XD: a story that joins and is approved without a run is announced as approved without a run', async () => {
+  const app = await setup();
+  await landedSpread(app);
+  await addStories(app, 'ABC-104');
+  await refresh(app, 200);
+  app.set('loop-why-each', 'Docs only'); app.click('loop-exception', 'each', { item: 'ABC-104' }); await app.tick(200);
+  await refresh(app, 200);
+  const h = txt(app.html());
+  assert.ok(/ABC-104 joined\. Security sign-off: approved without a run\./.test(h), 'the arrival says how it stands: ' + (h.match(/ABC-104 joined[^\n]{0,80}/) || [])[0]);
+  assert.ok(!/ABC-104 joined\. Security sign-off is owed; not requested yet\./.test(h), 'never as not requested');
+});
 rule('Accept N additions decides each plain addition separately on what it showed; an exception is kept apart; counts are exact', async () => {
   const app = await setup();
   await landedSpread(app);
@@ -360,5 +371,18 @@ for (const how of Object.keys(RACES)) for (const ch of RACES[how]) rule('VA-VC: 
 const WA18 = [['at the parent read', OUT], ['at the parent read', INACTIVE], ['after the candidate', 'the run handed to another session']];
 for (const how of ['Send back', 'Send back request']) for (const [wait, ch] of WA18) rule('Round 18 (WA): ' + how + ' on a fulfilled spread\'s approved loop, ' + ch + ' while it waits ' + wait + ', writes nothing more', async () => {
   assert.deepStrictEqual(await BB.sendBackRace(bbSpread, how, wait, ch), []);
+});
+/* Round 19 (XA): the ordinary edits that change approval state or who records (X on the approved loop, Reopen on the passed
+   gate, Hand off) ask the fresh guard at every write: paused at the save's parent read while the recorder is removed or made
+   inactive, or after the candidate while the run is handed off, nothing more is written. */
+for (const how of ['X on the loop', 'Reopen', 'Hand off']) for (const [wait, ch] of WA18) rule('Round 19 (XA): ' + how + ' on a fulfilled spread\'s approved loop, ' + ch + ' while it waits ' + wait + ', writes nothing more', async () => {
+  assert.deepStrictEqual(await BB.writeRace(bbSpread, how, wait, ch), []);
+});
+/* Round 19 (XB): the fresh guard asks the run's version too: the parent's publication.json gone while the write waits. */
+rule('Round 19 (XB): Delegate on a fulfilled spread\'s loop, the run\'s version absent while its write waits, writes nothing more', async () => {
+  assert.deepStrictEqual(await BB.raced(bbSpread, 'Delegate', 'the run\'s version absent'), []);
+});
+for (const how of ['Send back', 'Send back request']) rule('Round 19 (XB): ' + how + ' on a fulfilled spread\'s approved loop, the run\'s version absent while it waits at the parent read, writes nothing more', async () => {
+  assert.deepStrictEqual(await BB.writeRace(bbSpread, how, 'at the parent read', 'the run\'s version absent'), []);
 });
 run();

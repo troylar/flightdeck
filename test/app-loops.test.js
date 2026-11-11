@@ -1269,4 +1269,36 @@ rule('Round 18 (WB): a resolve request with nothing changed is carried out: the 
   await app.tick(400);
   assert.deepStrictEqual([resolutionOf(app, id).map(x => x.op), (outcome(app, rs) || {}).op], [['refused'], 'applied']);
 });
+/* Round 19 (XC): a start request's authority is asked of the loop as the guard reads it. Blake owns ABC-101 and asks for its
+   start; while the new run's first read waits, a scope record gives ABC-101 to Avery. The start is refused: no run, and the
+   request isn't recorded applied. */
+const scopeChange = async (app, change, key) => {
+  const PF = app.PF, LP = PF.loop, r = parentRun(app);
+  const c = LP.cleanIntent({ loop: { process: 'release-readiness', run: r.id, step: 'each' }, changes: [change] }, key, { name: 'release-helper', version: '1.0' });
+  assert.strictEqual(c.errors.length, 0, c.errors.join(' '));
+  const d = await PF.repo.loadAll(app.otherWindow(), {}), V = LP.view(r, 'each', { records: d.scopes, runs: d.runs });
+  const f = LP.buildRequest(c.intent, { seen: V.ledger.heads, children: [], now: new Date().toISOString(), app: '3.0.0' });
+  app.fs.files['proposals/' + f.id + '.json'] = { t: LP.text(f), m: Date.now() };
+  return f.id;
+};
+rule('Round 19 (XC): a start request whose story is given to someone else while its run waits to be written starts nothing', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  await scopeChange(app, { op: 'owner', item: { key: 'ABC-101' }, owner: 'person-blake' }, 'xc-own');
+  app.click('refresh'); await app.tick(250);
+  const fs0 = app.fs, read = fs0.read, hold = gate(); let hit = null;
+  fs0.read = function (q) { const a = arguments; if (!hit && /^runs\/validate-story\/[^/]+\/run\.json$/.test(q) && !fs0.files[q]) { hit = q; return hold.p.then(() => read.apply(fs0, a)); } return read.apply(fs0, a); };
+  const PF = app.PF, LP = PF.loop, r = parentRun(app);
+  const c = LP.cleanIntent({ loop: { process: 'release-readiness', run: r.id, step: 'each' }, changes: [{ op: 'start', item: { key: 'ABC-101' }, as: 'person-blake' }] }, 'xc-start', { name: 'release-helper', version: '1.0' });
+  const d = await PF.repo.loadAll(app.otherWindow(), {}), V = LP.view(r, 'each', { records: d.scopes, runs: d.runs });
+  const f = LP.buildRequest(c.intent, { seen: V.ledger.heads, children: [], now: new Date().toISOString(), app: '3.0.0' });
+  app.fs.files['proposals/' + f.id + '.json'] = { t: LP.text(f), m: Date.now() };
+  app.click('refresh');
+  for (let t = 0; t < 40 && !hit; t++) await app.tick(50);
+  assert.ok(hit, 'set-up: Blake\'s start reached its run\'s first read');
+  await scopeChange(app, { op: 'owner', item: { key: 'ABC-101' }, owner: 'person-avery' }, 'xc-back');
+  hold.open(); await app.tick(600); fs0.read = read;
+  assert.deepStrictEqual(kidPaths(app), [], 'no run started');
+  assert.notStrictEqual((outcome(app, f.id) || {}).op, 'applied', 'the start request isn\'t recorded applied');
+});
 run();

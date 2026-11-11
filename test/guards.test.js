@@ -1,79 +1,95 @@
-// Round 18: the write-time guard can't be skipped. Every writer of an authority-bearing record in the app (a loop's parent
-// changed through loopEdit, a scope record or decision, a run saved) names its fresh guard where it is called, so a writer
-// added later without one fails here, before a reviewer has to find it.
+// Round 19: the write-time guard is enforced where the bytes are written, not where a writer is called. The folder the app
+// opens is registered with repo, and repo's run writer (the candidate, run.json, a conflict copy) and scope record writer
+// refuse any write that doesn't hand over a token one of the app's guards made, for that run and revision, right before the
+// write. However a write is reached (an alias, a wrapper, a property, an object made from the folder, a token made by
+// hand), in the test build (FLIGHTDECK_STRICT_GUARDS) it throws, and nothing is written.
+//
+// The writers, for reference (documentation only; nothing here depends on the list): save() (every mutateRun, so every
+// loopEdit, X, Reopen, Hand off, Try again: the ordinary fresh guard unless the change names its own), loopLaunch (a story's
+// run: the fresh guard, with a create binding), launchChild, continueTwo, csHarvest, resumeStart and startTestRun (new runs:
+// a create capability, refused when run.json is there), and scopeSave (every scope record: its fresh guard, or the report
+// token of a carried-out request's outcome).
 'use strict';
 const assert = require('assert');
 const fs = require('fs'), path = require('path');
 const { rule, run } = require('./harness');
-const SRC = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
+const { boot } = require('./app-harness');
 
-/* Every call of name( in the app (not its definition): where it is, the text of its arguments (balanced, strings and comments
-   skipped), and the function it is in. */
-function calls(name) {
-  const out = [], re = new RegExp('(^|[^A-Za-z0-9_.$])' + name.replace(/[.(]/g, '\\$&'), 'g');
-  let m;
-  while ((m = re.exec(SRC))) {
-    const at = m.index + m[1].length, open = at + name.length - 1;
-    if (/function\s+$/.test(SRC.slice(Math.max(0, at - 12), at))) continue;
-    let depth = 0, i = open, q = null;
-    for (; i < SRC.length; i++) {
-      const c = SRC[i];
-      if (q) { if (c === '\\') i++; else if (c === q) q = null; continue; }
-      if (c === '\'' || c === '"') { q = c; continue; }
-      if (c === '/' && SRC[i + 1] === '*') { i = SRC.indexOf('*/', i + 2) + 1; continue; }
-      if (c === '(') depth++;
-      else if (c === ')' && --depth === 0) break;
-    }
-    const line = SRC.slice(0, at).split('\n').length, before = SRC.slice(0, at).split('\n');
-    let fn = '';
-    for (let k = before.length - 1; k >= 0 && !fn; k--) { const f = /^ {2}function ([A-Za-z0-9_]+)\(|^ {4}'?([A-Za-z0-9_-]+)'?: function/.exec(before[k]); if (f) fn = f[1] || f[2]; }
-    out.push({ line, args: SRC.slice(open + 1, i), fn, start: at, end: i });
-  }
-  return out;
+async function opened(html) {
+  const app = boot(Object.assign({ localStore: { 'preflight:builder': 'false' } }, html ? { html } : {}));
+  await app.tick(80); app.choose('person-avery'); await app.tick(80);
+  return app;
+}
+/* A run in the opened folder, read as the app reads one (its fingerprint set). */
+function aRun(app) {
+  const p = app.files('runs/').find(f => /\/run\.json$/.test(f));
+  const r = app.PF.run.sanitize(JSON.parse(app.fs.files[p].t));
+  r._fileHash = app.PF.repo.fileHash(app.fs.files[p].t);
+  return { r, p, text: app.fs.files[p].t };
+}
+const snapshot = (app) => JSON.stringify(app.files('').map(f => [f, app.fs.files[f].t]));
+/* What a call did: threw (synchronously), rejected, or resolved; and whether anything in the folder changed. */
+async function outcome(app, call) {
+  const before = snapshot(app);
+  let how = 'resolved', why = '';
+  try { const p = call(); await Promise.resolve(p).then(null, (e) => { how = 'rejected'; why = e && e.message; }); } catch (e) { how = 'threw'; why = e && e.message; }
+  await app.tick(100);
+  return { how, why, wrote: snapshot(app) !== before };
 }
 
-rule('Every loopEdit names its fresh guard: the approval snapshot or the fresh guard on the runs it depends on', () => {
-  const all = calls('loopEdit(');
-  assert.ok(all.length >= 9, 'the inventory found the loop writes: ' + all.length);
-  const bad = all.filter(c => !/guard: 'snapshot'|freshKeys: /.test(c.args)).map(c => 'app.js:' + c.line + ' (' + c.fn + ')');
-  assert.deepStrictEqual(bad, []);
-});
-rule('A loopEdit without a guard refuses in the app and throws in a test build', () => {
-  const def = SRC.slice(SRC.indexOf('function loopEdit('), SRC.indexOf('function loopEdit(') + 1500);
-  assert.ok(/if \(!cx \|\| \(!snap && !keyed\)\) \{/.test(def), 'the refusal comes first');
-  assert.ok(/FLIGHTDECK_STRICT_GUARDS\) throw/.test(def), 'a test build throws');
-  assert.ok(/still: function \(\) \{ return false; \}/.test(def), 'the app writes nothing');
-});
-rule('Every change that approves, sends back, passes, waives, lands a to-do or keeps a copy is made inside a guarded loopEdit', () => {
-  const edits = calls('loopEdit(').filter(c => /guard: 'snapshot'|freshKeys: /.test(c.args));
-  const re = /R\.(pass|waive|unsettleLoop|todoLand|adopt)\(|_loop: \{ ok: true/g, bad = [];
-  let m;
-  while ((m = re.exec(SRC))) if (!edits.some(e => m.index > e.start && m.index < e.end)) bad.push('app.js:' + SRC.slice(0, m.index).split('\n').length + ' ' + m[0]);
-  assert.deepStrictEqual(bad, []);
-});
-rule('Every scope record goes through scopeSave, and each names its fresh guard or only reports a guarded write', () => {
-  assert.strictEqual(calls('repo.saveScope(').map(c => c.fn).join(), 'scopeSave', 'repo.saveScope is called only by scopeSave');
-  const all = calls('scopeSave(');
-  assert.ok(all.length >= 7, 'the inventory found the scope writes: ' + all.length);
-  const bad = all.filter(c => !/recheck: /.test(c.args) && !(c.fn === 'loopOutcome' && c.args.indexOf('opts') >= 0)).map(c => 'app.js:' + c.line + ' (' + c.fn + ')');
-  assert.deepStrictEqual(bad, []);
-  const lo = SRC.slice(SRC.indexOf('function loopOutcome('), SRC.indexOf('function scopeSave('));
-  assert.ok(/if \(resolves\) opts\.recheck = function \(fs\) \{ return [^;]*freshGuard\(/.test(lo) && /else opts\.report = true;/.test(lo), 'a resolution asks the fresh guard; only an outcome report is exempt');
-  const ss = SRC.slice(SRC.indexOf('function scopeSave('), SRC.indexOf('function scopeSave(') + 600);
-  assert.ok(/typeof opts\.recheck !== 'function' && opts\.report !== true/.test(ss) && /dropped: true/.test(ss), 'scopeSave refuses a write with neither');
-});
-/* The run saves: save() (every mutateRun, so every loopEdit) and a loop's child run ask their guards; the rest each make a new
-   run that decides nothing about another record. A new site has to be added here, with why. */
-const NEW_RUNS = {
-  launchChild: 'a linked child run started from its form',
-  continueTwo: 'a run continued as a Flightdeck 2.0 run',
-  csHarvest: 'a run started from the start form'
+const MUTANTS = {
+  'an alias of the writer': (app, r) => { const w = app.PF.repo.saveRun; return w(app.fs, r, 'mutant'); },
+  'a helper that wraps it': (app, r) => { const h = (f, x) => app.PF.repo.saveRun(f, x, 'mutant', { writer: 'mutant' }); return h(app.fs, r); },
+  'a call through a property': (app, r) => { const o = { s: app.PF.repo.saveRun }; return o.s(app.fs, r, 'mutant'); },
+  'an object made from the folder': (app, r) => app.PF.repo.saveRun(Object.create(app.fs), r, 'mutant'),
+  'a guard that answers true': (app, r) => app.PF.repo.saveRun(app.fs, r, 'mutant', { recheck: () => true })
 };
-rule('Every run save is the guarded save(), a loop child with its fresh guard, or a listed new run', () => {
-  const all = calls('repo.saveRun(');
-  const bad = all.filter(c => !(c.fn === 'save' || (c.fn === 'loopLaunch' && /recheck: recheck/.test(c.args)) || NEW_RUNS[c.fn])).map(c => 'app.js:' + c.line + ' (' + c.fn + ')');
-  assert.deepStrictEqual(bad, []);
-  assert.deepStrictEqual(Object.keys(NEW_RUNS).filter(f => !all.some(c => c.fn === f)), [], 'every listed new run is still a real site');
+for (const m of Object.keys(MUTANTS)) rule('A run written through ' + m + ', without its guard\'s token, throws in the test build and writes nothing', async () => {
+  const app = await opened(), { r } = aRun(app);
+  r.title = 'Changed by a mutant';
+  const o = await outcome(app, () => MUTANTS[m](app, r));
+  assert.deepStrictEqual([o.how === 'resolved', o.wrote], [false, false], JSON.stringify(o));
+  assert.ok(/guard didn't admit/.test(o.why), 'refused by the writer\'s check: ' + o.why);
+});
+rule('A token made by hand, shaped like the guard\'s, is refused: it was never made by the guard', async () => {
+  const app = await opened(), { r } = aRun(app), key = r.process + '/' + r.id;
+  r.title = 'Changed with a forged token';
+  const o = await outcome(app, () => app.PF.repo.saveRun(app.fs, r, 'mutant', { recheck: () => ({ kind: 'fresh', runs: { [key]: r.rev || 0 }, create: '' }) }));
+  assert.deepStrictEqual([o.how, o.wrote], ['rejected', false], JSON.stringify(o));
+});
+rule('A new run written without its create capability throws in the test build and writes nothing', async () => {
+  const app = await opened(), { r } = aRun(app);
+  const n = JSON.parse(JSON.stringify(r)); n.id = 'mutant-new-run'; delete n._fileHash;
+  const o = await outcome(app, () => { const w = app.PF.repo.saveRun; return w(app.fs, n, 'mutant'); });
+  assert.deepStrictEqual([o.how, o.wrote], ['threw', false], JSON.stringify(o));
+});
+const SCOPE = 'req-mutant-0123456789abcdef01234567.json';
+const scopeFile = () => ({ format: 'flightdeck-plan/3', features: ['loops'] });
+for (const [m, call] of [
+  ['an alias of the scope writer', (app) => { const w = app.PF.repo.saveScope; return w(app.fs, SCOPE, scopeFile(), {}); }],
+  ['a call through a property, with a guard that answers true', (app) => { const o = { s: app.PF.repo.saveScope }; return o.s(app.fs, SCOPE, scopeFile(), { recheck: () => true }); }]
+]) rule('A scope record written through ' + m + ' is refused and nothing is written', async () => {
+  const app = await opened();
+  const o = await outcome(app, () => call(app));
+  assert.ok(o.how !== 'resolved' || !o.wrote, JSON.stringify(o));
+  assert.strictEqual(o.wrote, false);
+  assert.ok(o.how === 'threw' || /guard didn't admit/.test(o.why), 'refused by the writer\'s check: ' + JSON.stringify(o));
+});
+/* The same mutants made in the app's own source: a click handler that aliases, wraps or calls the writer through a property,
+   built into the page. Each click throws in the test build and writes nothing. */
+const HTML = fs.readFileSync(path.join(__dirname, '..', 'dist', 'flightdeck.html'), 'utf8');
+const ANCHOR = "    'loop-unsettle': function (id) {";
+const SOURCE = {
+  alias: "'mutant': function () { var w = repo.saveRun; w(state.fs, data.runs[0], SESSION, { writer: WRITER }); },",
+  helper: "'mutant': function () { var h = function (r) { return repo.saveRun(state.fs, r, SESSION, { writer: WRITER }); }; h(data.runs[0]); },",
+  property: "'mutant': function () { var o = { put: PF.repo.saveRun }; o.put(state.fs, data.runs[0], SESSION, { writer: WRITER }); },",
+  scope: "'mutant': function () { var w = repo.saveScope; w(state.fs, '" + SCOPE + "', { format: 'flightdeck-plan/3' }, {}); },"
+};
+for (const m of Object.keys(SOURCE)) rule('A writer reached by ' + m + ' in the app\'s own source throws when clicked in the test build, and nothing is written', async () => {
+  assert.strictEqual(HTML.split(ANCHOR).length, 2, 'set-up: one place to put the mutant');
+  const app = await opened(HTML.replace(ANCHOR, '    ' + SOURCE[m] + '\n' + ANCHOR));
+  const o = await outcome(app, () => app.click('mutant', ''));
+  assert.deepStrictEqual([o.how, o.wrote], ['threw', false], JSON.stringify(o));
 });
 
 run();

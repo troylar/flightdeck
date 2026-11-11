@@ -30,7 +30,8 @@ function locks() {
 function boot(opts) {
   opts = opts || {};
   /* opts.html: another build of the app (an older release, for the cross-version tests); this build by default. */
-  const html = opts.html || fs.readFileSync(path.join(__dirname, '..', 'dist', 'flightdeck.html'), 'utf8');
+  /* APP_HTML=<file>: every app in this run boots that build instead (an earlier commit's, to show a new rule failing first). */
+  const html = opts.html || fs.readFileSync(process.env.APP_HTML || path.join(__dirname, '..', 'dist', 'flightdeck.html'), 'utf8');
   const script = id => new RegExp('<script id="' + id + '">([\\s\\S]*?)</script>').exec(html)[1];
   const intervals = [], downloads = [];
   let lastBlob = null;
@@ -401,6 +402,9 @@ function boot(opts) {
     badge: () => els['tab-badge'].innerHTML,
     badgeInert: () => els['tab-badge'].hasAttribute('inert'),
     overlay: () => els.overlay.innerHTML,
+    /* Round 19: another window's view of the same folder. The app registers its own folder object for guarded writes, so a
+       test that writes as another window (repo.saveRun) does it through this, which the app never registered. */
+    otherWindow() { return new Proxy(this.fs, {}); },
     // Submit a form as a browser would: its data-* attributes, and its fields' values (typed with set(), else as drawn), come
     // from the page. dataset overrides what the page drew, to simulate a form drawn earlier.
     /* Who approves is chosen on the start and plan forms (2.10): a test that isn't about that choice picks the rotation's
