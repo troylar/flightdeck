@@ -965,4 +965,20 @@ rule('A dependency\'s screenshot replaced after its version was verified (the sa
   assert.ok(n >= 1, 'set-up: the screenshot was read');
   assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf('shot.png') >= 0 || u.indexOf(W.kidKey) >= 0), res.status + ' ' + JSON.stringify(res.col.unresolved).slice(0, 400));
 });
+/* XD: bounded reads close what they open: an export through the command line's reader leaves no file handle open. */
+rule('An export through the command line\'s reader closes every file it opens, whatever the number of plans', async () => {
+  const fs = require('fs'), os = require('os'), path = require('path');
+  const W = await made({ todos: 1 }), FD = require('../bin/flightdeck.js');
+  const files = Object.assign({}, W.files);
+  for (let i = 0; i < 40; i++) files['proposals/plan-extra-' + i + '.json'] = JSON.stringify({ kind: 'plan', id: 'plan-extra-' + i, process: 'other', title: 'Plan ' + i });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-handles-'));
+  Object.keys(files).forEach((p) => { fs.mkdirSync(path.join(dir, path.dirname(p)), { recursive: true }); fs.writeFileSync(path.join(dir, p), files[p]); });
+  const open = new Set(), o = fs.openSync, c = fs.closeSync;
+  fs.openSync = function () { const fd = o.apply(fs, arguments); open.add(fd); return fd; };
+  fs.closeSync = function (fd) { open.delete(fd); return c.apply(fs, arguments); };
+  let res;
+  try { res = await W.PF.repo.exportEvidence(FD.readAdapter(fs.realpathSync(dir)), { run: W.key }, { sink: () => {}, now: () => Date.now(), tz: 'UTC' }); } finally { fs.openSync = o; fs.closeSync = c; }
+  assert.strictEqual(res.status, 'complete', JSON.stringify(res.col && res.col.unresolved));
+  assert.strictEqual(open.size, 0, open.size + ' file handles left open');
+});
 run();

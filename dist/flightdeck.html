@@ -26312,13 +26312,16 @@ PF.repo = (function () {
     function rawBytes(p, n) {
       return ro.blob(p).then(function (b) {
         if (!b) return null;
-        /* Never more than its stat said, plus one byte to see that it grew: what was reserved is all that is read. */
+        var shut = function () { if (b.close) b.close(); };
+        /* Never more than its stat said, plus one byte to see that it grew: what was reserved is all that is read. Closed
+           once read, whether or not the read worked. */
         return b.slice(0, n + 1).arrayBuffer().then(function (ab) {
+          shut();
           var u = new Uint8Array(ab);
           if (u.length > n) throw new Error(p + ' grew past the ' + E.size(n) + ' reserved for it while it was read, so it wasn\'t read');
           var h = S.create(); h.update(u); var hash = h.digest(); rawOf[p] = hash; rawKept[hash] = true;
           return { u: u, hash: hash };
-        });
+        }, function (e) { shut(); throw e; });
       });
     }
     var lists = Object.create(null), listKey = function (items) { return (items || []).map(function (i) { return i.kind + ':' + i.name; }).sort(); };
@@ -26337,9 +26340,10 @@ PF.repo = (function () {
           return ro.blob(p, o).then(function (b) {
             if (!b) { retained.now -= n; return null; }
             /* Its raw SHA-256 kept (rawOf), as for a record: a screenshot that verified a version is read again at the end too. */
-            var whole = function () { return b.slice(0, n + 1).arrayBuffer().then(function (ab) { if (ab.byteLength > n) throw new Error(p + ' grew past the ' + E.size(n) + ' reserved for it while it was read, so it wasn\'t read'); var h = S.create(); h.update(new Uint8Array(ab)); var hash = h.digest(); rawOf[p] = hash; rawKept[hash] = true; return ab; }); };
+            var shut = function () { if (b.close) b.close(); };
+            var whole = function () { return b.slice(0, n + 1).arrayBuffer().then(function (ab) { shut(); if (ab.byteLength > n) throw new Error(p + ' grew past the ' + E.size(n) + ' reserved for it while it was read, so it wasn\'t read'); var h = S.create(); h.update(new Uint8Array(ab)); var hash = h.digest(); rawOf[p] = hash; rawKept[hash] = true; return ab; }, function (e) { shut(); throw e; }); };
             return { size: Math.min(b.size, n), type: b.type, lastModified: b.lastModified, slice: function (a, z) { return b.slice(a, Math.min(z == null ? n : z, n)); }, arrayBuffer: whole,
-              text: function () { return whole().then(function (ab) { return new TextDecoder('utf-8').decode(ab); }); }, close: function () { if (b.close) b.close(); } };
+              text: function () { return whole().then(function (ab) { return new TextDecoder('utf-8').decode(ab); }); }, close: shut };
           }, function (e) { retained.now -= n; throw e; });
         });
       },
