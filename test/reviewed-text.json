@@ -25,8 +25,8 @@
       "reviewed": "QC: spread keep's final check rereads and judges the items' checklist and rebuilds from it; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "83479ee048c2ba9bf3c111db36078114cf3678f7cf81c6953dc84e794a87d97f",
-      "reviewed": "AC: differing copies of a keep kept content rests on hold Publish and Promote for everyone, named; checked for direct writes and unconditional deletes"
+      "sha256": "80b1ba5248dbb28ca397cf5da21b1aadbb6768c132b862255a790d0a8e431792",
+      "reviewed": "AA: every keep decision binds the fresh records to the reviewed members and judges Withdraw's author on them; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -257,8 +257,8 @@
       "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/learn.js": {
-      "sha256": "188bf1c2ee0efc1cb8d6cb3994b8d31763f20b3c35ca73020993c89a85a2d918",
-      "reviewed": "AC: differing copies of a keep kept content rests on hold Publish and Promote for everyone, named; checked for direct writes and unconditional deletes"
+      "sha256": "743c832d7f794de2b2d2e4222d020165cb3317f433d52c06aaaf0e53e09caecb",
+      "reviewed": "AA: every keep decision binds the fresh records to the reviewed members and judges Withdraw's author on them; checked for direct writes and unconditional deletes"
     },
     "src/core/library.js": {
       "sha256": "5c8555ff9b8bc67aa90ea4f556bddebbe47d17ae37e296d44b815187d776bd44",
@@ -421,8 +421,8 @@
       "reviewed": "AE: a supplied _sha is kept as the file wrote it and refused like _file and _bytes; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "63ec663411e4f97bd30cb992bd633f08edc9d55c61deaa27c1c6e8162bc2cf05",
-      "reviewed": "YC: late detour Start, Try again, Decline and plan read-back are bound to the form and layer they started from; checked for direct writes and unconditional deletes"
+      "sha256": "b56564f1bcc27c166160126cc13e2e30c4c0144735718296fa7a17fed75c6a37",
+      "reviewed": "AA: every keep decision binds the fresh records to the reviewed members and judges Withdraw's author on them; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

@@ -3663,38 +3663,52 @@
      window's copy: a version published meanwhile that moves ownership moves it at the write. Unreadable, it refuses. */
   function keepGuard(g, pid, withdraw, at) {
     if (!g || !g.keep) return null;
-    var proc = null, pw = '';
+    var proc = null, pw = '', authors = null;
+    /* AA: what was reviewed: each member's keep record as this window read it (its canonical form). */
+    var reviewed = Object.create(null);
+    g.members.forEach(function (c) { var rec = (data.todos || []).filter(function (x) { return x && x.kind === 'keep' && x.id === c.id; })[0]; reviewed[c.id] = rec ? PF.learn.keepSig(rec) : ''; });
     return writeGuard({ at: at,
       fresh: function (fx) {
-        proc = null; pw = '';
+        proc = null; pw = ''; authors = null;
         var gone = 'its checklist\'s publications couldn\'t be read again right before it was written, so its owner can\'t be told.';
-        /* VA: the group's keeps read again first: copies of one that differ now refuse the write, naming them. */
-        var copies = repo.readKept(fx).then(function (r) {
-          var bad = g.members.map(function (c) { return PF.learn.copiesOf(r.keepFiles, c.id); }).filter(function (x) { return !x.same; })[0];
-          if (bad) pw = PF.learn.copiesWhy({ keep: true, members: [{ copiesDiffer: bad.files }] });
-          var torn = (r.keepUnread || []).filter(function (u) { return u && g.members.some(function (c) { return PF.todos.requestFile(String(u.file), c.id); }); })[0];
-          if (!bad && torn) pw = 'a copy of a keep in this correction can\'t be read now (proposals/' + torn.file + '), so whether it says the same can\'t be told.';
-        }, function (e) { pw = 'what was kept for next time couldn\'t be read again right before it was written (' + (e && e.message || e) + ').'; });
-        /* YB: Withdraw reads the copies again too, then needs only its author (no owner, so no publications read). */
-        if (withdraw) return copies.then(function () { return true; });
-        return copies.then(function () { return repo.readProcess(fx, pid); }).then(function (p) {
-          if (pw) return true;
-          if (!p || p.unlisted || !p.latest) { pw = gone; return true; }
+        /* Its owner from the publications read now (Withdraw needs only its author, so none are read for it). */
+        var owner = withdraw ? Promise.resolve() : repo.readProcess(fx, pid).then(function (p) {
+          if (!p || p.unlisted || !p.latest) { pw = gone; return; }
           /* Listed again after every version was read: one published meanwhile (it may move ownership) refuses the write. */
           var seen = (p.all || []).concat(p.broken || []).map(function (x) { return x && (x.info ? x.info.folder : x.folder); }).filter(Boolean).sort().join('|');
           return fx.list('publications/' + pid).then(function (items) {
             var now = (items || []).filter(function (v) { return v.kind === 'dir' && PF.publish.versionOf(v.name); }).map(function (v) { return v.name; }).sort().join('|');
             if (now !== seen) pw = 'a version of its checklist was published while it was being written, so its owner is asked again: look again, then decide.'; else proc = p;
-            return true;
-          }, function () { pw = gone; return true; });
-        }, function (e) { pw = 'its checklist\'s publications couldn\'t be read again right before it was written (' + (e && e.message || e) + '), so its owner can\'t be told.'; return true; });
+          }, function () { pw = gone; });
+        }, function (e) { pw = 'its checklist\'s publications couldn\'t be read again right before it was written (' + (e && e.message || e) + '), so its owner can\'t be told.'; });
+        /* Then the group's keeps, last before people.json: every reviewed member present and exactly as reviewed (AA), and no
+           copy of one that differs or can't be read (VA). */
+        var rr = null;
+        return owner.then(function () { return repo.readKept(fx); }).then(function (r) { rr = r; }).then(function () {
+          if (pw) return true;
+          var r = rr;
+          for (var i = 0; i < g.members.length; i++) {
+            var id = g.members[i].id, cp = PF.learn.copiesOf(r.keepFiles, id);
+            var torn = (r.keepUnread || []).filter(function (u) { return u && PF.todos.requestFile(String(u.file), id); });
+            if (torn.length) { pw = 'a copy of a keep in this correction can\'t be read now (proposals/' + torn[0].file + '), so whether it says the same can\'t be told.'; return true; }
+            if (!cp.files.length) { pw = 'proposals/' + id + '.json, a keep in this correction, isn\'t in the folder now, so this correction isn\'t the one reviewed. Look again, then decide.'; return true; }
+            if (!cp.same) { pw = PF.learn.copiesWhy({ keep: true, members: [{ copiesDiffer: cp.files }] }); return true; }
+            var rec = (r.keepFiles || []).filter(function (x) { return x && x.id === id; })[0];
+            if (!reviewed[id] || PF.learn.keepSig(rec) !== reviewed[id]) { pw = 'proposals/' + cp.files[0] + ' changed since this correction was reviewed, so it isn\'t the one reviewed. Look again, then decide.'; return true; }
+            authors = authors || []; authors.push(rec.by && (rec.by.person || rec.by.tool));
+          }
+          return true;
+        }, function (e) { if (!pw) pw = 'what was kept for next time couldn\'t be read again right before it was written (' + (e && e.message || e) + ').'; return true; });
       },
       who: function (ppl, me) {
-        if (withdraw) return pw || (g.members.every(function (c) { return c.by === me; }) ? '' : 'Only whoever kept it can withdraw it.');
-        if (pw || !proc) return pw || 'its checklist\'s owner can\'t be told.';
+        if (pw) return pw;
+        /* Withdrawing is its author's, judged on the keep records read now (AA), never this window's copy. */
+        if (withdraw) return authors && authors.length === g.members.length && authors.every(function (b) { return b === me; }) ? '' : 'Only whoever kept it can withdraw it.';
+        if (!proc) return 'its checklist\'s owner can\'t be told.';
         return PF.learn.ownerWhy(g, proc, ppl, me, false);
       } });
   }
+
   /* MA: the one rule for Publish and Promote (4.0 slice 5). Inside the write guard, before every write: the keep records and
      every correction decision are read again (repo.readKept), then the checklist's versions (the owner, and what was
      published before), then people.json last (writeGuard). Whether the text includes what was kept comes from the decisions

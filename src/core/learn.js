@@ -475,6 +475,6 @@ PF.learn = (function () {
     return '';
   }
 
-  return { LIMITS: LIMITS, idFor: idFor, keyFor: keyFor, phaseSig: phaseSig, cleanFile: cleanFile, build: build, keepsOf: keepsOf, copiesOf: copiesOf, copiesWhy: copiesWhy, route: route, prepare: prepare, previewOf: previewOf, stepTextWhy: stepTextWhy,
+  return { LIMITS: LIMITS, idFor: idFor, keyFor: keyFor, phaseSig: phaseSig, cleanFile: cleanFile, build: build, keepsOf: keepsOf, copiesOf: copiesOf, copiesWhy: copiesWhy, keepSig: canon, route: route, prepare: prepare, previewOf: previewOf, stepTextWhy: stepTextWhy,
     members: members, keptIn: keptIn, keptCapWhy: keptCapWhy, groupKey: groupKey, alternatives: alternatives, ownerWhy: ownerWhy, label: label, forSource: forSource, sourceKey: sourceKey };
 })();

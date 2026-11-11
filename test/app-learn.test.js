@@ -420,6 +420,27 @@ rule('A keep under a OneDrive copy name is withdrawn like its own, and identical
     assert.deepStrictEqual(app.files('proposals/req-keep-'), [], how + ': withdrawn: ' + (txt(app.html()).match(/(Nothing was withdrawn|Couldn't withdraw)[^.]*\.[^.]*\./) || [])[0]);
   }
 });
+/* AA: every keep decision is bound to the members reviewed: a keep deleted since, or replaced by a valid record with the
+   same id that says something else (another author, say), refuses Apply, Mark as applied and Withdraw, by path; Withdraw
+   judges its author on the records read now. */
+rule('A keep decision refuses a reviewed keep deleted or changed since, by path, and Withdraw judges its author on the records read now', async () => {
+  for (const how of ['deleted', 'changed']) for (const act of ['apply', 'decide', 'withdraw']) {
+    const label = how + ' · ' + act, app = await setup(), id = await added(app, 'Post the release notes');
+    app.click('keep', id, { kind: 'todo' }); await app.tick(120); await refresh(app, 300);
+    const gid = groupId(app), k = keeps(app)[0], own = 'proposals/' + k.id + '.json';
+    const DR = 'maps/drafts/release-notes.md', draft0 = app.fs.files[DR] ? app.fs.files[DR].t : null, n = app.files('corrections/').length;
+    app.click('keep-open', gid, { process: 'release-notes' }); await app.tick(120);
+    if (act !== 'withdraw') { app.choose('person-morgan'); await app.tick(80); }
+    if (act === 'apply') { app.click('corr-review', gid); await app.tick(60); }
+    if (how === 'deleted') delete app.fs.files[own];
+    else { const o = JSON.parse(app.fs.files[own].t); o.by = { person: 'person-casey' }; app.fs.files[own] = { t: JSON.stringify(o, null, 2) + '\n', m: Date.now() }; }
+    if (act === 'apply') app.click('corr-apply', gid); else if (act === 'decide') app.click('corr-applied', gid); else app.click('corr-withdraw', gid, { process: 'release-notes' });
+    await app.tick(400);
+    assert.strictEqual(app.files('corrections/').length, n, label + ': no decision written');
+    assert.strictEqual(app.fs.files[DR] ? app.fs.files[DR].t : null, draft0, label + ': the draft as it was');
+    assert.ok(txt(app.html()).indexOf(k.id + '.json') >= 0, label + ': said, by path: ' + (txt(app.html()).match(/[^.]*(isn't in the folder|changed since|whoever kept)[^.]*\./) || [])[0]);
+  }
+});
 /* YB: Withdraw on a whole correction reads the keep's copies again, as every other decision does: a copy that differs
    refuses it, naming the copy; its author still withdraws it once the copy is gone. */
 rule('Withdrawing a whole correction is refused while a copy of its keep differs; its author withdraws it once that copy is gone', async () => {
