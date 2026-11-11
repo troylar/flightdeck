@@ -1318,6 +1318,18 @@ rule('Python refuses a complete pack whose root run.json is missing, not JSON, n
   const c = checkPack(await repacked(W.PF, full.zip, (e, man) => { man.status = 'complete'; man.runs.forEach((r) => { if (r.living) r.living.complete = false; }); }));
   assert.ok(!c.ok && c.out.indexOf(W.key) >= 0, 'living.complete false under a complete pack: Python: ' + c.out);
 });
+/* JD: a pack made for one run names that run in its manifest exactly once, as every export does (partial ones included):
+   a manifest whose runs leave the selected run out, or name it twice, is refused before anything is called complete. */
+rule('Python refuses a pack whose manifest leaves out the run it was made for, or names it twice', async () => {
+  if (!PY) return;
+  const W = await made({ todos: 1, pending: true }), full = await pack(W.PF, new BytesFS(W.files), W.key), rp = 'runs/' + W.key + '/run.json';
+  assert.ok(checkPack(full.zip).ok, 'control');
+  assert.strictEqual(manifestOf(full.zip).scope.run, W.key, 'set-up: the pack is made for the run');
+  const left = checkPack(await repacked(W.PF, full.zip, (e, man, f) => { e[f(rp).pack] = Buffer.from('[]'); man.status = 'complete'; man.runs = []; }));
+  assert.ok(!left.ok && left.out.indexOf(W.key) >= 0, 'left out: Python: ' + left.out);
+  const twice = checkPack(await repacked(W.PF, full.zip, (e, man) => { man.runs = man.runs.concat([JSON.parse(JSON.stringify(man.runs[0]))]); }));
+  assert.ok(!twice.ok && twice.out.indexOf(W.key) >= 0, 'named twice: Python: ' + twice.out);
+});
 /* FD: living work needs run/3. An ended living run written back as run/2 (no run/3 field but its living record) is refused
    by every reader as newer, so the export of it is partial and Python refuses a pack of it that says complete. */
 rule('An ended living run written as run/2 is partial in the export, and Python refuses a complete pack of it', async () => {

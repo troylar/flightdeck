@@ -500,6 +500,11 @@ def check_living(z, man):
             return ("malformed", "it isn't a run this copy can read")
         return root_problem(key, run)
 
+    # The run a pack was made for is named in its manifest exactly once, as every export names it, partial ones included.
+    sel = (man.get("scope") or {}).get("run") if isinstance(man.get("scope"), dict) else None
+    if sel is not None and sum(1 for r in man["runs"] if r.get("key") == sel) != 1:
+        sys.exit("living: the pack was made for " + str(sel) + ", but its manifest doesn't name that run exactly once")
+
     n = 0
     for r in man["runs"]:
         lv = r.get("living")
