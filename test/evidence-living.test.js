@@ -1215,6 +1215,28 @@ rule('Python refuses a complete pack whose root run\'s end the readers refuse (a
     assert.ok(!c.ok && c.out.indexOf(W.key) >= 0, what + ': Python: ' + c.out);
   }
 });
+/* FA: the raw run's end and living record are judged before every "no living work" gate: a run without to-dos whose run.json
+   names the living-runs feature without its record, or holds a living record that is empty, a list or has an empty head
+   (sanitizing would drop each), is partial in the export, and Python refuses a pack of it with no living section. */
+rule('A run whose living record the readers refuse but sanitizing drops is partial in the export, and Python refuses a pack without a living section', async () => {
+  const W = await made({ todos: 1 }), rp = 'runs/' + W.key + '/run.json', ok = await pack(W.PF, new BytesFS(W.files), W.key);
+  const bare = Object.assign({}, W.files); Object.keys(bare).filter((k) => /^proposals\//.test(k)).forEach((k) => { delete bare[k]; });
+  const LIVING = [['the feature without its record', (o) => { delete o.living; }], ['a null record', (o) => { o.living = null; }], ['a list', (o) => { o.living = []; }], ['an empty head', (o) => { o.living = { head: '' }; }]];
+  for (const [what, damage] of LIVING) {
+    const o = JSON.parse(String(W.files[rp])); damage(o); delete o.ended;
+    const { res } = await pack(W.PF, new BytesFS(Object.assign({}, bare, { [rp]: JSON.stringify(o, null, 2) + '\n' })), W.key);
+    assert.strictEqual(res.status, 'partial', what + ': the export: ' + JSON.stringify(res.col.unresolved).slice(0, 300));
+    assert.ok(res.col.unresolved.some((u) => u.indexOf(rp) >= 0), what + ': names run.json: ' + JSON.stringify(res.col.unresolved).slice(0, 300));
+    if (!PY) continue;
+    /* A pack of it with no living section and none of its records: only Python's own reading of run.json can refuse it. */
+    const c = checkPack(await repacked(W.PF, ok.zip, (e, man, f) => {
+      const x = f(rp), r = JSON.parse(e[x.pack]); damage(r); delete r.ended; e[x.pack] = Buffer.from(JSON.stringify(r, null, 2) + '\n');
+      man.files.filter((y) => /^proposals\//.test(y.path)).forEach((y) => { delete e[y.pack]; }); man.files = man.files.filter((y) => !/^proposals\//.test(y.path));
+      man.runs.forEach((m) => { delete m.living; }); man.status = 'complete';
+    }));
+    assert.ok(!c.ok && c.out.indexOf(W.key) >= 0, what + ': Python: ' + c.out);
+  }
+});
 /* EA: the file-name index groups every result, successful reads too: a copy under a witness's name that reads whole as
    another record (a 1.x plan, a plan/2, a plan decision of either format, a to-do record of another id, a scope record) holds
    that witness in the loader and the export, as a copy that differs. A matrix: each witness family × each valid record. */

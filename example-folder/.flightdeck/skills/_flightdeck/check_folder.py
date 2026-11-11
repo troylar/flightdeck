@@ -4385,25 +4385,32 @@ def living_problem(r):
     return None
 
 
-def end_problem(r):
-    """PF.run.endProblem: the one end validation every reader applies to a run file's ended record (newer() first: an unknown
-    field, an outcome this copy doesn't know, a receipt named without an end; then the time badTimes() can't read and what
-    repairs() drops or cuts), as (kind, why), or None when the end is read as written."""
-    if not isinstance(r, dict):
-        return None
-    e = r.get("ended")
-    is_obj = isinstance(e, dict)
-    # A receipt named without an end (no end, null, or an end that isn't a record) first, before an absent end means "not ended".
-    if not is_obj and isinstance(r.get("living"), dict) and "receipt" in r["living"]:
+def _no_end(r):
+    """A receipt named without an end (no end, null, or an end that isn't a record)."""
+    if not isinstance(r.get("ended"), dict) and isinstance(r.get("living"), dict) and "receipt" in r["living"]:
         return "newer", RUN_NEWER + " It names the receipt it ended with, but it hasn't ended."
+    return None
+
+
+def _end_newer(r):
+    """An end field this copy doesn't know, or an outcome that isn't exactly one it knows as text."""
+    e = r.get("ended")
+    if not isinstance(e, dict):
+        return None
+    extra = next((k for k in e.keys() if k not in ENDED_FIELDS), None)
+    if extra is not None:
+        return "newer", RUN_NEWER + ' How it ended has "' + js_slice(str(extra), 40) + '".'
+    if e.get("outcome") is not None and not (isinstance(e.get("outcome"), str) and e["outcome"] in R_OUTCOMES):
+        return "newer", RUN_NEWER + ' How it ended is "' + js_slice(js_String(e.get("outcome")), 40) + '".'
+    return None
+
+
+def _end_malformed(r):
+    """The time badTimes() can't read, and what repairs() drops or cuts."""
+    e = r.get("ended")
     if e is None:
         return None
-    if is_obj:
-        extra = next((k for k in e.keys() if k not in ENDED_FIELDS), None)
-        if extra is not None:
-            return "newer", RUN_NEWER + ' How it ended has "' + js_slice(str(extra), 40) + '".'
-        if e.get("outcome") is not None and not (isinstance(e.get("outcome"), str) and e["outcome"] in R_OUTCOMES):
-            return "newer", RUN_NEWER + ' How it ended is "' + js_slice(js_String(e.get("outcome")), 40) + '".'
+    is_obj = isinstance(e, dict)
     parts, fixed = [], []
     known = is_obj and isinstance(e.get("outcome"), str) and e.get("outcome") in R_OUTCOMES
     if known and not iso_or_null(e.get("at")):
@@ -4424,6 +4431,28 @@ def end_problem(r):
     return ("malformed", " ".join(parts) + " The run is shown as the app shows it, without them.") if parts else None
 
 
+def end_problem(r):
+    """PF.run.endProblem: the one end validation every reader applies to a run file's ended record (a receipt named without an
+    end, an unknown field, an outcome this copy doesn't know; then the time badTimes() can't read and what repairs() drops or
+    cuts), as (kind, why), or None when the end is read as written."""
+    if not isinstance(r, dict):
+        return None
+    return _no_end(r) or _end_newer(r) or _end_malformed(r)
+
+
+def raw_problem(r):
+    """PF.run.rawProblem: a raw run file's end and living record in newer()'s order (the end's fields, the living record, a
+    receipt named without an end), then what the readers drop or can't read; applied before any "no living work" gate."""
+    if not isinstance(r, dict):
+        return None
+    return _end_newer(r) or living_problem(r) or _no_end(r) or _end_malformed(r)
+
+
+def living_work(r):
+    """Whether a raw run file says anything about living work: a living record (any value) or the living-runs feature."""
+    return isinstance(r, dict) and ("living" in r or (isinstance(r.get("features"), list) and TODO_FEATURE in r["features"]))
+
+
 def receipt_verdict(text, read, unread):
     """PF.receipts.verdict for an ended living run.json: its state, the receipt's path, the problem's kind and why (same order
     and words), or None for a run that isn't an ended living run."""
@@ -4431,11 +4460,12 @@ def receipt_verdict(text, read, unread):
         r = json.loads(text, parse_constant=_no_constant) if text and not json_too_deep(text) else None
     except (ValueError, RecursionError):
         r = None
-    if not isinstance(r, dict) or "living" not in r:
+    if not living_work(r):
         return None
-    # The one end validation every reader applies (end_problem), before any receipt verdict: an end the app refuses as newer
-    # or drops or changes leaves run.json named, with the readers' path, kind and reason, and its receipt is never confirmed.
-    ep = end_problem(r) or living_problem(r)
+    # The one raw validation every reader applies (raw_problem), before any receipt verdict or living gate: an end or a living
+    # record the app refuses as newer or drops leaves run.json named, with the readers' path, kind and reason, and its receipt
+    # is never confirmed.
+    ep = raw_problem(r)
     if ep:
         key = str(r.get("process")) + "/" + str(r.get("id"))
         title = js_slice(r["title"], 200) if isinstance(r.get("title"), str) else ""

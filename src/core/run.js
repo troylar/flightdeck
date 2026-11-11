@@ -2416,23 +2416,40 @@ PF.run = (function () {
     if ((o.living !== undefined) !== lf) return { kind: 'newer', why: NEWER + ' ' + (lf ? 'It names the living-runs feature without its record of its to-dos.' : 'It records to-dos without naming the living-runs feature.') };
     return null;
   }
-  function endProblem(o) {
-    if (!o || typeof o !== 'object') return null;
-    var e = o.ended, isObj = !!e && typeof e === 'object' && !Array.isArray(e);
-    /* A receipt named without an end (no end, null, or an end that isn't a record) first, before an absent end means "not ended". */
-    if (!isObj && o.living && typeof o.living === 'object' && o.living.receipt !== undefined) return { kind: 'newer', why: NEWER + ' It names the receipt it ended with, but it hasn\'t ended.' };
+  function endObj(o) { var e = o.ended; return !!e && typeof e === 'object' && !Array.isArray(e); }
+  /* A receipt named without an end (no end, null, or an end that isn't a record). */
+  function noEnd(o) { return !endObj(o) && o.living && typeof o.living === 'object' && o.living.receipt !== undefined ? { kind: 'newer', why: NEWER + ' It names the receipt it ended with, but it hasn\'t ended.' } : null; }
+  /* An end field this copy doesn't know, or an outcome that isn't exactly one it knows as text. */
+  function endNewer(o) {
+    if (!endObj(o)) return null;
+    var e = o.ended, extra = Object.keys(e).filter(function (f) { return !Object.prototype.hasOwnProperty.call(KNOWN.ended, f); })[0];
+    if (extra != null) return { kind: 'newer', why: NEWER + ' How it ended has "' + String(extra).slice(0, 40) + '".' };
+    if (e.outcome != null && !outcomeOk(e.outcome)) return { kind: 'newer', why: NEWER + ' How it ended is "' + String(e.outcome).slice(0, 40) + '".' };
+    return null;
+  }
+  /* A time badTimes() can't read, and what repairs() drops or cuts. */
+  function endMalformed(o) {
+    var e = o.ended, isObj = endObj(o);
     if (e == null) return null;
-    if (isObj) {
-      var extra = Object.keys(e).filter(function (f) { return !Object.prototype.hasOwnProperty.call(KNOWN.ended, f); })[0];
-      if (extra != null) return { kind: 'newer', why: NEWER + ' How it ended has "' + String(extra).slice(0, 40) + '".' };
-      if (e.outcome != null && !outcomeOk(e.outcome)) return { kind: 'newer', why: NEWER + ' How it ended is "' + String(e.outcome).slice(0, 40) + '".' };
-    }
     var parts = [], fixed = [];
     if (isObj && outcomeOk(e.outcome) && !isoOrNull(e.at)) parts.push('Some times in this file couldn\'t be read (the end).');
     if (!isObj || !outcomeOk(e.outcome)) fixed.push('ended (dropped: not an outcome this copy knows)');
     else ['by', 'byName'].forEach(function (k) { var v = e[k]; if (v == null) return; if (typeof v !== 'string') fixed.push('ended.' + k + ' (dropped: not text)'); else if (v.length > 80) fixed.push('ended.' + k + ' (cut to 80 characters)'); });
     if (fixed.length) parts.push('Records this copy dropped or changed: ' + fixed.join(', ') + '.');
     return parts.length ? { kind: 'malformed', why: parts.join(' ') + ' The run is shown as the app shows it, without them.' } : null;
+  }
+  function endProblem(o) {
+    if (!o || typeof o !== 'object') return null;
+    return noEnd(o) || endNewer(o) || endMalformed(o);
+  }
+  /* FA: the one validation of a raw run file's end and living record, in newer()'s order (the end's fields, then the living
+     record, then a receipt named without an end), then what the readers drop or can't read. Applied to the file as written,
+     before any "no living work" gate, by the export and both Python checkers (raw_problem), so sanitizing never hides it. */
+  /* Whether a raw run file says anything about living work: a living record (any value) or the living-runs feature. */
+  function livingWork(o) { return !!o && typeof o === 'object' && (o.living !== undefined || (Array.isArray(o.features) && o.features.indexOf(PF.todos.FEATURE) >= 0)); }
+  function rawProblem(o) {
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return null;
+    return endNewer(o) || livingProblem(o) || noEnd(o) || endMalformed(o);
   }
   /* Reading for other apps: every record in a run file that sanitize drops, cuts short or replaces, by where it is
      (gates.ready, followUps[2], steps.tests.values.url, log[40]…), worked out from the file as parsed. Pure, never saved, and
@@ -2739,7 +2756,7 @@ PF.run = (function () {
   return { answerable: answerable, reopenIds: reopenIds, gateInputs: gateInputs, detailValueDef: detailValueDef, detailUnit: detailUnit,
     childCheck: childCheck, childMarks: childMarks, edgeHolds: edgeHolds, linkShape: linkShape, CHILD_HEIGHT: CHILD_HEIGHT, CHILD_LINKS: CHILD_LINKS, isSearchStep: isSearchStep, searchSteps: searchSteps, searchState: searchState, searchProblem: searchProblem, reopenNotice: reopenNotice, searchId: searchId, searchCheck: searchCheck, genDamaged: genDamaged, refreshSearch: refreshSearch, rereadable: rereadable, mergeOverflow: mergeOverflow, SEARCH_PREFIX: SEARCH_PREFIX,
     RUN_ID: RUN_ID, isTest: isTest, pubDir: pubDir, testProblem: testProblem, testLast: testLast,
-    FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, endProblem: endProblem, livingProblem: livingProblem, repairs: repairs, unexplained: unexplained, canonical: canonical, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk, phaseHeld: phaseHeld,
+    FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, endProblem: endProblem, livingProblem: livingProblem, rawProblem: rawProblem, livingWork: livingWork, repairs: repairs, unexplained: unexplained, canonical: canonical, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk, phaseHeld: phaseHeld,
     phaseOpen: phaseOpen, applies: applies, held: held, stepNeeded: stepNeeded, canStartChild: canStartChild, phaseSkipped: phaseSkipped, condFields: condFields, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, fillOffered: fillOffered, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence, checkFill: checkFill,
     pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, resultMoved: resultMoved, resultChanged: resultChanged, resultMarks: resultMarks, RESULT_CHANGED: RESULT_CHANGED, unsettleResult: unsettleResult, todoLand: todoLand, unsettleLoop: unsettleLoop, resultFit: resultFit, answerOf: answerOf, resultOf: resultOf, outcomeText: outcomeText, resultHeld: resultHeld, acceptsOf: acceptsOf, boundSource: boundSource, teamUnrecorded: teamUnrecorded, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, jiraFor: jiraFor, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, effStep: effStep, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,

@@ -349,11 +349,15 @@ rule('This version: each end field with each invalid value is refused by the fou
     /* EB: a receipt named without an end (null or no end at all), and an outcome that is only text when made into text. */
     ['the end itself', null], ['the end itself', undefined], ['outcome', ['Cancelled']], ['outcome', ['Cancelled'], 'no receipt'],
     /* EE: living data cleanLiving refuses, at run.json with the app's reason. */
-    ['living', { head: '' }, 'living'], ['living', 42, 'living'], ['living', 'head-and-more', 'living'], ['living', 'bad receipt', 'living'], ['living', 'both heads empty', 'living']];
+    ['living', { head: '' }, 'living'], ['living', 42, 'living'], ['living', 'head-and-more', 'living'], ['living', 'bad receipt', 'living'], ['living', 'both heads empty', 'living'],
+    /* FA: judged on the raw run before any "no living work" gate: the feature without the record, an empty or a list record,
+       with the run's to-do records there and with proposals/ empty. */
+    ...[null, [], 'deleted', { head: '' }].map((v) => ['living', v, 'living']).filter((c) => !(c[1] && c[1].head === '')),
+    ...[null, [], 'deleted', { head: '' }].map((v) => ['living', v, 'living, no proposals'])];
   const NEW = H.loadMain();
   for (const [k, v, how] of CASES) {
     const r = JSON.parse(files[rp]);
-    if (how === 'living') r.living = v === 'head-and-more' ? Object.assign({}, r.living, { more: 1 }) : v === 'bad receipt' ? Object.assign({}, r.living, { receipt: 'rcpt' }) : v && v.head === '' ? Object.assign({}, r.living, { head: '' }) : v;
+    if (/^living/.test(how || '')) { if (v === 'deleted') delete r.living; else r.living = v === 'head-and-more' ? Object.assign({}, r.living, { more: 1 }) : v === 'bad receipt' ? Object.assign({}, r.living, { receipt: 'rcpt' }) : v && v.head === '' ? Object.assign({}, r.living, { head: '' }) : v; }
     else if (k === 'the end itself') { if (v === undefined) delete r.ended; else r.ended = v; } else r.ended[k] = v;
     if (how === 'no receipt') delete r.living.receipt;
     const patch = { [rp]: null };
@@ -362,7 +366,7 @@ rule('This version: each end field with each invalid value is refused by the fou
       r.living = { head: '', receipt: o.id }; patch['proposals/' + receipt] = undefined; patch['proposals/' + o.id + '.json'] = NEW.todos.text(o);
     }
     patch[rp] = JSON.stringify(r, null, 2) + '\n';
-    const fx = Object.assign({}, files, patch); Object.keys(fx).forEach((x) => { if (fx[x] === undefined) delete fx[x]; });
+    const fx = Object.assign({}, files, patch); Object.keys(fx).forEach((x) => { if (fx[x] === undefined || (/no proposals/.test(how || '') && /^proposals\//.test(x))) delete fx[x]; });
     const { root, dir } = tree(fx), tag = k + ' = ' + String(JSON.stringify(v)).slice(0, 20) + (how ? ' (' + how + ')' : '');
     try {
       const outs = {

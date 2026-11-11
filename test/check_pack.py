@@ -435,6 +435,10 @@ def check_living(z, man):
         own = run.get("living")
         if isinstance(own, dict) and (own.get("head") or own.get("receipt")):
             return True
+        # FA: living work as written that the readers refuse (the feature without its record, an empty or a list record) is
+        # work to check, though sanitizing would drop it.
+        if CF.living_work(run) and CF.raw_problem(run):
+            return True
         me = {"process": run.get("process"), "id": run.get("id")}
         for path in by_path:
             # The same dispatch first: a record the app can't read whose run or loop can't be told, or that names this run,
@@ -464,9 +468,9 @@ def check_living(z, man):
             if lv.get("complete"):
                 sys.exit("living: " + r["key"] + " says its work is complete, but its run.json isn't in the pack")
             continue
-        # The one end validation every reader applies (end_problem), then its living record (living_problem), on the root run
+        # The one raw validation every reader applies (raw_problem: the end and the living record as written), on the root run
         # before its receipt or completeness.
-        ep = CF.end_problem(run) or CF.living_problem(run)
+        ep = CF.raw_problem(run)
         if ep and lv.get("complete"):
             sys.exit("living: " + r["key"] + " says its work is complete, but its run.json's end or living record isn't one every reader accepts (" + ep[0] + ": " + ep[1] + ")")
         head = (run.get("living") or {}).get("head", "")
@@ -517,6 +521,9 @@ def check_living(z, man):
                 bad = RV.dep_verdict(k, z.read(by_path["runs/" + k + "/run.json"]), lambda p: z.read(by_path[p]) if p in by_path else None)
                 if bad:
                     sys.exit("living: " + r["key"] + " says its work is complete, but " + k + ", a run it depends on, isn't one every reader accepts (" + bad[0] + ": " + bad[1] + ")")
+                rp2 = CF.raw_problem(dep_run)
+                if rp2:
+                    sys.exit("living: " + r["key"] + " says its work is complete, but " + k + ", a run it depends on, has an end or living record the readers refuse (" + rp2[0] + ": " + rp2[1] + ")")
                 w2, c2, cl2, rc2, cp2 = check_run(dep_run)
                 d = named[k]
                 if cp2:

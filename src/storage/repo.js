@@ -3383,13 +3383,16 @@ PF.repo = (function () {
         /* What discovery listed and read is checked again at the end on every path, a run with no to-dos yet included. */
         p.discovery = { lists: lists, hashes: seenHashes, recs: recHashes };
         /* Whether the run has to-do records at all is only known from this read: one that fails is named, living or not yet. */
-        if (Pr.failed) { p.living = { head: self.living ? self.living.head : '', chain: [], receipt: null, missing: ['proposals/ ' + Pr.failed + ', so the run\'s work can\'t be packed.'], recs: {}, listing: null, deps: [], runTexts: {} }; return; }
+        /* FA: the raw run's end and living record, judged before every gate below: a problem sanitizing would hide (a living
+           record dropped, the feature without it) keeps run.json named, living or not. */
+        var rawBad = p.selfRaw ? R.rawProblem(p.selfRaw) : null, rawPath = 'runs/' + self.process + '/' + self.id + '/run.json', rawMiss = rawBad ? [rawPath + ' (' + rawBad.kind + '): ' + rawBad.why] : [];
+        if (Pr.failed) { p.living = { head: self.living ? self.living.head : '', chain: [], receipt: null, missing: rawMiss.concat(['proposals/ ' + Pr.failed + ', so the run\'s work can\'t be packed.']), recs: {}, listing: null, deps: [], runTexts: {} }; return; }
         /* A record that can't be read but names this run (a malformed request, say) is part of its work too, living or not; one
            whose run can't be told at all may be this run's, so it is too (the pack is partial, naming it). */
         var mineUnread = (Pr.todosUnread || []).some(function (u) { return u && (!u.run || (u.run.process === self.process && u.run.id === self.id)); })
           /* A scope record that can't be read whose loop can't be told, or one of this run's loops, likewise (DC). */
           || (Pr.scopesUnread || []).some(function (u) { return u && (!u.loop || (u.loop.process === self.process && u.loop.run === self.id)); });
-        if (!self.living && !PF.todos.recordsFor(Pr.todos, self).length && !mineUnread) return;
+        if (!(rawBad && R.livingWork(p.selfRaw)) && !self.living && !PF.todos.recordsFor(Pr.todos, self).length && !mineUnread) return;
         /* The closure, walked until it holds every run it depends on: the shared collector (PF.receipts.deps) names the runs it
            found that aren't read yet; they are read (and their loop children listed), and it is asked again. Bounded. */
         var got = Object.create(null), known = Object.create(null), kids = Object.create(null), runBad = [], listed = Object.create(null), D = null, DEP_RUNS = PF.receipts.DEP_CAP;
@@ -3415,11 +3418,9 @@ PF.repo = (function () {
           D = ask();
           if (D.over) throw new Error(D.over);
           if (D.toRead.length) throw new Error('The runs the work of ' + self.process + '/' + self.id + ' depends on weren\'t all read, so no pack was made.');
-          /* DB: the run's own end, judged as every reader judges it (PF.run.endProblem), then its living record (EE,
-             PF.run.livingProblem), before anything about its receipt is derived: an end or a living record the readers refuse
-             or drop leaves the work unconfirmed, named at run.json. */
-          var ep = p.selfRaw ? R.endProblem(p.selfRaw) || R.livingProblem(p.selfRaw) : null, epPath = 'runs/' + self.process + '/' + self.id + '/run.json';
-          var L = p.living = { head: self.living ? self.living.head : '', chain: D.chain, receipt: D.receipt ? { id: self.living.receipt || '', state: D.receipt.state, why: D.receipt.why } : null, missing: (ep ? [epPath + ' (' + ep.kind + '): ' + ep.why] : []).concat(D.missing), recs: {}, recTexts: {}, deps: [], runTexts: {} };
+          /* The run's own end and living record (PF.run.rawProblem, judged above), before anything about its receipt is
+             derived: one the readers refuse or drop leaves the work unconfirmed, named at run.json. */
+          var L = p.living = { head: self.living ? self.living.head : '', chain: D.chain, receipt: D.receipt ? { id: self.living.receipt || '', state: D.receipt.state, why: D.receipt.why } : null, missing: rawMiss.concat(D.missing), recs: {}, recTexts: {}, deps: [], runTexts: {} };
           var byFile = Object.create(null);
           Pr.todos.concat(Pr.scopes).forEach(function (x) { if (x && x._file) byFile[x._file] = x; });
           D.files.forEach(function (f) { var path = 'proposals/' + f.file; L.recs[path] = byFile[f.file] || null; L.recTexts[path] = recHashes[f.file] || ''; add(path, { role: 'living', label: f.label }); });
