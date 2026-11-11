@@ -2552,9 +2552,14 @@ def readers_batch(path):
             try:
                 v = reader_problem(x["key"], o)
                 c = CF.run_problem(o, x["key"]) if is_obj(o) else v
-            except Exception as e:  # noqa: BLE001 - a crash is a verdict the test shows, never a silent pass
-                v = c = ("crash", type(e).__name__ + ": " + str(e))
-            out.append(json.dumps({"id": x["id"], "kind": v[0] if v else None, "why": v[1] if v else "", "checker": c[0] if c else None}))
+                # The checker's real entry, from the text: what it names at run.json, and whether it judges this run at all.
+                e = CF.receipt_verdict(x["text"], {}, [], x["key"])
+                at = e["kind"] if e and e.get("path") == "runs/" + x["key"] + "/run.json" else None
+                judged = o is MISSING or CF.living_work(o)
+            except Exception as err:  # noqa: BLE001 - a crash is a verdict the test shows, never a silent pass
+                v = c = ("crash", type(err).__name__ + ": " + str(err))
+                at, judged = "crash", True
+            out.append(json.dumps({"id": x["id"], "kind": v[0] if v else None, "why": v[1] if v else "", "checker": c[0] if c else None, "entry": at, "judged": judged}))
     sys.stdout.write("\n".join(out) + "\n")
 
 

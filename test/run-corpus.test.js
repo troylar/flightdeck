@@ -150,7 +150,13 @@ rule('the pack reader gives every case in the corpus the verdict the app gives i
    export gives the readers' very problem; Python and the checker refuse exactly what the readers refuse, with their kind. */
 rule('Every run file of the corpus is refused by the export, the pack reader and the folder checker exactly when the readers refuse it, with their kind', async () => {
   const { cases } = await corpus(), off = [], mine = [];
-  for (const c of cases) {
+  /* HC: what Python's own parse can't read as JSON.parse does: nesting past the depth every reader reads, and an integer past
+     Python's digit limit (a double to JSON.parse), on the living run of every field family. */
+  const full = cases.filter((c) => c.role === 'full')[0], deep = '['.repeat(65) + ']'.repeat(65);
+  const extra = [['nested past the depth read', full.text.replace(/\{/, '{"deep": ' + deep + ', ')], ['rev of 5,000 digits', full.text.replace(/"rev": \d+/, '"rev": ' + '1'.repeat(5000))]]
+    .map(([name, text], i) => Object.assign({}, full, { id: 'x' + i, name, text }));
+  assert.ok(extra.every((c) => c.text !== full.text), 'set-up: the extra cases change the run');
+  for (const c of cases.concat(extra)) {
     const X = c.R.X, [proc, id] = X.depKey.split('/'), rp = 'runs/' + X.depKey + '/run.json';
     const one = await X.PF.repo.readRunOnly(new BytesFS(Object.assign({}, X.files, { [X.path]: c.text })), proc, id);
     const bad = (one.bad || []).filter((b) => b.path === rp)[0];
@@ -166,11 +172,18 @@ rule('Every run file of the corpus is refused by the export, the pack reader and
       fs.writeFileSync(file, mine.map((m) => JSON.stringify({ id: m.id, key: m.key, text: m.text })).join('\n') + '\n');
       const by = {};
       cp.execFileSync(PY, ['-I', path.join(__dirname, 'check_pack.py'), '--readers', file], { encoding: 'utf8', maxBuffer: 1 << 28 }).split('\n').filter(Boolean).forEach((l) => { const x = JSON.parse(l); by[x.id] = x; });
+      let entry = 0;
       mine.forEach((m) => {
         const want = m.readers ? m.readers.kind : null, p = by[m.id] || {};
         if (p.kind !== want) off.push(m.label + ': the readers ' + (want || 'accept') + ', Python ' + (p.kind || 'accepts') + (p.why ? ' (' + p.why.slice(0, 160) + ')' : ''));
         if (p.checker !== want) off.push(m.label + ': the readers ' + (want || 'accept') + ', the checker ' + (p.checker || 'accepts'));
+        /* The checker's real entry (receipt_verdict, a living run's receipt from its run.json text): run.json named with the
+           readers' kind wherever it judges the run (living work, or text that can't be read as JSON), and nowhere else. */
+        if (p.judged) { entry++; if (p.entry !== want) off.push(m.label + ': the readers ' + (want || 'accept') + ', the checker\'s receipt verdict ' + (p.entry || 'names nothing at run.json')); }
+        else if (p.entry) off.push(m.label + ': the checker\'s receipt verdict names run.json (' + p.entry + ') for a run it doesn\'t judge');
       });
+      assert.ok(entry > 500, 'the receipt verdict judged ' + entry + ' run files');
+      ['x0', 'x1'].forEach((x) => assert.ok(by[x] && by[x].judged, 'the extra case ' + x + ' reaches the receipt verdict: ' + JSON.stringify(by[x])));
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
   const refused = mine.filter((m) => m.readers).length;

@@ -4501,11 +4501,17 @@ def run_problem(r, key=None):
 
 def receipt_verdict(text, read, unread, key=None):
     """PF.receipts.verdict for an ended living run.json: its state, the receipt's path, the problem's kind and why (same order
-    and words), or None for a run that isn't an ended living run."""
-    try:
-        r = json.loads(text, parse_constant=_no_constant) if text and not json_too_deep(text) else None
-    except (ValueError, RecursionError):
-        r = None
+    and words), or None for a run that isn't an ended living run. text: run.json as the app decodes it (None when it couldn't
+    be read); key: the folder it is in, <process>/<run id>."""
+    if text is None:
+        return None
+    import run_verdict  # noqa: PLC0415 - the readers' own parse and run port
+    # Parsed as every reader parses it (run_verdict.parse: nothing nested past 64 levels, numbers as doubles, so an integer
+    # past Python's digit limit reads as JSON.parse reads it). Text no reader can read as JSON is named at run.json, as the
+    # readers name it: which run it is, living or not, can't be told.
+    r = run_verdict.parse(text)
+    if r is run_verdict.MISSING:
+        return {"state": "unread", "path": "runs/" + key + "/run.json", "kind": "malformed", "why": "This file isn't complete JSON (it may still be arriving)."} if key else None
     if not living_work(r):
         return None
     # The readers' verdict on run.json as written (run_problem), before any receipt verdict or living gate: a run any reader

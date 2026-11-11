@@ -25,8 +25,8 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "6d802a61b817cb695bfaa88368fb8896ff63fae82e1c653189022e3f85cc27ca",
-      "reviewed": "GB: design 45: check_pack.py finds dependencies from every checked to-do record naming the run, status files included; checked for direct writes and unconditional deletes: docs only"
+      "sha256": "0610bec0d792830802e534b9414363f323e8fb4dc1d08909ea7ca0ace5163db7",
+      "reviewed": "HC: receipt_verdict parses run.json with run_verdict.parse (the readers' parse) and names text no reader can read as JSON at run.json, malformed; HA and HE in design 45; checked for direct writes and unconditional deletes: reads only"
     },
     "docs/evidence.md": {
       "sha256": "8828d4ade3981b60bb45d9f25431de63af40dd49e2385a68bcb06d34ddf5e56c",
@@ -53,8 +53,8 @@
       "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "d6f84d7d5287d63bba265e0860d9df8e4f1cb22548a1d502fd52aa78fa0a6823",
-      "reviewed": "HA: check_folder.py sets sys.dont_write_bytecode before loading run_verdict.py, so the checker writes no __pycache__ in the team folder; checked for direct writes and unconditional deletes: this removes the only write"
+      "sha256": "1f14f070e01491773661039865c486a75f657235ff9a639b908f79ea1343dd73",
+      "reviewed": "HC: receipt_verdict parses run.json with run_verdict.parse (the readers' parse) and names text no reader can read as JSON at run.json, malformed; HA and HE in design 45; checked for direct writes and unconditional deletes: reads only"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
       "sha256": "197779e5fb047d6137527db0211659a2db320470f3086d61b5126d6e868b0cf8",
@@ -77,8 +77,8 @@
       "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
     },
     "example-folder/.flightdeck/skills/_flightdeck/run_verdict.py": {
-      "sha256": "b8139b836b07769aedd25729d709f8e6875281be3de63e754528f16cebe01221",
-      "reviewed": "GA: the readers' whole run.json verdict everywhere: repo.judgeRunFile (export, before any gate), run_verdict.py shipped beside check_folder.py (moved from test/, reader_problem added; check_folder.run_problem and check_pack root_problem ask it), todo list exits 4 naming a run.json no reader reads; checked for direct writes and unconditional deletes: export and checker only read; run_verdict.py writes only its own temporary version folder (mkdtemp) for the pack reader's version check, removed after, never called by check_folder.py; nothing in the team folder written or deleted"
+      "sha256": "fdb164d74ffc88abf8244837cefa6f66b7e6c7f4c3c61fd23e420da151c3416f",
+      "reviewed": "HC: receipt_verdict parses run.json with run_verdict.parse (the readers' parse) and names text no reader can read as JSON at run.json, malformed; HA and HE in design 45; checked for direct writes and unconditional deletes: reads only"
     },
     "example-folder/.flightdeck/skills/flightdeck-edit-checklist/SKILL.md": {
       "sha256": "6a46e0d61b6d12c316ae81a62d0b01667adefa8df80a30de49a39d4fe3854284",
@@ -201,8 +201,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "7adca134d3a11d09c1fa77b182c10748b3b3818924d748eb2e59672d8cac82d3",
-      "reviewed": "HA: check_folder.py sets sys.dont_write_bytecode before loading run_verdict.py, so the checker writes no __pycache__ in the team folder; checked for direct writes and unconditional deletes: this removes the only write"
+      "sha256": "b502470ad6dd865f710fc0b10404a6465608f691c5387a47c70417ab06be7347",
+      "reviewed": "HC: receipt_verdict parses run.json with run_verdict.parse (the readers' parse) and names text no reader can read as JSON at run.json, malformed; HA and HE in design 45; checked for direct writes and unconditional deletes: reads only"
     },
     "src/core/appjson.js": {
       "sha256": "98019ea60f70df332d6774d2ac26d0bbd028e95f1f76f543cbe54c89cb8cd4fe",
