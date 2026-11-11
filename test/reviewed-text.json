@@ -25,8 +25,8 @@
       "reviewed": "QC: spread keep's final check rereads and judges the items' checklist and rebuilds from it; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "d2d570271ddbf0601b91effc70b84c75636b69c349ce80df07f6243e882db249",
-      "reviewed": "YA: every withdrawal delete runs the whole guard right before it removes, with each copy's bytes checked against what the window read; checked for direct writes and unconditional deletes"
+      "sha256": "cf06393383006cf139c9e701be73460a45131ffc93e3d2033355f2d3d8599888",
+      "reviewed": "YB: whole-correction Withdraw rereads and validates keep copies before the author rule; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -421,8 +421,8 @@
       "reviewed": "YA: every withdrawal delete runs the whole guard right before it removes, with each copy's bytes checked against what the window read; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "3181a2e90aae725ee6b2e27197f1f0430f55fc268f30921a21f619db5940bf9e",
-      "reviewed": "YA: every withdrawal delete runs the whole guard right before it removes, with each copy's bytes checked against what the window read; checked for direct writes and unconditional deletes"
+      "sha256": "4131ba241c63a8fdc06e9c8e7c6ba734f3c613f1471d2c0293ca3c88a93e7e9a",
+      "reviewed": "YB: whole-correction Withdraw rereads and validates keep copies before the author rule; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

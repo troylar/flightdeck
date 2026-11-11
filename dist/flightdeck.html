@@ -37924,7 +37924,7 @@ PF.examples = (function () {
     if (!g || !g.keep) return null;
     var proc = null, pw = '';
     return writeGuard({ at: at,
-      fresh: withdraw ? null : function (fx) {
+      fresh: function (fx) {
         proc = null; pw = '';
         var gone = 'its checklist\'s publications couldn\'t be read again right before it was written, so its owner can\'t be told.';
         /* VA: the group's keeps read again first: copies of one that differ now refuse the write, naming them. */
@@ -37934,6 +37934,8 @@ PF.examples = (function () {
           var torn = (r.keepUnread || []).filter(function (u) { return u && g.members.some(function (c) { return PF.todos.requestFile(String(u.file), c.id); }); })[0];
           if (!bad && torn) pw = 'a copy of a keep in this correction can\'t be read now (proposals/' + torn.file + '), so whether it says the same can\'t be told.';
         }, function (e) { pw = 'what was kept for next time couldn\'t be read again right before it was written (' + (e && e.message || e) + ').'; });
+        /* YB: Withdraw reads the copies again too, then needs only its author (no owner, so no publications read). */
+        if (withdraw) return copies.then(function () { return true; });
         return copies.then(function () { return repo.readProcess(fx, pid); }).then(function (p) {
           if (pw) return true;
           if (!p || p.unlisted || !p.latest) { pw = gone; return true; }
@@ -37947,7 +37949,7 @@ PF.examples = (function () {
         }, function (e) { pw = 'its checklist\'s publications couldn\'t be read again right before it was written (' + (e && e.message || e) + '), so its owner can\'t be told.'; return true; });
       },
       who: function (ppl, me) {
-        if (withdraw) return g.members.every(function (c) { return c.by === me; }) ? '' : 'Only whoever kept it can withdraw it.';
+        if (withdraw) return pw || (g.members.every(function (c) { return c.by === me; }) ? '' : 'Only whoever kept it can withdraw it.');
         if (pw || !proc) return pw || 'its checklist\'s owner can\'t be told.';
         return PF.learn.ownerWhy(g, proc, ppl, me, false);
       } });

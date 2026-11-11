@@ -418,6 +418,24 @@ rule('A keep under a OneDrive copy name is withdrawn like its own, and identical
     assert.deepStrictEqual(app.files('proposals/req-keep-'), [], how + ': withdrawn: ' + (txt(app.html()).match(/(Nothing was withdrawn|Couldn't withdraw)[^.]*\.[^.]*\./) || [])[0]);
   }
 });
+/* YB: Withdraw on a whole correction reads the keep's copies again, as every other decision does: a copy that differs
+   refuses it, naming the copy; its author still withdraws it once the copy is gone. */
+rule('Withdrawing a whole correction is refused while a copy of its keep differs; its author withdraws it once that copy is gone', async () => {
+  const app = await setup(), id = await added(app, 'Post the release notes');
+  app.click('keep', id, { kind: 'todo' }); await app.tick(120); await refresh(app, 300);
+  const gid = groupId(app), k = keeps(app)[0], own = 'proposals/' + k.id + '.json', copy = 'proposals/' + k.id + ' (1).json';
+  const o = JSON.parse(app.fs.files[own].t); o.reason = 'Another reason';
+  const n = app.files('corrections/').length;
+  await openPage(app);
+  app.fs.files[copy] = { t: JSON.stringify(o, null, 2) + '\n', m: Date.now() };
+  app.click('corr-withdraw', gid, { process: 'release-notes' }); await app.tick(400);
+  assert.strictEqual(app.files('corrections/').length, n, 'nothing withdrawn while a copy differs');
+  assert.ok(txt(app.html()).indexOf(k.id + ' (1).json') >= 0, 'said, naming the copy: ' + (txt(app.html()).match(/[^.]*different things[^.]*\./) || [])[0]);
+  delete app.fs.files[copy]; await refresh(app, 300); await openPage(app);
+  app.click('corr-withdraw', gid, { process: 'release-notes' }); await app.tick(400);
+  assert.strictEqual(app.files('corrections/').length, n + 1, 'its author withdraws it');
+});
+
 /* VB: withdrawing a keep with copies guards each delete: the person, their authority and the copy's bytes are
    checked again before every one. Refused after the first, it stops, says what was and wasn't removed, and withdrawing
    again finishes it. */
@@ -687,6 +705,12 @@ rule('Every keep write path is guarded after every read and right before every w
     await refresh(app, 300); await openPage(app);
     assert.strictEqual(app.files('proposals/req-keep-').length, 3, 'set-up: three identical copies');
     return { app, act: () => app.click('keep-withdraw', k.id, { process: 'release-notes' }), mine: proposals, removes: true, who: 'person-avery', other: 'person-casey', extra: touch };
+  });
+  /* YB: withdrawing the whole correction reads the keep's copies again too: a differing copy arriving refuses it. */
+  const differs = { copy: (fs) => { const p = Object.keys(fs.files).filter(q => /^proposals\/req-keep-[a-z0-9-]+\.json$/.test(q))[0], o = JSON.parse(fs.files[p].t); o.reason = 'Another reason'; fs.files[p.replace(/\.json$/, ' (1).json')] = { t: JSON.stringify(o, null, 2) + '\n', m: Date.now() }; } };
+  if (want('withdraw-differs')) out['withdraw-differs'] = await race('withdraw-differs', async () => {
+    const { app, gid } = await kept();
+    return { app, act: () => app.click('corr-withdraw', gid, { process: 'release-notes' }), mine: corr, who: 'person-avery', other: 'person-casey', extra: differs };
   });
   if (want('decide')) out.decide = await race('decide', async () => {
     const { app, gid } = await kept('person-morgan'); await openPage(app);
