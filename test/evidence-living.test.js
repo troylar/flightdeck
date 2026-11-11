@@ -954,4 +954,15 @@ rule('A dependency\'s screenshot that arrives after its stat found nothing is ne
   assert.ok(!first, 'set-up: the screenshot was stat-ed');
   assert.ok(!(got[shot] > 0), 'read after its stat found nothing: ' + got[shot]);
 });
+/* XB: a screenshot used to verify a dependency's version is held to its bytes too: replaced while the pack is made, the
+   dependency is unconfirmed and the pack partial. */
+rule('A dependency\'s screenshot replaced after its version was verified (the same length, other bytes) makes the pack partial, named', async () => {
+  const W = await loopMade({ shot: true }), shot = Object.keys(W.files).filter((p) => /images\/shot\.png$/.test(p))[0];
+  const other = Buffer.from(SHOT); other[other.length - 1] ^= 0x01;
+  let n = 0;
+  const fsx = new BytesFS(W.files, { hooks: { blob: (p, x) => { if (p === shot && !n++) setImmediate(() => x.files.set(p, other)); } } });
+  const { res } = await pack(W.PF, fsx, W.key);
+  assert.ok(n >= 1, 'set-up: the screenshot was read');
+  assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf('shot.png') >= 0 || u.indexOf(W.kidKey) >= 0), res.status + ' ' + JSON.stringify(res.col.unresolved).slice(0, 400));
+});
 run();

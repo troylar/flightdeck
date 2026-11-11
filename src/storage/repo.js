@@ -3258,7 +3258,8 @@ PF.repo = (function () {
           hold(n);
           return ro.blob(p, o).then(function (b) {
             if (!b) { retained.now -= n; return null; }
-            var whole = function () { return b.slice(0, n + 1).arrayBuffer().then(function (ab) { if (ab.byteLength > n) throw new Error(p + ' grew past the ' + E.size(n) + ' reserved for it while it was read, so it wasn\'t read'); return ab; }); };
+            /* Its raw SHA-256 kept (rawOf), as for a record: a screenshot that verified a version is read again at the end too. */
+            var whole = function () { return b.slice(0, n + 1).arrayBuffer().then(function (ab) { if (ab.byteLength > n) throw new Error(p + ' grew past the ' + E.size(n) + ' reserved for it while it was read, so it wasn\'t read'); var h = S.create(); h.update(new Uint8Array(ab)); var hash = h.digest(); rawOf[p] = hash; rawKept[hash] = true; return ab; }); };
             return { size: Math.min(b.size, n), type: b.type, lastModified: b.lastModified, slice: function (a, z) { return b.slice(a, Math.min(z == null ? n : z, n)); }, arrayBuffer: whole,
               text: function () { return whole().then(function (ab) { return new TextDecoder('utf-8').decode(ab); }); }, close: function () { if (b.close) b.close(); } };
           }, function (e) { retained.now -= n; throw e; });
@@ -3389,6 +3390,9 @@ PF.repo = (function () {
             /* The version its verdict read, packed and held to those same bytes. */
             var pv = got[k] && got[k].pub, vt = pv && pv._texts;
             if (vt) ['map.md', 'types.json', 'publication.json'].forEach(function (n) { if (typeof vt[n] !== 'string') return; var vp = R.pubDir(known[k]) + n; L.runTexts[vp] = rawOf[vp] || fileHash(vt[n]); add(vp, { role: 'dependency version', label: 'The version a run the work depends on ran' }); });
+            /* Every other file its verdict read (the version's screenshots), by the SHA-256 of its bytes: read again at the end
+               with what discovery read, so one replaced meanwhile is a change and the run isn't confirmed. */
+            if (pv) Object.keys(rawOf).forEach(function (vp) { var rel = vp.slice(R.pubDir(known[k]).length); if (vp.indexOf(R.pubDir(known[k])) === 0 && ['map.md', 'types.json', 'publication.json'].indexOf(rel) < 0) seenHashes[vp] = rawOf[vp]; });
           });
           return keepClaims(p, add, Pr);
         });
