@@ -20271,10 +20271,12 @@ PF.learn = (function () {
       return !before || (before !== now && now === r.sig);
     };
     order.forEach(function (gid) {
-      var ds = by[gid], named = [];
-      ds.forEach(function (d) { (d.members || []).forEach(function (m) { if (KEEP_ID.test(m) && named.indexOf(m) < 0) named.push(m); }); });
-      if (!named.length) return;
-      if (!ds.some(function (d) { return (d.status === 'applied' || d.status === 'included') && shown(d); })) return;
+      /* What kept content rests on is the members of the decisions that applied it to this text (applied or included,
+         shown in it): a decline is history only, and a keep withdrawn since is never a dependency (VC). */
+      var ds = by[gid], named = [], applying = ds.filter(function (d) { return (d.status === 'applied' || d.status === 'included') && shown(d); });
+      if (!ds.some(function (d) { return (d.members || []).some(function (m) { return KEEP_ID.test(m); }); })) return;
+      if (!applying.length) return;
+      applying.forEach(function (d) { (d.members || []).forEach(function (m) { if (KEEP_ID.test(m) && named.indexOf(m) < 0) named.push(m); }); });
       out.owner = true; out.groups.push(gid);
       var bad = named.filter(function (m) { return unread[m]; }), gone = named.filter(function (m) { return !unread[m] && !have[m]; });
       if (!out.hold && (bad.length || gone.length)) out.hold = 'this version includes what was kept for next time, and a keep it rests on ' + (bad.length ? 'can\'t be read' : 'isn\'t in the folder') + ' (' + bad.concat(gone).slice(0, 3).map(function (m) { return 'proposals/' + m + '.json'; }).join(', ') + '), so who may publish it can\'t be told. Check Folder health, then try again.';

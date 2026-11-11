@@ -316,6 +316,23 @@ rule('Kept content is worked out from the decisions that applied it, before any 
   assert.strictEqual(L2.keptCapWhy(K, full.slice(0, 10)), '', 'under the cap');
 });
 
+/* VC: what kept content rests on comes from the decisions that applied it (applied or included, shown in the text), never
+   from a decline's members: a keep withdrawn after two offline declines took the place past 500 is no dependency. */
+rule('Kept content rests only on the members of the decisions that applied it: a keep only a decline names, withdrawn since, holds nothing', () => {
+  const H = require('./harness').load(), L2 = H.learn, C2 = H.corrections;
+  const md = ['---', 'process: p1', 'title: P', 'owner: person-morgan', '---', '', '## A · READ-DO {#a}', '- [!] {confirm} One {#one}', ''].join('\n');
+  const withKept = md.replace('- [!] {confirm} One {#one}', '- [!] {confirm} One {#one}\n- [ ] {confirm} Kept words {#kept1}');
+  const sig = C2.stepSig(H.map.parse(withKept), 'kept1'), id = (c) => 'req-keep-' + c.repeat(24);
+  const dec = (status, members, extra) => Object.assign({ kind: 'correction-decision', process: 'p1', group: 'gaaaaaaaaaaaaaaaa', status, members, by: 'person-morgan', at: '2026-11-10T00:00:00.000Z', rev: 1 }, status === 'applied' ? { result: { step: 'kept1', sig } } : {}, extra || {});
+  const keeps = ['a', 'b'].map(c => ({ kind: 'keep', id: id(c), template: { process: 'p1' } }));
+  /* Two declines (one naming a keep withdrawn since), then the owner applied the rest: the owner publishes it. */
+  const R = { decisions: [dec('declined', [id('a'), id('b'), id('c')], { _file: 'x.w0.1.json' }), dec('declined', [id('a'), id('b'), id('d')], { _file: 'x.w1.1.json' }), dec('applied', [id('a'), id('b')], { rev: 2 })], keeps };
+  const K = L2.keptIn(withKept, md, R, 'p1');
+  assert.deepStrictEqual([K.owner, K.hold], [true, ''], 'the owner\'s, and nothing held: ' + K.hold);
+  /* A member of the decision that applied it, deleted: held as before. */
+  assert.ok(/isn.t in the folder/.test(L2.keptIn(withKept, md, Object.assign({}, R, { keeps: keeps.slice(0, 1) }), 'p1').hold), 'an applied member gone still holds');
+});
+
 /* OA: someone other than the owner publishes a checklist that has kept anything only when every change against the latest
    version is shown, by a readable decision, to be an ordinary correction's recorded result. Lost proof never frees it. */
 rule('Without positive proof a change needs the owner: a deleted or unreadable decision, a truncated keep, a changed detail; proven ordinary changes stay anyone\'s', () => {

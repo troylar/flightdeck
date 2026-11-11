@@ -25,8 +25,8 @@
       "reviewed": "QC: spread keep's final check rereads and judges the items' checklist and rebuilds from it; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "22e8ce22cf4d6d3212e642c99510cda6bf98c4092b9237fd3daae49634e84e6e",
-      "reviewed": "QE: withdrawal accepts every copy name and removes identical copies; over 500, keeps only non-applied decisions name are withdrawable; checked for direct writes and unconditional deletes"
+      "sha256": "16c93d8a730603616491d564918c3a75f27532af2e1c74c1d75646829e6a4dca",
+      "reviewed": "VC: kept-content dependencies come from applied and included decisions only; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -257,8 +257,8 @@
       "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/learn.js": {
-      "sha256": "20f5a49eb899f4c4e89214d6816c7e7b9abbbf619320b0ec7fb609d2ddabb4e3",
-      "reviewed": "QE: withdrawal accepts every copy name and removes identical copies; over 500, keeps only non-applied decisions name are withdrawable; checked for direct writes and unconditional deletes"
+      "sha256": "dc6955498f2838a8a0914cc3c510ab9e811c7b31a4c07f40370c5c2adb6ea7f8",
+      "reviewed": "VC: kept-content dependencies come from applied and included decisions only; checked for direct writes and unconditional deletes"
     },
     "src/core/library.js": {
       "sha256": "5c8555ff9b8bc67aa90ea4f556bddebbe47d17ae37e296d44b815187d776bd44",
