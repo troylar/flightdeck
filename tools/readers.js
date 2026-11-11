@@ -25,7 +25,7 @@ const RAW = [
   { file: 'src/storage/repo.js', has: 'types: json(tj)', why: 'a copy of a run\'s types this window already sanitized (intern), not a file' },
   { file: 'src/storage/repo.js', has: "readJson(fs, 'runs/' + i.name)", why: 'v0.1 runs (preflight-run/1): the legacy lister checks the format before reading a field' },
   { file: 'src/storage/repo.js', has: "info = f && json(f.text)", why: 'pubProblem: shape checked, then P.newerOf (the envelope) before any other field' },
-  { file: 'src/storage/repo.js', has: "if (o.explain) { var raw = json(res[0].text)", why: 'R.repairs and R.unexplained (the run\'s own checked reader for other apps)' },
+  { file: 'src/storage/repo.js', has: "if (o.explain) { var ex = explainRaw(json(res[0].text))", why: 'explainRaw: R.repairs, R.unexplained and R.canonical (the run\'s own checked readers for other apps)' },
   { file: 'src/storage/repo.js', has: 'var why0 = misplaced(json(res[0].text), run, proc, id);', why: 'the run\'s own process, as written, compared with its folder\'s name only (the run itself is read by R.sanitize)' },
   { file: 'src/storage/repo.js', has: "elsewhere(json(t[0]), proc, m.key.split('/')[1])", why: 'Evidence: the run\'s own process and ID compared with its folder\'s names only (the run itself is read by R.sanitize)' },
   { file: 'src/storage/repo.js', has: "why: json(res[0].text) === undefined", why: 'only tells unparsable from unreadable, in a message' },

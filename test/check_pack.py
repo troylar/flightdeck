@@ -8,8 +8,8 @@ import hashlib, json, os, re, sys, zipfile
 # The shipped checker's own record reader (Python, independent of the app): a packed receipt is read by its rules.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "example-folder", ".flightdeck", "skills", "_flightdeck"))
 import check_folder as CF  # noqa: E402
-# Every run the work depends on is judged as every reader of the app judges it (repo.depVerdict), ported in run_verdict.py.
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Every run is judged as every reader of the app judges it, ported once in the shipped run_verdict.py: the root run as the
+# readers judge its run.json (repo.judgeRunFile), every run the work depends on as repo.depVerdict does.
 import run_verdict as RV  # noqa: E402
 
 
@@ -428,6 +428,11 @@ def check_living(z, man):
             return why or kind
         return "isn't a to-do record or a loop's scope record"
 
+    def root_problem(key, run):
+        """The readers' verdict on a packed root run.json (GA): the end and living record in their words (raw_problem), then
+        everything else any reader refuses in it (RV.reader_problem), as (kind, why), or None."""
+        return CF.raw_problem(run) or RV.reader_problem(key, run)
+
     def has_work(key):
         """Whether a packed run has work to check, from the packed originals alone (never the manifest): its run.json names a
         work head or a receipt, or a packed to-do record (PF.todos.claims) names the run."""
@@ -437,9 +442,9 @@ def check_living(z, man):
         own = run.get("living")
         if isinstance(own, dict) and (own.get("head") or own.get("receipt")):
             return True
-        # FA: living work as written that the readers refuse (the feature without its record, an empty or a list record) is
-        # work to check, though sanitizing would drop it.
-        if CF.living_work(run) and CF.raw_problem(run):
+        # FA, GA: living work in a run.json the readers refuse (the feature without its record, an empty or a list record, or
+        # anything else any reader refuses in the file) is work to check, though sanitizing would drop it.
+        if CF.living_work(run) and root_problem(key, run):
             return True
         me = {"process": run.get("process"), "id": run.get("id")}
         for path in by_path:
@@ -470,9 +475,8 @@ def check_living(z, man):
             if lv.get("complete"):
                 sys.exit("living: " + r["key"] + " says its work is complete, but its run.json isn't in the pack")
             continue
-        # The one raw validation every reader applies (raw_problem: the end and the living record as written), on the root run
-        # before its receipt or completeness.
-        ep = CF.raw_problem(run)
+        # The readers' verdict on the root run.json as written (root_problem), before its receipt or completeness.
+        ep = root_problem(r["key"], run)
         if ep and lv.get("complete"):
             sys.exit("living: " + r["key"] + " says its work is complete, but its run.json's end or living record isn't one every reader accepts (" + ep[0] + ": " + ep[1] + ")")
         head = (run.get("living") or {}).get("head", "")
@@ -571,6 +575,8 @@ def check_living(z, man):
 if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == "--verdicts":
         RV.batch(sys.argv[2])
+    elif len(sys.argv) == 3 and sys.argv[1] == "--readers":
+        RV.readers_batch(sys.argv[2])
     elif len(sys.argv) == 3 and sys.argv[1] == "--canonical":
         RV.canonical_batch(sys.argv[2])
     elif len(sys.argv) == 3 and sys.argv[1] == "--decode":

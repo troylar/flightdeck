@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "9f4479c7630b6ab30c723a10a9ba9faaad1af7ebd2854debf3e072c250cf8fbe",
-      "reviewed": "DB: one end validation"
+      "sha256": "4cd18db196dae1fed01743ffbc2bd33dfc7e0e23da9c04d0d88ced04f3dec937",
+      "reviewed": "GA: the readers' whole run.json verdict everywhere: repo.judgeRunFile (export, before any gate), run_verdict.py shipped beside check_folder.py (moved from test/, reader_problem added; check_folder.run_problem and check_pack root_problem ask it), todo list exits 4 naming a run.json no reader reads; checked for direct writes and unconditional deletes: export and checker only read; run_verdict.py writes only its own temporary version folder (mkdtemp) for the pack reader's version check, removed after, never called by check_folder.py; nothing in the team folder written or deleted"
     },
     "build.py": {
       "sha256": "4930aee232c7766241927d231c2eb0729443450de507161a3f0e85b7e7f5fb8e",
@@ -25,8 +25,8 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "35020c6851620faa164539310c0175548b67fff4e1b4c618365c0f5869c8897e",
-      "reviewed": "FD: rawProblem and raw_problem refuse living work on a run/2 as newer (The run has a field run/2 doesn't know), before the end and living checks; design 45 says so; checked for direct writes and unconditional deletes: pure validators only, nothing written or deleted"
+      "sha256": "34186b018734ee98dfe22647a5e74d8a8edfb748b75c07ff900b5a488a2b318b",
+      "reviewed": "GA: the readers' whole run.json verdict everywhere: repo.judgeRunFile (export, before any gate), run_verdict.py shipped beside check_folder.py (moved from test/, reader_problem added; check_folder.run_problem and check_pack root_problem ask it), todo list exits 4 naming a run.json no reader reads; checked for direct writes and unconditional deletes: export and checker only read; run_verdict.py writes only its own temporary version folder (mkdtemp) for the pack reader's version check, removed after, never called by check_folder.py; nothing in the team folder written or deleted"
     },
     "docs/evidence.md": {
       "sha256": "8828d4ade3981b60bb45d9f25431de63af40dd49e2385a68bcb06d34ddf5e56c",
@@ -53,8 +53,8 @@
       "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "cbde943756d8fa559c1b2321e51256086115b0dc481d882da6bb76bdca2b1e8a",
-      "reviewed": "FD: rawProblem and raw_problem refuse living work on a run/2 as newer (The run has a field run/2 doesn't know), before the end and living checks; design 45 says so; checked for direct writes and unconditional deletes: pure validators only, nothing written or deleted"
+      "sha256": "cd04d15caf0a55cd120b8d4d8d890fbaa9d8e00dd503074514cfc0bf38cff129",
+      "reviewed": "GA: check_folder.py registers itself for run_verdict only when it is in sys.modules (loaded by a path alone, run_verdict imports its own copy); checked for direct writes and unconditional deletes: none"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
       "sha256": "197779e5fb047d6137527db0211659a2db320470f3086d61b5126d6e868b0cf8",
@@ -75,6 +75,10 @@
     "example-folder/.flightdeck/skills/_flightdeck/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
       "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
+    },
+    "example-folder/.flightdeck/skills/_flightdeck/run_verdict.py": {
+      "sha256": "b8139b836b07769aedd25729d709f8e6875281be3de63e754528f16cebe01221",
+      "reviewed": "GA: the readers' whole run.json verdict everywhere: repo.judgeRunFile (export, before any gate), run_verdict.py shipped beside check_folder.py (moved from test/, reader_problem added; check_folder.run_problem and check_pack root_problem ask it), todo list exits 4 naming a run.json no reader reads; checked for direct writes and unconditional deletes: export and checker only read; run_verdict.py writes only its own temporary version folder (mkdtemp) for the pack reader's version check, removed after, never called by check_folder.py; nothing in the team folder written or deleted"
     },
     "example-folder/.flightdeck/skills/flightdeck-edit-checklist/SKILL.md": {
       "sha256": "6a46e0d61b6d12c316ae81a62d0b01667adefa8df80a30de49a39d4fe3854284",
@@ -197,8 +201,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "f796a81eda005d0e94bddaefd176df71edac65421a88d22428b52f8e6afe0e85",
-      "reviewed": "FD: rawProblem and raw_problem refuse living work on a run/2 as newer (The run has a field run/2 doesn't know), before the end and living checks; design 45 says so; checked for direct writes and unconditional deletes: pure validators only, nothing written or deleted"
+      "sha256": "867f2686b1071dd12ad9cbff3edf28357a4c25b56cdb995dcd3bc6ce42210b5c",
+      "reviewed": "GA: check_folder.py registers itself for run_verdict only when it is in sys.modules (loaded by a path alone, run_verdict imports its own copy); checked for direct writes and unconditional deletes: none"
     },
     "src/core/appjson.js": {
       "sha256": "98019ea60f70df332d6774d2ac26d0bbd028e95f1f76f543cbe54c89cb8cd4fe",
@@ -421,8 +425,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "bba03882fa2590939c71b36c9e6074e44d4f7d7679194837f5a5dd94e77b4508",
-      "reviewed": "FA: raw end and living validation before every gate"
+      "sha256": "eb0894f908be7134ebf1e966d9c1be3d0130b961c26664a313328dfd736ad104",
+      "reviewed": "GA: the readers' whole run.json verdict everywhere: repo.judgeRunFile (export, before any gate), run_verdict.py shipped beside check_folder.py (moved from test/, reader_problem added; check_folder.run_problem and check_pack root_problem ask it), todo list exits 4 naming a run.json no reader reads; checked for direct writes and unconditional deletes: export and checker only read; run_verdict.py writes only its own temporary version folder (mkdtemp) for the pack reader's version check, removed after, never called by check_folder.py; nothing in the team folder written or deleted"
     },
     "src/ui/app.js": {
       "sha256": "39be5a253c8a6e084821e36cb17b6bac885e2fb1f0f98a53e2c1fc707c52aa51",
@@ -525,8 +529,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. A maintainer tool, not shipped. Not read line by line."
     },
     "tools/readers.js": {
-      "sha256": "758d153a7d373a68f54c4e88648b3a24936824a1d9be50e8f3c3a69a5a8941b3",
-      "reviewed": "KB: proposal and scope originals held to the bytes judged"
+      "sha256": "b4a771f9c0268f51162b1ec947fd1f33caa9734c1d180b8693f66d7f0e723f4d",
+      "reviewed": "GA: check_folder.py registers itself for run_verdict only when it is in sys.modules (loaded by a path alone, run_verdict imports its own copy); checked for direct writes and unconditional deletes: none"
     },
     "tools/scale-limits.js": {
       "sha256": "23e06ee46d6b4ff44216f92c530578f714aa05bcecd7a2b0458515287d554ec1",

@@ -3300,7 +3300,9 @@ async function todoMain(argv) {
     const one = await repo.readRunOnly(L.fs, proc, runId);
     if (!one.found) return failOut('not-found', 'There\'s no run ' + proc + '/' + runId + ' in the team folder.' + nothing, problems());
     const r = one.run;
-    if (!r) return failOut('failed', 'The run ' + proc + '/' + runId + ' couldn\'t be read, so its to-dos can\'t be.' + nothing, problems());
+    /* A run.json no reader can read is named as run, next and runs name it (readRunOnly's own problem), and reading it is
+       partial (exit 4), as for a run a newer Flightdeck made. */
+    if (!r) { (one.bad || []).forEach((x) => L.note(x.path, x.kind || 'malformed', x.why)); return failOut('failed', 'The run ' + proc + '/' + runId + ' couldn\'t be read, so its to-dos can\'t be.' + nothing, problems(), writes || !(one.bad || []).length ? null : EXIT.partial); }
     /* The run verdict every reader gives (judgeRun: newer, an end or a time it can't read, records it drops), ledgered before
        anything is read from its to-dos or its receipt is judged, as run, next and runs ledger it. */
     judgeRun(PF, r, one.pub).forEach((x) => L.note(x.path, x.kind, x.why));

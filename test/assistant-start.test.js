@@ -163,9 +163,9 @@ rule('Reading the folder needs no second file: AGENTS.md still says which decisi
 function installed212(notes) {
   const dir = tmp();
   assert.strictEqual(cli('install', dir).code, 0);
-  /* The folder as 2.12.0's install left it: its AGENTS.md with Team notes, none of the three references, and no skill added since (4.0: living-run). */
+  /* The folder as 2.12.0's install left it: its AGENTS.md with Team notes, none of the three references, and no skill file added since (4.0: living-run, the run port). */
   fs.writeFileSync(path.join(dir, 'AGENTS.md'), OLD.replace(/\n*$/, '\n') + notes);
-  const NEWER = [FORMATS, SKILLS + '_flightdeck/command-guide.md', SKILLS + '_flightdeck/checklist-essentials.md', SKILLS + 'flightdeck-living-run/SKILL.md'];
+  const NEWER = [FORMATS, SKILLS + '_flightdeck/command-guide.md', SKILLS + '_flightdeck/checklist-essentials.md', SKILLS + 'flightdeck-living-run/SKILL.md', SKILLS + '_flightdeck/run_verdict.py'];
   NEWER.forEach(k => fs.rmSync(path.join(dir, ...k.split('/'))));
   const recPath = path.join(dir, '.flightdeck', 'installed.json'), rec = JSON.parse(fs.readFileSync(recPath, 'utf8'));
   rec.version = '2.12.0'; rec.files['AGENTS.md'] = C.hash(C.managed('AGENTS.md', OLD)); NEWER.forEach(k => { delete rec.files[k]; });

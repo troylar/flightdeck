@@ -38,6 +38,12 @@ import stat
 import sys
 import time
 
+# The whole run port (run_verdict.py, beside this file) imports this module by name: under python -I this folder isn't on the
+# path, and run as a script this module is __main__, so both are made so here (loaded by a path alone, it imports its own).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+if __name__ in sys.modules:
+    sys.modules.setdefault("check_folder", sys.modules[__name__])
+
 
 REQ_ID = re.compile(r"^req-([a-z0-9][a-z0-9-]{0,29})-[0-9a-f]{24}\Z")
 REQ_BY = re.compile(r"^([a-z0-9][a-z0-9-]{0,29}) [A-Za-z0-9_.+-]{1,40} \(a tool\)\Z")
@@ -4474,7 +4480,24 @@ def living_work(r):
     return isinstance(r, dict) and ("living" in r or (isinstance(r.get("features"), list) and TODO_FEATURE in r["features"]))
 
 
-def receipt_verdict(text, read, unread):
+def run_problem(r, key=None):
+    """The readers' verdict on a parsed run.json (repo.judgeRunFile), as (kind, why), or None: the end and the living record
+    in the readers' own words (raw_problem), and everything else any reader refuses in the file (run_verdict.reader_problem,
+    the whole port of R.sanitize and PF.appjson.judgeRun's run problems), for the folder it is in (key: <process>/<run id>).
+    The whole port decides the kind; the readers' own
+    words are used when they name the same kind."""
+    own = raw_problem(r)
+    try:
+        import run_verdict  # noqa: PLC0415 - the whole run port, loaded only for a living run's receipt
+        whole = run_verdict.reader_problem(key or (str(r.get("process")) + "/" + str(r.get("id"))), r)
+    except Exception as e:  # noqa: BLE001 - a run the port can't judge is never confirmed
+        whole = ("malformed", "it can't be judged here (" + type(e).__name__ + ")")
+    if whole:
+        return own if own and own[0] == whole[0] else whole
+    return own
+
+
+def receipt_verdict(text, read, unread, key=None):
     """PF.receipts.verdict for an ended living run.json: its state, the receipt's path, the problem's kind and why (same order
     and words), or None for a run that isn't an ended living run."""
     try:
@@ -4483,12 +4506,11 @@ def receipt_verdict(text, read, unread):
         r = None
     if not living_work(r):
         return None
-    # The one raw validation every reader applies (raw_problem), before any receipt verdict or living gate: an end or a living
-    # record the app refuses as newer or drops leaves run.json named, with the readers' path, kind and reason, and its receipt
-    # is never confirmed.
-    ep = raw_problem(r)
+    # The readers' verdict on run.json as written (run_problem), before any receipt verdict or living gate: a run any reader
+    # refuses leaves run.json named, with the readers' path and kind, and its receipt is never confirmed.
+    key = key or (str(r.get("process")) + "/" + str(r.get("id")))
+    ep = run_problem(r, key)
     if ep:
-        key = str(r.get("process")) + "/" + str(r.get("id"))
         title = js_slice(r["title"], 200) if isinstance(r.get("title"), str) else ""
         return {"state": "unread", "path": "runs/" + key + "/run.json", "kind": ep[0],
                 "why": ('"' + title + '" (' + key + "): " + ep[1]) if ep[0] == "newer" else ep[1]}
@@ -4772,7 +4794,7 @@ def main():
                     if m and (m.group(1) + "." + m.group(2)) not in lineage and time.time() - os.path.getmtime(os.path.join(rdir, n)) >= 60:
                         copies.append(n)
                 receipts = [n for n in names if n.startswith("candidate-")]
-                v = receipt_verdict(read_app_text(os.path.join(rdir, "run.json")), rcpt_read, split_unread + rcpt_unread + named_unread)
+                v = receipt_verdict(read_app_text(os.path.join(rdir, "run.json")), rcpt_read, split_unread + rcpt_unread + named_unread, proc + "/" + rid)
                 if v:
                     out.setdefault("runReceipts", []).append(dict({"run": proc + "/" + rid}, **v))
                 if copies:

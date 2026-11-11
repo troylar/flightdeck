@@ -1,6 +1,6 @@
 // The differential corpus (4.0, slice 6, LA): every run a living run's work depends on, in each of its three roles, mutated
 // one place at a time (test/run-corpus.js). The app's verdict on each (readRunOnly, then repo.depVerdict, whose run part is
-// PF.appjson.judgeRun) and the pack reader's (test/run_verdict.py, which test/check_pack.py asks) must be the same: both
+// PF.appjson.judgeRun) and the pack reader's (run_verdict.py, shipped beside check_folder.py, which test/check_pack.py asks) must be the same: both
 // accept, or both refuse at the same first path. The export says the same on a sample of them, and the pack reader holds a
 // pack that claims more than its export did to it.
 'use strict';
@@ -143,6 +143,42 @@ rule('the pack reader gives every case in the corpus the verdict the app gives i
   assert.strictEqual(off.length, 0, off.length + ' of ' + cases.length + ' cases differ:\n  ' + (process.env.CORPUS_ALL ? off : off.slice(0, 40)).join('\n  ') + (off.length > 40 && !process.env.CORPUS_ALL ? '\n  …' : ''));
 });
 
+/* GA: one verdict on run.json, whole, everywhere. Every run file of the corpus (each place of a run mutated, in every role) is
+   judged by the readers (readRunOnly, then PF.appjson.judgeRun: the first problem they name at run.json, the version apart),
+   by the export's root verdict (repo.judgeRunFile, on the file as parsed), by the Python port (run_verdict.reader_problem,
+   which check_pack.py asks of the root run) and by the folder checker (run_problem, which a living run's receipt asks). The
+   export gives the readers' very problem; Python and the checker refuse exactly what the readers refuse, with their kind. */
+rule('Every run file of the corpus is refused by the export, the pack reader and the folder checker exactly when the readers refuse it, with their kind', async () => {
+  const { cases } = await corpus(), off = [], mine = [];
+  for (const c of cases) {
+    const X = c.R.X, [proc, id] = X.depKey.split('/'), rp = 'runs/' + X.depKey + '/run.json';
+    const one = await X.PF.repo.readRunOnly(new BytesFS(Object.assign({}, X.files, { [X.path]: c.text })), proc, id);
+    const bad = (one.bad || []).filter((b) => b.path === rp)[0];
+    const readers = bad ? { path: rp, kind: bad.kind || 'malformed', why: bad.why } : one.run ? X.PF.appjson.judgeRun(one.run, one.pub).filter((q) => q.path === rp && q.kind !== 'unusable')[0] || null : null;
+    const raw = X.PF.util.jsonTooDeep(c.text) ? undefined : (() => { try { return JSON.parse(c.text); } catch (e) { return undefined; } })();
+    const ex = X.PF.repo.judgeRunFile(raw, proc, id);
+    if (JSON.stringify(ex) !== JSON.stringify(readers ? { path: readers.path, kind: readers.kind, why: readers.why } : null)) off.push(c.role + ' · ' + c.name + ': the readers ' + JSON.stringify(readers) + ', the export ' + JSON.stringify(ex));
+    mine.push({ id: c.id, key: X.depKey, text: c.text, readers, label: c.role + ' · ' + c.name });
+  }
+  if (PY) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fd-readers-')), file = path.join(dir, 'cases.jsonl');
+    try {
+      fs.writeFileSync(file, mine.map((m) => JSON.stringify({ id: m.id, key: m.key, text: m.text })).join('\n') + '\n');
+      const by = {};
+      cp.execFileSync(PY, ['-I', path.join(__dirname, 'check_pack.py'), '--readers', file], { encoding: 'utf8', maxBuffer: 1 << 28 }).split('\n').filter(Boolean).forEach((l) => { const x = JSON.parse(l); by[x.id] = x; });
+      mine.forEach((m) => {
+        const want = m.readers ? m.readers.kind : null, p = by[m.id] || {};
+        if (p.kind !== want) off.push(m.label + ': the readers ' + (want || 'accept') + ', Python ' + (p.kind || 'accepts') + (p.why ? ' (' + p.why.slice(0, 160) + ')' : ''));
+        if (p.checker !== want) off.push(m.label + ': the readers ' + (want || 'accept') + ', the checker ' + (p.checker || 'accepts'));
+      });
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+  const refused = mine.filter((m) => m.readers).length;
+  console.log('    ' + mine.length + ' run files (' + refused + ' refused at run.json by the readers)');
+  assert.ok(refused > 100 && refused < mine.length, 'cases both ways: ' + refused + ' of ' + mine.length);
+  assert.strictEqual(off.length, 0, off.length + ' of ' + mine.length + ' differ:\n  ' + (process.env.CORPUS_ALL ? off : off.slice(0, 40)).join('\n  '));
+});
+
 /* The export and the pack reader on a sample: the first accepted and the first refused case of every top-level field in each role, every drop and fill-in,
    and every case refused anywhere but the run file. The export names the run (or its version) exactly when the app refuses
    it, and a pack made to claim the work complete is refused by Python exactly then. Conflict copies beside a run aren't
@@ -221,7 +257,7 @@ rule('a test run\'s staged version is verified in full by the app and Python ali
 });
 
 /* NA: every place of a run file the app's cleaner reads (PF.run.sanitize and PF.run.repairs, through a proxy that records each
-   key and index read), the pack reader's port reads too (test/run_verdict.py, through a tracked copy of the same file). It
+   key and index read), the pack reader's port reads too (run_verdict.py, through a tracked copy of the same file). It
    runs on every role's run as written and ended, each holding a valid value of every field, so a field the app checks and
    Python passes over fails here by name. */
 const SKIP = new Set(Object.getOwnPropertyNames(Object.prototype).concat(Object.getOwnPropertyNames(Array.prototype), ['toJSON']));

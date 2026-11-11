@@ -1,5 +1,6 @@
-"""The verdict every reader gives a run the work depends on (repo.depVerdict: readRunOnly, then PF.appjson.judgeRun), ported
-for the pack reader so it is the same by construction: R.sanitize and everything it refuses or repairs (valid, the envelope,
+"""The verdict every reader gives a run file (repo.judgeRunFile and repo.depVerdict: readRunOnly, then PF.appjson.judgeRun),
+ported once, whole, so the folder checker (check_folder.py, a living run's receipt) and the pack reader (test/check_pack.py,
+the root run and every run its work depends on) give it alike: R.sanitize and everything it refuses or repairs (valid, the envelope,
 unknown3, newer, longIds, the version's checklist, a test run's fields, the times it can't read) and R.unexplained's
 comparison of the file with what sanitize keeps (U.drift, with the same allowances), the conflict copies beside it, and the
 version it ran. test/run-corpus.test.js holds it to the app on a generated corpus of every field mutated in every role.
@@ -18,10 +19,10 @@ import shutil
 import sys
 import tempfile
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "example-folder", ".flightdeck", "skills", "_flightdeck"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import check_folder as CF  # noqa: E402
 
-# The run family of PF.envelope (the shipped checker reads no runs): run/2 with no features, run/3 with every feature through
+# The run family of PF.envelope (the checker reads runs only through this port): run/2 with no features, run/3 with every feature through
 # living runs (PF.envelope.LIVING), and a run/3 that can't be read is the 2.0 bridge's.
 LIVING = ["phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "typed-details", "typed-evidence", "conditions", "passed-details", "team-values",
           "jira-search", "detail-patterns", "module-results", "loops", "staged", "test-run", "living-runs"]
@@ -2444,6 +2445,48 @@ def version_verdict(r, read):
     return base, ok, info
 
 
+def _newer_run(o, r):
+    """PF.appjson.newerRun: whether why the run is read-only (the first of R's reasons: the version's checklist, then a newer
+    Flightdeck's fields or states, then IDs too long) says a newer Flightdeck wrote it, or it is read by name only."""
+    if not r["_unrunnable"]:
+        return False
+    if r.get("_name_only") or r.get("snapshot", "") == "":
+        return True
+    try:
+        u = CF.unrunnable(r["snapshot"], r["types"] if is_obj(r["types"]) else {})
+    except Exception:  # noqa: BLE001 - a step type that can't be read: read-only, not a newer Flightdeck's
+        u = "types"
+    return u.startswith(CF.NEWER) if u else bool(newer(o))
+
+
+def reader_problem(key, o):
+    """repo.judgeRunFile: the readers' verdict on runs/<key>/run.json alone, as parsed (MISSING when it isn't complete JSON),
+    every reader's first problem at run.json (R.sanitize, the run's own folder, PF.appjson.judgeRun's run problems: a newer
+    Flightdeck's first, then the times it can't read, what it drops or changes and anything else it reads differently), as
+    (kind, why), or None. The version isn't read here (a reader names it at its own path)."""
+    proc, rid = key.split("/", 1)
+    if o is MISSING:
+        return "malformed", "it isn't complete JSON"
+    r = sanitize(o)
+    if r is None:
+        return "malformed", "it isn't a run this copy can read"
+    if is_obj(o) and isinstance(o.get("process"), str) and o["process"] != r["process"]:
+        return "malformed", "its process is longer than Flightdeck reads"
+    if r["process"] != proc or r["id"] != rid:
+        return "malformed", "it belongs to another run folder"
+    if _newer_run(o, r):
+        return "newer", "it is from a newer Flightdeck (" + str(r["_unrunnable"]) + ")"
+    if r["_bad_times"]:
+        return "malformed", "some of its times can't be read"
+    rp = repairs(o)
+    if rp:
+        return "malformed", "this copy drops or changes records in it (" + ", ".join(rp[:5]) + ")"
+    d = drift(o, strip(r))
+    if d:
+        return "malformed", "it holds what the app wouldn't keep as written (" + ", ".join(d[:5]) + ")"
+    return None
+
+
 def dep_verdict(key, text, read, beside=None):
     """repo.depVerdict for runs/<key>/run.json: None when the run holds, else (first path, why). read(path) gives a file's
     bytes (None when it isn't there); beside: the run folder's other files, { name: bytes }."""
@@ -2494,6 +2537,25 @@ def dep_verdict(key, text, read, beside=None):
     if cp:
         return path, "it isn't exactly as the app writes it, at " + cp
     return None
+
+
+def readers_batch(path):
+    """--readers FILE: JSON lines {id, key, text}; prints, per run file, the kind reader_problem gives and the kind the folder
+    checker's run_problem gives (null when the run is read as written)."""
+    out = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            x = json.loads(line)
+            o = parse(x["text"])
+            try:
+                v = reader_problem(x["key"], o)
+                c = CF.run_problem(o, x["key"]) if is_obj(o) else v
+            except Exception as e:  # noqa: BLE001 - a crash is a verdict the test shows, never a silent pass
+                v = c = ("crash", type(e).__name__ + ": " + str(e))
+            out.append(json.dumps({"id": x["id"], "kind": v[0] if v else None, "why": v[1] if v else "", "checker": c[0] if c else None}))
+    sys.stdout.write("\n".join(out) + "\n")
 
 
 def canonical_batch(path):

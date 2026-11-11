@@ -430,6 +430,24 @@ PF.repo = (function () {
     if (run.process === proc && run.id === id) return '';
     return 'belongs to ' + (run.process || '(no process)') + '/' + run.id + ', not to the folder it\'s in, so it isn\'t read as ' + proc + '/' + id;
   }
+  /* Reading for other apps: every record sanitize dropped, cut or replaced, and every other place it reads differently. */
+  function explainRaw(raw) { return { repairs: R.repairs(raw), drift: R.unexplained(raw) || [], canonical: R.canonical(raw) }; }
+  /* GA: the readers' verdict on one run.json as parsed (raw: undefined when it isn't complete JSON), from the same steps
+     readRun and build take with explain and the same judge (PF.appjson.judgeRun): the first problem every reader (run, next,
+     runs, todo list) names at runs/<proc>/<id>/run.json, { path, kind, why }, or null. The version isn't read here: a
+     version that doesn't verify or doesn't match is the export's to name, at its own path. */
+  function judgeRunFile(raw, proc, id) {
+    var path = 'runs/' + proc + '/' + id + '/run.json';
+    if (raw === undefined) return { path: path, kind: 'malformed', why: 'isn\'t complete JSON (it may still be arriving)' };
+    var run = R.sanitize(raw);
+    if (!run) return { path: path, kind: 'malformed', why: 'isn\'t a run this copy can read' };
+    var w = misplaced(raw, run, proc, id);
+    if (w) return { path: path, kind: 'malformed', why: w };
+    var x = explainRaw(raw);
+    if (x.repairs.length) run._repairs = x.repairs;
+    if (x.drift.length) run._drift = x.drift;
+    return PF.appjson.judgeRun(run, null).filter(function (q) { return q.path === path; })[0] || null;
+  }
   /* The same rule on a raw run.json alone (the evidence pack, which reads files as they are): why it isn't the run of
      runs/<proc>/<id>/, or ''. */
   function elsewhere(raw, proc, id) {
@@ -544,7 +562,7 @@ PF.repo = (function () {
           unrunnable: run._unrunnable || res.pubProblem || '', ended: !!run.ended, endedAt: run.ended ? Date.parse(run.ended.at) || 0 : 0, conflicts: extra, recheckAt: 0,
           names: names.slice().sort(), stamps: stamps, full: full };
         /* Reading for other apps: every record sanitize dropped, cut or replaced, named by where it is. */
-        if (o.explain) { var raw = json(res[0].text); entry.repairs = R.repairs(raw); entry.drift = R.unexplained(raw) || []; entry.canonical = R.canonical(raw); }
+        if (o.explain) { var ex = explainRaw(json(res[0].text)); entry.repairs = ex.repairs; entry.drift = ex.drift; entry.canonical = ex.canonical; }
         function done() { Object.freeze(entry.conflicts); Object.freeze(entry.notes); Object.freeze(entry.noteFiles); Object.freeze(entry.names); Object.freeze(entry.stamps); return Object.freeze(entry); }
         /* A candidate whose save isn't listed in run.json, and that's old enough not to be a save still in progress, was
            overwritten by another window or computer: it's offered like any other conflict copy. */
@@ -3145,6 +3163,8 @@ PF.repo = (function () {
           var self = raw && !p.foreign ? R.sanitize(raw) : null;
           if (self) { self._notes = []; t.forEach(function (x) { if (x != null) E.notesFile(x).notes.forEach(function (n) { self._notes.push(cleanNote(n.note, base + '/')); }); }); }
           p.ownGroups = {}; p.self = self; p.selfRaw = raw && !p.foreign ? raw : null;
+          /* GA: the readers' verdict on the file as read, kept even when sanitizing gives nothing or a name only. */
+          p.selfBad = !p.foreign && r.text != null ? judgeRunFile(raw, proc, id) : null;
           if (self) try { C.groups(C.collect([self], proc)).forEach(function (g) { p.ownGroups[g.id] = true; }); } catch (e) { /* a run this copy can't fully read has no groups to add */ }
         });
         });
@@ -3377,22 +3397,26 @@ PF.repo = (function () {
       }); }, Promise.resolve()).then(function () { return out; });
     }
     function livingPart(p, add) {
-      var self = p.self;
-      if (!self) return Promise.resolve();
+      var self = p.self, bad = p.selfBad;
+      if (!self && !bad) return Promise.resolve();
       return proposalsRead().then(function (Pr) {
         /* What discovery listed and read is checked again at the end on every path, a run with no to-dos yet included. */
         p.discovery = { lists: lists, hashes: seenHashes, recs: recHashes };
         /* Whether the run has to-do records at all is only known from this read: one that fails is named, living or not yet. */
-        /* FA: the raw run's end and living record, judged before every gate below: a problem sanitizing would hide (a living
-           record dropped, the feature without it) keeps run.json named, living or not. */
-        var rawBad = p.selfRaw ? R.rawProblem(p.selfRaw) : null, rawPath = 'runs/' + self.process + '/' + self.id + '/run.json', rawMiss = rawBad ? [rawPath + ' (' + rawBad.kind + '): ' + rawBad.why] : [];
-        if (Pr.failed) { p.living = { head: self.living ? self.living.head : '', chain: [], receipt: null, missing: rawMiss.concat(['proposals/ ' + Pr.failed + ', so the run\'s work can\'t be packed.']), recs: {}, listing: null, deps: [], runTexts: {} }; return; }
+        /* GA: the readers' whole verdict on the raw run.json (judgeRunFile), judged before every gate below: a run any reader
+           refuses keeps run.json named, living or not, even when sanitizing drops its living record or gives a name only. */
+        var me = { process: p.process, id: p.id }, rawPath = 'runs/' + me.process + '/' + me.id + '/run.json', rawMiss = bad ? [rawPath + ' (' + bad.kind + '): ' + bad.why] : [];
+        var whole = !!self && self._needs == null, failed = Pr.failed ? ['proposals/ ' + Pr.failed + ', so the run\'s work can\'t be packed.'] : [];
+        var hollow = function () { return { head: whole && self.living ? self.living.head : '', chain: [], receipt: null, missing: rawMiss.concat(failed), recs: {}, listing: null, deps: [], runTexts: {} }; };
+        if (Pr.failed && whole) { p.living = hollow(); return; }
         /* A record that can't be read but names this run (a malformed request, say) is part of its work too, living or not; one
            whose run can't be told at all may be this run's, so it is too (the pack is partial, naming it). */
-        var mineUnread = (Pr.todosUnread || []).some(function (u) { return u && (!u.run || (u.run.process === self.process && u.run.id === self.id)); })
+        var mineUnread = !Pr.failed && ((Pr.todosUnread || []).some(function (u) { return u && (!u.run || (u.run.process === me.process && u.run.id === me.id)); })
           /* A scope record that can't be read whose loop can't be told, or one of this run's loops, likewise (DC). */
-          || (Pr.scopesUnread || []).some(function (u) { return u && (!u.loop || (u.loop.process === self.process && u.loop.run === self.id)); });
-        if (!(rawBad && R.livingWork(p.selfRaw)) && !self.living && !PF.todos.recordsFor(Pr.todos, self).length && !mineUnread) return;
+          || (Pr.scopesUnread || []).some(function (u) { return u && (!u.loop || (u.loop.process === me.process && u.loop.run === me.id)); }));
+        if (!(bad && R.livingWork(p.selfRaw)) && !(whole && self.living) && !(!Pr.failed && PF.todos.recordsFor(Pr.todos, me).length) && !mineUnread) return;
+        /* A run sanitizing can't read, or reads by name only, has no work to walk: its living section names run.json. */
+        if (!whole) { p.living = hollow(); return; }
         /* The closure, walked until it holds every run it depends on: the shared collector (PF.receipts.deps) names the runs it
            found that aren't read yet; they are read (and their loop children listed), and it is asked again. Bounded. */
         var got = Object.create(null), known = Object.create(null), kids = Object.create(null), runBad = [], listed = Object.create(null), D = null, DEP_RUNS = PF.receipts.DEP_CAP;
@@ -3781,5 +3805,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readTodos: readTodos, readLoopChildren: readLoopChildren, depVerdict: depVerdict, readEvidence: readEvidence, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, saveScope: saveScope, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readTodos: readTodos, readLoopChildren: readLoopChildren, depVerdict: depVerdict, judgeRunFile: judgeRunFile, readEvidence: readEvidence, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, saveScope: saveScope, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

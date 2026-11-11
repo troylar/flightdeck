@@ -1257,6 +1257,27 @@ rule('An ended living run written as run/2 is partial in the export, and Python 
   const c = checkPack(await repacked(W.PF, full.zip, (e, man, f) => { const x = f(rp); e[x.pack] = Buffer.from(JSON.stringify(two(JSON.parse(e[x.pack])), null, 2) + '\n'); }));
   assert.ok(!c.ok && c.out.indexOf(W.key) >= 0, 'Python: ' + c.out);
 });
+/* GA: the readers' whole verdict on run.json, applied to the packed root run before any gate: a run.json any reader refuses
+   (its envelope, an unknown field, a value the readers drop or can't read) is partial in the export, naming run.json, and
+   Python refuses a pack of it that claims the work complete with the run's own living metadata. */
+rule('An ended living run whose run.json any reader refuses is partial in the export, and Python refuses a complete pack of it', async () => {
+  const W = await made({ todos: 1, pending: true }), rp = 'runs/' + W.key + '/run.json', full = await pack(W.PF, new BytesFS(W.files), W.key);
+  assert.ok(W.run.ended && W.run.living.receipt, 'set-up: ended with a receipt');
+  assert.strictEqual(full.res.status, 'complete', JSON.stringify(full.res.col.unresolved));
+  assert.ok(!PY || checkPack(full.zip).ok, 'control');
+  const CASES = [['app', (r) => { r.app = 'bad'; }], ['format', (r) => { r.format = 'preflight-run/4'; }], ['an unknown feature', (r) => { r.features = r.features.concat(['future-feature']); }],
+    ['an unknown field', (r) => { r.future = 1; }], ['features not a list', (r) => { r.features = 'living-runs'; }], ['created', (r) => { r.created = 'bad'; }],
+    ['title', (r) => { r.title = 42; }], ['recorder.person', (r) => { r.recorder.person = 42; }]];
+  for (const [what, damage] of CASES) {
+    const o = JSON.parse(String(W.files[rp])); damage(o);
+    const { res } = await pack(W.PF, new BytesFS(Object.assign({}, W.files, { [rp]: JSON.stringify(o, null, 2) + '\n' })), W.key);
+    assert.strictEqual(res.status, 'partial', what + ': the export: ' + JSON.stringify(res.col.unresolved).slice(0, 300));
+    assert.ok(res.col.unresolved.some((u) => u.indexOf(rp) >= 0), what + ': names run.json: ' + JSON.stringify(res.col.unresolved).slice(0, 300));
+    if (!PY) continue;
+    const c = checkPack(await repacked(W.PF, full.zip, (e, man, f) => { const x = f(rp), r = JSON.parse(e[x.pack]); damage(r); e[x.pack] = Buffer.from(JSON.stringify(r, null, 2) + '\n'); }));
+    assert.ok(!c.ok && c.out.indexOf(W.key) >= 0, what + ': Python: ' + c.out);
+  }
+});
 /* FA: the raw run's end and living record are judged before every "no living work" gate: a run without to-dos whose run.json
    names the living-runs feature without its record, or holds a living record that is empty, a list or has an empty head
    (sanitizing would drop each), is partial in the export, and Python refuses a pack of it with no living section. */
