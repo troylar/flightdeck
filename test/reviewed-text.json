@@ -25,8 +25,8 @@
       "reviewed": "QC: spread keep's final check rereads and judges the items' checklist and rebuilds from it; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "81e628f12d04a759024352010e6139b3549e1792aea7bea101b0200b9274f8c3",
-      "reviewed": "VD: a late Run this checklist completion is bound to its navigation, form and person; checked for direct writes and unconditional deletes"
+      "sha256": "d2d570271ddbf0601b91effc70b84c75636b69c349ce80df07f6243e882db249",
+      "reviewed": "YA: every withdrawal delete runs the whole guard right before it removes, with each copy's bytes checked against what the window read; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -417,12 +417,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "b1b353eea6b5411b900ee474c420c4fe90eb8a8fe25584c6f1c8e1a6c7d7c99a",
-      "reviewed": "VB: each delete in multi-copy withdrawal is guarded again, and a refusal stops and reports a partial withdrawal; checked for direct writes and unconditional deletes"
+      "sha256": "4929dae0b6e7272b7dc9549aa9ca0b9e1b8678925c30eee75c526fb98874e687",
+      "reviewed": "YA: every withdrawal delete runs the whole guard right before it removes, with each copy's bytes checked against what the window read; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "fbb6f807f593b23eadbe601a043b6f4f195c510b7a5d0ede3372f8f54edc0a90",
-      "reviewed": "D10: cap the copy lists in keep withdrawal and copies-differ messages at 3 with how many more; checked for direct writes and unconditional deletes"
+      "sha256": "3181a2e90aae725ee6b2e27197f1f0430f55fc268f30921a21f619db5940bf9e",
+      "reviewed": "YA: every withdrawal delete runs the whole guard right before it removes, with each copy's bytes checked against what the window read; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

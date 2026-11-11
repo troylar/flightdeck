@@ -677,6 +677,17 @@ rule('Every keep write path is guarded after every read and right before every w
     const k = keeps(app)[0]; assert.ok(k, 'set-up: a keep'); await openPage(app);
     return { app, act: () => app.click('keep-withdraw', k.id, { process: 'release-notes' }), mine: proposals, removes: true, who: 'person-avery', other: 'person-casey' };
   });
+  /* YA: a keep with three identical copies: every delete is guarded right before it removes, at every position, against a
+     change of person, folder, activity, people.json, or a copy's bytes. */
+  const touch = { bytes: (fs) => { Object.keys(fs.files).filter(p => /^proposals\/req-keep-/.test(p)).forEach(p => { fs.files[p] = { t: fs.files[p].t + ' ', m: Date.now() }; }); } };
+  if (want('withdraw-copies')) out['withdraw-copies'] = await race('withdraw-copies', async () => {
+    const app = await setup(), id = await added(app, 'Post the release notes'); app.click('keep', id, { kind: 'todo' }); await app.tick(120);
+    const k = keeps(app)[0], t = app.fs.files['proposals/' + k.id + '.json'].t;
+    app.fs.files['proposals/' + k.id + ' (1).json'] = { t, m: Date.now() }; app.fs.files['proposals/' + k.id + '-LAPTOP.json'] = { t, m: Date.now() };
+    await refresh(app, 300); await openPage(app);
+    assert.strictEqual(app.files('proposals/req-keep-').length, 3, 'set-up: three identical copies');
+    return { app, act: () => app.click('keep-withdraw', k.id, { process: 'release-notes' }), mine: proposals, removes: true, who: 'person-avery', other: 'person-casey', extra: touch };
+  });
   if (want('decide')) out.decide = await race('decide', async () => {
     const { app, gid } = await kept('person-morgan'); await openPage(app);
     return { app, act: () => app.click('corr-applied', gid), mine: corr, who: 'person-morgan', other: 'person-avery', transfer: (fs) => transfer(app, fs) };

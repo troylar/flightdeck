@@ -617,6 +617,8 @@ PF.repo = (function () {
     LOADER_KEYS.forEach(function (k) { if (Object.prototype.hasOwnProperty.call(o, k)) { sup = sup || Object.create(null); sup[k] = o[k]; } });
     if (sup) { try { Object.defineProperty(o, '_supplied', { value: sup, enumerable: false }); } catch (e) { /* frozen */ } }
     o._file = name;
+    /* A keep's file carries the SHA-256 of its bytes (_sha, not enumerable): withdrawing removes only what was read (YA). */
+    if (/^req-keep-/.test(String(name)) && typeof f.text === 'string') { try { Object.defineProperty(o, '_sha', { value: PF.sha256.hex(f.text), enumerable: false }); } catch (e) { /* frozen */ } }
     return sized(o, f);
   }
   /* A record as its file wrote it, with no prototype: the loader's fields left out, the file's own put back. */
@@ -2103,43 +2105,34 @@ PF.repo = (function () {
      happened: only a file still there is a failure. */
   /* name: any name the checked reader knows for the keep opts.id (its own, " (n)" or "-COMPUTER", PF.todos.requestFile).
      opts.copies(), asked once still() has passed, gives every file of that keep read under the guard (its identical copies),
-     each removed in turn; each must be a name of opts.id too. Each delete after the first is guarded again (VB): fresh, still
-     and copies asked again, and the file's bytes must be the ones read before the first. Refused, it stops and resolves
-     { partial: true, removed, left }; withdrawing again finishes it. */
+     each removed in turn; each must be a name of opts.id too. Every delete, the first included, runs the whole guard (YA):
+     fresh (the caller's reads, its bytes among them, then people.json last), then still and copies, and the file is removed
+     in the same turn as that last check, nothing awaited between. Refused, it stops and resolves { partial: true, removed,
+     left } (or { dropped: true } before the first); withdrawing again finishes it. */
   function withdrawKeep(fs, name, opts) {
     var id = opts && typeof opts.id === 'string' ? opts.id : String(name).replace(/\.json$/, '');
     var isName = function (n) { return /^req-keep-[a-z0-9-]{1,80}$/.test(id) && PF.todos.requestFile(String(n), id) && !/[\/\\]/.test(String(n)); };
     if (!isName(name)) return Promise.reject(new Error('That isn\'t the name of a keep.'));
     if (!opts || typeof opts.fresh !== 'function' || typeof opts.still !== 'function') return Promise.reject(new Error('A keep is withdrawn only under its guard.'));
-    return Promise.resolve().then(function () { return opts.fresh(fs); }).then(function (ok) {
-      if (ok === false || !opts.still()) return { dropped: true };
-      var names = typeof opts.copies === 'function' ? opts.copies() : [name];
-      if (!Array.isArray(names) || !names.length || !names.every(isName)) throw new Error('That isn\'t the name of a keep.');
-      names = names.slice();
-      var texts = Object.create(null), removed = [], i = 0;
-      var textOf = function (n) { return fs.read('proposals/' + n).then(function (r) { return r ? String(r.text) : null; }); };
-      var one = function (n) {
-        var path = 'proposals/' + n;
-        return fs.remove(path).then(null, function (e) { return fs.read(path).then(function (left) { if (left) throw e; }, function () { throw e; }); });
-      };
-      var stop = function () { return removed.length ? { partial: true, removed: removed.slice(), left: names.slice(i) } : { dropped: true }; };
-      var next = function () {
-        if (i >= names.length) return { ok: true, removed: removed.slice() };
+    var names = null, removed = [], i = 0;
+    var one = function (n) {
+      var path = 'proposals/' + n;
+      return fs.remove(path).then(null, function (e) { return fs.read(path).then(function (left) { if (left) throw e; }, function () { throw e; }); });
+    };
+    var stop = function () { return removed.length ? { partial: true, removed: removed.slice(), left: names ? names.slice(i) : [] } : { dropped: true }; };
+    var next = function () {
+      if (names && i >= names.length) return { ok: true, removed: removed.slice() };
+      return Promise.resolve().then(function () { return opts.fresh(fs); }).then(function (ok) {
+        if (ok === false || !opts.still()) return stop();
+        var now = typeof opts.copies === 'function' ? opts.copies() : [name];
+        if (!Array.isArray(now) || !now.length || !now.every(isName)) { if (removed.length) return stop(); throw new Error('That isn\'t the name of a keep.'); }
+        if (!names) names = now.slice();
         var n = names[i];
-        var gate = i === 0 ? Promise.resolve(true) : Promise.resolve().then(function () { return opts.fresh(fs); }).then(function (ok) {
-          if (ok === false || !opts.still()) return false;
-          var now = opts.copies(); return Array.isArray(now) && now.indexOf(n) >= 0;
-        }, function () { return false; });
-        return gate.then(function (go) {
-          if (!go) return stop();
-          return textOf(n).then(function (t) {
-            if (t == null || t !== texts[n]) return stop();
-            return one(n).then(function () { removed.push(n); i++; return next(); });
-          });
-        });
-      };
-      return names.reduce(function (p, n) { return p.then(function () { return textOf(n).then(function (t) { texts[n] = t; }); }); }, Promise.resolve()).then(next);
-    });
+        if (now.indexOf(n) < 0) return stop();
+        return one(n).then(function () { removed.push(n); i++; return next(); });
+      }, function () { return stop(); });
+    };
+    return next();
   }
   /* A plan made in the app is a new file this window creates once (expect null: "doesn't exist yet"), so it never replaces one. */
   function savePlan(fs, plan, opts) {
@@ -2841,7 +2834,7 @@ PF.repo = (function () {
           var tv; try { tv = PF.todos.cleanFile(raw, p._file, p._bytes); } catch (e) { tv = { ok: false, kind: 'malformed', why: 'is a to-do record that isn\'t in its format', needs: '' }; }
           var tp = 'proposals/' + p._file, tf = PF.todos.familyOf(p);
           if (!tv.ok) { if (bad) bad.push({ path: tp, kind: tv.kind, why: tv.why }); refused.push(PF.envelope.refusal(tp, tf, tv)); todosUnread.push({ file: p._file, why: tv.why, kind: tv.kind, run: PF.todos.runOf(p) }); return; }
-          tv.record._file = p._file; todos.push(tv.record); return;
+          tv.record._file = p._file; if (p._sha) { try { Object.defineProperty(tv.record, '_sha', { value: p._sha, enumerable: false }); } catch (e) { /* frozen */ } } todos.push(tv.record); return;
         }
         /* A scope request or decision (3.0, PF.loop) goes to its own reader first and never reaches the plan reader. */
         if (PF.loop.isScope(p)) {

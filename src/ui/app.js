@@ -3765,12 +3765,20 @@
     var rec = (data.todos || []).filter(function (k) { return k && k.kind === 'keep' && k.id === kid; })[0];
     if (!rec) { say('That keep isn\'t here anymore. Nothing was withdrawn.', 'warn'); render(); return; }
     var name = rec._file || kid + '.json', path = 'proposals/' + name, R = null, proc = null, fail = '', copies = null, planned = null, endBusy = busyStart(), sg = gen, MAX = PF.corrections.MEMBERS_MAX;
+    /* YA: what is withdrawn is exactly what this window read: each copy's file and the SHA-256 of its bytes, as shown. */
+    var shown = Object.create(null); (data.todos || []).forEach(function (k) { if (k && k.kind === 'keep' && k.id === kid && typeof k._file === 'string') shown[k._file] = k._sha || ''; });
+    var bytes = Object.create(null);
     var kg = writeGuard({
       fresh: function (fx) {
-        R = null; proc = null; fail = ''; copies = null;
-        /* The keep itself is the checked reader's (repo.readKept): its record under this file name, never a parse of its own. */
+        R = null; proc = null; fail = ''; copies = null; bytes = Object.create(null);
+        /* The keep itself is the checked reader's (repo.readKept): its record under this file name, never a parse of its own.
+           Then each copy's bytes are read again, last before people.json, so a copy changed during any earlier read is seen. */
         return repo.readKept(fx, function () { return repo.readProcess(fx, pid).then(function (p) { proc = p; }, function () { proc = null; }); })
-          .then(function (x) { R = x; return true; }, function (e) { fail = fail || 'what was kept for next time couldn\'t be read again right before it was removed (' + (e && e.message || e) + ').'; return true; });
+          .then(function (x) { R = x; return true; }, function (e) { fail = fail || 'what was kept for next time couldn\'t be read again right before it was removed (' + (e && e.message || e) + ').'; return true; })
+          .then(function () {
+            var fs0 = R ? PF.learn.copiesOf(R.keepFiles, kid).files : [];
+            return fs0.reduce(function (p, f) { return p.then(function () { return fx.read('proposals/' + f).then(function (x) { bytes[f] = x && typeof x.text === 'string' ? PF.sha256.hex(x.text) : null; }, function () { bytes[f] = null; }); }); }, Promise.resolve());
+          }).then(function () { return true; });
       },
       who: function (ppl, me) {
         if (fail) return fail;
@@ -3779,6 +3787,9 @@
         if ((R.decUnread || []).some(function (u) { return u && u.process === pid; })) return 'a decision on its checklist\'s corrections can\'t be read now, so whether one names this keep can\'t be told.';
         var kr = (R.keeps || []).filter(function (x) { return x && x.id === kid; })[0], cp = PF.learn.copiesOf(R.keepFiles, kid);
         if (planned ? !kr || !cp.files.length || cp.files.some(function (f) { return planned.indexOf(f) < 0; }) : !kr || !cp.files.length) return path + ' isn\'t that keep in the folder now.';
+        /* Each copy is still exactly what this window read: listed then, its bytes the same in the reader and read last. */
+        var moved = cp.files.filter(function (f) { return !shown[f] || bytes[f] !== shown[f] || !(R.keepFiles || []).some(function (x) { return x && x._file === f && x._sha === shown[f]; }); })[0];
+        if (moved) return 'proposals/' + moved + ' isn\'t the copy of that keep this window read: it changed or arrived since. Look again, then withdraw it.';
         if (!cp.same) return 'copies of that keep say different things (' + cp.files.slice(0, 3).map(function (f) { return 'proposals/' + f; }).join(', ') + (cp.files.length > 3 ? ' and ' + (cp.files.length - 3) + ' more' : '') + '), so which one to withdraw can\'t be told. Remove the one that\'s wrong first.';
         copies = cp.files; if (!planned) planned = cp.files.slice();
         var g = PF.corrections.groups(PF.learn.members(R.keeps, [], pid)).filter(function (x) { return x.members.some(function (m) { return m.id === kid; }); })[0], over = !!g && g.members.length > MAX;
