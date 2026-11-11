@@ -25,8 +25,8 @@
       "reviewed": "QC: spread keep's final check rereads and judges the items' checklist and rebuilds from it; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "80b1ba5248dbb28ca397cf5da21b1aadbb6768c132b862255a790d0a8e431792",
-      "reviewed": "AA: every keep decision binds the fresh records to the reviewed members and judges Withdraw's author on them; checked for direct writes and unconditional deletes"
+      "sha256": "ef29597820ab6c5c3fc741fc5eec54a985eec25b6b00cf5e8c3e74c359dda80b",
+      "reviewed": "AB: keep guard and withdraw list proposals/ again after readKept; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -421,8 +421,8 @@
       "reviewed": "AE: a supplied _sha is kept as the file wrote it and refused like _file and _bytes; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "b56564f1bcc27c166160126cc13e2e30c4c0144735718296fa7a17fed75c6a37",
-      "reviewed": "AA: every keep decision binds the fresh records to the reviewed members and judges Withdraw's author on them; checked for direct writes and unconditional deletes"
+      "sha256": "55026678a722661fbc73e0ef97eea141a59cd529214c12363a8a08c4422af95c",
+      "reviewed": "AB: keep guard and withdraw list proposals/ again after readKept; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

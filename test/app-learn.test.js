@@ -441,6 +441,34 @@ rule('A keep decision refuses a reviewed keep deleted or changed since, by path,
     assert.ok(txt(app.html()).indexOf(k.id + '.json') >= 0, label + ': said, by path: ' + (txt(app.html()).match(/[^.]*(isn't in the folder|changed since|whoever kept)[^.]*\./) || [])[0]);
   }
 });
+/* AB: a copy that arrives (differing or unreadable) while the keep records are read, after proposals/ was listed, refuses
+   every keep decision before anything is written (Apply before its draft write), and an individual Withdraw deletes
+   nothing. */
+rule('A keep copy that arrives during the guard\'s read refuses every keep write before it writes, the draft and a lone Withdraw included', async () => {
+  for (const kind of ['differs', 'torn']) for (const act of ['apply', 'decide', 'withdraw', 'withdraw-one']) {
+    const label = kind + ' · ' + act, app = await setup(), id = await added(app, 'Post the release notes');
+    app.click('keep', id, { kind: 'todo' }); await app.tick(120); await refresh(app, 300);
+    const gid = groupId(app), k = keeps(app)[0], own = 'proposals/' + k.id + '.json', text = app.fs.files[own].t;
+    const DR = 'maps/drafts/release-notes.md', draft0 = app.fs.files[DR] ? app.fs.files[DR].t : null, n = app.files('corrections/').length;
+    if (act === 'withdraw-one') await openPage(app); else app.click('keep-open', gid, { process: 'release-notes' });
+    await app.tick(120);
+    if (act === 'apply' || act === 'decide') { app.choose('person-morgan'); await app.tick(80); }
+    if (act === 'apply') { app.click('corr-review', gid); await app.tick(60); }
+    /* The keep's own file, read after proposals/ was listed: the copy arrives while that read is paused. */
+    const fs = app.fs, rd = fs.read.bind(fs), bl = fs.blob ? fs.blob.bind(fs) : null; let armed = true;
+    const add = () => { const o = JSON.parse(text); o.reason = 'Another reason'; fs.files['proposals/' + k.id + ' (2).json'] = { t: kind === 'torn' ? '{ "kind": "ke' : JSON.stringify(o, null, 2) + '\n', m: Date.now() }; };
+    const hook = (orig) => (p, o) => { if (armed && p === own) { armed = false; return Promise.resolve(orig(p, o)).then((x) => { add(); return x; }); } return orig(p, o); };
+    fs.read = hook(rd); if (bl) fs.blob = hook(bl);
+    if (act === 'apply') app.click('corr-apply', gid); else if (act === 'decide') app.click('corr-applied', gid); else if (act === 'withdraw') app.click('corr-withdraw', gid, { process: 'release-notes' }); else app.click('keep-withdraw', k.id, { process: 'release-notes' });
+    await app.tick(500);
+    fs.read = rd; if (bl) fs.blob = bl;
+    assert.ok(!armed, label + ': set-up: the copy arrived during the read');
+    assert.strictEqual(app.files('corrections/').length, n, label + ': no decision written');
+    assert.strictEqual(app.fs.files[DR] ? app.fs.files[DR].t : null, draft0, label + ': the draft as it was');
+    assert.ok(app.fs.files[own], label + ': the keep wasn\'t withdrawn');
+  }
+});
+
 /* YB: Withdraw on a whole correction reads the keep's copies again, as every other decision does: a copy that differs
    refuses it, naming the copy; its author still withdraws it once the copy is gone. */
 rule('Withdrawing a whole correction is refused while a copy of its keep differs; its author withdraws it once that copy is gone', async () => {

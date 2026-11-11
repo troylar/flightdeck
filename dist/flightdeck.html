@@ -37944,15 +37944,19 @@ PF.examples = (function () {
             if (now !== seen) pw = 'a version of its checklist was published while it was being written, so its owner is asked again: look again, then decide.'; else proc = p;
           }, function () { pw = gone; });
         }, function (e) { pw = 'its checklist\'s publications couldn\'t be read again right before it was written (' + (e && e.message || e) + '), so its owner can\'t be told.'; });
-        /* Then the group's keeps, last before people.json: every reviewed member present and exactly as reviewed (AA), and no
-           copy of one that differs or can't be read (VA). */
+        /* Then the group's keeps, last before people.json: every reviewed member present and exactly as reviewed (AA), no
+           copy of one that differs or can't be read (VA), and proposals/ listed again after the contents were read, so a
+           copy that arrived or went during the read refuses the write (AB). */
         var rr = null;
-        return owner.then(function () { return repo.readKept(fx); }).then(function (r) { rr = r; }).then(function () {
+        return owner.then(function () { return repo.readKept(fx); }).then(function (r) { rr = r; return fx.list('proposals'); }).then(function (items) {
           if (pw) return true;
           var r = rr;
           for (var i = 0; i < g.members.length; i++) {
             var id = g.members[i].id, cp = PF.learn.copiesOf(r.keepFiles, id);
             var torn = (r.keepUnread || []).filter(function (u) { return u && PF.todos.requestFile(String(u.file), id); });
+            var now = (items || []).filter(function (v) { return v.kind !== 'dir' && PF.todos.requestFile(String(v.name), id); }).map(function (v) { return v.name; }).sort();
+            var read = cp.files.concat(torn.map(function (u) { return u.file; })).sort();
+            if (now.join('/') !== read.join('/')) { var odd = now.filter(function (f) { return read.indexOf(f) < 0; }).concat(read.filter(function (f) { return now.indexOf(f) < 0; }))[0]; pw = 'proposals/' + odd + ' arrived or went while what was kept for next time was being read, so this correction isn\'t the one reviewed. Look again, then decide.'; return true; }
             if (torn.length) { pw = 'a copy of a keep in this correction can\'t be read now (proposals/' + torn[0].file + '), so whether it says the same can\'t be told.'; return true; }
             if (!cp.files.length) { pw = 'proposals/' + id + '.json, a keep in this correction, isn\'t in the folder now, so this correction isn\'t the one reviewed. Look again, then decide.'; return true; }
             if (!cp.same) { pw = PF.learn.copiesWhy({ keep: true, members: [{ copiesDiffer: cp.files }] }); return true; }
@@ -38046,14 +38050,16 @@ PF.examples = (function () {
     var name = rec._file || kid + '.json', path = 'proposals/' + name, R = null, proc = null, fail = '', copies = null, planned = null, endBusy = busyStart(), sg = gen, MAX = PF.corrections.MEMBERS_MAX;
     /* YA: what is withdrawn is exactly what this window read: each copy's file and the SHA-256 of its bytes, as shown. */
     var shown = Object.create(null); (data.todos || []).forEach(function (k) { if (k && k.kind === 'keep' && k.id === kid && typeof k._file === 'string') shown[k._file] = k._sha || ''; });
-    var bytes = Object.create(null);
+    var bytes = Object.create(null), listed = null;
     var kg = writeGuard({
       fresh: function (fx) {
-        R = null; proc = null; fail = ''; copies = null; bytes = Object.create(null);
+        R = null; proc = null; fail = ''; copies = null; bytes = Object.create(null); listed = null;
         /* The keep itself is the checked reader's (repo.readKept): its record under this file name, never a parse of its own.
            Then each copy's bytes are read again, last before people.json, so a copy changed during any earlier read is seen. */
         return repo.readKept(fx, function () { return repo.readProcess(fx, pid).then(function (p) { proc = p; }, function () { proc = null; }); })
           .then(function (x) { R = x; return true; }, function (e) { fail = fail || 'what was kept for next time couldn\'t be read again right before it was removed (' + (e && e.message || e) + ').'; return true; })
+          /* AB: proposals/ listed again after the contents were read: a copy that arrived or went meanwhile refuses it. */
+          .then(function () { return R ? fx.list('proposals').then(function (items) { listed = (items || []).filter(function (v) { return v.kind !== 'dir' && PF.todos.requestFile(String(v.name), kid); }).map(function (v) { return v.name; }).sort(); }, function () { listed = null; }) : null; })
           .then(function () {
             var fs0 = R ? PF.learn.copiesOf(R.keepFiles, kid).files : [];
             return fs0.reduce(function (p, f) { return p.then(function () { return fx.read('proposals/' + f).then(function (x) { bytes[f] = x && typeof x.text === 'string' ? PF.sha256.hex(x.text) : null; }, function () { bytes[f] = null; }); }); }, Promise.resolve());
@@ -38065,6 +38071,7 @@ PF.examples = (function () {
         if ((R.keepUnread || []).length) return 'a record kept for next time can\'t be read now (proposals/' + R.keepUnread[0].file + '), so how many are kept at this place can\'t be counted.';
         if ((R.decUnread || []).some(function (u) { return u && u.process === pid; })) return 'a decision on its checklist\'s corrections can\'t be read now, so whether one names this keep can\'t be told.';
         var kr = (R.keeps || []).filter(function (x) { return x && x.id === kid; })[0], cp = PF.learn.copiesOf(R.keepFiles, kid);
+        if (!listed || listed.join('/') !== cp.files.slice().sort().join('/')) return 'a copy of that keep arrived or went while it was being read' + (listed ? ' (' + listed.concat(cp.files).filter(function (f) { return listed.indexOf(f) < 0 || cp.files.indexOf(f) < 0; }).slice(0, 3).map(function (f) { return 'proposals/' + f; }).join(', ') + ')' : '') + ', so what is withdrawn can\'t be told. Look again, then withdraw it.';
         if (planned ? !kr || !cp.files.length || cp.files.some(function (f) { return planned.indexOf(f) < 0; }) : !kr || !cp.files.length) return path + ' isn\'t that keep in the folder now.';
         /* Each copy is still exactly what this window read: listed then, its bytes the same in the reader and read last. */
         var moved = cp.files.filter(function (f) { return !shown[f] || bytes[f] !== shown[f] || !(R.keepFiles || []).some(function (x) { return x && x._file === f && x._sha === shown[f]; }); })[0];
