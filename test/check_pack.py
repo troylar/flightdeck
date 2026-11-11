@@ -133,6 +133,17 @@ def check_living(z, man):
         return [p for p in by_path if p == base + ".json" or (p.startswith(base) and p.endswith(".json") and COPY.match(p[len(base):-5])
                 and (not p[len(base):-5].startswith("-") or any(c.isupper() for c in p[len(base):-5])))]
 
+    def record_name(path):
+        """The record a packed proposals/ name stands for (its own name, or the one a synced copy copies), or ''."""
+        if not path.startswith("proposals/") or not path.endswith(".json"):
+            return ""
+        stem = path[len("proposals/"):-5]
+        for i in range(1, len(stem)):
+            rest = stem[i:]
+            if stem[i] in " -" and COPY.match(rest) and (not rest.startswith("-") or any(c.isupper() for c in rest)):
+                return stem[:i]
+        return stem
+
     def witness(rid):
         """The one record packed under an id, the same in every packed copy (a synced " (1)" copy included); None when it
         isn't packed or two packed copies differ (ambiguous: which is meant isn't known)."""
@@ -154,14 +165,25 @@ def check_living(z, man):
         own = run.get("living") or {}
         head = own.get("head", "")
         me = {"process": run.get("process"), "id": run.get("id")}
-        copies = [False]
+        copies = [""]
         scopes = on_run(me)
 
         def wit(rid):
             rec, amb = witness(rid)
-            if amb:
-                copies[0] = True
+            if amb and not copies[0]:
+                copies[0] = rid
             return rec
+
+        # Every record the run's work reaches is held to its copies (a pending request and a loop's scope record included), as
+        # in the export: the id each packed name stands for, its copies compared by the one rule.
+        names = {}
+        for path in reached:
+            rid = record_name(path)
+            if rid:
+                names[rid] = names.get(rid, 0) + 1
+        for rid in sorted(names):
+            if len(packed_ids(rid)) > 1:
+                wit(rid)
 
         chain, at, seen, whole = [], head, set(), True
         while at:
@@ -391,7 +413,7 @@ def check_living(z, man):
                 sys.exit("living: " + r["key"] + " is missing some of its work, but the pack doesn't say it is partial")
             continue
         if copies:
-            sys.exit("living: " + r["key"] + " says its work is complete, but the pack holds two different copies of a record it rests on")
+            sys.exit("living: " + r["key"] + " says its work is complete, but the pack holds two different copies of proposals/" + copies + ".json, a record it rests on")
         if not whole or chain != lv["chain"]:
             sys.exit("living: " + r["key"] + " says its work is complete, but its application chain isn't all in the pack")
         if not closed:
@@ -427,7 +449,7 @@ def check_living(z, man):
                 w2, c2, cl2, rc2, cp2 = check_run(dep_run)
                 d = named[k]
                 if cp2:
-                    sys.exit("living: " + r["key"] + " says its work is complete, but the pack holds two different copies of a record " + k + " rests on")
+                    sys.exit("living: " + r["key"] + " says its work is complete, but the pack holds two different copies of proposals/" + cp2 + ".json, a record " + k + " rests on")
                 if not w2 or c2 != d.get("chain") or (dep_run.get("living") or {}).get("head", "") != d.get("head", ""):
                     sys.exit("living: " + r["key"] + " says its work is complete, but the application chain of " + k + " isn't all in the pack")
                 if not cl2:

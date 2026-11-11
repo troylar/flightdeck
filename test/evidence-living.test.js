@@ -1063,4 +1063,22 @@ rule('A synced copy of a record that differs only in the app that wrote it is th
     assert.ok(c.ok, k + ': Python reads it: ' + c.out);
   }
 });
+/* AB: every record the work rests on is held to its copies, a pending request and a loop's scope record included: a copy
+   that says something else is named, the pack partial, and Python refuses a complete claim. */
+rule('A pending request or a loop scope record with a copy that says something else makes the pack partial, named, and Python refuses it as complete', async () => {
+  const P = await made({ todos: 1, pending: true }), L = await loopMade();
+  const scopeP = Object.keys(L.files).filter((p) => /^proposals\/req-/.test(p) && /"loop"/.test(String(L.files[p])))[0];
+  for (const [what, W, p, edit] of [
+    ['a pending request', P, 'proposals/' + P.pendingId + '.json', (o) => { o.text = o.text + ' (edited)'; }],
+    ['a scope record', L, scopeP, (o) => { const c = o.changes.filter((x) => x.item)[0]; c.item = Object.assign({}, c.item, { key: 'ABC-999' }); }]]) {
+    assert.ok(p && W.files[p], what + ': set-up');
+    const o = JSON.parse(String(W.files[p])); edit(o);
+    const files = Object.assign({}, W.files, { [copyOf(p)]: JSON.stringify(o, null, 2) + '\n' });
+    const { zip, res } = await pack(W.PF, new BytesFS(files), W.key);
+    assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(p) >= 0 && /two different copies/.test(u)), what + ': ' + res.status + ' ' + JSON.stringify(res.col.unresolved).slice(0, 400));
+    if (!PY) continue;
+    const c = checkPack(await repacked(W.PF, zip, (e, man) => forced(man)));
+    assert.ok(!c.ok && /two different copies/.test(c.out), what + ': Python: ' + c.out);
+  }
+});
 run();
