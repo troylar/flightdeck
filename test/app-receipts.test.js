@@ -371,6 +371,34 @@ rule('A living loop child whose receipt or current application is deleted while 
   }
 });
 
+/* JA: one checked dependency snapshot feeds both the receipt and the closure: a child that turns from cleared to needs-work
+   (or from Completed to Cancelled) right after the guard's first read of it, before the parent's run.json write, ends
+   nothing. The receipt written counted it cleared; the end is asked on what the closure checked, which no longer does. */
+rule('A cleared child that changes between the guard\'s reads before the parent\'s run.json write ends nothing', async () => {
+  /* After each of the child's reads following the parent's candidate write but the last: a change after the last read
+     before the write is the shared folder's known limit (no compare-and-swap), seen by no read at all. */
+  for (const [what, at] of [['needs-work', 1], ['needs-work', 2], ['needs-work', 3], ['Cancelled', 2], ['Cancelled', 3]]) {
+    const app = await loopSetup(); await clearKid(app);
+    const kp = kidPaths(app)[0], pp = pPath(app), fs = app.fs, write = fs.write.bind(fs), read = fs.read.bind(fs), blob = fs.blob ? fs.blob.bind(fs) : null, runText = app.fs.files[pp].t;
+    const k = JSON.parse(app.fs.files[kp].t);
+    if (what === 'needs-work') { k.steps.verdict.values.decision = 'needs-work'; k.details.disposition = 'needs-work'; } else { k.ended.outcome = 'Cancelled'; k.state = 'cancelled'; }
+    k.rev = (k.rev || 0) + 1;
+    const changed = JSON.stringify(k);
+    let armed = false, flipped = false;
+    let nth = 0;
+    const after = (p) => (x) => { if (armed && !flipped && p === kp && ++nth === at) { flipped = true; app.fs.files[kp] = { t: changed, m: Date.now() + 5000 }; } return x; };
+    fs.write = (p, t, o) => write(p, t, o).then((x) => { if (!armed && p.indexOf(pp.replace(/run\.json$/, '') + 'candidate-') === 0) armed = true; return x; });
+    fs.read = (p, o) => read(p, o).then(after(p));
+    if (blob) fs.blob = (p, o) => blob(p, o).then(after(p));
+    app.click('end', 'Cancelled'); await app.tick(500);
+    fs.write = write; fs.read = read; if (blob) fs.blob = blob;
+    const tag = what + ' at read ' + at;
+    assert.ok(armed && flipped, tag + ': the child changed between the guard\'s reads');
+    assert.ok(!pRun(app).ended, tag + ': not ended: ' + JSON.stringify(pRun(app).living));
+    assert.strictEqual(app.fs.files[pp].t, runText, tag + ': the run is as it was');
+  }
+});
+
 rule('An ended living run shows the receipt\'s frozen progress lines, the counts now apart; Copy for Jira carries the frozen summary and arrivals', async () => {
   const app = await loopSetup();
   app.click('end', 'Cancelled'); await app.tick(400);
