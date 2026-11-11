@@ -3094,6 +3094,8 @@
      answer, if it ever comes, is ignored, since this call has already answered. */
   var GUARD_MS = (PF.health && PF.health.LIMITS && PF.health.LIMITS.slowRefreshMs) || 15000;
   function approvalSnapshot(cx, fs, pin) {
+    /* Round 16 (UB): a recovery's guards are bound to the source it chose (cx.pin), unless a removal names its own. */
+    pin = pin || (cx && cx.pin) || null;
     var answered = false, timer = null;
     return new Promise(function (res) {
       var answer = function (ok) { if (answered) return; answered = true; if (timer != null) clearTimeout(timer); res(ok === true); };
@@ -3228,6 +3230,8 @@
        cleanup alike: in people.json, active, and the one who may approve here (the run's recorder; for an ended run being
        recovered, its recorder or whoever ended it). */
     if (actorWhy(mine, snap.people, state.me)) return false;
+    /* Round 16 (UB): a browser copy being restored still holds, decoded, exactly the copy chosen. */
+    if (cx.localPin && JSON.stringify(lsGet(cx.localPin.key, null)) !== cx.localPin.json) return false;
     if ([mine].concat(snap.kids).some(function (c) { return c.living && c.living.head && !PF.todos.recordsFor(d.todos, c).some(function (x) { return x.id === c.living.head; }); })) return false;
     markLoops([mine].concat(snap.kids), d);
     return !heldOn(mine, h);
@@ -8646,7 +8650,7 @@
     /* Keep a conflict copy. Pending saves finish first, then the run is locked: the exact current contents are backed up, the
        copy replaces them only if nothing changed since, and other changes are refused until it's done. The save is checked
        against the backed-up version's fingerprint, so a change on disk becomes a conflict copy rather than being overwritten. */
-    'use-copy': function (name) { if (runBusy(ctx.run())) return; loopRecoverCx(); recover(function (fs, cur) { return repo.readCopy(fs, cur, name); }, 'The version it replaced is kept as ', function (fs, cur, check) { return repo.removeCopy(fs, Object.assign({}, cur, { _conflicts: null }), name, check); }); },
+    'use-copy': function (name) { if (runBusy(ctx.run())) return; loopRecoverCx(); var chosen = {}; recover(function (fs, cur) { return repo.readCopy(fs, cur, name, chosen); }, 'The version it replaced is kept as ', function (fs, cur, check) { return repo.removeCopy(fs, Object.assign({}, cur, { _conflicts: null }), name, check, typeof chosen.text === 'string' ? chosen.text : null); }, function () { return typeof chosen.text === 'string' ? { file: { path: chosen.path, text: chosen.text } } : null; }); },
     'delete-copy': function (name) {
       var r = ctx.run(); if (!r) return;
       if (!(state.pick && state.pick.kind === 'delete-copy' && state.pick.id === name)) { state.pick = { kind: 'delete-copy', id: name }; render(); return; }
@@ -8656,7 +8660,7 @@
     'restore-local': function () {
       var r = ctx.run(); if (!r || runBusy(r)) return;
       var lkey = localKey(r.id), local = lsGet(lkey, null); if (!local) return;
-      loopRecoverCx(); recover(function () { var own = {}; Object.keys(local).forEach(function (k) { if (k[0] !== '_') own[k] = local[k]; }); var c = R.sanitize(R.testLast(own)); if (c) c._overflow = R.mergeOverflow(local._overflow, c._overflow); return Promise.resolve(c); }, 'Restored the copy kept in this browser; the version it replaced is kept as ', function (fs, cur, check) { return check().then(function (ok) { if (ok === false) return false; /* Round 15 (SC): cleared only while it still holds, decoded, exactly the copy restored. */ var now = lsGet(lkey, null); if (JSON.stringify(now) !== JSON.stringify(local)) return; lsSet(lkey, null); }); });
+      loopRecoverCx(); recover(function () { var own = {}; Object.keys(local).forEach(function (k) { if (k[0] !== '_') own[k] = local[k]; }); var c = R.sanitize(R.testLast(own)); if (c) c._overflow = R.mergeOverflow(local._overflow, c._overflow); return Promise.resolve(c); }, 'Restored the copy kept in this browser; the version it replaced is kept as ', function (fs, cur, check) { return check().then(function (ok) { if (ok === false) return false; /* Round 15 (SC): cleared only while it still holds, decoded, exactly the copy restored. */ var now = lsGet(lkey, null); if (JSON.stringify(now) !== JSON.stringify(local)) return; lsSet(lkey, null); }); }, function () { return { local: { key: lkey, json: JSON.stringify(local) } }; });
     },
     'discard-local': function () { var r = ctx.run(); if (r) { lsSet(localKey(r.id), null); say('The copy kept in this browser was discarded.'); render(); } },
     'load-history': function () {
@@ -9505,7 +9509,9 @@
     finalizeAccept(r.process + '/' + r.id, id, { sha: u.sha256, at: u.at, by: u.by }, null);
   }
   /* The shared path for keeping a conflict copy or restoring a browser copy. */
-  function recover(getCopy, logPrefix, cleanup) {
+  /* sourceOf() (round 16, UB): the source as chosen, { file: { path, text } } or { local: { key, json } }; every guard of the
+     recovery (backup, candidate, run, cleanup) is bound to it, and a source is removed only while it is still those bytes. */
+  function recover(getCopy, logPrefix, cleanup, sourceOf) {
     var r = ctx.run(), fs = state.fs, g = gen; if (!r || state.recovering) return;
     var key = r.process + '/' + r.id, cur = r, text = null;
     var endBusy = busyStart();
@@ -9525,6 +9531,9 @@
          refusal keeps the copy. */
       var ph = approvedPhases(c);
       if (ph.length) { rcx.holds = { phases: ph }; rcx.holdRun = key; if (rc && rc.key === key) rc.cx.holds = rcx.holds, rc.cx.holdRun = key; }
+      var src0 = sourceOf ? sourceOf() : null;
+      if (src0 && src0.file) rcx.pin = src0.file;
+      if (src0 && src0.local) rcx.localPin = src0.local;
       var held = function () { say('The copy wasn\'t kept: a run of a loop it approves, or its version, can\'t be read here now, or holds its stage. The copy is still there; choose Refresh, then try again.', 'warn'); return false; };
       return approvalSnapshot(rcx, fs).then(function (ok) { return ok ? repo.keepDisplaced(fs, cur, WRITER) : null; }).then(function (where) {
         if (where === null) return held();

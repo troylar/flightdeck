@@ -1379,9 +1379,11 @@ PF.repo = (function () {
   }
   /* Only a copy that was actually listed next to this run, by its exact name. */
   function isCopy(run, name) { return typeof name === 'string' && name !== 'run.json' && (/^run.*\.json$/i.test(name) || CAND.test(name)) && !/[\/\\]/.test(name) && (!run._conflicts || run._conflicts.indexOf(name) >= 0); }
-  function readCopy(fs, run, name) {
+  /* out (round 16, UB), when given, gets the copy's path and its exact text as read: the bytes a recovery is bound to. */
+  function readCopy(fs, run, name, out) {
     if (!isCopy(run, name)) return Promise.reject(new Error('Not a run copy.'));
-    return fs.read('runs/' + run.process + '/' + run.id + '/' + name).then(function (f) { return f ? R.cleanCopy(json(f.text), run) : null; });
+    var path = 'runs/' + run.process + '/' + run.id + '/' + name;
+    return fs.read(path).then(function (f) { if (out) { out.path = path; out.text = f ? f.text : null; } return f ? R.cleanCopy(json(f.text), run) : null; });
   }
   /* Before a conflict copy replaces the current version, the current one is saved beside it. The name doesn't start with "run",
      so it's kept as a record without showing up as another conflict. */
@@ -1392,18 +1394,32 @@ PF.repo = (function () {
   }
   /* Removing a copy also removes any lost-save candidate with exactly the same contents, so one decision covers one version. */
   /* check() (round 14, HA): asked after the copy's read and right before it is removed; false removes nothing (resolves false). */
-  function removeCopy(fs, run, name, check) {
+  function removeCopy(fs, run, name, check, chosen) {
     if (!isCopy(run, name)) return Promise.reject(new Error('Not a run copy.'));
     var dir = 'runs/' + run.process + '/' + run.id + '/', lineage = run.lineage || [];
+    var asked = function (pin) { return Promise.resolve(typeof check === 'function' ? check(pin) : true); };
     return fs.read(dir + name).then(function (f) {
       var h = f ? f.text : null;
+      /* chosen (round 16, UB): the exact bytes the recovery kept. A copy that is anything else now (replaced with a newer
+         one, gone) is never removed: it may hold what the kept one doesn't. */
+      if (typeof chosen === 'string' && h !== chosen) return false;
       /* check({ path, text }): the copy as read here, which the check's last reads compare it with, right before the removal. */
-      return Promise.resolve(typeof check === 'function' ? check({ path: dir + name, text: h }) : true).then(function (ok) { if (ok === false) return false; return fs.remove(dir + name).then(function () {
+      return asked({ path: dir + name, text: h }).then(function (ok) { if (ok === false) return false; return fs.remove(dir + name).then(function () {
         forgetRun(fs, run);
         if (!h) return;
         return fs.list(dir.slice(0, -1)).then(function (items) {
           var twins = items.filter(function (it) { var t = candidateTag(it.name); return t && it.name !== name && lineage.indexOf(t) < 0; });
-          return Promise.all(twins.map(function (it) { return fs.read(dir + it.name).then(function (g) { if (g && g.text === h) return fs.remove(dir + it.name).catch(function () {}); }, function () {}); }));
+          /* Each twin is removed only while it is still exactly those bytes, asked through the same check right before. */
+          var chain = Promise.resolve();
+          twins.forEach(function (it) {
+            chain = chain.then(function () {
+              return fs.read(dir + it.name).then(function (g) {
+                if (!g || g.text !== h) return;
+                return asked({ path: dir + it.name, text: g.text }).then(function (ok2) { if (ok2 === false) return; return fs.remove(dir + it.name).catch(function () {}); }, function () {});
+              }, function () {});
+            });
+          });
+          return chain;
         });
       }); });
     });
