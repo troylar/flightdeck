@@ -704,6 +704,29 @@ rule('Python requires every evidence plan the work\'s records name: a plan remov
   assert.ok(!bad.ok && bad.out.indexOf(planId) >= 0, 'Python refuses it: ' + bad.out);
 });
 
+/* GB: dependencies come from every checked to-do record naming the run, status files included: an application that hasn't
+   landed, whose effect rests on a run that isn't in the folder, leaves the export partial naming that run, and Python, with
+   that dependency left out of a manifest made to claim the work complete, refuses it. */
+rule('An unlanded application whose effect rests on a run not in the folder: the export is partial naming it, and Python refuses a complete claim without it', async () => {
+  const X = (await roleWorlds()).filter(w => w.role === 'evidence')[0], PF = X.PF, T = PF.todos, [proc, id] = X.key.split('/');
+  const recs = Object.keys(X.files).filter((p) => /^proposals\/req-/.test(p)).map((p) => [p.slice('proposals/'.length), JSON.parse(String(X.files[p]))]);
+  const qf = recs.filter((x) => x[1].kind === 'proposal' && x[1].evidence)[0];
+  assert.ok(qf, 'set-up: a request done on evidence');
+  const q = T.cleanFile(qf[1], qf[0]).record, eff = JSON.parse(JSON.stringify(T.effectOf(q)));
+  eff.evidence = Object.assign({}, eff.evidence, { run: { process: proc, id: 'ghost-run' } });
+  const st = T.buildStatus({ kind: 'application', proposal: q.id, run: { process: proc, id }, seen: [q.id], by: 'person-avery', at: new Date().toISOString(), authority: { decision: T.statusName(qf[1].id, 'w-ghost', '0000abce').slice(0, -5) }, previous: '', effect: eff, writer: 'w-ghost', rev: '0000abcd', app: '4.0.0' });
+  assert.ok(T.cleanFile(JSON.parse(JSON.stringify(st.file)), st.name).ok, 'set-up: the application reads: ' + JSON.stringify(T.cleanFile(JSON.parse(JSON.stringify(st.file)), st.name)));
+  const ghost = 'runs/' + proc + '/ghost-run/run.json', sp = 'proposals/' + st.name;
+  const files = Object.assign({}, X.files, { [sp]: T.text(st.file) });
+  const got = await pack(PF, new BytesFS(files), X.key);
+  assert.strictEqual(got.res.status, 'partial', JSON.stringify(got.res.col.unresolved).slice(0, 300));
+  assert.ok(got.res.col.unresolved.some((u) => u.indexOf(ghost) >= 0), 'the export names the run it rests on: ' + JSON.stringify(got.res.col.unresolved).slice(0, 400));
+  assert.ok(manifestOf(got.zip).files.some((f) => f.path === sp), 'set-up: the application is packed');
+  if (!PY) return;
+  const c = checkPack(await repacked(PF, got.zip, (e, man) => { man.runs.forEach((r) => { if (r.living) r.living.deps = (r.living.deps || []).filter((d) => d.key.indexOf('ghost-run') < 0); }); forced(man); }));
+  assert.ok(!c.ok && c.out.indexOf('ghost-run') >= 0, 'Python: ' + c.out);
+});
+
 /* RE: every original the closure reaches is read by its own family's reader (the shipped checker's: a to-do record's
    proposal, compound, decision, application, fact or keep, and a loop's scope record), in the export and in Python alike. A
    fact the work rests on is one witness under its id, carrying that id. Each family's damage is made in the folder (the

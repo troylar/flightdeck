@@ -358,9 +358,11 @@ def check_living(z, man):
                 par = (o or {}).get("parent") or {}
                 if isinstance(par, dict) and par.get("item") and par.get("process") == me["process"] and par.get("id") == me["id"]:
                     out.add(parts[1] + "/" + parts[2])
-            elif path.startswith("proposals/req-") and ".status-" not in path:
+            # GB: every checked to-do record naming the run, its decisions and applications (status files) and their effects
+            # included, by the one dispatch and the run as runOf reads it, as PF.receipts.deps finds them.
+            elif path.startswith("proposals/") and CF.json_name(path):
                 o = packed(path) if dispatch(path)["fam"] == "todo" and not dispatch(path)["bad"] else None
-                if not isinstance(o, dict) or o.get("run") != me:
+                if not isinstance(o, dict) or run_of(o) != me:
                     continue
                 for b in (o, o.get("effect") or {}, (o.get("application") or {}).get("effect") or {}):
                     ev = (b or {}).get("evidence") or {}
@@ -387,7 +389,7 @@ def check_living(z, man):
                     return cp if isinstance(cp, str) else ""
             return ""
         for path in by_path:
-            if not path.startswith("proposals/req-") or ".status-" in path:
+            if not path.startswith("proposals/") or not CF.json_name(path):
                 continue
             o = packed(path) if dispatch(path)["fam"] == "scope" and not dispatch(path)["bad"] else None
             lp = (o or {}).get("loop") if isinstance(o, dict) else None
