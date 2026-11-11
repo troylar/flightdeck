@@ -3734,7 +3734,8 @@
             if (!cp.same) { pw = PF.learn.copiesWhy({ keep: true, members: [{ copiesDiffer: cp.files }] }); return true; }
             var rec = (r.keepFiles || []).filter(function (x) { return x && x.id === id; })[0];
             if (!reviewed[id] || PF.learn.keepSig(rec) !== reviewed[id]) { pw = 'proposals/' + cp.files[0] + ' changed since this correction was reviewed, so it isn\'t the one reviewed. Look again, then decide.'; return true; }
-            authors = authors || []; authors.push(rec.by && (rec.by.person || rec.by.tool));
+            /* CC: only a person's keep has an author who withdraws it; a tool's name never confers a person's authority. */
+            authors = authors || []; authors.push(rec.by && rec.by.person || null);
           }
           if (S.listErr) { pw = 'proposals/ couldn\'t be listed again right before it was written, so whether a copy of a keep in this correction arrived can\'t be told.'; return true; }
           if (S.keepMoved) { pw = 'proposals/' + S.keepMoved + ' arrived or went while what was kept for next time was being read, so this correction isn\'t the one reviewed. Look again, then decide.'; return true; }
@@ -3748,7 +3749,7 @@
       who: function (ppl, me) {
         if (pw) return pw;
         /* Withdrawing is its author's, judged on the keep records read now (AA), never this window's copy. */
-        if (withdraw) return authors && authors.length === g.members.length && authors.every(function (b) { return b === me; }) ? '' : 'Only whoever kept it can withdraw it.';
+        if (withdraw) return authors && authors.length === g.members.length && authors.every(function (b) { return !!b && b === me; }) ? '' : 'Only whoever kept it can withdraw it.';
         if (!proc) return 'its checklist\'s owner can\'t be told.';
         return PF.learn.ownerWhy(g, proc, ppl, me, false);
       } });

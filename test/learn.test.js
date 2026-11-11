@@ -476,6 +476,19 @@ rule('A to-do record or keep that supplies "_supplied" of any JSON type is refus
   await suppliedEverywhere(B.name, JSON.parse(T.text(B.file)), other, 'a to-do record');
 });
 
+/* CC: who kept it keeps its kind: a tool's keep is never a person's to withdraw, even when the tool is named like them. */
+rule('A tool named like a person never withdraws as that person: members say which kind kept them', () => {
+  const W = world(), t1 = W.todo('Post the release notes', { phase: 'ship' });
+  const K = W.kept({ todo: t1 }, null, { tool: 'person-avery', version: '1.0' });
+  const g = W.groups('release-readiness').filter(x => x.keep)[0];
+  same([g.members[0].by, g.members[0].byKind], ['person-avery', 'tool'], 'a tool, shown by its name');
+  assert.strictEqual(C.canWithdraw(g, 'person-avery'), false, 'never the person of that name');
+  const W2 = world(), t2 = W2.todo('Post the release notes', { phase: 'ship' }); W2.kept({ todo: t2 }, null, { person: 'person-avery' });
+  const g2 = W2.groups('release-readiness').filter(x => x.keep)[0];
+  same([g2.members[0].byKind, C.canWithdraw(g2, 'person-avery')], ['person', true], 'a person withdraws their own');
+  assert.ok(K.id);
+});
+
 rule('The 501st keep that would join a group is refused, naming the limit; a group at 500 is still decided and withdrawn', () => {
   const W = world(), t1 = W.todo('Post the release notes', { phase: 'ship' }), K = W.kept({ todo: t1 });
   for (let i = 1; i < 500; i++) W.push(Object.assign(JSON.parse(JSON.stringify(K.record)), { id: 'req-keep-' + i.toString(16).padStart(24, '0'), change: Object.assign({}, K.record.change, { text: 'Wording ' + i }) }));

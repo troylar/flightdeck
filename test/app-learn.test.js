@@ -525,6 +525,29 @@ rule('Withdrawing a whole correction is refused while a copy of its keep differs
   assert.strictEqual(app.files('corrections/').length, n + 1, 'its author withdraws it');
 });
 
+/* CC: a tool's name never confers a person's authority. A keep filed by a tool named like person-avery is not hers to
+   withdraw: no Withdraw is shown on the correction or the keep, and a whole-correction Withdraw clicked anyway writes nothing. */
+rule('A keep filed by a tool named like a person is never that person\'s to withdraw, on the correction or on the keep', async () => {
+  const app = await setup(), id = await added(app, 'Post the release notes');
+  app.click('keep', id, { kind: 'todo' }); await app.tick(120);
+  const k = keeps(app)[0], own = 'proposals/' + k.id + '.json', o = JSON.parse(app.fs.files[own].t), L = app.PF.learn;
+  assert.strictEqual(o.by, 'person-avery', 'set-up: kept by person-avery');
+  delete o.by; o.producer = { name: 'person-avery', version: '1.0' }; o.key = L.keyFor(o.run, o.source, o.template || null, o.anchor || null, o.change.text);
+  app.fs.files[own] = { t: JSON.stringify(o, null, 2) + '\n', m: Date.now() };
+  await refresh(app, 400); await openPage(app); await app.tick(60);
+  assert.ok(app.PF.todos.cleanFile(JSON.parse(app.fs.files[own].t), k.id + '.json').ok, 'set-up: a valid tool keep');
+  const h = app.html();
+  assert.ok(!/data-act="corr-withdraw"/.test(h), 'no Withdraw on the correction');
+  assert.ok(!/data-act="keep-withdraw"/.test(h), 'no Withdraw on the keep');
+  assert.ok(/person-avery \(a tool\)/.test(txt(h)) && !/Avery Lee · /.test(txt(h)), 'named as a tool, never as the person');
+  const n = app.files('corrections/').length, groups = app.PF.corrections.groups(L.members(keeps(app).map(x => Object.assign(app.PF.todos.cleanFile(x, x.id + '.json').record, { _file: x.id + '.json' })), [], 'release-notes'));
+  assert.strictEqual(app.PF.corrections.canWithdraw(groups[0], 'person-avery'), false, 'the core rule says no');
+  app.click('corr-withdraw', groups[0].id, { process: 'release-notes' }); await app.tick(400);
+  assert.strictEqual(app.files('corrections/').length, n, 'a whole-correction Withdraw clicked anyway writes nothing');
+  app.click('keep-withdraw', k.id, { process: 'release-notes' }); await app.tick(400);
+  assert.ok(app.fs.files[own], 'the keep stays');
+});
+
 /* VB: withdrawing a keep with copies guards each delete: the person, their authority and the copy's bytes are
    checked again before every one. Refused after the first, it stops, says what was and wasn't removed, and withdrawing
    again finishes it. */

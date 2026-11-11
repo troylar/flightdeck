@@ -4,6 +4,8 @@
   var K = PF.vk, V = PF.views, U = PF.util, R = PF.run, M = PF.map, T = PF.types, I = PF.icons.icon, esc = U.esc;
   var ferr = function (s, id) { return K.ferr(s, id); };
   var person = K.person, nameOf = K.nameOf, avatar = K.avatar, notices = K.notices, ago = K.ago, runKey = K.runKey, freshness = K.freshness;
+  /* Who a correction's member came from: a keep a tool filed is named as a tool, never as the person a tool's name may match. */
+  function memberWho(ctx, m) { return m.byKind === 'tool' ? m.by + ' (a tool)' : nameOf(ctx, m.by); }
   /* ---------- process page ---------- */
   /* anchor, when given, ids each phase's heading so the flight plan can bring a phase into view. fixes, when given, counts open
      corrections per step ID (and "phase:<id>"), marked so whoever edits the draft sees them. */
@@ -304,8 +306,8 @@
     var focused = Object.create(null);
     ms.forEach(function (x) {
       var m = x.m, tag = function () { if (focused[x.i]) return ''; focused[x.i] = true; return ' id="' + esc(fid(x)) + '" tabindex="-1"'; };
-      if (m.why) dl += '<dt' + tag() + '>' + (g.change.op === 'describe' ? 'Problem' : 'Why') + ' · ' + esc(nameOf(ctx, m.by)) + '</dt><dd>' + esc(m.why) + '</dd>';
-      if (m.happened) dl += '<dt' + tag() + '>What happened · ' + esc(nameOf(ctx, m.by)) + '</dt><dd>' + esc(m.happened) + '</dd>';
+      if (m.why) dl += '<dt' + tag() + '>' + (g.change.op === 'describe' ? 'Problem' : 'Why') + ' · ' + esc(memberWho(ctx, m)) + '</dt><dd>' + esc(m.why) + '</dd>';
+      if (m.happened) dl += '<dt' + tag() + '>What happened · ' + esc(memberWho(ctx, m)) + '</dt><dd>' + esc(m.happened) + '</dd>';
     });
     if (dl) h += '<dl class="corr-dl">' + dl + '</dl>';
     /* Kept for next time (4.0 slice 5): from a run's to-do or spread, each wording as it was kept, the owner choosing one. */
@@ -324,7 +326,7 @@
       var MAX = C.MEMBERS_MAX, n = g.members.length, named = Object.create(null), proof = Object.create(null);
       (ctx.data.corrDecisions || []).forEach(function (d) { if (d && d.process === p.id && d.group === g.id) (d.members || []).forEach(function (m) { named[m] = true; if (d.status === 'applied' || d.status === 'included') proof[m] = true; }); });
       /* Your own keeps here that no decision names: each withdrawn on its own. */
-      var mineFree = n > MAX || !st.me ? [] : g.members.filter(function (m) { return m.by === st.me && !named[m.id]; });
+      var mineFree = n > MAX || !st.me ? [] : g.members.filter(function (m) { return m.by === st.me && m.byKind !== 'tool' && !named[m.id]; });
       if (mineFree.length) h += K.list(st, 'keep-mine-' + g.id, mineFree, { noun: 'keep',
         draw: function (shown) { return '<ul class="small fx-mine">' + shown.map(function (m) { return '<li id="' + esc('kmy-' + K.domKey(m.id)) + '" tabindex="-1">You kept: ' + esc(m.change.text) + ' <button class="mini" data-act="keep-withdraw" data-id="' + esc(m.id) + '" data-process="' + esc(p.id) + '">Withdraw</button></li>'; }).join('') + '</ul>'; },
         keyOf: function (m) { return m.id; }, focusOf: function (key) { return K.byId('kmy-' + K.domKey(key)); } });
@@ -332,7 +334,7 @@
         var ow = ctx.keepOwnerWhy ? ctx.keepOwnerWhy(g, p.id) : 'no', free = g.members.filter(function (m) { return !proof[m.id]; }).slice().reverse();
         h += '<div class="notice warn fx-over" role="note"><span>This place has ' + n.toLocaleString('en-US') + ' keeps, more than the ' + MAX + ' one decision can name, so nothing is applied or decided until ' + (n - MAX) + ' ' + (n - MAX === 1 ? 'is' : 'are') + ' withdrawn. Each keep no applied decision names can be withdrawn by whoever kept it, or by the checklist\'s owner while the place is over; the decisions stay as they are.</span></div>';
         h += K.list(st, 'keep-over-' + g.id, free, { noun: 'keep',
-          draw: function (shown) { return '<ul class="small fx-over-list">' + shown.map(function (m) { var can = !!st.me && (m.by === st.me || !ow); return '<li id="' + esc('kov-' + K.domKey(m.id)) + '" tabindex="-1">' + esc(m.change.text) + ' · ' + esc(nameOf(ctx, m.by)) + (can ? ' <button class="mini" data-act="keep-withdraw" data-id="' + esc(m.id) + '" data-process="' + esc(p.id) + '">Withdraw</button>' : '') + '</li>'; }).join('') + '</ul>'; },
+          draw: function (shown) { return '<ul class="small fx-over-list">' + shown.map(function (m) { var can = !!st.me && ((m.by === st.me && m.byKind !== 'tool') || !ow); return '<li id="' + esc('kov-' + K.domKey(m.id)) + '" tabindex="-1">' + esc(m.change.text) + ' · ' + esc(memberWho(ctx, m)) + (can ? ' <button class="mini" data-act="keep-withdraw" data-id="' + esc(m.id) + '" data-process="' + esc(p.id) + '">Withdraw</button>' : '') + '</li>'; }).join('') + '</ul>'; },
           keyOf: function (m) { return m.id; }, focusOf: function (key) { return K.byId('kov-' + K.domKey(key)); } });
       }
     }
@@ -340,7 +342,7 @@
     /* The runs behind it, with names inside: a count of runs, never a vote. */
     h += '<details class="corr-runs"><summary class="small">Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + '</summary><ul class="small">' + ms.map(function (x) {
       var m = x.m;
-      return '<li' + (focused[x.i] ? '' : ' id="' + esc(fid(x)) + '" tabindex="-1"') + '>' + esc(nameOf(ctx, m.by)) + ' · ' + esc(U.day(m.at)) + ' · <button class="linkish" data-act="open-run" data-id="' + esc(m.runKey || m.process + '/' + m.run) + '">' + esc(m.runTitle) + '</button> · ' + (m.test ? 'test run, staged v' : 'v') + esc(m.version) + '</li>';
+      return '<li' + (focused[x.i] ? '' : ' id="' + esc(fid(x)) + '" tabindex="-1"') + '>' + esc(memberWho(ctx, m)) + ' · ' + esc(U.day(m.at)) + ' · <button class="linkish" data-act="open-run" data-id="' + esc(m.runKey || m.process + '/' + m.run) + '">' + esc(m.runTitle) + '</button> · ' + (m.test ? 'test run, staged v' : 'v') + esc(m.version) + '</li>';
     }).join('') + '</ul></details>';
     var left = g.members.length - ms.length;
     if (left > 0) h += '<p class="small fx-more">' + left.toLocaleString('en-US') + ' more in this group</p>';

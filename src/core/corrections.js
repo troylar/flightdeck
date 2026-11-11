@@ -298,7 +298,8 @@ PF.corrections = (function () {
     }
     return d;
   }
-  function canWithdraw(g, by) { return !!by && g.members.every(function (c) { return c.by === by; }); }
+  /* Only a person withdraws, and only what they wrote: a keep a tool filed (byKind 'tool') is never a person's, whatever its name. */
+  function canWithdraw(g, by) { return !!by && g.members.every(function (c) { return c.by === by && c.byKind !== 'tool'; }); }
 
   /* Where each group stands, from decisions only. The current decision is the one with the highest rev; two at the same rev
      (made at once from the same state) are settled by file name, the same way everywhere, and flagged Needs review. A

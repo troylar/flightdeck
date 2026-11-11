@@ -316,7 +316,7 @@ PF.learn = (function () {
     return keepsOf(records).filter(function (k) { if (once[k.id]) return false; once[k.id] = true; return true; }).filter(function (k) { return k.anchor && k.template && k.template.process === pid; }).map(function (k) {
       var cp = copiesOf(records, k.id);
       var rk = k.run.process + '/' + k.run.id, r = byRun[rk];
-      return { id: k.id, process: pid, run: k.run.id, runKey: rk, runTitle: r ? String(r.title || r.process) : rk, by: k.by.person || k.by.tool, at: k.at, files: [], fileInfo: {}, runEnded: !!(r && r.ended), test: !!(r && PF.run.isTest(r)),
+      return { id: k.id, process: pid, run: k.run.id, runKey: rk, runTitle: r ? String(r.title || r.process) : rk, by: k.by.person || k.by.tool, byKind: k.by.person ? 'person' : 'tool', at: k.at, files: [], fileInfo: {}, runEnded: !!(r && r.ended), test: !!(r && PF.run.isTest(r)),
         version: k.template.version, folder: k.template.folder, target: { phase: k.anchor.phase, step: k.anchor.after || null }, change: { op: 'add', text: k.change.text, where: k.change.where },
         from: '', sig: k.base, why: k.reason || '', happened: '', newer: false, keep: { run: { process: k.run.process, id: k.run.id }, source: k.source, record: k.id, template: k.template }, copiesDiffer: cp.same ? null : cp.files.slice() };
     });
