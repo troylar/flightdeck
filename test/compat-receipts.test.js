@@ -201,4 +201,33 @@ rule('4.0.0\'s release notes name receipts, plan versus now, and the one 3.0 loo
   assert.ok(loop && /3\.0/.test(loop.before || '') && loop.area === 'Loops', 'the loop-approval change named, with what 3.0 did');
 });
 
+/* ZE: a synced copy of the receipt that differs only in its keys' order is the same receipt, as the app compares them
+   (PF.todos.fingerprint: object keys sorted, arrays in order): confirmed by run and by the checker; a copy with another value
+   gets the same verdict from both. */
+rule('This version: a receipt copy whose counts are written in another key order is the same receipt for run and the checker alike', async () => {
+  const { files, receipt } = await folder();
+  const rev = (o) => Object.fromEntries(Object.entries(o).reverse());
+  const variants = [['counts keys reversed', (c) => { c.counts = rev(c.counts); }, 'confirmed'],
+    ['every key reversed', (c) => { const r = rev(c); Object.keys(c).forEach((k) => delete c[k]); Object.assign(c, r); c.counts = rev(c.counts); c.run = rev(c.run); }, 'confirmed'],
+    ['each list item\'s keys reversed', (c) => { ['coverage', 'evidence'].forEach((k) => { if (Array.isArray(c[k])) c[k] = c[k].map((x) => (x && typeof x === 'object' ? rev(x) : x)); }); }, 'confirmed'],
+    ['a list in another order', (c) => { if (Array.isArray(c.seen) && c.seen.length > 1) c.seen = c.seen.slice().reverse(); else c.seen = (c.seen || []).concat(['req-a-' + '0'.repeat(24)]); }, ''],
+    ['a count changed', (c) => { const k = Object.keys(c.counts)[0]; c.counts[k] = (c.counts[k] || 0) + 1; }, '']];
+  for (const [what, fn, state] of variants) {
+    const { root, dir } = tree(files);
+    try {
+      const o = JSON.parse(fs.readFileSync(path.join(dir, 'proposals', receipt), 'utf8'));
+      assert.ok(o.counts && Object.keys(o.counts).length >= 2, 'set-up: counts with two keys ' + JSON.stringify(o.counts));
+      fn(o);
+      fs.writeFileSync(path.join(dir, 'proposals', receipt.replace(/\.json$/, ' (1).json')), JSON.stringify(o, null, 2) + '\n');
+      const rl = cli(MINE, 'run', dir, 'release-notes/run-l', '--contract', '2', '--json');
+      const js = rl.json.data.run.receipt.state;
+      if (state) assert.strictEqual(js, state, what + ': ' + rl.out.slice(0, 400));
+      if (PY) {
+        const res = JSON.parse(cp.execFileSync(PY, ['-I', path.join(ROOT, 'example-folder', '.flightdeck', 'skills', '_flightdeck', 'check_folder.py'), dir], { encoding: 'utf8' }));
+        const mine = (res.runReceipts || []).filter((x) => x.run === 'release-notes/run-l');
+        assert.strictEqual(mine.length && mine[0].state, js, what + ' checker, as run says: ' + JSON.stringify(res.runReceipts));
+      }
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
+});
 run();

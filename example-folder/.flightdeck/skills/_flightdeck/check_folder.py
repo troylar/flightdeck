@@ -4334,7 +4334,9 @@ def receipt_verdict(text, read, unread):
     if not mine:
         return {"state": "missing", "path": path, "kind": "nofile", "why": "Its receipt (" + rid + ") isn't in the folder, so what it ended with can't be confirmed."}
     rec = mine[0]
-    body = lambda x: js_json({k: x.get(k) for k in ("head", "outcome", "seen", "counts", "coverage", "evidence", "keeps")})
+    # Compared as the app compares copies (PF.todos.fingerprint of bodyOf): object keys sorted, arrays in order, a key it
+    # doesn't hold left out.
+    body = lambda x: _tsha({k: x[k] for k in ("head", "outcome", "seen", "counts", "coverage", "evidence", "keeps") if k in x})
     if any(body(x) != body(rec) for x in mine):
         return {"state": "mismatch", "path": path, "kind": "malformed", "why": "Its receipt (" + rid + ") has two different copies in the folder."}
     if rec.get("run") != {"process": r.get("process"), "id": r.get("id")}:
