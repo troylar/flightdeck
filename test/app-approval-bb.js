@@ -201,6 +201,24 @@ const handedOff = (app) => {
   app.fs.files[p] = { t: JSON.stringify(j, null, 2), m: Date.now() };
   return () => { app.fs.files[p] = kept; };
 };
+/* Round 17 (VB): the story's run (the one the path decides or lands on) handed to another session the same way. */
+const storyHandedOff = (app, kid) => {
+  if (!kid || !app.fs.files[kid]) return null;
+  const kept = app.fs.files[kid], j = JSON.parse(kept.t);
+  j.recorder = Object.assign({}, j.recorder, { session: 'other-window-vb' }); j.rev = (j.rev || 0) + 1; j.savedAt = new Date().toISOString(); j.savedBy = 'other-window-vb';
+  app.fs.files[kid] = { t: JSON.stringify(j, null, 2), m: Date.now() };
+  return () => { app.fs.files[kid] = kept; };
+};
+/* Round 17 (VC): a valid revoke of the path's delegation, filed by another window. Built when the delegation was written
+   (o.grantTool keeps it here by the grant's file), since a change is made synchronously while a read waits. */
+const REVOKES = Object.create(null);
+const revoked = (app) => {
+  const f = Object.keys(REVOKES).find(g => app.fs.files[g]); if (!f) return null;
+  const rv = REVOKES[f], path = 'proposals/' + rv.name; if (app.fs.files[path]) return null;
+  app.fs.files[path] = { t: rv.text, m: Date.now() };
+  return () => { delete app.fs.files[path]; };
+};
+module.exports.REVOKES = REVOKES;
 /* Round 16 (UA): the approver (the run's recorder, the person in this window) taken out of people.json, or marked inactive
    there, by another window: people.json stays one this copy reads. */
 const approverIs = (app, fn) => {
@@ -259,13 +277,16 @@ const CHANGES = {
   /* Round 15 (SB): who may approve can't be read. */
   'people.json EIO': { make: (app) => eio(app, 'people.json'), sees: (op, p) => op === 'read' && p === 'people.json' },
   'the approver taken out of people.json': { make: (app) => approverIs(app, (list, me) => list.filter(x => x.id !== me)), sees: (op, p) => op === 'read' && p === 'people.json' },
-  'the copy replaced with a newer one': { paths: ['Use copy'], make: (app) => replaceFile(app, otherPath(app)), sees: (op, p) => op === 'read' && p === 'runs/release-readiness/<run>/run-OTHER.json', kept: (app, mid) => !!app.fs.files[otherPath(app)] && app.fs.files[otherPath(app)].t === mid },
+  'the copy replaced with a newer one': { paths: ['Use copy', 'Use copy, no approvals'], make: (app) => replaceFile(app, otherPath(app)), sees: (op, p) => op === 'read' && p === 'runs/release-readiness/<run>/run-OTHER.json', kept: (app, mid) => !!app.fs.files[otherPath(app)] && app.fs.files[otherPath(app)].t === mid },
   /* The twin isn't the source chosen: what UB asks of it is that, once it differs, it's never removed and its bytes stay.
      Writes made from the chosen copy, still exactly as chosen, are the recovery's (notSource: only removing it is late). */
-  'the copy\'s twin replaced with a newer one': { paths: ['Use copy'], notSource: true, make: (app) => replaceFile(app, twinPath(app)), sees: (op, p) => op === 'read' && p === 'runs/release-readiness/<run>/' + TWIN, kept: (app, mid) => !!app.fs.files[twinPath(app)] && app.fs.files[twinPath(app)].t === mid, of: twinPath },
+  'the copy\'s twin replaced with a newer one': { paths: ['Use copy', 'Use copy, no approvals'], notSource: true, make: (app) => replaceFile(app, twinPath(app)), sees: (op, p) => op === 'read' && p === 'runs/release-readiness/<run>/' + TWIN, kept: (app, mid) => !!app.fs.files[twinPath(app)] && app.fs.files[twinPath(app)].t === mid, of: twinPath },
   /* Asked of the browser copy itself, at the judgment, after every read: any point sees it. */
-  'the browser copy replaced with a newer one': { paths: ['Restore browser copy'], make: replaceLocal, sees: () => true, kept: (app, mid) => app.store[localKeyOf(app, parentRun(app).id)] === mid, local: true },
-  'the approver marked inactive': { make: (app) => approverIs(app, (list, me) => list.map(x => x.id === me ? Object.assign(x, { inactive: true }) : x)), sees: (op, p) => op === 'read' && p === 'people.json' }
+  'the browser copy replaced with a newer one': { paths: ['Restore browser copy', 'Restore browser copy, no approvals'], make: replaceLocal, sees: () => true, kept: (app, mid) => app.store[localKeyOf(app, parentRun(app).id)] === mid, local: true },
+  'the approver marked inactive': { make: (app) => approverIs(app, (list, me) => list.map(x => x.id === me ? Object.assign(x, { inactive: true }) : x)), sees: (op, p) => op === 'read' && p === 'people.json' },
+  /* Round 17 (VB, VC): the story's run handed off, and the path's delegation revoked. */
+  'the story\'s run handed to another session': { paths: ['Accept', 'Accept all', 'Land a delegated fulfillment'], make: (app, kid) => storyHandedOff(app, kid), sees: (op, p) => op === 'read' && p === 'runs/validate-story/<story>/run.json' },
+  'the delegation revoked': { paths: ['Land a delegated spread', 'Land a delegated fulfillment'], make: revoked, sees: (op, p) => isList(op, p, 'proposals') }
 };
 const localKeyOf = (app, id) => 'preflight:unsaved:' + app.fs.kind + ':' + (app.fs.id || app.fs.name) + ':' + id;
 const failCand = (app) => { const write = app.fs.write; let n = 0; app.fs.write = (q, t, x) => CAND_RE.test(q) && ++n === 1 ? Promise.reject(new Error('EIO')) : write.call(app.fs, q, t, x); return { n: () => n, off: () => { app.fs.write = write; } }; };
@@ -285,6 +306,20 @@ const passedCopy = async (app, o, local) => {
   else { await app.fs.write(p.replace('run.json', 'run-OTHER.json'), JSON.stringify(passed)); await app.fs.write(p.replace('run.json', TWIN), JSON.stringify(passed)); app.fs.files[p.replace('run.json', TWIN)].m = Date.now() - 3600000; }
   await o.reread(app);
 };
+/* Round 17 (VA): a conflict copy (with its twin) or browser copy that approves nothing: the run as it is, one log entry newer. */
+const plainCopy = async (app, o, local) => {
+  const copy = newer(app.fs.files[parentPath(app)].t);
+  if (local) { await o.reread(app); app.store[localKeyOf(app, parentRun(app).id)] = JSON.stringify(JSON.parse(copy)); }
+  else { await app.fs.write(otherPath(app), copy); await app.fs.write(twinPath(app), copy); app.fs.files[twinPath(app)].m = Date.now() - 3600000; }
+  await o.reread(app);
+};
+/* Round 17 (VB, VC): what only the spread fixture has (o.waiting, o.grantTool, o.askTool, o.syncTool, o.storyOf). The changes
+   that bear on these writers' authority: who acts and whether they're active, people.json read, the runs handed off, the
+   delegation revoked. */
+const AUTH = ['people.json EIO', 'the approver taken out of people.json', 'the approver marked inactive', 'the run handed to another session'];
+const proposalsCount = (app) => app.files('proposals/').length;
+const overlay = (app) => app.overlay() || '';
+const RECOVER = AUTH.concat(['the copy replaced with a newer one', 'the copy\'s twin replaced with a newer one', 'the browser copy replaced with a newer one']);
 const PATHS = {
   Pass: { disk: approveLoop, offered: READY, go: WRITES.Pass },
   Waive: { disk: approveLoop, offered: READY, go: WRITES.Waive },
@@ -311,6 +346,71 @@ const PATHS = {
     offered: (app) => /data-act="restore-local"/.test(app.html()) ? '' : 'the browser copy isn\'t offered',
     go: async (app) => { app.click('restore-local'); },
     kept: (app) => !!app.store[localKeyOf(app, parentRun(app).id)]
+  },
+  /* Round 17 (VA): the same recoveries of a copy that approves nothing: no phase holds to ask, but the person and the source
+     are asked of the folder fresh before every write and the cleanup all the same. */
+  'Use copy, no approvals': {
+    changes: RECOVER,
+    disk: (app, o) => plainCopy(app, o, false),
+    offered: (app) => /data-act="use-copy"/.test(app.html()) ? '' : 'the copy isn\'t offered',
+    go: async (app) => { app.click('use-copy', 'run-OTHER.json'); },
+    kept: (app) => !!app.fs.files[otherPath(app)],
+    keptLater: (app) => !!app.fs.files[twinPath(app)]
+  },
+  'Restore browser copy, no approvals': {
+    changes: RECOVER,
+    disk: (app, o) => plainCopy(app, o, true),
+    offered: (app) => /data-act="restore-local"/.test(app.html()) ? '' : 'the browser copy isn\'t offered',
+    go: async (app) => { app.click('restore-local'); },
+    kept: (app) => !!app.store[localKeyOf(app, parentRun(app).id)]
+  },
+  /* Round 17 (VB): the parent's recorder accepting one plain addition on a story's run, all of them at once, and delegating. */
+  Accept: {
+    needs: 'waiting', changes: AUTH.concat(['the story\'s run handed to another session']),
+    disk: (app, o) => o.waiting(app, ['ABC-104']), kid: (app, o) => o.storyOf(app, 'ABC-104'), before: proposalsCount,
+    offered: () => '',
+    go: async (app) => {
+      app.click('td-inbox', ''); await app.tick(20);
+      const b = /data-act="td-accept" data-id="([^"]+)" data-run="([^"]+)" data-fp="([^"]+)"/.exec(overlay(app));
+      if (!b) throw new Error('set-up: no Accept in the inbox');
+      app.click('td-accept', b[1], { run: b[2], fp: b[3] });
+    },
+    again: (app) => /data-act="td-accept/.test(overlay(app))
+  },
+  'Accept all': {
+    needs: 'waiting', changes: AUTH.concat(['the story\'s run handed to another session']),
+    disk: (app, o) => o.waiting(app, ['ABC-104', 'ABC-105']), kid: (app, o) => o.storyOf(app, 'ABC-104'), before: proposalsCount,
+    offered: () => '',
+    go: async (app) => {
+      app.click('td-inbox', ''); await app.tick(20);
+      const m = /<button[^>]*data-act="td-accept-all"[^>]*>/.exec(overlay(app)); if (!m) throw new Error('set-up: no Accept all in the inbox');
+      const d = {}; m[0].replace(/data-(spread|run|ids|fps)="([^"]*)"/g, (x, k, v) => { d[k] = v.replace(/&quot;/g, '"').replace(/&amp;/g, '&'); });
+      app.click('td-accept-all', /data-id="([^"]*)"/.exec(m[0])[1], d);
+    },
+    again: (app) => /data-act="td-accept/.test(overlay(app))
+  },
+  Delegate: {
+    needs: 'waiting', changes: AUTH, before: proposalsCount,
+    offered: () => '',
+    go: async (app) => { app.click('td-delegate'); await app.tick(20); app.set('tdg-who', 'helper-bot'); app.check('tdg-add', true); app.set('tdg-adds', '5'); app.click('td-delegate-save'); },
+    again: (app) => /data-act="td-delegate-save"/.test(overlay(app))
+  },
+  /* Round 17 (VC): the recorder landing a tool's request a delegation covers: a spread on the parent, and its fulfillment on a
+     story. The request is written before the watch; the click is the Refresh that carries it out. */
+  'Land a delegated spread': {
+    needs: 'grantTool', changes: AUTH.concat(['the delegation revoked']),
+    disk: (app, o) => o.grantTool(app, 'parent'), pre: (app, o) => o.askTool(app),
+    offered: () => '',
+    go: async (app) => { app.click('refresh'); await app.tick(300); },
+    again: () => true
+  },
+  'Land a delegated fulfillment': {
+    needs: 'grantTool', changes: AUTH.concat(['the story\'s run handed to another session', 'the delegation revoked']),
+    disk: (app, o) => o.grantTool(app, 'ABC-104'), pre: (app, o) => o.syncTool(app, 'ABC-104'), kid: (app, o) => o.storyOf(app, 'ABC-104'),
+    before: (app, o) => { const k = o.storyOf(app, 'ABC-104'); return k && app.fs.files[k] ? app.fs.files[k].t : null; },
+    offered: () => '',
+    go: async (app) => { app.click('refresh'); await app.tick(300); },
+    again: () => true
   }
 };
 /* Inside the guard: from its read of the run (readRunOnly on the parent's process) until the next write or removal, or until
@@ -369,6 +469,8 @@ async function opened(t, P) {
   if (P.live && !(await P.live(app))) return { app, why: 'its first save didn\'t fail' };
   return { app, why: P.offered(app) };
 }
+/* The story a path's changes and names are about: its own (P.kid), else the fixture's. */
+const kidFor = (P, o, app) => (P.kid && P.kid(app, o)) || o.kid(app);
 async function suspension(o, how, changes, shard) {
   const P = PATHS[how], off = [];
   let cells = 0, applicable = 0, required = 0, limit = 0;
@@ -376,12 +478,14 @@ async function suspension(o, how, changes, shard) {
   /* The dry run: the read points, and that the write happens when nothing changes. */
   const { app: app0, why: why0 } = await opened(tpl, P);
   if (why0) return { cells, applicable, off: [how + ': set-up: ' + why0] };
-  if (P.pre) await P.pre(app0);
-  const p0 = parentPath(app0), before0 = app0.fs.files[p0].t, w0 = guardWatch(app0, namer(app0, o.kid(app0)));
+  if (P.pre) await P.pre(app0, o);
+  /* What the path writes: the parent run, unless it says (P.before: a count of records, a story's run). */
+  const kid0 = kidFor(P, o, app0), wrote = (app) => P.before ? P.before(app, o) : app.fs.files[parentPath(app)].t;
+  const before0 = wrote(app0), w0 = guardWatch(app0, namer(app0, kid0));
   await P.go(app0); await quiet(app0, w0); w0.off();
-  const points = w0.st.log.slice(), hasHead = !!headFile(app0, o.kid(app0));
+  const points = w0.st.log.slice(), hasHead = !!headFile(app0, kid0);
   if (!points.length) return { cells, applicable, off: [how + ': set-up: no read inside the guard'] };
-  if (app0.fs.files[p0].t === before0) off.push(how + ': with nothing changed, the approval wasn\'t written');
+  if (wrote(app0) === before0) off.push(how + ': with nothing changed, the approval wasn\'t written');
   /* The order the guard reads in: within each snapshot, nothing but the records it lists is read after proposals/ is listed. */
   for (let i = 0; i < points.length; i++) {
     if (points[i].op !== 'list' || points[i].p !== 'proposals') continue;
@@ -389,6 +493,7 @@ async function suspension(o, how, changes, shard) {
   }
   const todo = [];
   for (const ch of changes || Object.keys(CHANGES)) {
+    if (P.changes && !P.changes.includes(ch)) continue;
     if (ch === 'the story\'s to-do changed' && !hasHead) continue;
     if (CHANGES[ch].paths && !CHANGES[ch].paths.includes(how)) continue;
     /* Round 15 (SC): every read point, whether or not the guard reads that input again after it. */
@@ -403,8 +508,8 @@ async function suspension(o, how, changes, shard) {
     const tag = [how, ch, 'at ' + pt.op + ' ' + pt.p + ' #' + pt.n].join(' · ');
     const { app, why } = await opened(tpl, P);
     if (why) { off.push(tag + ': set-up: ' + why); continue; }
-    if (P.pre) await P.pre(app);
-    const kid = o.kid(app), w = guardWatch(app, namer(app, kid)), hold = gate();
+    if (P.pre) await P.pre(app, o);
+    const kid = kidFor(P, o, app), w = guardWatch(app, namer(app, kid)), hold = gate();
     let hit = false;
     w.st.hook = (at) => (at.op === pt.op && at.p === pt.p && at.n === pt.n && !hit ? (hit = true, hold.p) : null);
     await P.go(app); await app.tick(80);
@@ -458,8 +563,8 @@ module.exports.suspension = suspension;
 async function stalled(o, how, waitMs) {
   const P = PATHS[how], tpl = await template(o, P), { app, why } = await opened(tpl, P);
   if (why) return [how + ': set-up: ' + why];
-  if (P.pre) await P.pre(app);
-  const w = guardWatch(app, namer(app, o.kid(app))), hold = gate(), late = [], off = [];
+  if (P.pre) await P.pre(app, o);
+  const w = guardWatch(app, namer(app, kidFor(P, o, app))), hold = gate(), late = [], off = [];
   let hit = false;
   w.st.hook = () => (!hit ? (hit = true, hold.p) : null);
   const write = app.fs.write, remove = app.fs.remove;
@@ -470,7 +575,7 @@ async function stalled(o, how, waitMs) {
   if (!hit) { hold.open(); w.off(); return [how + ': set-up: never reached the guard']; }
   await new Promise(res => setTimeout(res, waitMs)); await app.tick(100);
   if (late.length) off.push(how + ': written while the read hung: ' + JSON.stringify(late));
-  const again = /data-act="(retry-save|pass|waive|loop-approve|use-copy|restore-local)"/.exec(app.html());
+  const again = P.again ? P.again(app) : /data-act="(retry-save|pass|waive|loop-approve|use-copy|restore-local)"/.exec(app.html());
   if (!again) off.push(how + ': past the deadline, neither the click nor Try again is offered');
   if (P.kept && !P.kept(app)) off.push(how + ': the recovery source was removed');
   hold.open(); await quiet(app, w);
@@ -479,7 +584,43 @@ async function stalled(o, how, waitMs) {
   return off;
 }
 module.exports.stalled = stalled;
+/* Round 17 (VA-VC): the reviewers' race, at the write itself rather than inside a guard. The path's first step toward its
+   write is paused (a to-do record's or application's existence read: a proposals/ file that isn't there yet; a recovery's
+   backup write), the change is made while it waits, and it goes on. Nothing more may be written or removed after that step,
+   and a recovery keeps its source. Returns what was off. */
+async function raced(o, how, ch) {
+  const P = PATHS[how], C = CHANGES[ch], tpl = await template(o, P), { app, why } = await opened(tpl, P);
+  if (why) return [how + ': set-up: ' + why];
+  if (P.pre) await P.pre(app, o);
+  const recovery = !!P.kept, had = new Set(app.files('proposals/')), hold = gate(), late = [], off = [];
+  let hit = null;
+  const read = app.fs.read, write = app.fs.write, remove = app.fs.remove;
+  const at = (op, q) => recovery ? op === 'write' && /\/replaced-[^/]*\.json$/.test(q) : op === 'read' && /^proposals\/[^/]+\.json$/.test(q) && !had.has(q);
+  app.fs.read = function (q) { if (!hit && at('read', q)) { hit = q; const a = arguments; return hold.p.then(() => read.apply(app.fs, a)); } return read.apply(app.fs, arguments); };
+  app.fs.write = function (q) { if (!hit && at('write', q)) { hit = q; const a = arguments; return hold.p.then(() => write.apply(app.fs, a)); } if (hit) late.push(q); return write.apply(app.fs, arguments); };
+  app.fs.remove = function (q) { if (hit) late.push('-' + q); return remove.apply(app.fs, arguments); };
+  await P.go(app); await app.tick(80);
+  for (let t = 0; t < 40 && !hit; t++) await app.tick(50);
+  if (!hit) { hold.open(); Object.assign(app.fs, { read, write, remove }); return [how + ': set-up: never reached its write'] ; }
+  const kid = kidFor(P, o, app), undo = C.make(app, kid);
+  if (!undo) { hold.open(); Object.assign(app.fs, { read, write, remove }); return [how + ' · ' + ch + ': set-up: the change couldn\'t be made']; }
+  const mid = C.local ? app.store[localKeyOf(app, parentRun(app).id)] : C.kept ? (app.fs.files[(C.of || otherPath)(app)] || {}).t : null;
+  hold.open();
+  for (let i = 0; i < 60; i++) await app.tick(50);
+  Object.assign(app.fs, { read, write, remove });
+  /* A refused request's answer (op 'refused') is its outcome, not a write. */
+  const real = late.filter(q => !(/^proposals\//.test(q) && (() => { try { return JSON.parse(app.fs.files[q].t).op === 'refused'; } catch (e) { return false; } })()));
+  if (real.length) off.push(how + ' · ' + ch + ': written after the change: ' + JSON.stringify(real));
+  else if (P.kept && !P.kept(app)) off.push(how + ' · ' + ch + ': the recovery source was removed');
+  else if (C.kept && !C.kept(app, mid)) off.push(how + ' · ' + ch + ': the source as replaced wasn\'t kept');
+  undo();
+  return off;
+}
+module.exports.raced = raced;
+module.exports.paths = PATHS;
 module.exports.HOLD_PATHS = Object.keys(PATHS);
+/* The paths a fixture can set up (round 17: the to-do writers need the spread fixture's hooks). */
+module.exports.holdPathsFor = (o) => Object.keys(PATHS).filter(h => !PATHS[h].needs || typeof o[PATHS[h].needs] === 'function');
 module.exports.HOLD_CHANGES = Object.keys(CHANGES);
 /* Whether a change applies to a path (a recovery's own source applies to that recovery only). */
-module.exports.holdApplies = (how, ch) => !CHANGES[ch].paths || CHANGES[ch].paths.includes(how);
+module.exports.holdApplies = (how, ch) => (!CHANGES[ch].paths || CHANGES[ch].paths.includes(how)) && (!PATHS[how].changes || PATHS[how].changes.includes(ch));

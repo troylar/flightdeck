@@ -1189,14 +1189,18 @@ rule('HA: a request refused while a scope record can\'t be read is answered once
    guard x every input change made while that read waits. Where the guard reads the changed input at or after that point,
    nothing more is written and any recovery source stays. Each rule prints its cell count. */
 const HA_CHANGES = BB.HOLD_CHANGES;
-for (const how of BB.HOLD_PATHS) for (const ch of HA_CHANGES.filter(c => BB.holdApplies(how, c))) rule('HA: ' + how + ' on a plain loop, ' + ch + ' while a read of its guard waits, writes nothing', async () => {
+for (const how of BB.holdPathsFor(bbLoop)) for (const ch of HA_CHANGES.filter(c => BB.holdApplies(how, c))) rule('HA: ' + how + ' on a plain loop, ' + ch + ' while a read of its guard waits, writes nothing', async () => {
   const r = await BB.suspension(bbLoop, how, [ch]);
   console.log('HA cells · a plain loop · ' + how + ' · ' + ch + ' · ran ' + r.applicable + ' of ' + r.cells + ' cells, none left out (' + r.required + ' judged, ' + r.limit + ' at the stated limit)');
   assert.deepStrictEqual(r.off, []);
 });
 /* Round 15 (SD): a read inside the approval guard that never settles refuses at the guard's deadline, offers the click or
    Try again again, keeps a recovery's source, and its late answer writes nothing. (Waits out the deadline in real time.) */
-for (const how of ['Pass', 'Use copy']) rule('SD: ' + how + ' on a plain loop whose guard read never settles refuses at the deadline and ignores the late answer', async () => {
+for (const how of ['Pass', 'Use copy', 'Use copy, no approvals']) rule('SD: ' + how + ' on a plain loop whose guard read never settles refuses at the deadline and ignores the late answer', async () => {
   assert.deepStrictEqual(await BB.stalled(bbLoop, how, 16000), []);
 });
+/* Round 17 (VA): a recovery of a copy that approves nothing, its backup paused while the person is removed or made inactive,
+   or the source replaced: nothing more is written and the source stays. */
+for (const [how, chs] of [['Use copy, no approvals', ['the approver taken out of people.json', 'the approver marked inactive', 'the copy replaced with a newer one']], ['Restore browser copy, no approvals', ['the approver taken out of people.json', 'the approver marked inactive', 'the browser copy replaced with a newer one']]])
+  for (const ch of chs) rule('VA: ' + how + ' on a plain loop, ' + ch + ' while its write waits, writes nothing more', async () => { assert.deepStrictEqual(await BB.raced(bbLoop, how, ch), []); });
 run();

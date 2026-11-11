@@ -260,7 +260,36 @@ const BB = require('./app-approval-bb');
 const bbSpread = {
   prep: async (bo) => { const app = await setup({ boot: bo }); await landedSpread(app); await fulfilled(app, ['ABC-102', 'ABC-103']); backToParent(app); await app.tick(80); return app; },
   kid: (app) => kidOf(app, 'ABC-102'),
-  reread: async (app) => { for (let i = 0; i < 3; i++) await refresh(app, 300); backToParent(app); await app.tick(80); }
+  reread: async (app) => { for (let i = 0; i < 3; i++) await refresh(app, 300); backToParent(app); await app.tick(80); },
+  /* Round 17 (VB, VC): the to-do writers' set-ups. Stories that join after the spread landed, each started and asked for it
+     by the sync tool: plain additions waiting for the parent's recorder. */
+  waiting: async (app, keys) => {
+    await addStories(app, keys.join(', '));
+    for (const k of keys) { app.click('loop-start', 'each', { item: k }); await app.tick(150); backToParent(app); await app.tick(60); }
+    await sync(app, keys);
+    for (let i = 0; i < 2; i++) await refresh(app, 300);
+    backToParent(app); await app.tick(80);
+  },
+  storyOf: (app, key) => kidOf(app, key),
+  /* A delegation for add, by the recorder: to release-helper on the parent's loop step (what covers spread-add), or to sync-bot on a story's
+     assess phase (a story that joins and is started for it). Its revoke is built now and kept for the change that files it. */
+  grantTool: async (app, where) => {
+    const T = app.PF.todos, onParent = where === 'parent';
+    if (!onParent) { await addStories(app, where); app.click('loop-start', 'each', { item: where }); await app.tick(150); backToParent(app); await app.tick(60); }
+    const runOf = (W) => onParent ? W.parent : W.d.runs.find(x => x.process === 'validate-story' && x.parent && x.parent.item && x.parent.item.key === where);
+    const W = await now(app), r = runOf(W);
+    const G = T.grantOf(r, { subject: { tool: onParent ? 'release-helper' : 'sync-bot' }, ops: ['add'], targets: [onParent ? { step: 'each' } : { phase: 'assess' }], adds: 50, by: 'person-avery', key: 'gr-' + hex(6), records: W.d.todos, unread: W.d.todosUnread, people: W.people, at: new Date().toISOString(), app: '4.0.0' });
+    assert.ok(!G.why, G.why);
+    await app.fs.write('proposals/' + G.name, T.text(G.file));
+    const W2 = await now(app), r2 = runOf(W2);
+    const V = T.revokeOf(r2, { grant: G.record.id, by: 'person-avery', key: 'rv-' + hex(6), records: W2.d.todos, unread: W2.d.todosUnread, people: W2.people, at: new Date().toISOString(), app: '4.0.0' });
+    assert.ok(!V.why, V.why);
+    BB.REVOKES['proposals/' + G.name] = { name: V.name, text: T.text(V.file) };
+    for (let i = 0; i < 2; i++) await refresh(app, 300);
+    backToParent(app); await app.tick(80);
+  },
+  askTool: (app) => askSpread(app, 'Performance sign-off'),
+  syncTool: (app, key) => sync(app, [key])
 };
 for (const how of Object.keys(BB.WRITES)) rule('BB: ' + how + ' on a fulfilled spread\'s loop rereads its stories\' runs at every write: absent, EIO or version EIO writes nothing', async () => {
   const { cases, off } = await BB.matrix(bbSpread, how);
@@ -293,14 +322,27 @@ for (const brk of BB.GA_GB) {
    guard x every input change made while that read waits. Where the guard reads the changed input at or after that point,
    nothing more is written and any recovery source stays. Each rule prints its cell count. */
 const HA_CHANGES = BB.HOLD_CHANGES;
-for (const how of BB.HOLD_PATHS) for (const ch of HA_CHANGES.filter(c => BB.holdApplies(how, c))) rule('HA: ' + how + ' on a fulfilled spread\'s loop, ' + ch + ' while a read of its guard waits, writes nothing', async () => {
+for (const how of BB.holdPathsFor(bbSpread)) for (const ch of HA_CHANGES.filter(c => BB.holdApplies(how, c))) rule('HA: ' + how + ' on a fulfilled spread\'s loop, ' + ch + ' while a read of its guard waits, writes nothing', async () => {
   const r = await BB.suspension(bbSpread, how, [ch]);
   console.log('HA cells · a fulfilled spread\'s loop · ' + how + ' · ' + ch + ' · ran ' + r.applicable + ' of ' + r.cells + ' cells, none left out (' + r.required + ' judged, ' + r.limit + ' at the stated limit)');
   assert.deepStrictEqual(r.off, []);
 });
 /* Round 15 (SD): a read inside the approval guard that never settles refuses at the guard's deadline, offers the click or
    Try again again, keeps a recovery's source, and its late answer writes nothing. (Waits out the deadline in real time.) */
-for (const how of ['Pass', 'Use copy']) rule('SD: ' + how + ' on a fulfilled spread\'s loop whose guard read never settles refuses at the deadline and ignores the late answer', async () => {
+for (const how of ['Pass', 'Use copy', 'Use copy, no approvals', 'Accept', 'Accept all', 'Delegate', 'Land a delegated spread', 'Land a delegated fulfillment']) rule('SD: ' + how + ' on a fulfilled spread\'s loop whose guard read never settles refuses at the deadline and ignores the late answer', async () => {
   assert.deepStrictEqual(await BB.stalled(bbSpread, how, 16000), []);
+});
+/* Round 17 (VA-VC): the reviewers' race on every other writer of an authority-bearing record: its first step toward the
+   write paused (the record's or application's existence read; a recovery's backup), the person removed or made inactive,
+   the run handed off, the delegation revoked or the source replaced meanwhile. Nothing more is written; a source stays. */
+const OUT = 'the approver taken out of people.json', INACTIVE = 'the approver marked inactive', STORY = 'the story\'s run handed to another session', REVOKED = 'the delegation revoked';
+const RACES = {
+  'Use copy, no approvals': [OUT, INACTIVE, 'the copy replaced with a newer one'],
+  'Restore browser copy, no approvals': [OUT, INACTIVE, 'the browser copy replaced with a newer one'],
+  Accept: [OUT, INACTIVE, STORY], 'Accept all': [OUT, INACTIVE, STORY], Delegate: [OUT, INACTIVE],
+  'Land a delegated spread': [OUT, INACTIVE, REVOKED], 'Land a delegated fulfillment': [OUT, INACTIVE, STORY, REVOKED]
+};
+for (const how of Object.keys(RACES)) for (const ch of RACES[how]) rule('VA-VC: ' + how + ' on a fulfilled spread\'s loop, ' + ch + ' while its write waits, writes nothing more', async () => {
+  assert.deepStrictEqual(await BB.raced(bbSpread, how, ch), []);
 });
 run();
