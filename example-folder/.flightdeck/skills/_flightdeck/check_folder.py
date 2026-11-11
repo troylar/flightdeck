@@ -4506,12 +4506,20 @@ def receipt_verdict(text, read, unread, key=None):
     if text is None:
         return None
     import run_verdict  # noqa: PLC0415 - the readers' own parse and run port
-    # Parsed as every reader parses it (run_verdict.parse: nothing nested past 64 levels, numbers as doubles, so an integer
-    # past Python's digit limit reads as JSON.parse reads it). Text no reader can read as JSON is named at run.json, as the
-    # readers name it: which run it is, living or not, can't be told.
-    r = run_verdict.parse(text)
+    return receipt_verdict_of(run_verdict.parse(text), read, unread, key)
+
+
+def receipt_verdict_of(r, read, unread, key=None):
+    """receipt_verdict on run.json already parsed as every reader parses it (run_verdict.parse: nothing nested past 64 levels,
+    numbers as doubles, so an integer past Python's digit limit reads as JSON.parse reads it; MISSING when it can't be read as
+    JSON)."""
+    import run_verdict  # noqa: PLC0415 - the readers' own run port
+    # Text no reader can read as JSON, or JSON that is no run at all, is named at run.json as the readers name it: which run
+    # it is, living or not, can't be told.
     if r is run_verdict.MISSING:
         return {"state": "unread", "path": "runs/" + key + "/run.json", "kind": "malformed", "why": "This file isn't complete JSON (it may still be arriving)."} if key else None
+    if not isinstance(r, dict):
+        return {"state": "unread", "path": "runs/" + key + "/run.json", "kind": "malformed", "why": "It isn't a run this copy can read."} if key else None
     if not living_work(r):
         return None
     # The readers' verdict on run.json as written (run_problem), before any receipt verdict or living gate: a run any reader
@@ -4558,6 +4566,32 @@ def receipt_verdict(text, read, unread, key=None):
     if rec.get("by") != r["ended"].get("by"):
         return {"state": "mismatch", "path": path, "kind": "malformed", "why": "Its receipt (" + rid + ") was written by another person than the one who ended the run."}
     return {"state": "confirmed", "path": path, "kind": "", "why": ""}
+
+
+def run_entry(out, rdir, key, rcpt_read, unread):
+    """What main() says of one run folder (key: <process>/<run id>): its receipt verdict, its conflict copies and its save
+    receipts. run.json is read once and parsed once, as every reader parses it (run_verdict.parse), before anything in it is
+    read: a run.json that isn't JSON, isn't a run or is nested past what any reader reads is named, never a crash."""
+    import run_verdict  # noqa: PLC0415 - the readers' own parse
+    names = sorted(os.listdir(rdir))
+    copies = [n for n in names if re.match(r"^run.*\.json\Z", n, re.I | re.A) and n != "run.json"]
+    text = read_app_text(os.path.join(rdir, "run.json"))
+    r = run_verdict.parse(text) if text is not None else None
+    lineage = r.get("lineage") if isinstance(r, dict) else None
+    lineage = [x for x in lineage if isinstance(x, str)] if isinstance(lineage, list) else []
+    # A save's candidate file that run.json doesn't list was overwritten by another window or computer.
+    for n in names:
+        m = re.match(r"^candidate-(.+)-([a-z0-9]{8})\.json\Z", n)
+        if m and (m.group(1) + "." + m.group(2)) not in lineage and time.time() - os.path.getmtime(os.path.join(rdir, n)) >= 60:
+            copies.append(n)
+    receipts = [n for n in names if n.startswith("candidate-")]
+    v = receipt_verdict_of(r, rcpt_read, unread, key) if text is not None else None
+    if v:
+        out.setdefault("runReceipts", []).append(dict({"run": key}, **v))
+    if copies:
+        out["conflicts"].append({"run": key, "copies": copies})
+    if len(receipts) > 1:
+        out.setdefault("receipts", []).append({"run": key, "count": len(receipts), "note": "Save receipts beyond the newest one are cleaned up by the next save; many here means unresolved conflicts or failed cleanups."})
 
 
 def main():
@@ -4790,25 +4824,7 @@ def main():
         for rid in sorted(os.listdir(pdir)) if os.path.isdir(pdir) else []:
             rdir = os.path.join(pdir, rid)
             if os.path.isdir(rdir):
-                names = sorted(os.listdir(rdir))
-                copies = [n for n in names if re.match(r"^run.*\.json\Z", n, re.I | re.A) and n != "run.json"]
-                # A save's candidate file that run.json doesn't list was overwritten by another window or computer.
-                try:
-                    lineage = json.loads(read_app_text(os.path.join(rdir, "run.json")) or "{}", parse_constant=_no_constant).get("lineage") or []
-                except ValueError:
-                    lineage = []
-                for n in names:
-                    m = re.match(r"^candidate-(.+)-([a-z0-9]{8})\.json\Z", n)
-                    if m and (m.group(1) + "." + m.group(2)) not in lineage and time.time() - os.path.getmtime(os.path.join(rdir, n)) >= 60:
-                        copies.append(n)
-                receipts = [n for n in names if n.startswith("candidate-")]
-                v = receipt_verdict(read_app_text(os.path.join(rdir, "run.json")), rcpt_read, split_unread + rcpt_unread + named_unread, proc + "/" + rid)
-                if v:
-                    out.setdefault("runReceipts", []).append(dict({"run": proc + "/" + rid}, **v))
-                if copies:
-                    out["conflicts"].append({"run": proc + "/" + rid, "copies": copies})
-                if len(receipts) > 1:
-                    out.setdefault("receipts", []).append({"run": proc + "/" + rid, "count": len(receipts), "note": "Save receipts beyond the newest one are cleaned up by the next save; many here means unresolved conflicts or failed cleanups."})
+                run_entry(out, rdir, proc + "/" + rid, rcpt_read, split_unread + rcpt_unread + named_unread)
 
     out["teamFiles"] = team_files(root)
     # Team values (2.9): a team-values.json the app can't use is named, as are steps that pass a value it doesn't have.

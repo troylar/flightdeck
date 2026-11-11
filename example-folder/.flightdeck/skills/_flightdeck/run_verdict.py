@@ -2540,26 +2540,34 @@ def dep_verdict(key, text, read, beside=None):
 
 
 def readers_batch(path):
-    """--readers FILE: JSON lines {id, key, text}; prints, per run file, the kind reader_problem gives and the kind the folder
-    checker's run_problem gives (null when the run is read as written)."""
-    out = []
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            if not line.strip():
-                continue
-            x = json.loads(line)
+    """--readers FILE: JSON lines {id, key, text}; prints, per run file, the kind reader_problem gives, the kind the folder
+    checker's run_problem gives (null when the run is read as written), and what main()'s own work on a run folder holding
+    that run.json (run_entry) names at run.json."""
+    out, tmp = [], tempfile.mkdtemp(prefix="fd-readers-")
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = [json.loads(line) for line in f if line.strip()]
+        for x in lines:
             o = parse(x["text"])
             try:
                 v = reader_problem(x["key"], o)
                 c = CF.run_problem(o, x["key"]) if is_obj(o) else v
-                # The checker's real entry, from the text: what it names at run.json, and whether it judges this run at all.
-                e = CF.receipt_verdict(x["text"], {}, [], x["key"])
+                # The checker's real entry: main()'s own work on the run folder (run_entry), run.json as written on disk.
+                rdir = os.path.join(tmp, *x["key"].split("/"))
+                os.makedirs(rdir, exist_ok=True)
+                with open(os.path.join(rdir, "run.json"), "w", encoding="utf-8", newline="") as rf:
+                    rf.write(x["text"])
+                got = {"conflicts": []}
+                CF.run_entry(got, rdir, x["key"], {}, [])
+                e = (got.get("runReceipts") or [None])[0]
                 at = e["kind"] if e and e.get("path") == "runs/" + x["key"] + "/run.json" else None
-                judged = o is MISSING or CF.living_work(o)
+                judged = o is MISSING or not is_obj(o) or CF.living_work(o)
             except Exception as err:  # noqa: BLE001 - a crash is a verdict the test shows, never a silent pass
                 v = c = ("crash", type(err).__name__ + ": " + str(err))
                 at, judged = "crash", True
             out.append(json.dumps({"id": x["id"], "kind": v[0] if v else None, "why": v[1] if v else "", "checker": c[0] if c else None, "entry": at, "judged": judged}))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
     sys.stdout.write("\n".join(out) + "\n")
 
 

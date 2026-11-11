@@ -25,8 +25,8 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "5f18a954dcf4fd648b75acf7738b817ec6538a95aa99134a54f7e4a50cf587d0",
-      "reviewed": "rcptFresh rereads the loops' publication indexes and carries that procOf; checked for direct writes and unconditional deletes"
+      "sha256": "cb48c1a8bf472e6ded4c55393a0439fe8594b8c5850d0923209c6b453d101519",
+      "reviewed": "IC: run_entry parses run.json once through run_verdict.parse before reading lineage; --readers writes only its own mkdtemp folder and removes it; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "8828d4ade3981b60bb45d9f25431de63af40dd49e2385a68bcb06d34ddf5e56c",
@@ -53,8 +53,8 @@
       "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "1f14f070e01491773661039865c486a75f657235ff9a639b908f79ea1343dd73",
-      "reviewed": "HC: receipt_verdict parses run.json with run_verdict.parse (the readers' parse) and names text no reader can read as JSON at run.json, malformed; HA and HE in design 45; checked for direct writes and unconditional deletes: reads only"
+      "sha256": "bb59499afc4db84edf264606ddd3a4a318c5987f0cfc97b68195096e785f756a",
+      "reviewed": "IC: run_entry parses run.json once through run_verdict.parse before reading lineage; --readers writes only its own mkdtemp folder and removes it; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
       "sha256": "197779e5fb047d6137527db0211659a2db320470f3086d61b5126d6e868b0cf8",
@@ -77,8 +77,8 @@
       "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
     },
     "example-folder/.flightdeck/skills/_flightdeck/run_verdict.py": {
-      "sha256": "fdb164d74ffc88abf8244837cefa6f66b7e6c7f4c3c61fd23e420da151c3416f",
-      "reviewed": "HC: receipt_verdict parses run.json with run_verdict.parse (the readers' parse) and names text no reader can read as JSON at run.json, malformed; HA and HE in design 45; checked for direct writes and unconditional deletes: reads only"
+      "sha256": "6975ce70b2d8a41aeeefb82dc2f328a0a1f6479f9238fe6d12bbad97f5dd2e76",
+      "reviewed": "IC: run_entry parses run.json once through run_verdict.parse before reading lineage; --readers writes only its own mkdtemp folder and removes it; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/flightdeck-edit-checklist/SKILL.md": {
       "sha256": "6a46e0d61b6d12c316ae81a62d0b01667adefa8df80a30de49a39d4fe3854284",
@@ -201,8 +201,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "b502470ad6dd865f710fc0b10404a6465608f691c5387a47c70417ab06be7347",
-      "reviewed": "HC: receipt_verdict parses run.json with run_verdict.parse (the readers' parse) and names text no reader can read as JSON at run.json, malformed; HA and HE in design 45; checked for direct writes and unconditional deletes: reads only"
+      "sha256": "19f96876c2cf45ed75c60543adccd61b116728a8ea84c99c136c1969d71982b4",
+      "reviewed": "IC: run_entry parses run.json once through run_verdict.parse before reading lineage; --readers writes only its own mkdtemp folder and removes it; checked for direct writes and unconditional deletes"
     },
     "src/core/appjson.js": {
       "sha256": "98019ea60f70df332d6774d2ac26d0bbd028e95f1f76f543cbe54c89cb8cd4fe",

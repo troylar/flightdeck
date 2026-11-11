@@ -154,6 +154,8 @@ rule('Every run file of the corpus is refused by the export, the pack reader and
      Python's digit limit (a double to JSON.parse), on the living run of every field family. */
   const full = cases.filter((c) => c.role === 'full')[0], deep = '['.repeat(65) + ']'.repeat(65);
   const extra = [['nested past the depth read', full.text.replace(/\{/, '{"deep": ' + deep + ', ')], ['rev of 5,000 digits', full.text.replace(/"rev": \d+/, '"rev": ' + '1'.repeat(5000))]]
+    /* IC: JSON that is no run, and nesting no parser in Python's default recursion limit reads, through main()'s own work. */
+    .concat([['null', 'null'], ['a list', '[]'], ['a number', '42'], ['a string', '"run"'], ['true', 'true'], ['50,000 nested lists', '['.repeat(50000) + ']'.repeat(50000)]])
     .map(([name, text], i) => Object.assign({}, full, { id: 'x' + i, name, text }));
   assert.ok(extra.every((c) => c.text !== full.text), 'set-up: the extra cases change the run');
   for (const c of cases.concat(extra)) {
@@ -183,7 +185,7 @@ rule('Every run file of the corpus is refused by the export, the pack reader and
         else if (p.entry) off.push(m.label + ': the checker\'s receipt verdict names run.json (' + p.entry + ') for a run it doesn\'t judge');
       });
       assert.ok(entry > 500, 'the receipt verdict judged ' + entry + ' run files');
-      ['x0', 'x1'].forEach((x) => assert.ok(by[x] && by[x].judged, 'the extra case ' + x + ' reaches the receipt verdict: ' + JSON.stringify(by[x])));
+      extra.map((c) => c.id).forEach((x) => assert.ok(by[x] && by[x].judged, 'the extra case ' + x + ' reaches the receipt verdict: ' + JSON.stringify(by[x])));
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
   const refused = mine.filter((m) => m.readers).length;

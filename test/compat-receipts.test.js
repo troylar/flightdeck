@@ -300,6 +300,25 @@ rule('This version: an end whose time the app can\'t read is never confirmed by 
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   }
 });
+/* IC: the shipped checker's main() reads each run.json once through the readers' bounded parse before anything in it (its
+   lineage included): a run.json that is JSON but no run (null, [], 42, a string, true) or nested deeper than any reader reads
+   is named at run.json, as run names it, and never crashes the checker. */
+rule('This version: a run.json that is no run, or nested past what any reader reads, is named at run.json by run and the checker\'s main() alike', async () => {
+  const { files } = await folder(), rp = 'runs/release-notes/run-l/run.json';
+  for (const [what, text] of [['null', 'null'], ['a list', '[]'], ['a number', '42'], ['a string', '"run"'], ['true', 'true'], ['50,000 nested lists', '['.repeat(50000) + ']'.repeat(50000)], ['cut', '{']]) {
+    const { root, dir } = tree(Object.assign({}, files, { [rp]: text }));
+    try {
+      const rl = cli(MINE, 'run', dir, 'release-notes/run-l', '--contract', '2', '--json');
+      const p = (rl.json.problems || []).filter((x) => x.path === rp);
+      same([p.length, p[0] && p[0].kind], [1, 'malformed'], what + ': ' + rl.out.slice(0, 400));
+      if (!PY) continue;
+      const r = cp.spawnSync(PY, ['-I', path.join(ROOT, 'example-folder', '.flightdeck', 'skills', '_flightdeck', 'check_folder.py'), dir], { encoding: 'utf8', maxBuffer: 1 << 26 });
+      assert.strictEqual(r.status, 0, what + ' checker: ' + String(r.stderr).slice(-600));
+      const mine = (JSON.parse(r.stdout).runReceipts || []).filter((x) => x.run === 'release-notes/run-l');
+      same(mine.map((x) => [x.state, x.path, x.kind]), [['unread', rp, 'malformed']], what + ' checker: ' + JSON.stringify(mine));
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
+});
 /* CE: the shipped checker reads publication.json with the app's replacement decoder (its payload still checked over the raw
    bytes): a byte that isn't UTF-8 (FF) in a version's change note is the version the app reads, current for both. */
 rule('This version: a publication.json with a byte that isn\'t UTF-8 in its change note is current for the app and the checker alike', async () => {
