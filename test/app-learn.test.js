@@ -780,6 +780,25 @@ rule('A keep copy arriving during the last read before a withdrawal\'s last dele
   assert.ok(t.indexOf(k.id + ' (2).json') >= 0 && /Withdrawn in part/.test(t), 'the copy still there is named: ' + (t.match(/Withdrawn[^.]*\.[^.]*\./) || [])[0]);
 });
 
+/* BD: a keep just saved carries the SHA-256 of the bytes written and read back, so its author withdraws it at once, no
+   refresh between; a copy changed since is still refused. */
+rule('A keep just saved is withdrawn by its author with no refresh; a change to it since is still refused', async () => {
+  for (const how of ['as saved', 'changed']) {
+    const app = await setup(), id = await added(app, 'Post the release notes');
+    app.click('keep', id, { kind: 'todo' }); await app.tick(200);
+    const k = keeps(app)[0], own = 'proposals/' + k.id + '.json';
+    assert.ok(k && app.fs.files[own], how + ': set-up: kept');
+    await openPage(app);
+    assert.ok(new RegExp('data-act="keep-withdraw"[^>]*data-id="' + k.id + '"|data-id="' + k.id + '"[^>]*data-act="keep-withdraw"').test(app.html()), how + ': set-up: Withdraw offered');
+    if (how === 'changed') app.fs.files[own] = { t: app.fs.files[own].t + ' ', m: Date.now() };
+    app.click('keep-withdraw', k.id, { process: 'release-notes' }); await app.tick(400);
+    if (how === 'as saved') {
+      assert.ok(!app.fs.files[own], how + ': withdrawn: ' + (txt(app.html()).match(/(Withdrawn|Nothing was withdrawn)[^.]*\.[^.]*\./) || [])[0]);
+      assert.ok(/Withdrawn: that keep is no longer suggested/.test(txt(app.html())), how + ': said');
+    } else assert.ok(app.fs.files[own], how + ': not withdrawn');
+  }
+});
+
 /* BA-BC: the one guard order of every keep and publication write, as a full matrix: every path, a pause at every read
    before its writes, and each change: a differing copy, a torn copy, the keep deleted, a version published that moves
    ownership (where the path has an owner), the person or the folder switched, the person marked inactive, people.json

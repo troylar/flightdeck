@@ -3934,6 +3934,10 @@
       if (res && res.conflict && res.theirs !== text) { say('Something else is already saved under this keep\'s name. Nothing was written; read the folder again, then keep it again.', 'bad'); render(); return; }
       state.keepTry = null;
       var rec = K.record; rec._file = K.name;
+      /* BD: the SHA-256 of the bytes written and read back (or found there, the same), as the loader gives a keep read from
+         the folder, so its author withdraws it with no refresh between. */
+      var saved = res && res.ok ? res.text : res && res.conflict ? res.theirs : null;
+      if (typeof saved === 'string') { try { Object.defineProperty(rec, '_sha', { value: PF.sha256.hex(saved), enumerable: false, configurable: true }); } catch (e) { /* frozen */ } }
       if (!(data.todos || []).some(function (x) { return x.id === rec.id; })) data.todos = (data.todos || []).concat([rec]);
       fixMemo = Object.create(null);
       say(K.preview.words, 'good');
