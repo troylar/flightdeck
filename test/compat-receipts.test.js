@@ -356,11 +356,15 @@ rule('This version: each end field with each invalid value is refused by the fou
     /* FA: judged on the raw run before any "no living work" gate: the feature without the record, an empty or a list record,
        with the run's to-do records there and with proposals/ empty. */
     ...[null, [], 'deleted', { head: '' }].map((v) => ['living', v, 'living']).filter((c) => !(c[1] && c[1].head === '')),
-    ...[null, [], 'deleted', { head: '' }].map((v) => ['living', v, 'living, no proposals'])];
+    ...[null, [], 'deleted', { head: '' }].map((v) => ['living', v, 'living, no proposals']),
+    /* FD: an ended living run written back as run/2 (no run/3 field but its living record) is refused as run/2 has no living. */
+    ['format', 'run/2', 'run/2'], ['format', 'run/2', 'run/2, no proposals']];
+  const RUN3_ONLY = ['features', 'app', 'typesHash', 'payload', 'pins', 'migrations', 'test', 'stage', 'searchSites', 'searchGen', 'searchRec'];
   const NEW = H.loadMain();
   for (const [k, v, how] of CASES) {
     const r = JSON.parse(files[rp]);
     if (/^living/.test(how || '')) { if (v === 'deleted') delete r.living; else r.living = v === 'head-and-more' ? Object.assign({}, r.living, { more: 1 }) : v === 'bad receipt' ? Object.assign({}, r.living, { receipt: 'rcpt' }) : v && v.head === '' ? Object.assign({}, r.living, { head: '' }) : v; }
+    else if (k === 'format') { r.format = 'preflight-run/2'; RUN3_ONLY.forEach((f) => { delete r[f]; }); }
     else if (k === 'the end itself') { if (v === undefined) delete r.ended; else r.ended = v; } else r.ended[k] = v;
     if (how === 'no receipt') delete r.living.receipt;
     const patch = { [rp]: null };

@@ -1241,6 +1241,22 @@ rule('Python refuses a complete pack whose root run\'s end the readers refuse (a
     assert.ok(!c.ok && c.out.indexOf(W.key) >= 0, what + ': Python: ' + c.out);
   }
 });
+/* FD: living work needs run/3. An ended living run written back as run/2 (no run/3 field but its living record) is refused
+   by every reader as newer, so the export of it is partial and Python refuses a pack of it that says complete. */
+rule('An ended living run written as run/2 is partial in the export, and Python refuses a complete pack of it', async () => {
+  const W = await made({ todos: 1, pending: true }), rp = 'runs/' + W.key + '/run.json', full = await pack(W.PF, new BytesFS(W.files), W.key);
+  assert.ok(W.run.ended && W.run.living.receipt, 'set-up: ended with a receipt');
+  assert.strictEqual(full.res.status, 'complete', JSON.stringify(full.res.col.unresolved));
+  const RUN3_ONLY = ['features', 'app', 'typesHash', 'payload', 'pins', 'migrations', 'test', 'stage', 'searchSites', 'searchGen', 'searchRec'];
+  const two = (o) => { o.format = 'preflight-run/2'; RUN3_ONLY.forEach((f) => { delete o[f]; }); return o; };
+  const o = two(JSON.parse(String(W.files[rp])));
+  const { res } = await pack(W.PF, new BytesFS(Object.assign({}, W.files, { [rp]: JSON.stringify(o, null, 2) + '\n' })), W.key);
+  assert.strictEqual(res.status, 'partial', 'the export: ' + JSON.stringify(res.col.unresolved).slice(0, 300));
+  assert.ok(res.col.unresolved.some((u) => u.indexOf(rp) >= 0 && u.indexOf('"living"') >= 0), 'names run.json and its living record: ' + JSON.stringify(res.col.unresolved).slice(0, 300));
+  if (!PY) return;
+  const c = checkPack(await repacked(W.PF, full.zip, (e, man, f) => { const x = f(rp); e[x.pack] = Buffer.from(JSON.stringify(two(JSON.parse(e[x.pack])), null, 2) + '\n'); }));
+  assert.ok(!c.ok && c.out.indexOf(W.key) >= 0, 'Python: ' + c.out);
+});
 /* FA: the raw run's end and living record are judged before every "no living work" gate: a run without to-dos whose run.json
    names the living-runs feature without its record, or holds a living record that is empty, a list or has an empty head
    (sanitizing would drop each), is partial in the export, and Python refuses a pack of it with no living section. */

@@ -4445,12 +4445,28 @@ def end_problem(r):
     return _no_end(r) or _end_newer(r) or _end_malformed(r)
 
 
+# PF.run's KNOWN.run: every top-level field a run/2 file holds.
+RUN2_FIELDS = frozenset(("format id process version folder mapHash title category snapshot types details roles recorder followUps shotsFrozen "
+                         "jira pauses paused lineage state created createdBy tz steps gates fields log ended rev savedAt savedBy marksFrom "
+                         "marks parent").split())
+
+
+def _envelope_problem(r):
+    """Living work needs run/3: a run/2 naming the living-runs feature or holding a living record has a field run/2 doesn't
+    know, so it is newer, worded as newer() words it (the first such field in JavaScript's key order)."""
+    if r.get("format") != "preflight-run/2" or not living_work(r):
+        return None
+    extra = next((k for k in js_keys(r) if k not in RUN2_FIELDS and not k.startswith("_")), None)
+    return None if extra is None else ("newer", RUN_NEWER + ' The run has "' + js_slice(str(extra), 40) + '".')
+
+
 def raw_problem(r):
-    """PF.run.rawProblem: a raw run file's end and living record in newer()'s order (the end's fields, the living record, a
-    receipt named without an end), then what the readers drop or can't read; applied before any "no living work" gate."""
+    """PF.run.rawProblem: a raw run file's envelope and end and living record in newer()'s order (a run/2 with living work,
+    the end's fields, the living record, a receipt named without an end), then what the readers drop or can't read; applied
+    before any "no living work" gate."""
     if not isinstance(r, dict):
         return None
-    return _end_newer(r) or living_problem(r) or _no_end(r) or _end_malformed(r)
+    return _envelope_problem(r) or _end_newer(r) or living_problem(r) or _no_end(r) or _end_malformed(r)
 
 
 def living_work(r):

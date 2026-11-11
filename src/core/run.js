@@ -2442,14 +2442,21 @@ PF.run = (function () {
     if (!o || typeof o !== 'object') return null;
     return noEnd(o) || endNewer(o) || endMalformed(o);
   }
-  /* FA: the one validation of a raw run file's end and living record, in newer()'s order (the end's fields, then the living
-     record, then a receipt named without an end), then what the readers drop or can't read. Applied to the file as written,
+  /* FA: the one validation of a raw run file's end and living record, in newer()'s order (a run/2 with living work, the
+     end's fields, then the living record, then a receipt named without an end), then what the readers drop or can't read. Applied to the file as written,
      before any "no living work" gate, by the export and both Python checkers (raw_problem), so sanitizing never hides it. */
   /* Whether a raw run file says anything about living work: a living record (any value) or the living-runs feature. */
   function livingWork(o) { return !!o && typeof o === 'object' && (o.living !== undefined || (Array.isArray(o.features) && o.features.indexOf(PF.todos.FEATURE) >= 0)); }
+  /* FD: living work needs run/3. A run/2 that names the living-runs feature or holds a living record has a field run/2 doesn't
+     know, so it is newer, worded as newer() words it (the first such field, in the file's order). */
+  function envelopeProblem(o) {
+    if (o.format !== FORMAT || !livingWork(o)) return null;
+    var extra = Object.keys(o).filter(function (f) { return !Object.prototype.hasOwnProperty.call(KNOWN.run, f) && f[0] !== '_'; })[0];
+    return extra == null ? null : { kind: 'newer', why: NEWER + ' The run has "' + String(extra).slice(0, 40) + '".' };
+  }
   function rawProblem(o) {
     if (!o || typeof o !== 'object' || Array.isArray(o)) return null;
-    return endNewer(o) || livingProblem(o) || noEnd(o) || endMalformed(o);
+    return envelopeProblem(o) || endNewer(o) || livingProblem(o) || noEnd(o) || endMalformed(o);
   }
   /* Reading for other apps: every record in a run file that sanitize drops, cuts short or replaces, by where it is
      (gates.ready, followUps[2], steps.tests.values.url, log[40]…), worked out from the file as parsed. Pure, never saved, and
