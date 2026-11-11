@@ -202,12 +202,17 @@ const handedOff = (app) => {
   return () => { app.fs.files[p] = kept; };
 };
 /* Round 17 (VB): the story's run (the one the path decides or lands on) handed to another session the same way. */
-const storyHandedOff = (app, kid) => {
-  if (!kid || !app.fs.files[kid]) return null;
-  const kept = app.fs.files[kid], j = JSON.parse(kept.t);
-  j.recorder = Object.assign({}, j.recorder, { session: 'other-window-vb' }); j.rev = (j.rev || 0) + 1; j.savedAt = new Date().toISOString(); j.savedBy = 'other-window-vb';
-  app.fs.files[kid] = { t: JSON.stringify(j, null, 2), m: Date.now() };
-  return () => { app.fs.files[kid] = kept; };
+/* kids: every story a batch decides on (P.kids), all handed off; else the path's own story. */
+const storyHandedOff = (app, kid, kids) => {
+  const all = (kids && kids.length ? kids : [kid]).filter(k => k && app.fs.files[k]);
+  if (!all.length) return null;
+  const kept = all.map(k => app.fs.files[k]);
+  all.forEach(k => {
+    const j = JSON.parse(app.fs.files[k].t);
+    j.recorder = Object.assign({}, j.recorder, { session: 'other-window-vb' }); j.rev = (j.rev || 0) + 1; j.savedAt = new Date().toISOString(); j.savedBy = 'other-window-vb';
+    app.fs.files[k] = { t: JSON.stringify(j, null, 2), m: Date.now() };
+  });
+  return () => { all.forEach((k, i) => { app.fs.files[k] = kept[i]; }); };
 };
 /* Round 17 (VC): a valid revoke of the path's delegation, filed by another window. Built when the delegation was written
    (o.grantTool keeps it here by the grant's file), since a change is made synchronously while a read waits. */
@@ -285,7 +290,7 @@ const CHANGES = {
   'the browser copy replaced with a newer one': { paths: ['Restore browser copy', 'Restore browser copy, no approvals'], make: replaceLocal, sees: () => true, kept: (app, mid) => app.store[localKeyOf(app, parentRun(app).id)] === mid, local: true },
   'the approver marked inactive': { make: (app) => approverIs(app, (list, me) => list.map(x => x.id === me ? Object.assign(x, { inactive: true }) : x)), sees: (op, p) => op === 'read' && p === 'people.json' },
   /* Round 17 (VB, VC): the story's run handed off, and the path's delegation revoked. */
-  'the story\'s run handed to another session': { paths: ['Accept', 'Accept all', 'Land a delegated fulfillment'], make: (app, kid) => storyHandedOff(app, kid), sees: (op, p) => op === 'read' && p === 'runs/validate-story/<story>/run.json' },
+  'the story\'s run handed to another session': { paths: ['Accept', 'Accept all', 'Land a delegated fulfillment'], make: (app, kid, kids) => storyHandedOff(app, kid, kids), sees: (op, p) => op === 'read' && /^runs\/validate-story\/<(story|other)>\/run\.json$/.test(p) },
   'the delegation revoked': { paths: ['Land a delegated spread', 'Land a delegated fulfillment'], make: revoked, sees: (op, p) => isList(op, p, 'proposals') }
 };
 const localKeyOf = (app, id) => 'preflight:unsaved:' + app.fs.kind + ':' + (app.fs.id || app.fs.name) + ':' + id;
@@ -379,7 +384,7 @@ const PATHS = {
   },
   'Accept all': {
     needs: 'waiting', changes: AUTH.concat(['the story\'s run handed to another session']),
-    disk: (app, o) => o.waiting(app, ['ABC-104', 'ABC-105']), kid: (app, o) => o.storyOf(app, 'ABC-104'), before: proposalsCount,
+    disk: (app, o) => o.waiting(app, ['ABC-104', 'ABC-105']), kid: (app, o) => o.storyOf(app, 'ABC-104'), kids: (app, o) => [o.storyOf(app, 'ABC-104'), o.storyOf(app, 'ABC-105')], before: proposalsCount,
     offered: () => '',
     go: async (app) => {
       app.click('td-inbox', ''); await app.tick(20);
@@ -519,7 +524,7 @@ async function suspension(o, how, changes, shard) {
     const nm = namer(app, kid);
     /* Round 16 (UB): a change made after the recovery removed its source (its twin's removal guard) keeps the twin instead. */
     const later = !!(P.kept && P.keptLater && !P.kept(app));
-    const undo = C.make(app, kid);
+    const undo = C.make(app, kid, P.kids ? P.kids(app, o) : null);
     if (!undo) { off.push(tag + ': set-up: the change couldn\'t be made'); hold.open(); w.off(); continue; }
     /* What the change left (its new bytes), so a source it replaced can be checked for after (UB). */
     const mid = C.local ? app.store[localKeyOf(app, parentRun(app).id)] : C.kept ? (app.fs.files[(C.of || otherPath)(app)] || {}).t : null;
@@ -602,7 +607,7 @@ async function raced(o, how, ch) {
   await P.go(app); await app.tick(80);
   for (let t = 0; t < 40 && !hit; t++) await app.tick(50);
   if (!hit) { hold.open(); Object.assign(app.fs, { read, write, remove }); return [how + ': set-up: never reached its write'] ; }
-  const kid = kidFor(P, o, app), undo = C.make(app, kid);
+  const kid = kidFor(P, o, app), undo = C.make(app, kid, P.kids ? P.kids(app, o) : null);
   if (!undo) { hold.open(); Object.assign(app.fs, { read, write, remove }); return [how + ' · ' + ch + ': set-up: the change couldn\'t be made']; }
   const mid = C.local ? app.store[localKeyOf(app, parentRun(app).id)] : C.kept ? (app.fs.files[(C.of || otherPath)(app)] || {}).t : null;
   hold.open();
