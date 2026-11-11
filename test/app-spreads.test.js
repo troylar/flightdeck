@@ -109,13 +109,18 @@ rule('SF: a batch decision that was written but couldn\'t be read back is read a
     bt[0].replace(/data-(ids)="([^"]*)"/g, (x, k, v) => { d[k] = v.replace(/&quot;/g, '"').replace(/&amp;/g, '&'); });
     app.click('td-accept-all', /data-id="([^"]*)"/.exec(bt[0])[1], d); await app.tick(300);
   };
-  /* Every read of the first decision written fails from its write on: it is there, but this window can't see it. */
-  const fs = app.fs, write = fs.write.bind(fs), read = fs.read.bind(fs); let first = null;
-  fs.write = (p, t, o) => { if (!first && /^proposals\/req-.*status-/.test(p)) first = p; return write(p, t, o); };
-  fs.read = (p, o) => p === first ? Promise.reject(new Error('EIO')) : read(p, o);
+  /* The batch's reads of the first decision written fail: it is there, but the batch can't see it. The fresh guard before the
+     second decision reads it as it is (a guard that can't read proposals/ refuses, which would stop the batch). */
+  const fs = app.fs, write = fs.write.bind(fs), read = fs.read.bind(fs); let first = null, second = false, reads = 0;
+  fs.write = (p, t, o) => { if (/^proposals\/req-.*status-/.test(p)) { if (!first) first = p; else if (p !== first) second = true; } return write(p, t, o); };
+  fs.read = (p, o) => {
+    if (p !== first) return read(p, o);
+    if (++reads === 1 || second) return Promise.reject(new Error('EIO'));
+    return read(p, o);
+  };
   await press();
   const said = txt(app.html() + ov(app)), which = ps.filter(q => first.indexOf(q.id) >= 0)[0];
-  assert.ok(which, 'set-up: a decision was written');
+  assert.ok(which && second, 'set-up: both decisions were written');
   assert.ok(!/couldn't be saved/.test(said), 'never "not saved": ' + said.slice(0, 500));
   assert.ok(/couldn't confirm/i.test(said) && said.indexOf(which.id) >= 0, 'named as unconfirmed: ' + said.slice(0, 500));
   fs.write = write; fs.read = read;
