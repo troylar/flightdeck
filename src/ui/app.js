@@ -3553,6 +3553,12 @@
   /* ---- Plan versus now and the receipt (4.0 slice 6, docs/design.md 45.5) ---- */
   /* What a receipt is prepared from: the to-do records, unread files, people and evidence, the loops' scope records and the
      runs (sn: the folder read again at a write, rcptFresh; else what this window read, for the screen and the first check). */
+  /* The checked scope records of a run's loops, as the receipt was prepared from them: one per copy, each by the app's copy
+     rule (PF.loop.copyBody), in id order. An end is bound to these, not only to the counts they give. */
+  function scopeSig(run, sn) {
+    var recs = rcptInputs(sn).loops.records || [];
+    return JSON.stringify(recs.filter(function (x) { var l = PF.loop.loopOf(x); return l && l.process === run.process && l.run === run.id; }).map(function (x) { return x.id + ' ' + PF.loop.copyBody(x); }).sort());
+  }
   function rcptInputs(sn) {
     sn = sn || tdData();
     var lp = sn.loops || { records: data.scopes || [], unread: data.scopesUnread || [] };
@@ -3636,7 +3642,8 @@
     if (!pre || pre._unrunnable) return false;
     if (!(sn.records || []).some(function (x) { return x && x.kind === 'receipt' && x.id === t.id; })) return false;
     var A = PF.receipts.prepare(pre, Object.assign(rcptInputs(sn), { outcome: t.outcome, by: t.by || cx.me, at: t.at, app: APP_VERSION }));
-    return !A.why && !A.none && A.id === t.id;
+    /* Bound to the scope records it was prepared from too (an end from this window), so a change that keeps every count is a change. */
+    return !A.why && !A.none && A.id === t.id && (t.scopes == null || scopeSig(pre, sn) === t.scopes);
   }
   /* Ending a run. A run that isn't living ends exactly as in 3.0. A living run ends with its receipt: prepared from the folder
      as this window reads it (nothing is written when it can't be: a record, the loop or a spread's coverage that can't be
@@ -3658,14 +3665,14 @@
     var sig = JSON.stringify([fsKey(), key, state.me, outcome, r.living.head]), kept = state.rcptTry && state.rcptTry.sig === sig ? state.rcptTry.P : null;
     var at = kept ? kept.record.at : new Date().toISOString();
     var ask = function (run, sn) { return PF.receipts.prepare(run, Object.assign(rcptInputs(sn), { outcome: outcome, by: state.me, at: at, app: APP_VERSION })); };
-    var P = ask(r, null);
+    var P = ask(r, null), scopes = scopeSig(r, null);
     if (P.none) { mutate(function (rr, map, me, now) { plainEnd(rr, map, outcome, me, now); }).then(after); return; }
     if (P.why) { say(P.why, 'warn'); render(); return; }
     if (kept && kept.id === P.id) P = kept;
     state.rcptTry = { sig: sig, P: P };
     var cx = loopGuard({ run: key, readable: true }), text = PF.todos.text(P.file), endBusy = busyStart(), snap = null;
     var fresh = function () { return rcptFresh(cx, key).then(function (s) { snap = s; return !!s; }); };
-    var still = function () { if (!guardOk(cx) || !snap) return false; var A = ask(findRun(key), snap); return !A.why && !A.none && A.id === P.id; };
+    var still = function () { if (!guardOk(cx) || !snap) return false; var A = ask(findRun(key), snap); return !A.why && !A.none && A.id === P.id && scopeSig(findRun(key), snap) === scopes; };
     repo.saveScope(cx.fs, P.name, P.file, { fresh: fresh, still: still }).then(function (res) {
       endBusy(); if (g !== gen) return;
       if (res && res.dropped) { say(cx.rcptWhy ? cx.rcptWhy + ' The run wasn\'t ended.' : 'The run wasn\'t ended: the folder, the person, the run or its to-dos changed before its receipt was written. End it again if it still should.', 'warn'); render(); return; }
@@ -3681,7 +3688,7 @@
         if (!rr.living || rr.living.head !== P.record.head) throw new Error('The run\'s to-dos changed since its receipt was prepared, so it wasn\'t ended. End it again.');
         var pre = todoPre(rr);
         lcx.todo = { key: key, from: rr.living.head, head: rr.living.head, pre: pre, living: true };
-        lcx.receipt = { pre: pre, id: P.id, at: at, outcome: outcome };
+        lcx.receipt = { pre: pre, id: P.id, at: at, outcome: outcome, scopes: scopes };
         R.end(rr, m, outcome, me, V.nameOf(ctx, me), now, { receipt: P.id });
         /* The guard asks after the end: the run as this change left it (ended) is the one it compares with. */
         lcx.sig = runSig(rr);

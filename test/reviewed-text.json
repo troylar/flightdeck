@@ -25,8 +25,8 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "7f833ccb7e81ad83dd6cc008aa6ad75255e139391e6be9364207ce6af3ec7289",
-      "reviewed": "AC: evidence plan copies"
+      "sha256": "55898c207fa37f5ecab3bc8b21aedae1bd6eb9a03e3753b4f7d5307165fadfc6",
+      "reviewed": "AD: the end bound to its scope records"
     },
     "docs/evidence.md": {
       "sha256": "8828d4ade3981b60bb45d9f25431de63af40dd49e2385a68bcb06d34ddf5e56c",
@@ -425,8 +425,8 @@
       "reviewed": "AC: evidence plan copies"
     },
     "src/ui/app.js": {
-      "sha256": "d37936360dccde05741734b24c123705a3972998e59ca1528df4373bf07b28b1",
-      "reviewed": "WA: recovery confirms the copy through the shared receipt verdict"
+      "sha256": "47993162d27e7dca2745c58b4f77f203af23ce00072574eb3b3a3298cdc2d9e0",
+      "reviewed": "AD: the end bound to its scope records"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

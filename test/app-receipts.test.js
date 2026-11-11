@@ -217,6 +217,20 @@ rule('A scope item added right after the receipt is written ends nothing', async
   await endDamaged(app, () => { kept.forEach(([p, f]) => { app.fs.files[p] = f; }); });
 });
 
+/* AD: the end is bound to the scope records it was prepared from, not only to their counts: a scope record filed after the
+   receipt that removes an unstarted item and adds another (every count the same) ends nothing. */
+rule('A scope change that keeps every count (one unstarted item removed, another added) right after the receipt is written ends nothing', async () => {
+  const app = await loopSetup(), before = scopeFiles(app);
+  app.set('loop-why-each', 'Not this release'); app.click('loop-exclude', 'each', { item: 'ABC-102' }); await app.tick(200);
+  await addStories(app, 'ABC-103');
+  const added = scopeFiles(app).filter(p => before.indexOf(p) < 0), kept = added.map(p => [p, app.fs.files[p]]);
+  assert.ok(added.length >= 2, 'set-up: the removal\'s and the addition\'s records (' + added.length + ')');
+  added.forEach(p => { delete app.fs.files[p]; });
+  await refresh(app, 400);
+  const r = pRun(app); app.click('open-run', r.process + '/' + r.id); await app.tick(80);
+  await endDamaged(app, () => { kept.forEach(([p, f]) => { app.fs.files[p] = f; }); });
+});
+
 rule('A child run that can\'t be read, or its version, right after the receipt is written ends nothing', async () => {
   for (const what of ['run', 'version']) {
     const app = await loopSetup(), kid = kidPaths(app)[0], k = JSON.parse(app.fs.files[kid].t);
