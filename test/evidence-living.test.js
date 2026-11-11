@@ -1025,4 +1025,18 @@ rule('A version two child runs pin, replaced between their two verifications (sc
   assert.ok(n >= 2 && m >= 2, 'set-up: the record and screenshot were read for each run (' + m + ', ' + n + ')');
   assert.ok(!(res.status === 'complete' && res.col.attempts === 1), 'complete on the first attempt: ' + JSON.stringify(res.col.unresolved));
 });
+/* ZD: a loop item's choice names a run of the process its loop step starts: Python requires exactly that process/run key,
+   never a packed run of the same id under another process (here the parent's own id). */
+rule('Python requires a loop item\'s chosen run under the loop step\'s own process, never a run of that id elsewhere in the pack', async () => {
+  if (!PY) return console.log('  (skipped: no Python)');
+  const W = await loopMade(), { zip, res } = await pack(W.PF, new BytesFS(W.files), W.key);
+  assert.strictEqual(res.status, 'complete', JSON.stringify(res.col.unresolved));
+  const scopeP = Object.keys(W.files).filter((p) => /^proposals\/req-/.test(p) && /"loop"/.test(String(W.files[p])))[0];
+  assert.ok(scopeP, 'set-up: a loop scope record');
+  const chosen = (id) => repacked(W.PF, zip, (e, man, f) => { const x = f(scopeP), o = JSON.parse(e[x.pack]); const add = o.changes.filter((c) => c.op === 'add')[0]; o.changes.push({ op: 'choose', item: add.item, run: id, attempt: 1, candidates: [id, id === W.kid.id ? W.run.id : W.kid.id] }); e[x.pack] = Buffer.from(JSON.stringify(o, null, 2) + '\n'); });
+  const good = checkPack(await chosen(W.kid.id));
+  assert.ok(good.ok, 'the story run chosen: ' + good.out);
+  const bad = checkPack(await chosen(W.run.id));
+  assert.ok(!bad.ok && bad.out.indexOf('validate-story/' + W.run.id) >= 0, 'the parent\'s id chosen: ' + bad.out);
+});
 run();

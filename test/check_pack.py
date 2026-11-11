@@ -279,7 +279,19 @@ def check_living(z, man):
                     dv = (b or {}).get("dest")
                     if isinstance(dv, dict) and isinstance(dv.get("process"), str):
                         out.add(dv["process"] + "/" + str(dv.get("id")))
-        # A loop item's choice names a child run by id: the packed run of that id, or one that isn't here.
+        # A loop item's choice names a child run by id, of the process its loop step starts (that step's process with Fill in's
+        # changes, as PF.receipts.deps finds it): exactly that run, packed or not; a step that can't be told is never matched.
+        def proc_of_step(step_id):
+            r = RV.sanitize(run) if isinstance(run, dict) else None
+            try:
+                steps = CF.parse_map(r["snapshot"])["steps"] if r and isinstance(r.get("snapshot"), str) else []
+            except (TypeError, AttributeError, KeyError, ValueError):
+                steps = []
+            for st in steps:
+                if st.get("id") == step_id and st.get("type") == "for.each":
+                    cp = RV.fields_of(r, st).get("process")
+                    return cp if isinstance(cp, str) else ""
+            return ""
         for path in by_path:
             if not path.startswith("proposals/req-") or ".status-" in path:
                 continue
@@ -289,8 +301,8 @@ def check_living(z, man):
                 continue
             for ch in o.get("changes") or []:
                 if isinstance(ch, dict) and ch.get("op") == "choose" and isinstance(ch.get("run"), str) and ch["run"]:
-                    hit = [p.split("/")[1] + "/" + p.split("/")[2] for p in by_path if p.startswith("runs/") and p.endswith("/" + ch["run"] + "/run.json") and p.count("/") == 3]
-                    out.update(hit or ["?/" + ch["run"]])
+                    cp = proc_of_step(lp.get("step"))
+                    out.add((cp or "?") + "/" + ch["run"])
         return out
 
     # Each evidence plan packed reads as a plan, by the shipped checker's rules (PF.plans.planWhy), under its own name.
