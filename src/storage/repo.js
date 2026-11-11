@@ -2735,12 +2735,14 @@ PF.repo = (function () {
           var key = cp + '/' + cid;
           return readRunOnly(fs, cp, cid).then(function (one) {
             /* Listed, then gone before it was read: named missing (depVerdict), so the end is refused, never skipped. */
-            var c = one && one.found ? one.run : null, bad = (one.bad || []).filter(function (b) { return String(b.path || '').indexOf('runs/' + key + '/') === 0; });
-            /* Another run's child (read whole, with nothing wrong in its file) isn't this run's to judge. */
-            if (c && !bad.length && !one.nofile && !(c.parent && c.parent.item && c.parent.process === self.process && c.parent.id === self.id)) return;
+            /* Judged whole first (depVerdict), as the export's closure judges every listed run: one the readers refuse is
+               unread, named, whichever run it says it is a child of (sanitizing may have dropped that). Only a run read whole
+               may be taken as another run's child, which isn't this run's to judge. */
             var v = depVerdict(cp, cid, one);
             if (v.bad) { out.unread.push(v.bad); return; }
-            out.runs.push(v.run);
+            var c = v.run;
+            if (!(c.parent && c.parent.item && c.parent.process === self.process && c.parent.id === self.id)) return;
+            out.runs.push(c);
           }, function (e) { out.unread.push({ key: key, path: 'runs/' + key + '/run.json', kind: errKind(e), why: why(e) }); });
         });
       });

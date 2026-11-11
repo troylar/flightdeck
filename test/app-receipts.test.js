@@ -421,6 +421,22 @@ rule('An open child deleted between the guard\'s first read and the closure\'s l
   }
 });
 
+/* MB: a listed child is judged whole before it can be taken as another run's: one whose file names this run as its loop's
+   parent but that the readers refuse (a field this copy doesn't know, a newer format, a parent item that isn't text) ends
+   nothing, named by its path, as the export names it. */
+rule('A child the readers refuse whose file names this run as its parent ends nothing, named by its path, never skipped as another run\'s', async () => {
+  const misses = [];
+  for (const [what, damage] of [['a field this copy doesn\'t know', (k) => { k.zzLater = 1; }], ['a newer format', (k) => { k.format = 'preflight-run/4'; }], ['a parent item that isn\'t text', (k) => { k.parent.item = 42; }]]) {
+    const app = await loopSetup(), kid = kidPaths(app)[0], fresh = kid.replace(/\/[^/]+\/run\.json$/, '/mbnew001/run.json');
+    try {
+      /* A new child, never read before, lands right after the receipt is written. */
+      await endDamaged(app, () => { const k = JSON.parse(app.fs.files[kid].t); k.id = 'mbnew001'; damage(k); app.fs.files[fresh] = { t: JSON.stringify(k, null, 2), m: Date.now() }; });
+      if (txt(app.html()).indexOf(fresh) < 0) misses.push(what + ': not named by its path: ' + txt(app.html()).slice(0, 300));
+    } catch (e) { misses.push(what + ': ' + e.message.split('\n')[0]); }
+  }
+  assert.strictEqual(misses.length, 0, misses.join('\n'));
+});
+
 rule('An ended living run shows the receipt\'s frozen progress lines, the counts now apart; Copy for Jira carries the frozen summary and arrivals', async () => {
   const app = await loopSetup();
   app.click('end', 'Cancelled'); await app.tick(400);
