@@ -25,8 +25,8 @@
       "reviewed": "QC: spread keep's final check rereads and judges the items' checklist and rebuilds from it; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "839888a272be189a98ed5a376e498953b3941253494c962aa2c141c6c722ba3b",
-      "reviewed": "YC: late detour Start, Try again, Decline and plan read-back are bound to the form and layer they started from; checked for direct writes and unconditional deletes"
+      "sha256": "88cff543393c2d93217a11a573a8a17fc765cae648368be2fae445a5c3dff2cf",
+      "reviewed": "AE: a supplied _sha is kept as the file wrote it and refused like _file and _bytes; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -417,8 +417,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "4929dae0b6e7272b7dc9549aa9ca0b9e1b8678925c30eee75c526fb98874e687",
-      "reviewed": "YA: every withdrawal delete runs the whole guard right before it removes, with each copy's bytes checked against what the window read; checked for direct writes and unconditional deletes"
+      "sha256": "4edc80c5cb813bc9e054ed1f733a1e38c605502f92a5c32b7e0eef67a8527a13",
+      "reviewed": "AE: a supplied _sha is kept as the file wrote it and refused like _file and _bytes; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "63ec663411e4f97bd30cb992bd633f08edc9d55c61deaa27c1c6e8162bc2cf05",

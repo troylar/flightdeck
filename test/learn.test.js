@@ -394,6 +394,26 @@ rule('Copies of a keep that differ are one held member: its group names both fil
   for (const st of ['applied', 'declined', 'withdrawn']) assert.throws(() => C.decision(g, 'person-morgan', st, 'x', AT), (e) => e.message === why, st + ': nothing decided');
 });
 
+/* AE: a keep file that supplies the loader's own _sha is read as written: the core reader, the folder reader and the
+   Python checker all refuse it, the same way as one supplying _file or _bytes. */
+rule('A keep that supplies "_sha" is refused alike by the core reader, the folder reader and the checker', async () => {
+  const fs = require('fs'), os = require('os'), path = require('path'), cp = require('child_process');
+  const W = world(), t1 = W.todo('Post the release notes', { phase: 'ship' }), K = W.keep({ todo: t1 });
+  assert.ok(!K.why, K.why);
+  const o = JSON.parse(T.text(K.file)); o._sha = 'deadbeef';
+  const raw = Object.create(null); Object.keys(o).forEach((x) => { raw[x] = o[x]; });
+  assert.ok(!T.cleanFile(raw, K.name).ok, 'the core reader refuses it');
+  const m = new PF.fs.MemoryFS('ae-' + Math.random(), null); m.files['proposals/' + K.name] = { t: JSON.stringify(o), m: 1 };
+  const d = await PF.repo.readPlans(m);
+  same([d.todos.filter(x => x.kind === 'keep').length, d.todosUnread.map(u => u.file)], [0, [K.name]], 'the folder reader refuses it');
+  const py = ['python3', 'python'].filter((c) => { try { cp.execFileSync(c, ['--version'], { stdio: 'ignore' }); return true; } catch (e) { return false; } })[0];
+  if (!py) return;
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-keep-sha-')); fs.mkdirSync(path.join(root, 'proposals'));
+  fs.writeFileSync(path.join(root, 'proposals', K.name), JSON.stringify(o));
+  const res = JSON.parse(cp.execFileSync(py, ['-I', path.join(__dirname, '..', 'example-folder', '.flightdeck', 'skills', '_flightdeck', 'check_folder.py'), root], { encoding: 'utf8' }));
+  same(res.refused.map(x => x.file), ['proposals/' + K.name], 'the checker refuses it');
+});
+
 rule('The 501st keep that would join a group is refused, naming the limit; a group at 500 is still decided and withdrawn', () => {
   const W = world(), t1 = W.todo('Post the release notes', { phase: 'ship' }), K = W.kept({ todo: t1 });
   for (let i = 1; i < 500; i++) W.push(Object.assign(JSON.parse(JSON.stringify(K.record)), { id: 'req-keep-' + i.toString(16).padStart(24, '0'), change: Object.assign({}, K.record.change, { text: 'Wording ' + i }) }));

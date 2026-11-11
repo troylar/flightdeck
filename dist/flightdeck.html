@@ -23436,9 +23436,10 @@ PF.repo = (function () {
   /* Each object read carries its file's size in UTF-8 bytes as _bytes (not enumerable, so it never travels with the record),
      for a reader whose limit is in bytes of the file as it is. */
   function sized(o, f) { try { Object.defineProperty(o, '_bytes', { value: f.size != null ? f.size : U.utf8Bytes(f.text), enumerable: false }); } catch (e) { /* frozen: no size */ } return o; }
-  /* The loader's own fields (_file, then _bytes) go on the object read; a file that already has either keeps what it wrote,
-     as _supplied (not enumerable), so a reader that checks every field (PF.todos.cleanFile) reads the file as written. */
-  var LOADER_KEYS = ['_file', '_bytes'];
+  /* The loader's own fields (_file, then _bytes, and a keep's _sha) go on the object read; a file that already has any of
+     them keeps what it wrote, as _supplied (not enumerable), so a reader that checks every field (PF.todos.cleanFile) reads
+     the file as written. */
+  var LOADER_KEYS = ['_file', '_bytes', '_sha'];
   function tagged(o, name, f) {
     var sup = null;
     LOADER_KEYS.forEach(function (k) { if (Object.prototype.hasOwnProperty.call(o, k)) { sup = sup || Object.create(null); sup[k] = o[k]; } });
