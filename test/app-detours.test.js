@@ -316,7 +316,9 @@ rule('A detour Start keeps its run but never navigates away from its own form re
     app.chooseApprovers().submitForm('start-form');
     for (let i = 0; i < 40 && !release; i++) await app.tick(20);
     assert.ok(release, how + ': set-up: its first run write is under way');
-    if (how === 'replaced') app.el('run-title').value = 'Revised name'; else app.input('run-title', 'Revised name', how);
+    /* As on a page, the box the page holds is the one replaced (the harness hands back its own node once marked); no event.
+       LB: unmarked, the harness reads the box from the markup, and only the redraw's new default title used to trip this. */
+    if (how === 'replaced') Object.assign(app.el('run-title'), { _touched: true }).value = 'Revised name'; else app.input('run-title', 'Revised name', how);
     release(); await app.tick(400); app.fs.write = w;
     assert.strictEqual(kidPaths(app).length, before + 1, how + ': the run was saved');
     assert.ok(/id="start-form"/.test(app.html()), how + ': the revised form is still on screen');
@@ -371,6 +373,39 @@ rule('A detour Try again, Decline or plan read-back never navigates away from it
   assert.ok(!/data-plan-hash/.test(app.html()), 'read-back: the plan isn\'t opened over the run');
   assert.strictEqual(app.draft('td-add'), 'A revised to-do', 'read-back: what was entered stays');
   assert.ok(/plan was saved/i.test(txt(app.html())), 'read-back: said it was saved');
+});
+
+/* LB: with nothing done meanwhile, every completion pageMark guards lands where it always did: Start and Try again open
+   the run they saved, Decline goes Home, and the plan's read-back opens its Start. Its own resets (the plan it clears)
+   are never someone moving on. */
+rule('A detour Start, Try again, Decline or plan read-back with nothing touched meanwhile opens its run, Home or its plan', async () => {
+  const pick = (h) => !process.env.LB_CASE || process.env.LB_CASE.split(',').indexOf(h) >= 0;
+  for (const how of ['readback', 'start', 'retry', 'decline'].filter(pick)) {
+    const { app, todo } = await setup(['pass']);
+    app.click('td-detour', todo); await app.tick(250);
+    assert.ok(/id="start-form"/.test(app.html()) && /data-plan-hash/.test(app.html()), how + ': the plan\'s read-back opens its Start');
+    if (how === 'readback') continue;
+    const before = kidPaths(app).length;
+    if (how === 'retry') {
+      const w = app.fs.write.bind(app.fs); let failed = false;
+      app.fs.write = (p, ...a) => (!failed && /^runs\/smoke-test\//.test(p)) ? (failed = true, Promise.reject(new Error('disk full'))) : w(p, ...a);
+      app.chooseApprovers().submitForm('start-form'); await app.tick(300);
+      app.fs.write = w;
+      assert.ok(/data-act="plan-resume"/.test(app.html()), how + ': set-up: Try again offered');
+    }
+    if (how === 'start') { app.chooseApprovers().submitForm('start-form'); await app.tick(400); }
+    else {
+      const act = how === 'retry' ? 'plan-resume' : 'decline-plan';
+      const id = (new RegExp('data-act="' + act + '"[^>]*data-id="([^"]+)"').exec(app.html()) || new RegExp('data-id="([^"]+)"[^>]*data-act="' + act + '"').exec(app.html()))[1];
+      app.click(act, id); await app.tick(400);
+    }
+    const said = txt(app.html());
+    assert.ok(!/left as it is/.test(said), how + ': nothing was left as it is: ' + (said.match(/[^.]*left as it is[^.]*\./) || [])[0]);
+    if (how === 'decline') { assert.ok(!/id="start-form"/.test(app.html()), how + ': went Home, off the plan\'s Start'); assert.ok(/declined/i.test(said), how + ': said it was declined'); continue; }
+    assert.strictEqual(kidPaths(app).length, before + 1, how + ': the run was saved');
+    assert.ok(!/id="start-form"/.test(app.html()) && /id="step-suite"/.test(app.html()), how + ': the run it saved is open');
+    assert.ok(/Run started/.test(said + ' ' + app.live()), how + ': said it started');
+  }
 });
 
 rule('An interrupted start finds its plan again: Run this checklist opens the plan already there, never a second', async () => {

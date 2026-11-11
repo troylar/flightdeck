@@ -8612,7 +8612,7 @@
       /* Clicked on the form, the run replaces the form's entry (2.16); anywhere else the screen it was clicked on is the origin. */
       var held = holdNav(state.view === 'start'), same = planStill(g, k.fs, k.key, k.me);
       /* YC: a detour's Try again lands only on the form it was clicked on (see the start). */
-      var dt = /^plan-ev-[0-9a-f]{24}$/.test(String(k.plan)), pmark = pageMark(held.seq), moved = function () { return dt && pmark(); };
+      var dt = /^plan-ev-[0-9a-f]{24}$/.test(String(k.plan)), pmark = pageMark(function () { return held.seq; }), moved = function () { return dt && pmark(); };
       /* Who and which folder are asked again under each lock and right before the write, and whether this Try again is still
          the one on offer: a change while it waits writes nothing, even one changed back (that forgot it). */
       var still = function () { return g === gen && state.pendingStarts[k.plan] === k && state.fs === k.fs && fsKey() === k.key && state.me === k.me; };
@@ -10234,7 +10234,7 @@
        typed, a layer opened) keeps it saved and says so, and nothing on screen is reset or navigated away from. */
     /* BE, CB: and the form's own values as submitted, read again from the page (pageMark): a box whose value was replaced
        with no event at all is a revised form too. */
-    var pmark = pageMark(held.seq), moved = function () { return detour && pmark(); };
+    var pmark = pageMark(function () { return held.seq; }), moved = function () { return detour && pmark(); };
     queued(function () {
       r.recorder.session = SESSION;
       /* A run of a checklist with a loop is guarded like every loop write (round 10). A planned start's run is saved once its
@@ -10982,13 +10982,16 @@
   /* CB: the one check every late completion that navigates asks (a detour's Start, Try again, Decline and its plan's
      read-back): taken when it starts, moved() says whether anything has moved on since: a form opened or closed, a layer,
      the location (seq: navSeq as held then), or a control on the page whose value differs, even one replaced with no event
-     at all. Controls only one of the two reads has are the redraw's, never a revised form. */
+     at all. Controls only one of the two reads has are the redraw's, never a revised form. LB: seq is a number, or a
+     function that reads the held move's sequence when asked, so the operation's own resets (heldOwn) never count; and a
+     control left as drawn whose drawn value the redraw changed (a form's default title once its plan is used) is the
+     redraw's too, while one replaced or typed in, with or without an event, is still a revised form. */
   function pageMark(seq) {
-    var ep = childEpoch, ov = state.overlay, vals = controlVals();
+    var ep = childEpoch, ov = state.overlay, vals = controlVals(), at = typeof seq === 'function' ? seq : function () { return seq; };
     return function moved() {
-      if (childEpoch !== ep || state.overlay !== ov || navSeq !== seq) return true;
+      if (childEpoch !== ep || state.overlay !== ov || navSeq !== at()) return true;
       var now = controlVals();
-      return Object.keys(vals).some(function (k) { return k in now && now[k] !== vals[k]; });
+      return Object.keys(vals).some(function (k) { var a = vals[k], b = now[k]; return !!b && b.v !== a.v && !(b.v === b.d && b.d !== a.d); });
     };
   }
   function controlVals() {
@@ -10999,7 +11002,7 @@
         var el = list[i];
         if (/^(hidden|file|button|submit|reset)$/.test(el.type || '')) continue;
         var k = ri + ':' + (el.id || el.name || el.tagName); seen[k] = (seen[k] || 0) + 1; k += ':' + seen[k];
-        o[k] = el.type === 'checkbox' || el.type === 'radio' ? (el.checked ? '1:' : '0:') + el.value : String(el.value == null ? '' : el.value);
+        o[k] = el.type === 'checkbox' || el.type === 'radio' ? { v: (el.checked ? '1:' : '0:') + el.value, d: (el.defaultChecked ? '1:' : '0:') + el.value } : { v: String(el.value == null ? '' : el.value), d: el.defaultValue == null ? null : String(el.defaultValue) };
       }
     });
     return o;
