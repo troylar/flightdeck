@@ -38331,14 +38331,22 @@ PF.examples = (function () {
       if (x.fulfills && x.fulfills.run && x.fulfills.run.process === self.process && x.fulfills.run.id === self.id && x.run) want.push({ key: x.run.process + '/' + x.run.id, why: 'proposals/' + String(x._file || x.id + '.json') + ' fulfills one of this run\'s spreads on it' });
       [x.dest, x.effect && x.effect.dest, x.application && x.application.effect && x.application.effect.dest].forEach(function (dv) { if (dv && me(x) && typeof dv.process === 'string') want.push({ key: dv.process + '/' + dv.id, why: 'proposals/' + String(x._file || x.id + '.json') + ' binds a spread to it' }); });
     });
+    /* A loop item's choice names a run of the process its own loop step starts (with Fill in's changes, as PF.receipts.deps
+       finds it): that exact process and run, never a run of that id under another loop's process. */
+    var smap = null; try { smap = R.mapOf(self); } catch (e) { smap = null; }
+    var procOfStep = function (stepId) { var f = null; (smap ? smap.phases : []).forEach(function (ph) { ph.steps.forEach(function (st) { if (st.id === stepId && st.type === 'for.each') { try { f = R.fieldsOf(self, st); } catch (e) { f = null; } } }); }); return f && typeof f.process === 'string' ? f.process : ''; };
     scopes.forEach(function (x) {
       var l = PF.loop.loopOf(x);
       if (!l || l.process !== self.process || l.run !== self.id) return;
-      (Array.isArray(x.changes) ? x.changes : []).forEach(function (ch) { if (ch && ch.op === 'choose' && typeof ch.run === 'string' && ch.run && !ids[ch.run]) want.push({ id: ch.run, why: 'proposals/' + String(x._file || x.id + '.json') + ' chose it for a loop item' }); });
+      (Array.isArray(x.changes) ? x.changes : []).forEach(function (ch) {
+        if (!ch || ch.op !== 'choose' || typeof ch.run !== 'string' || !ch.run) return;
+        var cp = procOfStep(l.step), why = 'proposals/' + String(x._file || x.id + '.json') + ' chose it for a loop item';
+        want.push(cp ? { key: cp + '/' + ch.run, why: why } : { id: ch.run, why: why + ', and its loop\'s checklist can\'t be told', never: true });
+      });
     });
     for (var i = 0; i < want.length; i++) {
       var w = want[i];
-      if (w.key ? !have[w.key] : !ids[w.id]) return (w.key ? 'runs/' + w.key + '/run.json' : 'The run ' + w.id) + ': a child run of this run that isn\'t in the folder now (' + w.why + '), so the receipt can\'t say what was done.';
+      if (w.never || (w.key ? !have[w.key] : !ids[w.id])) return (w.key ? 'runs/' + w.key + '/run.json' : 'The run ' + w.id) + ': a child run of this run that isn\'t in the folder now (' + w.why + '), so the receipt can\'t say what was done.';
     }
     return '';
   }

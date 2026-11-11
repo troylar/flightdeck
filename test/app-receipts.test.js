@@ -231,6 +231,42 @@ rule('A scope change that keeps every count (one unstarted item removed, another
   await endDamaged(app, () => { kept.forEach(([p, f]) => { app.fs.files[p] = f; }); });
 });
 
+/* AE: a loop item's choice names a run of the process its own loop step starts: a run of that id under another loop's
+   process never stands in for it, so the end is refused, naming the missing run by its full path. */
+const KID2 = KID.replace('process: validate-story', 'process: other-story').replace('title: Validate a story', 'title: Another story');
+const PARENT2 = PARENT.replace("## Ship · READ-DO {#ship}", "- [!] {for.each} Check every other story {#each2}\n  process: other-story\n  items: jira.issue\n  pass: issue=item:key\n  accepts: cleared\n\n## Ship · READ-DO {#ship}");
+rule('A loop choice naming a run that is only under another loop\'s process ends nothing, named by its full path', async () => {
+  const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(80); app.choose('person-avery'); await app.tick();
+  const PF = app.PF, people = JSON.parse(app.fs.files['people.json'].t), now = new Date().toISOString();
+  const put = (md, id, rand) => { const b = PF.publish.build(md, { people, ...require('./harness').exampleSetup(PF), by: 'person-avery', changes: 'First', existing: [], now, rand, app: '4.0.0' }); assert.ok(!b.blockers, JSON.stringify(b.blockers)); Object.keys(b.files).forEach(k => { app.fs.files['publications/' + id + '/' + b.folder + '/' + k] = { t: b.files[k], m: Date.now() }; }); };
+  put(KID, 'validate-story', 'vs000001'); put(KID2, 'other-story', 'os000001'); put(PARENT2, 'release-readiness', 'rr000001');
+  app.click('refresh'); await app.tick(80);
+  app.click('start', 'release-readiness'); await app.settle();
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
+  await addStories(app, 'ABC-101');
+  app.set('loop-add-each2', 'ABC-201'); app.click('loop-add', 'each2'); await app.tick(150);
+  app.click('loop-start', 'each2', { item: 'ABC-201' }); await app.tick(150);
+  const other = app.files('runs/other-story/').find(p => /run\.json$/.test(p));
+  assert.ok(other, 'set-up: a run of the other loop');
+  const oid = JSON.parse(app.fs.files[other].t).id, r = pRun(app);
+  app.click('open-run', r.process + '/' + r.id); await app.tick(80);
+  app.set('td-add', 'Post the release notes'); app.click('td-add'); await app.tick(120); await refresh(app, 400);
+  assert.ok(pRun(app).living, 'set-up: the parent is living');
+  /* A choice on the first loop naming the other loop's run by its id alone. */
+  const sp = scopeFiles(app).find(p => { const o = JSON.parse(app.fs.files[p].t); return o.loop && o.loop.step === 'each' && (o.changes || []).some(c => c.op === 'add'); });
+  const o = JSON.parse(app.fs.files[sp].t), item = o.changes.find(c => c.op === 'add').item, id = 'req-flightdeck-' + 'c'.repeat(24);
+  const ch = Object.assign({}, o, { id, seen: [o.id], changes: [{ op: 'choose', item, run: oid, attempt: 1, candidates: [oid, 'zz-none'] }] });
+  app.fs.files['proposals/' + id + '.json'] = { t: JSON.stringify(ch, null, 2) + '\n', m: Date.now() };
+  await refresh(app, 400);
+  app.click('open-run', r.process + '/' + r.id); await app.tick(80);
+  const runText = app.fs.files[pPath(app)].t;
+  app.click('end', 'Cancelled'); await app.tick(400);
+  assert.ok(!pRun(app).ended, 'not ended');
+  assert.strictEqual(app.fs.files[pPath(app)].t, runText, 'the run is as it was');
+  const t = txt(app.html());
+  assert.ok(t.indexOf('runs/validate-story/' + oid + '/run.json') >= 0, 'named by its full path: ' + t.slice(t.indexOf('wasn'), t.indexOf('wasn') + 300));
+});
+
 rule('A child run that can\'t be read, or its version, right after the receipt is written ends nothing', async () => {
   for (const what of ['run', 'version']) {
     const app = await loopSetup(), kid = kidPaths(app)[0], k = JSON.parse(app.fs.files[kid].t);
