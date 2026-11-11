@@ -152,8 +152,9 @@ rule('A pack needs each application\'s request and the decision that authorized 
 });
 
 /* ---- GB: one bounded closure over every run the work depends on: loop children, evidence runs, fulfillment parents ---- */
-const failing = (fsx, test, code) => { const list = fsx.list.bind(fsx), read = fsx.read.bind(fsx), e = () => Object.assign(new Error(code + ': it can\'t be read'), { code });
-  fsx.list = (p) => test('list', p) ? Promise.reject(e()) : list(p); fsx.read = (p, o) => test('read', p) ? Promise.reject(e()) : read(p, o); return fsx; };
+/* A read fails the same whether it comes through read() or blob() (the export's checked reads take a file's bytes). */
+const failing = (fsx, test, code) => { const list = fsx.list.bind(fsx), read = fsx.read.bind(fsx), blob = fsx.blob.bind(fsx), e = () => Object.assign(new Error(code + ': it can\'t be read'), { code });
+  fsx.list = (p) => test('list', p) ? Promise.reject(e()) : list(p); fsx.read = (p, o) => test('read', p) ? Promise.reject(e()) : read(p, o); fsx.blob = (p, o) => test('read', p) ? Promise.reject(e()) : blob(p, o); return fsx; };
 
 rule('A loop child\'s own work is in the parent\'s pack: its run, its chain and its records, named as a dependency; Python accepts it', async () => {
   const W = await loopMade(), { zip, res } = await pack(W.PF, new BytesFS(W.files), W.key);
@@ -273,7 +274,7 @@ rule('A dependency run changed between the checked read and the bytes packed, at
   const W = await loopMade(), t = W.files[W.kidPath], i = t.indexOf('"title": "') + 10;
   let n = 0;
   const swap = (x) => { const b = x.files.get(W.kidPath).toString('utf8'); const c = b.charAt(i) === 'Q' ? 'R' : 'Q'; x.files.set(W.kidPath, Buffer.from(b.slice(0, i) + c + b.slice(i + 1))); };
-  const fsx = new BytesFS(W.files, { hooks: { blob: (p, x) => { if (p === W.kidPath && !n++) swap(x); } } });
+  const fsx = new BytesFS(W.files, { hooks: { blob: (p, x) => { if (p === W.kidPath && n++ === 1) swap(x); } } });
   const { zip, res } = await pack(W.PF, fsx, W.key);
   assert.ok(n >= 1, 'set-up: the bytes changed before the capture');
   /* The change is seen (RC: discovery's own read is held to its bytes): captured again, so what is packed is what was judged,
@@ -321,7 +322,7 @@ for (const [name, edit] of [['the app version, at the same length', (b) => b.rep
     const t = W.files[target], c = edit(t);
     assert.ok(c !== t && Buffer.byteLength(c) === Buffer.byteLength(t), 'set-up: the edit keeps the length');
     let n = 0;
-    const fsx = new BytesFS(W.files, { hooks: { blob: (p, x) => { if (p === target && !n++) x.files.set(p, Buffer.from(c)); } } });
+    const fsx = new BytesFS(W.files, { hooks: { blob: (p, x) => { if (p === target && n++ === 1) x.files.set(p, Buffer.from(c)); } } });
     const { res } = await pack(W.PF, fsx, W.key);
     assert.ok(n >= 1, 'set-up: the bytes changed before the capture');
     assert.strictEqual(res.status, 'partial', JSON.stringify(res.col.unresolved));
@@ -426,7 +427,7 @@ rule('An evidence plan changed between the checked read and the bytes packed, at
     if (t.indexOf(a) < 0) { misses.push(what + ': set-up: not in the plan: ' + t.slice(0, 400)); continue; }
     const c = t.replace(a, b);
     let n = 0;
-    const fsx = new BytesFS(files, { hooks: { blob: (p, x) => { if (p === path && !n++) x.files.set(p, Buffer.from(c)); } } });
+    const fsx = new BytesFS(files, { hooks: { blob: (p, x) => { if (p === path && n++ === 1) x.files.set(p, Buffer.from(c)); } } });
     const { res } = await pack(PF, fsx, X.key);
     if (!(n >= 1 && res.col.unresolved.some(u => u.indexOf(path) >= 0 && /changed/.test(u)))) misses.push(what + ': the export doesn\'t name it: ' + JSON.stringify(res.col.unresolved).slice(0, 300));
   }
@@ -448,7 +449,7 @@ rule('A dependency\'s version is packed with the bytes its verdict read: a publi
   ['map.md', 'types.json', 'publication.json'].forEach(n => assert.ok(paths.indexOf(dir + n) >= 0, dir + n + ' is packed: ' + JSON.stringify(paths)));
   if (PY) { const c = checkPack(full.zip); assert.ok(c.ok, c.out); }
   let n = 0;
-  const fsx = new BytesFS(W.files, { hooks: { blob: (p, x) => { if (p === pub && !n++) { const b = x.files.get(p).toString('utf8'); x.files.set(p, Buffer.from('[' + b.slice(1))); } } } });
+  const fsx = new BytesFS(W.files, { hooks: { blob: (p, x) => { if (p === pub && n++ === 1) { const b = x.files.get(p).toString('utf8'); x.files.set(p, Buffer.from('[' + b.slice(1))); } } } });
   const { res } = await pack(W.PF, fsx, W.key);
   assert.ok(n >= 1, 'set-up: the bytes changed before the capture');
   assert.strictEqual(res.status, 'partial', JSON.stringify(res.col.unresolved));
@@ -592,7 +593,7 @@ rule('A request arriving after the checked read of proposals/ is never missing f
 rule('A conflict copy or a new child arriving beside a dependency during capture is seen: the pack never says complete without it', async () => {
   const W = await loopMade(), dir = W.kidPath.replace(/run\.json$/, ''), late = dir + 'run.conflict-late.json';
   let n = 0;
-  const fsx = new BytesFS(W.files, { hooks: { blob: (p, x) => { if (p === W.kidPath && !n++) x.files.set(late, Buffer.from(W.files[W.kidPath])); } } });
+  const fsx = new BytesFS(W.files, { hooks: { blob: (p, x) => { if (p === W.kidPath && n++ === 1) x.files.set(late, Buffer.from(W.files[W.kidPath])); } } });
   const { zip, res } = await pack(W.PF, fsx, W.key);
   assert.ok(n >= 1, 'set-up: the copy arrived during capture');
   const dep = (manifestOf(zip).runs[0].living.deps || []).filter((d) => d.key === W.kidKey)[0];
@@ -602,7 +603,7 @@ rule('A conflict copy or a new child arriving beside a dependency during capture
   /* A new child of the loop, arriving after its process's folder was listed. */
   const K = JSON.parse(W.files[W.kidPath]), kid2 = Object.assign({}, K, { id: 'late-kid1' }), kp2 = 'runs/' + K.process + '/late-kid1/run.json';
   let m = 0;
-  const fsy = new BytesFS(W.files, { hooks: { blob: (p, x) => { if (p === W.kidPath && !m++) x.files.set(kp2, Buffer.from(JSON.stringify(kid2, null, 2))); } } });
+  const fsy = new BytesFS(W.files, { hooks: { blob: (p, x) => { if (p === W.kidPath && m++ === 1) x.files.set(kp2, Buffer.from(JSON.stringify(kid2, null, 2))); } } });
   const two = await pack(W.PF, fsy, W.key), L2 = manifestOf(two.zip).runs[0].living;
   assert.ok(m >= 1, 'set-up: the child arrived during capture');
   const named = (L2.deps || []).some((d) => d.key === K.process + '/late-kid1') || two.res.col.unresolved.some((u) => u.indexOf('late-kid1') >= 0 || u.indexOf('runs/' + K.process) >= 0);
@@ -628,7 +629,7 @@ rule('A run discovery left out (another parent\'s child) that becomes this run\'
   const op = 'runs/' + K.process + '/other-kid/run.json', mine = JSON.stringify(Object.assign({}, other, { parent: K.parent }), null, 2);
   const files = Object.assign({}, W.files, { [op]: JSON.stringify(other, null, 2) });
   let n = 0;
-  const fsx = new BytesFS(files, { hooks: { blob: (p, x) => { if (p === W.kidPath && !n++) x.files.set(op, Buffer.from(mine)); } } });
+  const fsx = new BytesFS(files, { hooks: { blob: (p, x) => { if (p === W.kidPath && n++ === 1) x.files.set(op, Buffer.from(mine)); } } });
   const { zip, res } = await pack(W.PF, fsx, W.key);
   assert.ok(n >= 1, 'set-up: its parent changed during capture');
   const L = manifestOf(zip).runs[0].living, named = (L.deps || []).some((d) => d.key === K.process + '/other-kid');
@@ -845,7 +846,7 @@ rule('The final rereads of what discovery read reserve memory first: the peak th
     const id = 'other-kid' + i, o = Object.assign({}, K, { id, parent: Object.assign({}, K.parent, { id: 'someone-else' }) }), p = 'runs/' + K.process + '/' + id + '/run.json';
     files[p] = ' '.repeat(SIZE) + JSON.stringify(o, null, 2); kids.push(p);
   }
-  const reads = {}, fsx = new BytesFS(files, { hooks: { read: (p) => { if (kids.indexOf(p) >= 0) reads[p] = (reads[p] || 0) + 1; } } });
+  const reads = {}, count = (p) => { if (kids.indexOf(p) >= 0) reads[p] = (reads[p] || 0) + 1; }, fsx = new BytesFS(files, { hooks: { read: count, blob: count } });
   const res = await W.PF.repo.exportEvidence(fsx, { run: W.key }, { sink: () => {}, now: () => Date.now(), tz: 'UTC' });
   assert.ok(kids.every((p) => reads[p] >= 2), 'set-up: each was read by discovery and again at the end: ' + JSON.stringify(reads));
   assert.ok(res.col.retained.peak >= (kids.length + 1) * SIZE * 2, 'peak ' + res.col.retained.peak + ' counts the discovery reads and a reread');
@@ -871,5 +872,16 @@ rule('A run.json with a byte that isn\'t UTF-8 (0xFF in its title) is read with 
   if (!PY) return;
   const c = checkPack(zip);
   assert.ok(c.ok, 'Python reads it: ' + c.out);
+});/* WD: discovery, capture and the final rereads compare the SHA-256 of the raw bytes: a byte-order mark added to a record after
+   it was judged is a change, never passed as the same text. */
+rule('A byte-order mark added to a record the work rests on after discovery read it is a change: packed only as judged, or named', async () => {
+  const W = await made({ todos: 1 }), hp = 'proposals/' + W.run.living.head + '.json', was = Buffer.from(W.files[hp]);
+  let seen = false, moved = false;
+  const swap = (x) => { if (seen && !moved) { x.files.set(hp, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), was])); moved = true; } };
+  const fsx = new BytesFS(W.files, { hooks: { read: (p, x) => { swap(x); if (p === hp) seen = true; }, blob: (p, x) => { swap(x); if (p === hp) seen = true; }, stat: (p, x) => swap(x), list: (p, x) => swap(x) } });
+  const { zip, res } = await pack(W.PF, fsx, W.key);
+  assert.ok(moved, 'set-up: the mark was added after the checked read');
+  const e = unzip(zip), f = manifestOf(zip).files.filter((y) => y.path === hp)[0], bytes = f && e[f.pack];
+  assert.ok((res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(hp) >= 0)) || (bytes && bytes.equals(was)), 'named, or packed as judged: ' + res.status + ' ' + JSON.stringify(res.col.unresolved));
 });
 run();

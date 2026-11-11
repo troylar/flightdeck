@@ -643,7 +643,7 @@ PF.repo = (function () {
           if (!f) { if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: 'was listed but was gone when read' }); return null; }
           if (PF.util.jsonTooDeep(f.text)) { if (torn) torn.push({ path: path, _file: i.name, parsed: false, deep: true, why: PF.util.DEEP_WHY }); return null; }
           var o = json(f.text);
-          if (o && typeof o === 'object' && ok(o)) { if (hashes) hashes[i.name] = fileHash(f.text); return tagged(o, i.name, f); }
+          if (o && typeof o === 'object' && ok(o)) { if (hashes) hashes[i.name] = f.rawHash || fileHash(f.text); return tagged(o, i.name, f); }
           /* parsed: it's JSON, just not this folder's kind of file (ignored, only named); else it may still be arriving. */
           if (torn) torn.push({ path: path, _file: i.name, parsed: o !== undefined, why: o === undefined ? 'isn\'t complete JSON' : 'isn\'t a file Flightdeck reads here, so it\'s ignored' });
           return null;
@@ -656,7 +656,7 @@ PF.repo = (function () {
           var o = json(f.text);
           if (o === undefined) { bad.push({ path: path, kind: 'malformed', why: 'isn\'t complete JSON (it may still be arriving)' }); if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: 'isn\'t complete JSON' }); return null; }
           if (!o || typeof o !== 'object' || Array.isArray(o) || !ok(o)) { bad.push({ path: path, kind: 'malformed', why: 'isn\'t a file this copy can read here' }); if (torn) torn.push({ path: path, _file: i.name, parsed: true, why: 'isn\'t a file Flightdeck reads here, so it\'s ignored' }); return null; }
-          if (hashes) hashes[i.name] = fileHash(f.text);
+          if (hashes) hashes[i.name] = f.rawHash || fileHash(f.text);
           return tagged(o, i.name, f);
         }, function (e) { bad.push({ path: path, kind: errKind(e), why: why(e) }); if (torn) torn.push({ path: path, _file: i.name, parsed: false, kind: errKind(e), why: 'couldn\'t be read (' + why(e) + ')' }); return null; });
       }));
@@ -3227,7 +3227,19 @@ PF.repo = (function () {
        again and compare (recheck), so what arrived in proposals/, beside a dependency run or among a loop's children after its
        read is a change, never missed. */
     /* Every run discovery read (a loop child, kept or left out as another parent's), by the SHA-256 of the bytes read. */
-    var seenHashes = Object.create(null);
+    var seenHashes = Object.create(null), rawOf = Object.create(null), rawKept = Object.create(null);
+    /* A file's raw bytes and their SHA-256 (noted in rawOf by path). n: the size its stat gave. */
+    function rawBytes(p, n) {
+      return ro.blob(p).then(function (b) {
+        if (!b) return null;
+        return b.arrayBuffer().then(function (ab) {
+          var u = new Uint8Array(ab);
+          if (u.length > n) throw new Error(p + ' grew while it was read, so it wasn\'t read');
+          var h = S.create(); h.update(u); var hash = h.digest(); rawOf[p] = hash; rawKept[hash] = true;
+          return { u: u, hash: hash };
+        });
+      });
+    }
     var lists = Object.create(null), listKey = function (items) { return (items || []).map(function (i) { return i.kind + ':' + i.name; }).sort(); };
     var lro = readOnlyView({
       list: function (p, o) { return ro.list(p, o).then(function (items) { if (!(p in lists)) lists[p] = listKey(items); return items; }); }, stat: function (p, o) { return ro.stat(p, o); }, blob: function (p, o) { return ro.blob(p, o); },
@@ -3240,6 +3252,12 @@ PF.repo = (function () {
           var want = st.size * 2;
           if (retained.now + want > retained.limit) { retained.full = true; throw new Error(p + ' wasn\'t read: the pack reached the most it may hold in memory here (' + E.size(retained.limit) + ')'); }
           hold(want);
+          /* Its bytes, read once: the text as a browser decodes a file (TextDecoder, a byte-order mark dropped), and the
+             SHA-256 of the raw bytes kept (rawOf), so a mark or any byte added later is a change. */
+          if (typeof ro.blob === 'function' && typeof TextDecoder !== 'undefined') return rawBytes(p, st.size).then(function (x) {
+            if (!x) { retained.now -= want; return null; }
+            return { text: new TextDecoder('utf-8').decode(x.u), mtime: st.mtime, size: x.u.length, rawHash: x.hash };
+          }, function (e) { retained.now -= want; throw e; });
           return ro.read(p, o).then(function (f) {
             var n = f && f.text != null ? String(f.text).length : 0;
             if (n * 2 > want) { retained.now -= want; throw new Error(p + ' grew while it was read, so it wasn\'t read'); }
@@ -3259,7 +3277,9 @@ PF.repo = (function () {
         var want = st.size * 2;
         if (retained.now + want > retained.limit) return { why: 'it couldn\'t be read again within the most the pack may hold in memory here (' + E.size(retained.limit) + ')' };
         hold(want);
-        return ro.read(path).then(function (f) { retained.now -= want; return f && f.text != null ? { hash: fileHash(f.text) } : { gone: true }; }, function (e) { retained.now -= want; return { why: 'it couldn\'t be read again (' + why(e) + ')' }; });
+        /* Both hashes: of the raw bytes, and of the text as decoded (for a hash discovery could only take of text). */
+        var again = typeof ro.blob === 'function' && typeof TextDecoder !== 'undefined' ? rawBytes(path, st.size).then(function (x) { return x ? { hash: x.hash, text: fileHash(new TextDecoder('utf-8').decode(x.u)) } : { gone: true }; }) : ro.read(path).then(function (f) { return f && f.text != null ? { hash: '', text: fileHash(f.text) } : { gone: true }; });
+        return again.then(function (x) { retained.now -= want; return x; }, function (e) { retained.now -= want; return { why: 'it couldn\'t be read again (' + why(e) + ')' }; });
       }, function (e) { return { why: 'it couldn\'t be read again (' + why(e) + ')' }; });
     }
     function proposalsRead() {
@@ -3285,7 +3305,7 @@ PF.repo = (function () {
           return limited(items.filter(function (i) { return i.kind === 'dir' && /^[a-z0-9-]{1,40}$/i.test(i.name); }).map(function (i) { return i.name; }).sort(), 4, function (cid) {
             var k = cp + '/' + cid;
             return (got[k] ? Promise.resolve(got[k]) : depRun(cp, cid).then(function (x) { got[k] = x; return x; })).then(function (x) {
-              if (x.run) seenHashes['runs/' + k + '/run.json'] = x.run._fileHash || '';
+              if (x.run) seenHashes['runs/' + k + '/run.json'] = rawOf['runs/' + k + '/run.json'] || x.run._fileHash || '';
               /* Which run it is a child of can't be told: named for this run whatever it is (key '': always said). */
               if (x.bad) { out.bad.push({ key: '', path: x.bad.path, kind: x.bad.kind, why: x.bad.why }); return; }
               var c = x.run;
@@ -3343,11 +3363,11 @@ PF.repo = (function () {
             var k = x.process + '/' + x.id, path = 'runs/' + k + '/run.json';
             L.deps.push({ key: k, role: x.role, head: x.head || '', chain: (x.chain || []).slice(), receipt: x.receipt || '', problem: x.problem ? x.problem.kind : '' });
             if (x.problem || !known[k]) return;
-            L.runTexts[path] = known[k]._fileHash || '';
+            L.runTexts[path] = rawOf[path] || known[k]._fileHash || '';
             add(path, LBL[x.role] || LBL.child);
             /* The version its verdict read, packed and held to those same bytes. */
             var pv = got[k] && got[k].pub, vt = pv && pv._texts;
-            if (vt) ['map.md', 'types.json', 'publication.json'].forEach(function (n) { if (typeof vt[n] !== 'string') return; var vp = R.pubDir(known[k]) + n; L.runTexts[vp] = fileHash(vt[n]); add(vp, { role: 'dependency version', label: 'The version a run the work depends on ran' }); });
+            if (vt) ['map.md', 'types.json', 'publication.json'].forEach(function (n) { if (typeof vt[n] !== 'string') return; var vp = R.pubDir(known[k]) + n; L.runTexts[vp] = rawOf[vp] || fileHash(vt[n]); add(vp, { role: 'dependency version', label: 'The version a run the work depends on ran' }); });
           });
           return keepClaims(p, add, Pr);
         });
@@ -3418,7 +3438,7 @@ PF.repo = (function () {
               return reread(rp).then(function (x) {
                 if (x.gone) note(rp, rp + ' was removed', p.key);
                 else if (x.why) note(rp, rp + ': ' + x.why, p.key);
-                else if (x.changed || x.hash !== was[rp]) note(rp, rp + ' changed', p.key);
+                else if (x.changed || (rawKept[was[rp]] ? x.hash : x.text) !== was[rp]) note(rp, rp + ' changed', p.key);
               });
             }).then(function () { return limited(Object.keys(D0.lists).sort(), 8, function (dir) {
               var was = D0.lists[dir];
@@ -3506,7 +3526,7 @@ PF.repo = (function () {
           if (x.skipped || x.text == null) { lm.push(path + ' wasn\'t read into the pack, so what it says can\'t be checked.'); return; }
           /* The bytes packed are the bytes the checked read judged: the same SHA-256, whole, as for the runs below. */
           var h = (L.recTexts || {})[path];
-          if (!was || !h || fileHash(x.text) !== h) lm.push(path + ' changed while the pack was made.');
+          if (!was || !h || (rawKept[h] ? x.sha256 : fileHash(x.text)) !== h) lm.push(path + ' changed while the pack was made.');
         });
         /* Each run the work depends on and each evidence plan, read into the pack as it was read for the closure. */
         Object.keys(L.runTexts || {}).sort().forEach(function (path) {
@@ -3514,7 +3534,7 @@ PF.repo = (function () {
           if (!x || x.gone) { lm.push(path + ' was removed while the pack was made.'); return; }
           if (x.skipped || x.text == null) { lm.push(path + ' wasn\'t read into the pack, so what it says can\'t be checked.'); return; }
           /* The bytes packed are the bytes the checked read judged: the same SHA-256, whole. */
-          if (!L.runTexts[path] || fileHash(x.text) !== L.runTexts[path]) lm.push(path + ' changed while the pack was made.');
+          if (!L.runTexts[path] || (rawKept[L.runTexts[path]] ? x.sha256 : fileHash(x.text)) !== L.runTexts[path]) lm.push(path + ' changed while the pack was made.');
         });
         lm.forEach(function (m) { col.unresolved.push(p.key + ': ' + m); });
         if (lm.length) { limits.push('What the run\'s work rests on isn\'t all in this pack, so nothing it claims from its to-dos is confirmed.'); p.claims.forEach(function (c) { if (c.process) c.why = c.why || 'what the run\'s work rests on isn\'t all in this pack.'; }); }
@@ -3601,7 +3621,7 @@ PF.repo = (function () {
           attempt++;
           paths.forEach(function (pth) { forget(pth); delete decHash[pth]; });
           Object.keys(rc.runs).forEach(function (k) { var base = 'runs/' + k + '/'; Object.keys(done).forEach(function (pth) { if (pth.indexOf(base) === 0) forget(pth); }); });
-          procCache = {}; decHash = {}; propsOnce = null; recHashes = Object.create(null); lists = Object.create(null); seenHashes = Object.create(null);
+          procCache = {}; decHash = {}; propsOnce = null; recHashes = Object.create(null); lists = Object.create(null); seenHashes = Object.create(null); rawOf = Object.create(null);
           /* Every attempt starts as the first did: sizes and the cap checked before anything new is read. */
           return preEstimate(keysAll).then(function () { return planAll(keysAll); }).then(fullEstimate).then(round);
         });
