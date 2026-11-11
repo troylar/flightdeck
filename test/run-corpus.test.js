@@ -287,5 +287,20 @@ rule('A key named like an inherited one is judged as its own in the canonical ch
   let py; try { fs.writeFileSync(file, JSON.stringify(cases.map((c) => c[1]))); py = JSON.parse(cp.execFileSync(PY, ['-I', path.join(__dirname, 'check_pack.py'), '--canonical', file], { encoding: 'utf8' })); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   const off = cases.map(([n, o], i) => [n, PF.run.canonical(JSON.parse(JSON.stringify(o))), py[i]]).filter((x) => x[1] !== x[2]);
   assert.deepStrictEqual(off, []);
+});/* WB: Python decodes a packed original's bytes exactly as the app's TextDecoder does (WHATWG UTF-8: each maximal invalid
+   subpart one U+FFFD, a leading byte-order mark dropped): a corpus of invalid sequences, decoded by both, gives the same text. */
+rule('Python decodes invalid UTF-8 exactly as the app\'s TextDecoder does: lone continuations, overlongs, surrogates, cut sequences, FE and FF', () => {
+  const H = (s) => Buffer.from(s.replace(/ /g, ''), 'hex');
+  const seqs = ['80', 'bf', '80bf80', 'c0af', 'c1bf', 'e080af', 'f08080af', 'f8888080af', 'fc84808080af', 'eda080', 'edbfbf', 'eda080edb080', 'f4908080', 'f5', 'fe', 'ff', 'feff',
+    'c2', 'e0a0', 'e2', 'f09f', 'f09f98', 'c241', 'e28241', 'f09f9841', 'efbbbf', 'efbbbfefbbbf', 'efbbbf41', '41efbbbf', 'c3a9', 'e282ac', 'f09f9880', 'ed9fbf', 'ee8080', 'f48fbfbf', 'e0', 'e09f80', 'f0808080', 'f08f80'];
+  const all = []; seqs.forEach((x) => { all.push(x); all.push('22' + x + '22'); all.push('7b2274223a22' + x + '227d'); });
+  for (let a = 0x80; a <= 0xff; a += 7) for (let b = 0x00; b <= 0xff; b += 29) all.push(a.toString(16).padStart(2, '0') + b.toString(16).padStart(2, '0') + '80');
+  const js = all.map((x) => new TextDecoder('utf-8').decode(H(x)));
+  if (!PY) return;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fd-utf8-')), file = path.join(dir, 'bytes.json');
+  let py; try { fs.writeFileSync(file, JSON.stringify(all)); py = JSON.parse(cp.execFileSync(PY, ['-I', path.join(__dirname, 'check_pack.py'), '--decode', file], { encoding: 'utf8' })); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  const off = all.map((x, i) => [x, JSON.stringify(js[i]), JSON.stringify(py[i])]).filter((x) => x[1] !== x[2]);
+  console.log('    ' + all.length + ' byte sequences');
+  assert.deepStrictEqual(off, []);
 });
 run();

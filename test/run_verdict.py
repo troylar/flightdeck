@@ -2292,12 +2292,18 @@ def same_run(text):
     return CF.js_json({k: o[k] for k in sorted(o) if k not in ("rev", "savedAt", "savedBy", "lineage")})
 
 
+def utf8_text(raw):
+    """Bytes as the app's TextDecoder("utf-8") decodes them (WHATWG UTF-8): each maximal invalid subpart one U+FFFD, which
+    CPython's "replace" handler gives too, and a leading byte-order mark dropped."""
+    text = raw.decode("utf-8", "replace")
+    return text[1:] if text.startswith("\ufeff") and raw.startswith(b"\xef\xbb\xbf") else text
+
+
 def parse(text):
     def no_constant(_):
         raise ValueError("not JSON")
-    # The app's checked parse: a byte-order mark read past, and nothing nested past PF.util.JSON_DEPTH read.
-    if text.startswith("\ufeff"):
-        text = text[1:]
+    # The app's checked parse (its bytes decoded by utf8_text, a byte-order mark dropped there): nothing nested past
+    # PF.util.JSON_DEPTH read.
     if CF.json_too_deep(text):
         return MISSING
     try:
@@ -2329,7 +2335,7 @@ def check_stage(folder, name):
     if files["publication.json"] is None:
         return "syncing", "publication.json hasn't arrived", None
     try:
-        info = json.loads(files["publication.json"], parse_constant=CF._no_constant)
+        info = json.loads(utf8_text(files["publication.json"]) if isinstance(files["publication.json"], bytes) else files["publication.json"], parse_constant=CF._no_constant)
     except ValueError:
         return "damaged", "publication.json is unreadable", None
     if not isinstance(info, dict):
@@ -2355,7 +2361,7 @@ def check_stage(folder, name):
     if sp:
         return "unusable", sp, info
     try:
-        types = json.loads(files["types.json"], parse_constant=CF._no_constant)
+        types = json.loads(utf8_text(files["types.json"]) if isinstance(files["types.json"], bytes) else files["types.json"], parse_constant=CF._no_constant)
     except ValueError:
         return "damaged", "types.json is unreadable", info
     if not isinstance(types, dict):
@@ -2414,7 +2420,7 @@ def version_verdict(r, read):
     # A screenshot is verified when the run is judged in the folder; it isn't packed with a dependency's version.
     ok = state == "complete" or (state == "syncing" and why.startswith("screenshot "))
     # A stage is its folder's process's (repo.readStage): a record or checklist naming another process is unusable.
-    if ok and test and (info.get("process") != r["process"] or CF.parse_map(texts["map.md"].decode("utf-8") if isinstance(texts["map.md"], bytes) else texts["map.md"]).get("process") != r["process"]):
+    if ok and test and (info.get("process") != r["process"] or CF.parse_map(utf8_text(texts["map.md"]) if isinstance(texts["map.md"], bytes) else texts["map.md"]).get("process") != r["process"]):
         ok = False
     if ok and test:
         info = {"folder": info.get("folder"), "mapHash": info.get("mapHash"), "version": info["stage"]["proposed"]}
@@ -2426,7 +2432,7 @@ def dep_verdict(key, text, read, beside=None):
     bytes (None when it isn't there); beside: the run folder's other files, { name: bytes }."""
     proc, rid = key.split("/", 1)
     path = "runs/" + key + "/run.json"
-    o = parse(text.decode("utf-8") if isinstance(text, bytes) else text)
+    o = parse(utf8_text(text) if isinstance(text, bytes) else text)
     if o is MISSING:
         return path, "it isn't complete JSON"
     r = sanitize(o)
@@ -2462,7 +2468,7 @@ def dep_verdict(key, text, read, beside=None):
     beside = beside or {}
     lineage = r.get("lineage") or []
     copies = [n for n in beside if n != "run.json" and COPY.match(n)]
-    lost = [n for n in beside if CAND.match(n) and (CAND.match(n).group(1) + "." + CAND.match(n).group(2)) not in lineage and same_run(beside[n].decode("utf-8", "replace")) != same_run(text if isinstance(text, str) else text.decode("utf-8"))]
+    lost = [n for n in beside if CAND.match(n) and (CAND.match(n).group(1) + "." + CAND.match(n).group(2)) not in lineage and same_run(utf8_text(beside[n])) != same_run(text if isinstance(text, str) else text.decode("utf-8"))]
     if copies or lost:
         return "runs/" + key + "/", "conflict copies beside it"
     if why:

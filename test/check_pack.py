@@ -52,11 +52,9 @@ def main(path):
 
 
 def decode(raw):
-    """A packed original read as the app reads it (its checked parse): UTF-8, a byte-order mark read past, nothing nested
-    more than PF.util.JSON_DEPTH (64) levels deep, no NaN or Infinity, and every number a double. ValueError otherwise."""
-    text = raw.decode("utf-8")
-    if text.startswith("\ufeff"):
-        text = text[1:]
+    """A packed original read as the app reads it (its checked parse): its text as TextDecoder gives it (RV.utf8_text), nothing
+    nested more than PF.util.JSON_DEPTH (64) levels deep, no NaN or Infinity, and every number a double. ValueError otherwise."""
+    text = RV.utf8_text(raw)
     if CF.json_too_deep(text):
         raise ValueError(CF.DEEP_WHY)
     try:
@@ -446,6 +444,9 @@ if __name__ == "__main__":
         RV.batch(sys.argv[2])
     elif len(sys.argv) == 3 and sys.argv[1] == "--canonical":
         RV.canonical_batch(sys.argv[2])
+    elif len(sys.argv) == 3 and sys.argv[1] == "--decode":
+        with open(sys.argv[2]) as f:
+            print(json.dumps([RV.utf8_text(bytes.fromhex(x)) for x in json.load(f)]))
     elif len(sys.argv) == 3 and sys.argv[1] == "--coverage":
         RV.coverage(sys.argv[2])
     else:

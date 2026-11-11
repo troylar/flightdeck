@@ -861,5 +861,15 @@ rule('A receipt in the folder only as its synced copy (<id> (1).json) is confirm
   if (!PY) return;
   const c = checkPack(zip);
   assert.ok(c.ok, 'Python reads it: ' + c.out);
+});/* WB: a byte the app replaces (0xFF in a run's title) is read the same way by Python: the run is there, its pack complete. */
+rule('A run.json with a byte that isn\'t UTF-8 (0xFF in its title) is read with a replacement character by the export and by Python alike', async () => {
+  const W = await made({ todos: 1 }), files = Object.assign({}, W.files), r = JSON.parse(files[W.runPath]);
+  const t = JSON.stringify(r, null, 2), at = t.indexOf('"title": "') + 10, buf = Buffer.concat([Buffer.from(t.slice(0, at)), Buffer.from([0xff]), Buffer.from(t.slice(at))]);
+  const fsx = new BytesFS(files); fsx.files.set(W.runPath, buf);
+  const { zip, res } = await pack(W.PF, fsx, W.key);
+  assert.strictEqual(res.status, 'complete', JSON.stringify(res.col.unresolved));
+  if (!PY) return;
+  const c = checkPack(zip);
+  assert.ok(c.ok, 'Python reads it: ' + c.out);
 });
 run();
