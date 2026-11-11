@@ -329,7 +329,8 @@ PF.receipts = (function () {
     /* Every run the work depends on (loop children, evidence runs, the parents a request fulfills a spread of), each walked
        the same way below: once, in the order found, bounded. */
     var queue = [r], run = function (p, id, role) { var k = p + '/' + id; if (seenR[k] || k === rootKey) return; seenR[k] = true; runs.push({ process: p, id: id, role: role }); if (known[k]) queue.push(known[k]); };
-    var canon = function (x) { var c = Object.create(null); Object.keys(x).sort().forEach(function (k) { if (k.charAt(0) !== '_') c[k] = x[k]; }); return JSON.stringify(c); };
+    /* Copies are compared as the app compares them everywhere (PF.loop.copyBody): the checked record, keys in any order. */
+    var canon = function (x) { return PF.loop.copyBody(x); };
     /* A witness: the one record under an id, the same in every copy. Not in the folder as read, there as another kind, or there
        twice with different contents (a synced copy, a compound included), it is named and the pack is partial; every copy of
        an ambiguous one goes in, so a reader sees both. */

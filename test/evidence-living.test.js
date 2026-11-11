@@ -1039,4 +1039,28 @@ rule('Python requires a loop item\'s chosen run under the loop step\'s own proce
   const bad = checkPack(await chosen(W.run.id));
   assert.ok(!bad.ok && bad.out.indexOf('validate-story/' + W.run.id) >= 0, 'the parent\'s id chosen: ' + bad.out);
 });
+/* AA: one copy rule: copies of a record are compared as the app compares them (PF.loop.copyBody of the checked record: its
+   envelope, format, features and app, isn't what it says), in the export and in Python alike. A copy that differs only in
+   the app that wrote it is the same record; one that says something else is two different copies, in both. */
+const copyOf = (name) => name.replace(/\.json$/, ' (1).json');
+rule('A synced copy of a record that differs only in the app that wrote it is the same record for the export and for Python, every family', async () => {
+  const W = await made({ todos: 1, requested: true, keep: true }), { zip } = await pack(W.PF, new BytesFS(W.files), W.key);
+  const man = manifestOf(zip), byKind = {};
+  man.files.filter((f) => /^proposals\//.test(f.path) && f.role === 'living').forEach((f) => {
+    let o; try { o = JSON.parse(String(W.files[f.path])); } catch (e) { return; }
+    const k = o.kind || o.format; if (!byKind[k]) byKind[k] = f.path;
+  });
+  assert.ok(Object.keys(byKind).length >= 4, 'set-up: several families ' + JSON.stringify(Object.keys(byKind)));
+  for (const k of Object.keys(byKind)) {
+    const p = byKind[k], o = JSON.parse(String(W.files[p]));
+    o.app = o.app === '4.0.1' ? '4.0.2' : '4.0.1';
+    const files = Object.assign({}, W.files, { [copyOf(p)]: JSON.stringify(o, null, 2) + '\n' });
+    const r = await pack(W.PF, new BytesFS(files), W.key);
+    assert.strictEqual(r.res.status, 'complete', k + ': ' + JSON.stringify(r.res.col.unresolved));
+    assert.ok(manifestOf(r.zip).files.some((f) => f.path === copyOf(p)), k + ': both copies packed');
+    if (!PY) continue;
+    const c = checkPack(r.zip);
+    assert.ok(c.ok, k + ': Python reads it: ' + c.out);
+  }
+});
 run();

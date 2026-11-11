@@ -64,6 +64,17 @@ def decode(raw):
 
 
 COPY = re.compile(r"^( \([0-9]{1,3}\)|-[A-Za-z0-9-]{1,63})$")
+# What the app's reader leaves out of a checked to-do or scope record (its envelope, the tool's key its id already holds, and
+# when a scope record was written): two copies are one record when everything else is the same (PF.loop.copyBody).
+ENVELOPE = ("format", "features", "app", "created", "key")
+
+
+def copy_body(o):
+    """A record as the app compares its copies (PF.loop.copyBody of the checked record): its own fields, the envelope left out,
+    keys in any order, lists in order."""
+    if not isinstance(o, dict):
+        return json.dumps(o, sort_keys=True)
+    return json.dumps({k: v for k, v in o.items() if k not in ENVELOPE and not k.startswith("_")}, sort_keys=True)
 def check_living(z, man):
     by_path = {f["path"]: f["pack"] for f in man["files"]}
 
@@ -133,7 +144,7 @@ def check_living(z, man):
             recs = [load(p) for p in paths]
         except (ValueError, UnicodeDecodeError):
             return None, False
-        if any(json.dumps(r, sort_keys=True) != json.dumps(recs[0], sort_keys=True) for r in recs):
+        if any(copy_body(r) != copy_body(recs[0]) for r in recs):
             return None, True
         return recs[0], False
 

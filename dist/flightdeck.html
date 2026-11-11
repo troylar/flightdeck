@@ -17899,7 +17899,7 @@ PF.loop = (function () {
   /* The records about one loop instance. */
   function recordsFor(records, loop) { return (records || []).filter(function (r) { return r.loop && r.loop.process === loop.process && r.loop.run === loop.run && r.loop.step === loop.step; }); }
 
-  return { splitIds: splitIds, withCopies: withCopies, askerWhy: askerWhy, seenFor: seenFor, page: page, settleIn: settleIn, pageWords: pageWords, fileWhy: fileWhy, KINDS: KINDS, kindOf: kindOf, nounOf: nounOf, count: count, feedWhy: feedWhy, httpLink: httpLink, cleanItem: cleanItem, cleanChanges: cleanChanges, FEED: FEED, NOUN: NOUN, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
+  return { copyBody: copyBody, splitIds: splitIds, withCopies: withCopies, askerWhy: askerWhy, seenFor: seenFor, page: page, settleIn: settleIn, pageWords: pageWords, fileWhy: fileWhy, KINDS: KINDS, kindOf: kindOf, nounOf: nounOf, count: count, feedWhy: feedWhy, httpLink: httpLink, cleanItem: cleanItem, cleanChanges: cleanChanges, FEED: FEED, NOUN: NOUN, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
     idFor: idFor, isScope: isScope, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
     rollup: rollup, view: view, markStale: markStale, rowId: rowId, choiceWhy: choiceWhy, resolveWhy: resolveWhy, resolvedBy: resolvedBy, planWhy: planWhy, sendBackWhy: sendBackWhy, again: again, appliedIn: appliedIn, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();
@@ -20720,7 +20720,8 @@ PF.receipts = (function () {
     /* Every run the work depends on (loop children, evidence runs, the parents a request fulfills a spread of), each walked
        the same way below: once, in the order found, bounded. */
     var queue = [r], run = function (p, id, role) { var k = p + '/' + id; if (seenR[k] || k === rootKey) return; seenR[k] = true; runs.push({ process: p, id: id, role: role }); if (known[k]) queue.push(known[k]); };
-    var canon = function (x) { var c = Object.create(null); Object.keys(x).sort().forEach(function (k) { if (k.charAt(0) !== '_') c[k] = x[k]; }); return JSON.stringify(c); };
+    /* Copies are compared as the app compares them everywhere (PF.loop.copyBody): the checked record, keys in any order. */
+    var canon = function (x) { return PF.loop.copyBody(x); };
     /* A witness: the one record under an id, the same in every copy. Not in the folder as read, there as another kind, or there
        twice with different contents (a synced copy, a compound included), it is named and the pack is partial; every copy of
        an ambiguous one goes in, so a reader sees both. */
