@@ -1797,13 +1797,20 @@ PF.repo = (function () {
       return fs.read(path, rd).then(function (f) {
         var now = f ? U.hash(f.text) : null;
         if (now !== expect || (exact && (f ? f.text : null) !== opts.expectText)) return { conflict: true, theirs: f ? f.text : null, theirsHash: now };
-        /* opts.still: asked after the read, right before the write; false writes nothing ({ dropped: true }). */
-        if (opts && typeof opts.still === 'function' && !opts.still()) return { dropped: true };
-        /* A folder can't check and write in one step, so read it back: if anything else is there now, say so rather than
-           report a save that didn't stick. (Across computers, OneDrive keeps both copies of a file changed on two.) */
-        return fs.write(path, text).then(function () { return fs.read(path, rd); }).then(function (back) {
-          if (back && back.text === text) return { ok: true, hash: U.hash(text), text: text };
-          return { conflict: true, theirs: back ? back.text : null, theirsHash: back ? U.hash(back.text) : null, afterWrite: true };
+        /* opts.recheck(fs) (round 17, VA-VC): an asynchronous guard awaited after the read, right before the write (the
+           app's fresh authority guard); false, or a failure, writes nothing ({ dropped: true }). Nothing else is awaited
+           between its answer and the write. */
+        var rc = opts && typeof opts.recheck === 'function' ? Promise.resolve().then(function () { return opts.recheck(fs); }).then(function (ok) { return ok !== false; }, function () { return false; }) : Promise.resolve(true);
+        return rc.then(function (fine) {
+          if (!fine) return { dropped: true };
+          /* opts.still: asked after the read, right before the write; false writes nothing ({ dropped: true }). */
+          if (opts && typeof opts.still === 'function' && !opts.still()) return { dropped: true };
+          /* A folder can't check and write in one step, so read it back: if anything else is there now, say so rather than
+             report a save that didn't stick. (Across computers, OneDrive keeps both copies of a file changed on two.) */
+          return fs.write(path, text).then(function () { return fs.read(path, rd); }).then(function (back) {
+            if (back && back.text === text) return { ok: true, hash: U.hash(text), text: text };
+            return { conflict: true, theirs: back ? back.text : null, theirsHash: back ? U.hash(back.text) : null, afterWrite: true };
+          });
         });
       });
     };

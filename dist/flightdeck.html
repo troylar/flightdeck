@@ -23617,13 +23617,20 @@ PF.repo = (function () {
       return fs.read(path, rd).then(function (f) {
         var now = f ? U.hash(f.text) : null;
         if (now !== expect || (exact && (f ? f.text : null) !== opts.expectText)) return { conflict: true, theirs: f ? f.text : null, theirsHash: now };
-        /* opts.still: asked after the read, right before the write; false writes nothing ({ dropped: true }). */
-        if (opts && typeof opts.still === 'function' && !opts.still()) return { dropped: true };
-        /* A folder can't check and write in one step, so read it back: if anything else is there now, say so rather than
-           report a save that didn't stick. (Across computers, OneDrive keeps both copies of a file changed on two.) */
-        return fs.write(path, text).then(function () { return fs.read(path, rd); }).then(function (back) {
-          if (back && back.text === text) return { ok: true, hash: U.hash(text), text: text };
-          return { conflict: true, theirs: back ? back.text : null, theirsHash: back ? U.hash(back.text) : null, afterWrite: true };
+        /* opts.recheck(fs) (round 17, VA-VC): an asynchronous guard awaited after the read, right before the write (the
+           app's fresh authority guard); false, or a failure, writes nothing ({ dropped: true }). Nothing else is awaited
+           between its answer and the write. */
+        var rc = opts && typeof opts.recheck === 'function' ? Promise.resolve().then(function () { return opts.recheck(fs); }).then(function (ok) { return ok !== false; }, function () { return false; }) : Promise.resolve(true);
+        return rc.then(function (fine) {
+          if (!fine) return { dropped: true };
+          /* opts.still: asked after the read, right before the write; false writes nothing ({ dropped: true }). */
+          if (opts && typeof opts.still === 'function' && !opts.still()) return { dropped: true };
+          /* A folder can't check and write in one step, so read it back: if anything else is there now, say so rather than
+             report a save that didn't stick. (Across computers, OneDrive keeps both copies of a file changed on two.) */
+          return fs.write(path, text).then(function () { return fs.read(path, rd); }).then(function (back) {
+            if (back && back.text === text) return { ok: true, hash: U.hash(text), text: text };
+            return { conflict: true, theirs: back ? back.text : null, theirsHash: back ? U.hash(back.text) : null, afterWrite: true };
+          });
         });
       });
     };
@@ -36070,7 +36077,10 @@ PF.examples = (function () {
   }
   function snapshotOnce(cx, fs, pin) {
     var rk = cx && (cx.run || cx.holdRun), r = rk ? findRun(rk) : null, h = cx && cx.holds;
-    if (!h) return Promise.resolve(true);
+    /* Round 17 (VA): a recovery (cx.fresh) takes the snapshot whether or not its copy approves anything: the person and the
+       source chosen are asked fresh before every write and the cleanup; only the phase holds depend on its approvals. */
+    if (!h && !(cx && cx.fresh)) return Promise.resolve(true);
+    h = h || { phases: [] };
     if (!r) return Promise.resolve(false);
     var map; try { map = R.mapOf(r); } catch (e) { return Promise.resolve(false); }
     var raw = fs || cx.fs, rec = recordingView(raw), src = rec.fs, steps = [], bad = false;
@@ -36166,6 +36176,60 @@ PF.examples = (function () {
     if (r && r.ended && r.ended.by === me) return '';
     return 'Only the run\'s recorder can approve here.';
   }
+  /* Why me may not write a record on their own authority now, by people (a checked people.json), or '': in it and active. */
+  function memberWhy(people, me) {
+    var list = PF.people.listOf(people);
+    for (var i = 0; i < list.length; i++) if (list[i] && list[i].id === me) return list[i].inactive ? 'You are marked inactive in people.json now.' : '';
+    return 'You aren\'t in people.json now.';
+  }
+  /* Round 17 (VA-VC): the fresh guard every other writer of an authority-bearing record asks right before each write (a
+     to-do decision, revoke, delegation or request; a scope request or decision; an application and its landing): the runs
+     the write depends on (keys: a story's parent first) read fresh, each exactly the copy this window holds (its
+     fingerprint and revision: a run handed to another session refuses), people.json read and checked with them, and
+     proposals/ listed fresh. judge(d) is then asked of that snapshot (records, revokes, delegations and people as read), with
+     the person acting in people.json and active; then one stability pass, and judge asked again, after which the caller
+     writes with nothing else awaited. The approval snapshot's deadline holds here too. */
+  function freshGuard(cx, fs, keys, judge) {
+    var answered = false, timer = null;
+    return new Promise(function (res) {
+      var answer = function (ok) { if (answered) return; answered = true; if (timer != null) clearTimeout(timer); res(ok === true); };
+      timer = setTimeout(function () { answer(false); }, GUARD_MS);
+      freshOnce(cx, fs, keys, judge).then(answer, function () { answer(false); });
+    });
+  }
+  function freshOnce(cx, fs, keys, judge) {
+    var raw = fs || cx.fs, rec = recordingView(raw), src = rec.fs, people = null, no = function () { return false; };
+    var ks = keys || [];
+    if (!ks.length) return Promise.resolve(false);
+    /* One read after another, each chained on the one before (never side by side), people.json read and checked with each
+       run, then proposals/, then the judgment and the stability pass. */
+    var runAt = function (i) {
+      var r = findRun(ks[i]);
+      if (!r) return Promise.resolve(false);
+      return PF.repo.readRunOnly(src, r.process, r.id).then(function (one) {
+        if (!one || !one.found || one.nofile || !one.run || (one.bad && one.bad.length) || one.run._unrunnable) return false;
+        if (!r._fileHash || one.run._fileHash !== r._fileHash || (one.run.rev || 0) !== (r.rev || 0)) return false;
+        if (one.peopleWhy || !one.people) return false;
+        people = one.people;
+        return i + 1 < ks.length ? runAt(i + 1) : plans();
+      }, no);
+    };
+    var plans = function () {
+      return PF.repo.readPlans(src, null, null).then(function (res) {
+        if (!res || (res.torn || []).some(function (t) { return !t.parsed; })) return false;
+        var d = Object.assign({}, data, { people: people, scopes: res.scopes || [], scopesUnread: res.scopesUnread || [], todos: res.todos || [], todosUnread: res.todosUnread || [] });
+        var fine = function () { return guardOk(cx, d) && !memberWhy(people, cx.me) && judge(d) === true; };
+        if (!fine()) return false;
+        return stillSame(raw, rec.seen, null).then(function (same) { return same && fine(); }, no);
+      }, no);
+    };
+    return runAt(0);
+  }
+  /* The runs a write on r depends on, its loop's parent first. */
+  function runKeysFor(r) {
+    var k = r.process + '/' + r.id, p = r.parent && r.parent.process && r.parent.id ? r.parent.process + '/' + r.parent.id : '';
+    return p && findRun(p) ? [p, k] : [k];
+  }
   function judgeSnapshot(cx, rk, h, loops, snap) {
     var res = snap.plans, runs = [snap.parent].concat(snap.kids);
     var sameLoop = function (l, m) { return !!l && !!m && l.process === m.process && l.run === m.run && l.step === m.step; };
@@ -36194,7 +36258,7 @@ PF.examples = (function () {
     /* Round 16 (UA): the person acting, asked of the snapshot's people on every approval path, before every write, backup and
        cleanup alike: in people.json, active, and the one who may approve here (the run's recorder; for an ended run being
        recovered, its recorder or whoever ended it). */
-    if (actorWhy(mine, snap.people, state.me)) return false;
+    if (h.phases && !h.phases.length ? memberWhy(snap.people, state.me) : actorWhy(mine, snap.people, state.me)) return false;
     /* Round 16 (UB): a browser copy being restored still holds, decoded, exactly the copy chosen. */
     if (cx.localPin && JSON.stringify(lsGet(cx.localPin.key, null)) !== cx.localPin.json) return false;
     if ([mine].concat(snap.kids).some(function (c) { return c.living && c.living.head && !PF.todos.recordsFor(d.todos, c).some(function (x) { return x.id === c.living.head; }); })) return false;
@@ -36271,7 +36335,10 @@ PF.examples = (function () {
        the next read derives it again, with its authority asked again on the run as it is then. */
     var extra = { still: function () { if (guardOk(cx)) return true; undo(); return false; }, dropUndone: function () { return undone; } };
     /* Round 10 (BB): an approval write reads its loops' runs again before each write, and is put back by identity when held. */
-    if (cx && cx.holds) extra.recheck = function (fs) { return approvalSnapshot(cx, fs).then(function (ok) { if (!ok) undo(); return ok; }); };
+    if (cx && (cx.holds || cx.fresh)) extra.recheck = function (fs) { return approvalSnapshot(cx, fs).then(function (ok) { if (!ok) undo(); return ok; }); };
+    /* Round 17 (VC): a landing (opts.freshKeys: the runs it depends on) asks the fresh guard before every write: its authority
+       (cx.todo, through guardOk) asked of the delegations, revokes and people read now. */
+    else if (cx && opts && opts.freshKeys) extra.recheck = function (fs) { return freshGuard(cx, fs, opts.freshKeys, function () { return true; }).then(function (ok) { if (!ok) undo(); return ok; }); };
     if (opts && opts.redo) extra.undoFailed = function () { undo(); return undone; };
     return { fn: wrapped, opts: Object.assign({}, opts || {}, extra) };
   }
@@ -36300,8 +36367,9 @@ PF.examples = (function () {
     if (P.overLimit) { say('This would put ' + PF.loop.count(P.overLimit.count, V.noun) + ' in scope; the loop takes at most ' + P.overLimit.max + '. Nothing was changed.', 'warn'); render(); return; }
     var now = new Date().toISOString(), f = PF.loop.buildRequest(c.intent, { seen: P.seen, children: P.record.children, now: now, app: APP_VERSION, by: state.me, id: 'req-flightdeck-' + loopHex(24), head: PF.loop.headFor(r) });
     var fw = PF.loop.fileWhy(f.id + '.json', f); if (fw) { say(fw + ' Nothing was changed.', 'warn'); render(); return; }
-    var cx = loopGuard();
-    loopSaved(repo.saveScope(cx.fs, f.id + '.json', f, { still: function () { return guardOk(cx); } }), (P.summary || 'Saved.') + (P.left ? ' ' + PF.loop.pageWords(P.left) : ''));
+    var cx = loopGuard(), lk = runKeysFor(r);
+    /* Round 17: a scope request and a removal decision, like every authority-bearing record, ask the fresh guard last. */
+    loopSaved(repo.saveScope(cx.fs, f.id + '.json', f, { still: function () { return guardOk(cx); }, recheck: function (fs) { return freshGuard(cx, fs, lk, function () { return true; }); } }), (P.summary || 'Saved.') + (P.left ? ' ' + PF.loop.pageWords(P.left) : ''));
   }
   function loopDecide(id, op, key) {
     var r = ctx.run(), V = r && loopView(r, id), x = V && V.ledger.items.filter(function (i) { return i.key === key; })[0];
@@ -36311,8 +36379,8 @@ PF.examples = (function () {
     var pg = PF.loop.seenFor(V.ledger, [x.uid], [], ['verdict']);
     var d = PF.loop.buildDecision({ proposal: p, loop: V.loop, op: op, items: [x.uid], seen: pg.seen, reason: val('loop-why-' + id).trim(), by: state.me, writer: 'w' + loopHex(10), rev: loopHex(8), now: new Date().toISOString(), app: APP_VERSION });
     var dw = PF.loop.fileWhy(d.name, d.file); if (dw) { say(dw + ' Nothing was changed.', 'warn'); render(); return; }
-    var cxd = loopGuard();
-    loopSaved(repo.saveScope(cxd.fs, d.name, d.file, { still: function () { return guardOk(cxd); } }), (op === 'accept' ? key + ' is removed from scope. Its run stays available.' : key + ' stays in scope.') + (pg.left ? ' ' + PF.loop.pageWords(pg.left) : ''));
+    var cxd = loopGuard(), dk = runKeysFor(r);
+    loopSaved(repo.saveScope(cxd.fs, d.name, d.file, { still: function () { return guardOk(cxd); }, recheck: function (fs) { return freshGuard(cxd, fs, dk, function () { return true; }); } }), (op === 'accept' ? key + ' is removed from scope. Its run stays available.' : key + ' stays in scope.') + (pg.left ? ' ' + PF.loop.pageWords(pg.left) : ''));
   }
   /* Starts one story's run for loop step id of run r: a promise of the run started, or an Error saying why nothing was. */
   /* request: the id of the request it carries out, kept in the run it starts, so a lost outcome is recovered from it. */
@@ -36351,7 +36419,10 @@ PF.examples = (function () {
         if ((data.runs || []).some(function (c) { var it = c.parent && c.parent.item; return it && c.parent.process === c2.process && c.parent.id === c2.id && c.parent.step === id && it.uid === n2.uid && +it.attempt === attempt; })) return false;
         return !(cx.q && PF.loop.requestCheck(c2, loopView(c2, id), cx.q, data.people));
       };
-      return repo.saveRun(cx.fs, child, SESSION, { writer: WRITER, lock: LOCKS ? lock : null, still: still });
+      /* Round 17: a story's run joins the loop's coverage, so its start asks the fresh guard too (the person, the parent's run
+         and the records read now; a request's asker asked of the people read then). */
+      var lk = runKeysFor(cur), recheck = function (fs) { return freshGuard(cx, fs, lk, function (d) { var c2 = findRun(rkey); return !!c2 && !(cx.q && PF.loop.requestCheck(c2, loopView(c2, id), cx.q, d.people)); }); };
+      return repo.saveRun(cx.fs, child, SESSION, { writer: WRITER, lock: LOCKS ? lock : null, still: still, recheck: recheck });
     }).then(function () { delete mem.starting[flight]; return child; }, function (err) {
       delete mem.starting[flight];
       /* Round 10: any start its guard dropped stops what asked for it (Start all, a request), saying why. */
@@ -36543,15 +36614,19 @@ PF.examples = (function () {
     var r = ctx.run();
     if (!r || !state.me) return;
     var sig = JSON.stringify([fsKey(), r.process + '/' + r.id, state.me, body]), keep = state.tdKey;
-    var key = keep && keep.sig === sig ? keep.key : 'ui-' + loopHex(20);
-    var P = PF.todos.prepare(r, Object.assign(spInputs(), { body: body, by: { person: state.me }, key: key, at: new Date().toISOString(), app: APP_VERSION }));
+    var key = keep && keep.sig === sig ? keep.key : 'ui-' + loopHex(20), at = keep && keep.sig === sig && keep.at ? keep.at : new Date().toISOString(), me = state.me;
+    /* Round 17 (VB): built from d (this window's data, or the fresh guard's snapshot right before the write: a compound
+       carries a decision, so who may decide is asked of the people and records read then). */
+    var prep = function (d) { return PF.todos.prepare(r, Object.assign(spInputsOf(d), { body: body, by: { person: me }, key: key, at: at, app: APP_VERSION })); };
+    var P = prep(data);
     if (P.why) { say(P.why + ' Nothing was written.', 'warn'); render(); return; }
     if (runUnread(r)) { say(runUnread(r) + ' Nothing was written.', 'warn'); render(); return; }
     /* Asked again after a write that may have happened: exactly the bytes of the first ask, so it is found as the same. */
     if (keep && keep.sig === sig && keep.P && keep.P.id === P.id) P = keep.P;
-    state.tdKey = { sig: sig, key: key, P: P };
+    state.tdKey = { sig: sig, key: key, P: P, at: at };
     var cx = loopGuard({ run: r.process + '/' + r.id, readable: true }), text = PF.todos.text(P.file), endBusy = busyStart(), sg = gen;
-    repo.saveScope(cx.fs, P.name, P.file, { still: function () { return guardOk(cx); } }).then(function (res) {
+    var recheck = function (fs) { return freshGuard(cx, fs, runKeysFor(r), function (d) { var P2 = prep(d); return !P2.why && P2.name === P.name && PF.todos.text(P2.file) === text; }); };
+    repo.saveScope(cx.fs, P.name, P.file, { still: function () { return guardOk(cx); }, recheck: recheck }).then(function (res) {
       endBusy(); if (sg !== gen) return;
       if (res && res.dropped) { say('Nothing was written: the folder, the person or the run changed before it was. Ask again if it still needs doing.', 'warn'); render(); return; }
       if (res && res.conflict && res.theirs !== text) { say('A different request is already saved under that name. Nothing was written; read the folder again, then ask again.', 'bad'); render(); return; }
@@ -36592,13 +36667,22 @@ PF.examples = (function () {
   /* A decision, revoke or delegation made again unchanged after a write that may have happened is the same record: its key,
      writer and exact bytes are kept (per folder, ctx.loopMem) until the outcome is known, as asking keeps its own (todoAsk).
      make(seed) builds it with the kept seed; the rules are asked again every time. */
+  /* make(seed, d) builds it from d (this window's data, or a fresh guard's snapshot); the seed keeps its time too, so the
+     guard (round 17, VB) builds it again from what it read and the write goes ahead only when that is exactly these bytes:
+     the same person allowed, the same consequence, the same record. */
   function tdKept(slot, sig, make) {
     var mem = loopMem(), keep = mem.tdKeep || (mem.tdKeep = Object.create(null)), k = keep[slot], again = k && k.sig === sig ? k : null;
-    var seed = again ? again.seed : { key: 'ui-' + loopHex(20), writer: 'w' + loopHex(10), rev: loopHex(8) }, made = make(seed);
+    var seed = again ? again.seed : { key: 'ui-' + loopHex(20), writer: 'w' + loopHex(10), rev: loopHex(8), at: new Date().toISOString() }, made = make(seed, data);
     if (made.why) return made;
     if (again && again.made.name === made.name) made = again.made;
+    made.remake = function (d) { try { return make(seed, d); } catch (e) { return { why: 'couldn\'t be worked out again' }; } };
     keep[slot] = { sig: sig, seed: seed, made: made };
     return made;
+  }
+  /* Whether d, a fresh guard's snapshot, makes exactly this record again. */
+  function tdSame(made, d) {
+    var m2 = made && made.remake ? made.remake(d) : null;
+    return !!m2 && !m2.why && m2.name === made.name && PF.todos.text(m2.file) === PF.todos.text(made.file);
   }
   /* Retry state is settled only in the folder and read it was kept in (m, captured when the write was asked). */
   function tdSettled(slot, m) { var keep = (m || loopMem()).tdKeep; if (keep) delete keep[slot]; }
@@ -36608,9 +36692,12 @@ PF.examples = (function () {
     /* Said in the dialog it came from while that is still open; once it was closed or opened again, said on the page. */
     var said = function (t, how) { if (!tok || tok === tdTok(tok.split(':')[0])) mem.tdSaid = t; else say(t, how); };
     var cx = loopGuard({ run: r.process + '/' + r.id, readable: true }), endBusy = busyStart(), sg = gen, fk = fsKey(), gone = function () { return sg !== gen || fsKey() !== fk; };
-    return repo.saveScope(cx.fs, made.name, made.file, { still: function () { return guardOk(cx); } }).then(function (res) {
+    /* Round 17 (VB): right before the write, the fresh guard builds the record again from the runs, people and records read
+       now; only exactly these bytes are written. */
+    var keys = runKeysFor(r), recheck = function (fs) { return freshGuard(cx, fs, keys, function (d) { return tdSame(made, d); }); };
+    return repo.saveScope(cx.fs, made.name, made.file, { still: function () { return guardOk(cx); }, recheck: recheck }).then(function (res) {
       endBusy(); if (gone()) return false;
-      if (res && res.dropped) { said('Nothing was written: the folder, the person or the run changed before it was.', 'warn'); render(); return false; }
+      if (res && res.dropped) { said('Nothing was written: the folder, the person, the run or what it decides changed before it was. Read the folder again.', 'warn'); render(); return false; }
       if (slot) tdSettled(slot, mem);
       if (res && res.conflict && res.theirs !== PF.todos.text(made.file)) { said('A different record is already saved under that name. Nothing was written; read the folder again.', 'bad'); render(); return false; }
       var rec = made.record; rec._file = made.name;
@@ -36624,7 +36711,7 @@ PF.examples = (function () {
     if (!r || !state.me) return;
     if (runUnread(r)) { mem.tdSaid = runUnread(r) + ' Nothing was decided.'; render(); return; }
     var sent = op === 'decline' ? tdSent(['td-dec-why'], 'dec') : null, tok = tdTok('dec'), open = mem.tdDec, slot = 'dec', sig = JSON.stringify([key, id, op, shown || '', reason == null ? '' : String(reason), state.me]);
-    var made = tdKept(slot, sig, function (seed) { return PF.todos.decide(r, Object.assign(spInputs(), { request: id, op: op, by: state.me, shown: shown, reason: reason, at: new Date().toISOString(), app: APP_VERSION, writer: seed.writer, rev: seed.rev })); });
+    var me = state.me, made = tdKept(slot, sig, function (seed, d) { return PF.todos.decide(r, Object.assign(spInputsOf(d), { request: id, op: op, by: me, shown: shown, reason: reason, at: seed.at, app: APP_VERSION, writer: seed.writer, rev: seed.rev })); });
     if (made.why) { mem.tdSaid = made.why; render(); return; }
     tdWrite(r, made, made.words, slot, tok).then(function (ok) { if (ok && mem.tdDec === open && tok === tdTok('dec') && (!sent || tdClearIf(sent))) { mem.tdDec = null; render(); } });
   }
@@ -36642,10 +36729,10 @@ PF.examples = (function () {
     var ok = 0, changed = [], failed = [], unsure = [], alone = [], n = list.length;
     /* Still a plain addition, as the batch showed it: not decided two ways meanwhile, nothing else changed in what it does.
        Asked before each decision and again right before its write; one that isn't is left for its own decision. */
-    var plainNow = function (x) {
+    var plainNow = function (x, d) {
       var r1 = findRun(x.run);
       if (!r1) return 'its run isn\'t in this folder';
-      var it = PF.todos.inbox([r1], Object.assign(spInputs(), { me: me })).filter(function (y) { return y.id === x.id; })[0];
+      var it = PF.todos.inbox([r1], Object.assign(spInputsOf(d || data), { me: me })).filter(function (y) { return y.id === x.id; })[0];
       if (!it) return 'it no longer waits for your decision';
       if (it.dispute) return 'it was decided two ways meanwhile';
       if (!it.fulfills || it.op !== 'add' || it.landed || it.consequence.reopens.length || it.consequence.releases || it.consequence.fingerprint !== x.fp) return 'it changed since you saw it';
@@ -36685,13 +36772,18 @@ PF.examples = (function () {
       var pw = plainNow(x);
       if (pw) { alone.push({ x: x, why: pw }); step(i + 1); return; }
       var slot = 'dec-all:' + x.run + '|' + x.id, sig = JSON.stringify([x.run, x.id, 'accept', x.fp, me]), late = '';
-      var made = tdKept(slot, sig, function (seed) { return PF.todos.decide(r, Object.assign(spInputs(), { request: x.id, op: 'accept', by: me, shown: x.fp, at: new Date().toISOString(), app: APP_VERSION, writer: seed.writer, rev: seed.rev })); });
+      var made = tdKept(slot, sig, function (seed, d) { return PF.todos.decide(r, Object.assign(spInputsOf(d), { request: x.id, op: 'accept', by: me, shown: x.fp, at: seed.at, app: APP_VERSION, writer: seed.writer, rev: seed.rev })); });
       if (made.why) { if (made.renewed) changed.push(x); else failed.push({ why: made.why }); step(i + 1); return; }
       var cx = loopGuard({ run: r.process + '/' + r.id, readable: true }), endBusy = busyStart(), sg = gen;
-      repo.saveScope(cx.fs, made.name, made.file, { still: function () { if (!(same() && guardOk(cx))) return false; late = plainNow(x); return !late; } }).then(function (res) {
+      /* Round 17 (VB): before each item's write, the fresh guard: its run (and its parent) read again, people.json, and the
+         records; still a plain addition there, and exactly this decision built again from what was read. */
+      var recheck = function (fs) { return freshGuard(cx, fs, runKeysFor(r), function (d) { if (!same()) return false; var w = plainNow(x, d); if (w) { late = w; return false; } return tdSame(made, d); }); };
+      repo.saveScope(cx.fs, made.name, made.file, { still: function () { if (!(same() && guardOk(cx))) return false; late = plainNow(x); return !late; }, recheck: recheck }).then(function (res) {
         endBusy(); if (sg !== gen || !here()) return;
         if (res && res.dropped && late) { tdSettled(slot, mem); alone.push({ x: x, why: late }); step(i + 1); return; }
-        if (res && res.dropped) { failed.push({ why: 'The folder, the person or the run changed before it was written.' }); step(i + 1); return; }
+        /* A refusal by the guard (the person, a run or the records changed, or the folder didn't answer in time) stops the
+           batch: what was read no longer stands for the rest either. Said with what was written and what wasn't. */
+        if (res && res.dropped) { failed.push({ why: 'Your acceptance of ' + x.run + ' (' + x.id + ') wasn\'t written: who may decide it, its run or its records changed before it was.' }); stopped = list.length - i - 1; settle(); return; }
         tdSettled(slot, mem);
         if (res && res.conflict && res.theirs !== PF.todos.text(made.file)) { failed.push({ why: 'A different record is already saved under its name.' }); step(i + 1); return; }
         var rec = made.record; rec._file = made.name;
@@ -36815,7 +36907,17 @@ PF.examples = (function () {
       var rec = fw.record;
       /* Written in the folder and generation it was prepared in; once the window has moved on (another folder, a new read),
          the record never enters what is shown now: the next read of its own folder finds it. */
-      prepared = repo.saveScope(cx.fs, s.name, s.file, { still: function () { return guardOk(cx); } }).then(function (res) { if ((res && res.dropped) || !guardOk(cx)) return null; rec._file = s.name; (data.todos = (data.todos || []).slice()).push(rec); return rec; });
+      /* Round 17 (VC): right before the application is written, the fresh guard works out the same plan from the delegations,
+         revokes, people and records read now. */
+      var want = JSON.stringify(plan.write || plan.settle || null);
+      var recheck = function (fs) {
+        return freshGuard(cx, fs, runKeysFor(r), function (d) {
+          var V2 = PF.todos.view(r, { records: d.todos || [], unread: d.todosUnread || [], people: d.people }), q2 = V2 && V2.requests[q.id];
+          var p2 = q2 ? PF.todos.applyPlan(r, V2, q2, spInputsOf(d)) : null;
+          return !!p2 && !p2.landed && !p2.skip && !p2.adopt && JSON.stringify(p2.write || p2.settle || null) === want;
+        });
+      };
+      prepared = repo.saveScope(cx.fs, s.name, s.file, { still: function () { return guardOk(cx); }, recheck: recheck }).then(function (res) { if ((res && res.dropped) || !guardOk(cx)) return null; rec._file = s.name; (data.todos = (data.todos || []).slice()).push(rec); return rec; });
     }
     return prepared.then(function (a) {
       if (!a || !guardOk(cx)) return false;
@@ -36837,7 +36939,7 @@ PF.examples = (function () {
         if (!plan2.adopt) throw new Error('The to-do request changed while it was carried out.');
         var ae = (a.kind === 'compound' ? a.application : a).effect, x = ae.todo ? V2.byTodo[ae.todo] || null : null;
         R.todoLand(rr, m, a, { who: me, now: now, typesHash: types, app: APP_VERSION, todo: x, spread: ae.spread ? V2.bySpread[ae.spread] || null : null });
-      }, { background: true, redo: true });
+      }, { background: true, redo: true, freshKeys: runKeysFor(r) });
       return mutateRun(key, cx.g, ed.fn, ed.opts).then(function (ok) { return ok !== false; });
     });
   }
@@ -36856,7 +36958,8 @@ PF.examples = (function () {
     if (!guardOk(cx)) return Promise.resolve(false);
     var d = PF.loop.buildDecision({ proposal: q.id, loop: V.loop, op: op, items: [], seen: PF.loop.seenFor(V.ledger, [], [q.id]).seen, reason: String(why || '').slice(0, 300), by: cx.me, resolver: resolver || '', writer: 'w' + loopHex(10), rev: loopHex(8), now: new Date().toISOString(), app: APP_VERSION });
     var ow = PF.loop.fileWhy(d.name, d.file); if (ow) return Promise.reject(new Error(ow));
-    return repo.saveScope(cx.fs, d.name, d.file, { still: function () { return guardOk(cx); } }).then(function (res) { return res && res.dropped ? false : res; });
+    var ok0 = V.loop && findRun(V.loop.process + '/' + V.loop.run), ok = ok0 ? runKeysFor(ok0) : null;
+    return repo.saveScope(cx.fs, d.name, d.file, { still: function () { return guardOk(cx); }, recheck: function (fs) { return ok ? freshGuard(cx, fs, ok, function () { return true; }) : false; } }).then(function (res) { return res && res.dropped ? false : res; });
   }
   /* Counts what the person did since a start was submitted: every click on a control but Refresh, every key, navigation and
      every form opened or closed. A refused start reopens its form only when nothing happened since (childRetry); otherwise
@@ -41416,7 +41519,7 @@ PF.examples = (function () {
     'td-revoke': function (id, b) {
       var r = findRun(b.dataset.run); if (!r || !state.me) return;
       var sig = JSON.stringify([b.dataset.run, id, state.me]);
-      var made = tdKept('revoke', sig, function (seed) { return PF.todos.revokeOf(r, { grant: id, by: state.me, key: seed.key, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION }); });
+      var me = state.me, made = tdKept('revoke', sig, function (seed, d) { return PF.todos.revokeOf(r, { grant: id, by: me, key: seed.key, records: d.todos || [], unread: d.todosUnread || [], people: d.people, at: seed.at, app: APP_VERSION }); });
       if (made.why) { loopMem().tdSaid = made.why; render(); return; }
       tdWrite(r, made, made.words, 'revoke', tdTok('dec'));
     },
@@ -41429,7 +41532,7 @@ PF.examples = (function () {
       var n = String(dg.adds || '').trim(), adds = /^\d{1,3}$/.test(n) ? Number(n) : -1;
       if (!who) { mem.tdSaid = 'Say who: a tool\'s name, or a person\'s ID from people.json.'; render(); return; }
       var subject = ppl ? { person: who } : { tool: who }, sig = JSON.stringify([dg.run, subject, ops, dg.phase, adds, state.me]);
-      var made = tdKept('grant', sig, function (seed) { return PF.todos.grantOf(r, { subject: subject, ops: ops, targets: [{ phase: dg.phase }], adds: adds, by: state.me, key: seed.key, records: data.todos || [], unread: data.todosUnread || [], people: data.people, at: new Date().toISOString(), app: APP_VERSION }); });
+      var me = state.me, phase = dg.phase, made = tdKept('grant', sig, function (seed, d) { return PF.todos.grantOf(r, { subject: subject, ops: ops, targets: [{ phase: phase }], adds: adds, by: me, key: seed.key, records: d.todos || [], unread: d.todosUnread || [], people: d.people, at: seed.at, app: APP_VERSION }); });
       if (made.why) { mem.tdSaid = made.why + ' Nothing was written.'; render(); return; }
       tdWrite(r, made, made.words, 'grant', tdTok('dg'));
     },
@@ -42496,6 +42599,8 @@ PF.examples = (function () {
          refusal keeps the copy. */
       var ph = approvedPhases(c);
       if (ph.length) { rcx.holds = { phases: ph }; rcx.holdRun = key; if (rc && rc.key === key) rc.cx.holds = rcx.holds, rc.cx.holdRun = key; }
+      /* Round 17 (VA): every recovery asks the snapshot (the person, the run and the source chosen), approvals or none. */
+      rcx.fresh = true; rcx.holdRun = rcx.holdRun || key;
       var src0 = sourceOf ? sourceOf() : null;
       if (src0 && src0.file) rcx.pin = src0.file;
       if (src0 && src0.local) rcx.localPin = src0.local;
