@@ -276,6 +276,34 @@ rule('A child run that can\'t be read, or its version, right after the receipt i
   }
 });
 
+/* HD: the end is asked again on the publication indexes read again right there, never the ones this window cached: a second
+   v1 of the loop child's checklist added right after the receipt is written makes the child's pin ambiguous, so fresh pin
+   resolution counts it as no match and nothing ends. The control ends with the cleared child counted. */
+async function clearKid(app) {
+  const path = kidPaths(app)[0], kid = JSON.parse(app.fs.files[path].t), at = new Date(Date.now() + 1000).toISOString(), R = app.PF.run;
+  kid.steps.verdict = { s: 'done', by: 'person-avery', at, values: { decision: 'cleared' } };
+  kid.details.disposition = 'cleared';
+  const rr = R.sanitize(JSON.parse(JSON.stringify(kid))), mm = R.mapOf(rr);
+  mm.phases.forEach(p => { if (p.gate) kid.gates[p.gate.id] = { s: 'passed', by: 'person-avery', at, approved: R.gateInputs(rr, mm, p.gate) }; });
+  kid.ended = { outcome: 'Completed', by: 'person-avery', at }; kid.state = 'completed'; kid.rev = (kid.rev || 0) + 1;
+  await app.fs.write(path, JSON.stringify(kid));
+  await refresh(app, 400);
+  const r = pRun(app); app.click('open-run', r.process + '/' + r.id); await app.tick(80);
+}
+rule('A second v1 of a loop child\'s checklist added right after the receipt is written ends nothing: the end asks the versions read again', async () => {
+  const ctl = await loopSetup(); await clearKid(ctl);
+  ctl.click('end', 'Cancelled'); await ctl.tick(400);
+  const r = pRun(ctl), rec = r.ended && JSON.parse(ctl.fs.files['proposals/' + r.living.receipt + '.json'].t);
+  assert.ok(rec, 'control: ended with its receipt');
+  assert.strictEqual(rec.counts.cleared + ' of ' + rec.counts.items, '1 of 2', 'control: the cleared child counted');
+
+  const app = await loopSetup(); await clearKid(app);
+  const PF = app.PF, people = JSON.parse(app.fs.files['people.json'].t);
+  const b = PF.publish.build(KID, { people, ...require('./harness').exampleSetup(PF), by: 'person-avery', changes: 'Again', existing: [], now: new Date().toISOString(), rand: 'vs000002', app: '4.0.0' });
+  assert.ok(!b.blockers && /^v1-/.test(b.folder), 'set-up: another v1 (' + b.folder + ')');
+  await endDamaged(app, () => { Object.keys(b.files).forEach(k => { app.fs.files['publications/validate-story/' + b.folder + '/' + k] = { t: b.files[k], m: Date.now() }; }); });
+});
+
 rule('An ended living run shows the receipt\'s frozen progress lines, the counts now apart; Copy for Jira carries the frozen summary and arrivals', async () => {
   const app = await loopSetup();
   app.click('end', 'Cancelled'); await app.tick(400);

@@ -25,8 +25,8 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "ffe4c94bdb25c54f919fc914ac69d55879c05886844e03b5336d24e484bcaf99",
-      "reviewed": "HB: design 45: check_pack.py follows reverse spread fulfillment; the corpus has a reverse role; checked for direct writes and unconditional deletes: docs only"
+      "sha256": "5f18a954dcf4fd648b75acf7738b817ec6538a95aa99134a54f7e4a50cf587d0",
+      "reviewed": "rcptFresh rereads the loops' publication indexes and carries that procOf; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "8828d4ade3981b60bb45d9f25431de63af40dd49e2385a68bcb06d34ddf5e56c",
@@ -429,8 +429,8 @@
       "reviewed": "GA: the readers' whole run.json verdict everywhere: repo.judgeRunFile (export, before any gate), run_verdict.py shipped beside check_folder.py (moved from test/, reader_problem added; check_folder.run_problem and check_pack root_problem ask it), todo list exits 4 naming a run.json no reader reads; checked for direct writes and unconditional deletes: export and checker only read; run_verdict.py writes only its own temporary version folder (mkdtemp) for the pack reader's version check, removed after, never called by check_folder.py; nothing in the team folder written or deleted"
     },
     "src/ui/app.js": {
-      "sha256": "39be5a253c8a6e084821e36cb17b6bac885e2fb1f0f98a53e2c1fc707c52aa51",
-      "reviewed": "CA: one receipt verdict sees every record and unread entry under the receipt id"
+      "sha256": "5fe82cb8e3d725f01ca31ceccd9b0d63001ce13acacb2d6f275849389099d88e",
+      "reviewed": "rcptFresh rereads the loops' publication indexes and carries that procOf; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

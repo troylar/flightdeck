@@ -3562,11 +3562,23 @@
   function rcptInputs(sn) {
     sn = sn || tdData();
     var lp = sn.loops || { records: data.scopes || [], unread: data.scopesUnread || [] };
-    return { records: sn.records, unread: sn.unread, people: sn.people, evidence: sn.evidence || null, now: tdNow(), loops: { records: lp.records, unread: lp.unread, procOf: ctx.procOf }, runs: sn.runs || data.runs || [] };
+    return { records: sn.records, unread: sn.unread, people: sn.people, evidence: sn.evidence || null, now: tdNow(), loops: { records: lp.records, unread: lp.unread, procOf: sn.procOf || ctx.procOf }, runs: sn.runs || data.runs || [] };
+  }
+  /* The processes a run's loops start (each {for.each} step's process, with Fill in's changes): the publication indexes a
+     receipt's pins are resolved on, read again by rcptFresh. */
+  function loopProcs(run) {
+    var out = [], m = null; try { m = R.mapOf(run); } catch (e) { m = null; }
+    (m ? m.phases : []).forEach(function (ph) { ph.steps.forEach(function (st) {
+      if (st.type !== 'for.each') return;
+      var f = null; try { f = R.fieldsOf(run, st); } catch (e) { f = null; }
+      if (f && typeof f.process === 'string' && /^[a-z0-9][a-z0-9-]{0,59}$/.test(f.process) && out.indexOf(f.process) < 0) out.push(f.process);
+    }); });
+    return out.sort();
   }
   /* The one fresh dependency read a receipt is prepared and asked again on, right before each write that writes it or ends the
      run: the to-do records, people and evidence (tdFresh), the loops' scope records from that same read, and the run's loop
-     children read again with the versions they ran checked (repo.readLoopChildren). null, and nothing is written, when any of
+     children read again with the versions they ran checked (repo.readLoopChildren), and the publication indexes of the processes
+     its loops start (loopProcs, repo.readProcess), whose procOf every receipt and save-chain check then resolves pins on. null, and nothing is written, when any of
      it can't be read, the window moved on, or a run it depends on isn't one every reader would read whole (its loop children,
      its evidence runs and the runs whose spread it fulfills, rcptDepsJudged): each child is judged with the
      verdict every reader gives a run (its version read and verified, then PF.appjson.judgeRun: times, records this copy
@@ -3575,8 +3587,15 @@
     var bound = function () { return !!cx && cx.g === gen && cx.fs === state.fs && cx.me === state.me; };
     var self = findRun(key);
     if (!self) return Promise.resolve(null);
-    return Promise.all([repo.readTodos(cx.fs, { evidence: true }).then(null, function () { return null; }), repo.readLoopChildren(cx.fs, self).then(null, function () { return null; })]).then(function (x) {
+    var procs = loopProcs(self);
+    var idx = Promise.all(procs.map(function (n) { return repo.readProcess(cx.fs, n).then(null, function (e) { return { latest: null, all: [], clashes: [], broken: [], unlisted: 'publications/' + n + '/ ' + String(e && e.message || e) }; }); }));
+    return Promise.all([repo.readTodos(cx.fs, { evidence: true }).then(null, function () { return null; }), repo.readLoopChildren(cx.fs, self).then(null, function () { return null; }), idx]).then(function (x) {
       if (!bound() || !x[0] || !x[1]) return null;
+      var pubs = Object.create(null), off = '';
+      procs.forEach(function (n, i) { pubs[n] = x[2][i] || null; if (!off && x[2][i] && x[2][i].unlisted) off = x[2][i].unlisted; });
+      if (off) { cx.rcptWhy = String(off).slice(0, 300) + ' (the versions this run\'s loops start can\'t be listed, so its children can\'t be checked against them).'; return null; }
+      /* The loops' pins are resolved on these indexes, read again right here, never the ones this window cached. */
+      var procOf = function (id) { return Object.prototype.hasOwnProperty.call(pubs, id) ? pubs[id] : ctx.procOf(id); };
       if (x[1].unread.length) { var u = x[1].unread[0]; cx.rcptWhy = String(u.path || 'runs/' + u.key + '/run.json') + ': a child run of this run\'s loops can\'t be read as every reader reads it (' + String(u.kind || 'unreadable') + ': ' + String(u.why).slice(0, 200) + ').'; return null; }
       var s = x[0], d = { todos: s.records, todosUnread: s.unread }; todoBodies(d);
       var mine = function (c) { return c && c.parent && c.parent.item && c.parent.process === self.process && c.parent.id === self.id; };
@@ -3586,7 +3605,7 @@
         if (!bound()) return null;
         if (bad) { cx.rcptWhy = String(bad.path) + ': a run this run\'s work depends on can\'t be read as every reader reads it (' + String(bad.kind) + ': ' + String(bad.why).slice(0, 200) + ').'; return null; }
         return { records: d.todos || [], unread: d.todosUnread || [], people: s.people || data.people, evidence: s.evidence || null, loops: { records: s.scopes || [], unread: s.scopesUnread || [] },
-          runs: (data.runs || []).filter(function (c) { return !mine(c); }).concat(x[1].runs), rcpt: true };
+          runs: (data.runs || []).filter(function (c) { return !mine(c); }).concat(x[1].runs), procOf: procOf, rcpt: true };
       });
     });
   }
