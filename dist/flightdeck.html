@@ -36128,6 +36128,16 @@ PF.examples = (function () {
       return stillSame(raw, rec.seen, pin).then(function (same) { return same && judgeSnapshot(cx, rk, h, loops, snap); }, no);
     }, no);
   }
+  /* Why me may not approve on r now, by people (a checked people.json), or ''. */
+  function actorWhy(r, people, me) {
+    var list = PF.people.listOf(people), p = null;
+    for (var i = 0; i < list.length; i++) if (list[i] && list[i].id === me) { p = list[i]; break; }
+    if (!me || !p) return 'You aren\'t in people.json now.';
+    if (p.inactive) return 'You are marked inactive in people.json now.';
+    if (r && r.recorder && r.recorder.person === me) return '';
+    if (r && r.ended && r.ended.by === me) return '';
+    return 'Only the run\'s recorder can approve here.';
+  }
   function judgeSnapshot(cx, rk, h, loops, snap) {
     var res = snap.plans, runs = [snap.parent].concat(snap.kids);
     var sameLoop = function (l, m) { return !!l && !!m && l.process === m.process && l.run === m.run && l.step === m.step; };
@@ -36153,6 +36163,10 @@ PF.examples = (function () {
     var mine; try { mine = JSON.parse(JSON.stringify(cur)); } catch (e) { return false; }
     var d = Object.assign({}, data, { runs: [mine].concat(snap.kids), people: snap.people, scopes: res.scopes || [], scopesUnread: res.scopesUnread || [], todos: res.todos || [], todosUnread: res.todosUnread || [] });
     if (!guardOk(cx, d)) return false;
+    /* Round 16 (UA): the person acting, asked of the snapshot's people on every approval path, before every write, backup and
+       cleanup alike: in people.json, active, and the one who may approve here (the run's recorder; for an ended run being
+       recovered, its recorder or whoever ended it). */
+    if (actorWhy(mine, snap.people, state.me)) return false;
     if ([mine].concat(snap.kids).some(function (c) { return c.living && c.living.head && !PF.todos.recordsFor(d.todos, c).some(function (x) { return x.id === c.living.head; }); })) return false;
     markLoops([mine].concat(snap.kids), d);
     return !heldOn(mine, h);
