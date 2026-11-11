@@ -1144,4 +1144,23 @@ rule('A copy under the receipt\'s id that names another run, or is another kind 
     assert.ok(!c.ok && /receipt/.test(c.out), what + ': Python: ' + c.out);
   }
 });
+/* CD: Python reads every packed record by its family's reader before asking which run it names: a correctly hashed packed
+   request record that the app can't read ([], {}, or a request whose run is 42) names no run it can tell, so it is a
+   dependency of every checked run, and a complete claim is refused, as the export of the same folder is partial naming it. */
+rule('A packed request record the app can\'t read whose run can\'t be told is refused by Python as complete, as the export names it', async () => {
+  const W = await made({ todos: 1 }), p = 'proposals/req-flightdeck-' + 'e'.repeat(24) + '.json';
+  const bad = JSON.parse(String(W.files[Object.keys(W.files).filter((k) => /^proposals\/req-flightdeck-/.test(k))[0]])); bad.run = 42;
+  for (const [what, text] of [['a list', '[]'], ['an empty object', '{}'], ['a request whose run is 42', JSON.stringify(bad, null, 2)]]) {
+    const files = Object.assign({}, W.files, { [p]: text + '\n' });
+    const { res } = await pack(W.PF, new BytesFS(files), W.key);
+    assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(p) >= 0), what + ': the export names it: ' + res.status + ' ' + JSON.stringify(res.col.unresolved).slice(0, 300));
+    if (!PY) continue;
+    const ok = await pack(W.PF, new BytesFS(W.files), W.key);
+    const c = checkPack(await repacked(W.PF, ok.zip, (e, man, get) => {
+      const f0 = man.files.filter((f) => /^proposals\/req-/.test(f.path))[0], f1 = Object.assign({}, f0, { path: p, pack: f0.pack.replace(/[^/]+$/, p.split('/').pop()) });
+      e[f1.pack] = Buffer.from(text + '\n'); man.files.push(f1);
+    }));
+    assert.ok(!c.ok && c.out.indexOf(p) >= 0, what + ': Python: ' + c.out);
+  }
+});
 run();

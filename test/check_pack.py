@@ -113,7 +113,18 @@ def check_living(z, man):
                 # judged below.
                 reached.add(path)
                 continue
+            # Read by its family's reader before its run is asked (the loader's dispatch): a request record the app can't read
+            # whose run can't be told (not an object, an object of no kind, or a to-do record whose run isn't {process, id})
+            # may be this run's, so it is reached and judged below; one that names a run names that run.
+            stem = path[len("proposals/"):]
+            readable = isinstance(o, dict) and (o.get("kind") in ("plan", "status") or isinstance(o.get("format"), str))
+            if stem.lower().startswith("req-") and not readable:
+                reached.add(path)
+                continue
             if not isinstance(o, dict):
+                continue
+            if CF.todo_claims(o) and family_why(path) and run_of(o) is None:
+                reached.add(path)
                 continue
             lp = o.get("loop")
             if o.get("run") == me or (isinstance(lp, dict) and lp.get("process") == me["process"] and lp.get("run") == me["id"]):
@@ -132,6 +143,11 @@ def check_living(z, man):
         return scopes
 
     reached, plans_wanted, facts_wanted = set(), set(), set()
+
+    def run_of(o):
+        """PF.todos.runOf: the run a record names, when it is {process, id} as text; else None."""
+        v = o.get("run") if isinstance(o, dict) else None
+        return v if isinstance(v, dict) and isinstance(v.get("process"), str) and isinstance(v.get("id"), str) else None
 
     def packed_ids(rid):
         """The packed files of one record id: its own name and its synced copies (" (1)" and the like)."""
