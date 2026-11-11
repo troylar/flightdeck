@@ -1258,8 +1258,10 @@ rule('Python dispatches every packed record by its family before any filter: an 
     ['a plan/3 file of no loop', 'req-bot-' + hex, '{"format":"flightdeck-plan/3"}'], ['a list', 'req-flightdeck-' + hex, '[]'], ['an empty object', 'req-flightdeck-' + hex, '{}'],
     ['a to-do whose run is 42', 'req-flightdeck-' + hex, JSON.stringify(td)]];
   for (const [world, X] of [['a living pack', LW], ['a run without to-dos', PW]]) {
-    const ok = await pack(X.PF, new BytesFS(X.files), X.key);
-    for (const [what, stem, text] of RECS) {
+    const ok = await pack(X.PF, new BytesFS(X.files), X.key), [proc, rid] = X.key.split('/');
+    /* ED: a malformed scope record whose loop names the selected run is that run's work at the living gate too. */
+    const mine = [['a malformed scope request whose loop names this run', 'req-notes-bot-' + hex, JSON.stringify({ format: 'flightdeck-plan/3', features: ['loops'], id: 'req-notes-bot-' + hex, loop: { process: proc, run: rid, step: 'each-item' } })]];
+    for (const [what, stem, text] of RECS.concat(mine)) {
       const p = 'proposals/' + stem + '.json', tag = world + ' × ' + what;
       const { res } = await pack(X.PF, new BytesFS(Object.assign({}, X.files, { [p]: text + '\n' })), X.key);
       assert.strictEqual(res.status, 'partial', tag + ': the export: ' + JSON.stringify(res.col.unresolved).slice(0, 300));

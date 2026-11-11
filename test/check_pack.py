@@ -111,7 +111,7 @@ def check_living(z, man):
             # be this run's, so it is reached and judged below; one that names a run or a loop names that one.
             d = dispatch(path)
             if d["bad"]:
-                if (d["run"] is None and d["loop"] is None) or d["run"] == me or (d["loop"] is not None and d["loop"]["process"] == me["process"] and d["loop"]["run"] == me["id"]):
+                if applies(d, me):
                     reached.add(path)
                 continue
             if d["fam"] not in ("todo", "scope"):
@@ -135,6 +135,12 @@ def check_living(z, man):
 
     reached, plans_wanted, facts_wanted = set(), set(), set()
     dispatched = {}
+
+    def applies(d, me):
+        """Whether a dispatched record that can't be read is a run's to judge: one naming no run and no loop (which run it is for
+        can't be told), or naming this run, or a loop of this run. The one predicate on_run and the living gate share."""
+        lp = d["loop"]
+        return (d["run"] is None and lp is None) or d["run"] == me or (lp is not None and lp["process"] == me["process"] and lp["run"] == me["id"])
 
     def loop_of(o):
         """PF.loop.loopOf: the loop a record names, when it is {process, run, step} as text; else None."""
@@ -435,7 +441,7 @@ def check_living(z, man):
             # is work to check.
             if path.startswith("proposals/") and path.endswith(".json"):
                 d = dispatch(path)
-                if d["bad"] and ((d["run"] is None and d["loop"] is None) or d["run"] == me):
+                if d["bad"] and applies(d, me):
                     return True
             if path.startswith("proposals/") and path.endswith(".json"):
                 o = packed(path)
