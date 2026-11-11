@@ -8,7 +8,7 @@ const assert = require('assert');
 const crypto = require('crypto');
 const { rule, run } = require('./harness');
 const { BytesFS } = require('./evidence-fixture');
-const { made, pack, loopMade, roleWorlds, PY, sha, unzip, rezip, checkPack, manifestOf, repacked, forced } = require('./living-worlds');
+const { made, pack, SHOT, loopMade, roleWorlds, PY, sha, unzip, rezip, checkPack, manifestOf, repacked, forced } = require('./living-worlds');
 
 rule('A living run\'s pack holds its whole application chain and its receipt, says so, and writes nothing to the folder', async () => {
   const W = await made({ todos: 2 }), fsx = new BytesFS(W.files);
@@ -914,5 +914,44 @@ rule('A file that shrinks for its final stat and then grows is never reread past
   assert.ok(reads >= 2, 'set-up: read again at the end');
   assert.ok(!(max[op] > LIM + 1), 'reread past the limit: ' + max[op]);
   assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(op) >= 0), res.status + ' ' + JSON.stringify(res.col.unresolved).slice(0, 400));
+});
+/* XA: the reservation holds through capture and every final reread: a file that grows after its stat is never read past
+   it (counted on the bytes each blob gives, slices included), and one whose stat finds nothing is never read at all. */
+const bytesRead = (fsx) => {
+  const got = {}, blob = fsx.blob.bind(fsx), note = (p, n) => { got[p] = Math.max(got[p] || 0, n); };
+  const wrap = (b, p, count) => ({ size: b.size, type: b.type,
+    arrayBuffer: () => b.arrayBuffer().then((x) => { count.n += x.byteLength; note(p, count.n); return x; }),
+    text: () => b.arrayBuffer().then((x) => { count.n += x.byteLength; note(p, count.n); return Buffer.from(x).toString('utf8'); }),
+    slice: (a, z) => wrap(b.slice(a, z), p, count) });
+  fsx.blob = (p, o) => blob(p, o).then((b) => b && wrap(b, p, { n: 0 }));
+  return got;
+};
+rule('A file that grows after its stat is never read past it, at capture or at any final reread: the export names it or packs it as judged', async () => {
+  const W = await loopMade(), K = JSON.parse(W.files[W.kidPath]), LIM = 65536;
+  const vmap = 'publications/' + K.process + '/' + K.folder + '/map.md', prop = Object.keys(W.files).filter((p) => /^proposals\/req-/.test(p)).sort()[0];
+  assert.ok(W.files[vmap] && prop, 'set-up: a dependency version and a record');
+  for (const target of [vmap, prop, W.kidPath]) {
+    for (let at = 1; at <= 5; at++) {
+      const was = Buffer.from(W.files[target]), big = Buffer.concat([was, Buffer.alloc(2 * 1048576, 0x20)]);
+      let n = 0;
+      const fsx = new BytesFS(W.files, { hooks: { stat: (p, x) => { if (p === target) x.files.set(p, was); }, blob: (p, x) => { if (p === target && ++n === at) x.files.set(p, big); } } });
+      const got = bytesRead(fsx);
+      const parts = [], res = await W.PF.repo.exportEvidence(fsx, { run: W.key }, { sink: (u) => { parts.push(Buffer.from(u)); }, now: () => Date.now(), tz: 'UTC', maxFile: LIM });
+      if (n < at) continue;
+      assert.ok(!(got[target] > was.length + 1), target + ', blob ' + at + ': ' + got[target] + ' bytes read of ' + was.length);
+      const zip = Buffer.concat(parts), f = manifestOf(zip).files.filter((y) => y.path === target)[0], bytes = f && unzip(zip)[f.pack];
+      assert.ok((res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(target.split('/').pop()) >= 0 || u.indexOf(K.process + '/' + K.id) >= 0)) || (res.status === 'complete' && bytes && bytes.equals(was)), target + ', blob ' + at + ': ' + res.status + ' ' + JSON.stringify(res.col.unresolved).slice(0, 300));
+    }
+  }
+});
+rule('A dependency\'s screenshot that arrives after its stat found nothing is never read: it\'s missing, not read whole', async () => {
+  const W = await loopMade({ shot: true }), shot = Object.keys(W.files).filter((p) => /images\/shot\.png$/.test(p))[0];
+  const big = Buffer.concat([SHOT, Buffer.alloc(2 * 1048576)]);
+  let first = true;
+  const fsx = new BytesFS(W.files, { hooks: { stat: (p, x) => { if (p === shot && first) { first = false; x.files.delete(p); } }, blob: (p, x) => { if (p === shot) x.files.set(p, big); } } });
+  const got = bytesRead(fsx);
+  await W.PF.repo.exportEvidence(fsx, { run: W.key }, { sink: () => {}, now: () => Date.now(), tz: 'UTC', maxFile: 65536 });
+  assert.ok(!first, 'set-up: the screenshot was stat-ed');
+  assert.ok(!(got[shot] > 0), 'read after its stat found nothing: ' + got[shot]);
 });
 run();

@@ -67,15 +67,20 @@ const PARENT = ['---', 'process: release-readiness', 'title: Release 4.1', 'owne
   '## Stories · DO-CONFIRM {#stories}', '- [!] {for.each} Validate every release story {#each}', '  process: validate-story', '  items: jira.issue', '  pass: issue=item:key', '  accepts: cleared', '',
   '## Ship · READ-DO {#ship}', '- [!] {confirm} Ship it {#ship1}', ''].join('\n');
 /* A loop parent with a to-do, and one story run with a to-do of its own (living, its own application chain). */
-async function loopMade() {
+/* o.shot: the story's version holds a screenshot (SHOT), so verifying it reads that file's bytes. */
+const SHOT = Buffer.from('\x89PNG\r\n\x1a\n' + 'synthetic screenshot bytes '.repeat(8), 'latin1');
+async function loopMade(o) {
+  o = o || {};
   const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(80); app.choose('person-avery'); await app.tick();
   const PF = app.PF, people = JSON.parse(app.fs.files['people.json'].t), now = new Date().toISOString();
-  const put = (md, id, rand) => {
-    const b = PF.publish.build(md, { people, ...require('./harness').exampleSetup(PF), by: 'person-avery', changes: 'First', existing: [], now, rand, app: '4.0.0' });
+  const put = (md, id, rand, shot) => {
+    const img = shot ? { images: { 'images/shot.png': PF.util.hash(SHOT.toString('latin1')) }, imageBytes: { 'images/shot.png': new Uint8Array(SHOT) } } : {};
+    const b = PF.publish.build(md, { people, ...require('./harness').exampleSetup(PF), by: 'person-avery', changes: 'First', existing: [], now, rand, app: '4.0.0', ...img });
     assert.ok(!b.blockers, JSON.stringify(b.blockers));
     Object.keys(b.files).forEach(k => { app.fs.files['publications/' + id + '/' + b.folder + '/' + k] = { t: b.files[k], m: Date.now() }; });
+    if (shot) app.fs.files['publications/' + id + '/' + b.folder + '/images/shot.png'] = { t: 'data:image/png;base64,' + SHOT.toString('base64'), m: Date.now() };
   };
-  put(KID, 'validate-story', 'vs000001'); put(PARENT, 'release-readiness', 'rr000001');
+  put(KID, 'validate-story', 'vs000001', o.shot); put(PARENT, 'release-readiness', 'rr000001');
   app.click('refresh'); await app.tick(80);
   app.click('start', 'release-readiness'); await app.settle();
   app.chooseApprovers().submitForm('start-form'); await app.tick(120);
@@ -90,7 +95,7 @@ async function loopMade() {
   }
   const P = JSON.parse(app.fs.files[pPath].t), K = JSON.parse(app.fs.files[kPath].t);
   assert.ok(P.living && K.living && K.living.head, 'set-up: both are living');
-  const files = {}; Object.keys(app.fs.files).forEach(p => { files[p] = app.fs.files[p].t; });
+  const files = {}; Object.keys(app.fs.files).forEach(p => { const t = app.fs.files[p].t, m = /^data:[^;,]*;base64,(.*)$/.exec(t); files[p] = m ? Buffer.from(m[1], 'base64') : t; });
   return { PF, files, key: P.process + '/' + P.id, run: P, kid: K, kidPath: kPath, kidKey: K.process + '/' + K.id };
 }
 async function roleWorlds() {
@@ -165,4 +170,4 @@ async function repacked(PF, zip, edit) {
 /* The manifest made to claim the run's work complete (an evidence run's plan isn't in these folders): only Python's own checks can then refuse it. */
 const forced = (man) => { man.status = 'complete'; man.runs.forEach((r) => { if (r.living) { r.living.complete = true; r.living.missing = []; (r.living.deps || []).forEach((d) => { d.confirmed = true; }); } }); };
 
-module.exports = { MD, made, pack, KID, PARENT, loopMade, roleWorlds, PY, sha, unzip, rezip, checkPack, manifestOf, repacked, forced };
+module.exports = { MD, made, pack, KID, PARENT, SHOT, loopMade, roleWorlds, PY, sha, unzip, rezip, checkPack, manifestOf, repacked, forced };

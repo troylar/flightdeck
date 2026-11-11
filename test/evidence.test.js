@@ -524,18 +524,19 @@ rule('Files added while a pack is checked are sized and checked against the cap 
   assert.ok(reads.indexOf(big) < 0, 'the new file was never read');
 });
 
-rule('The collection never holds more than its budget in memory: past it, nothing more is read and the pack is partial, saying what was left out', async () => {
+rule('The collection never holds more than its budget in memory: files that grow past their stat are never read past it, and the pack is partial, naming them', async () => {
   const files = Object.assign({}, fixture.files);
   for (let i = 0; i < 6; i++) files['runs/release/run1/files/20261017-ff' + i + '-w2-part.bin'] = crypto.randomBytes(1048576);
   const f = new BytesFS(files), parts = [];
-  // A cap the estimate allows, with files that grow once they're listed, so only the accounting while reading can stop it.
+  // A cap the estimate allows, with files that grow once they're listed: each is read no further than its stat, so what the
+  // pack holds stays within the cap, and each is named as grown.
   const stat = f.stat.bind(f);
   f.stat = q => /-part\.bin$/.test(q) ? stat(q).then(st => st && Object.assign({}, st, { size: 1 })) : stat(q);
   const res = await repo.exportEvidence(f, { run: 'release/run1' }, { sink: u => parts.push(u), cap: 3 * 1048576, tz: 'UTC' }).then(r => r, e => ({ error: e }));
   assert.ok(res.col, res.error && res.error.message);
   assert.ok(res.col.retained.peak <= 3 * 1048576, 'peak ' + res.col.retained.peak);
   assert.strictEqual(res.status, 'partial');
-  assert.ok(res.col.exclusions.some(x => /-part\.bin$/.test(x.path) && /memory/.test(x.reason)) && res.col.unresolved.some(u => /memory/.test(u)), JSON.stringify(res.col.unresolved));
+  assert.ok(res.col.unresolved.some(u => /-part\.bin grew/.test(u)), JSON.stringify(res.col.unresolved));
 });
 
 /* ---------- Fourth review (efc021d) ---------- */
