@@ -1200,6 +1200,21 @@ rule('A copy of any witness the work rests on, of another family, malformed, of 
     }
   }
 });
+/* EC: Python validates the packed root run's end as every reader does (end_problem), before confirming its receipt or its
+   completeness: each end the readers refuse, in a pack whose manifest says complete, is refused. */
+rule('Python refuses a complete pack whose root run\'s end the readers refuse (a time, a who, a field), before its receipt', async () => {
+  if (!PY) return;
+  const W = await made({ todos: 1, pending: true }), full = await pack(W.PF, new BytesFS(W.files), W.key), rp = 'runs/' + W.key + '/run.json';
+  assert.ok(W.run.ended && W.run.living.receipt, 'set-up: ended with a receipt');
+  assert.strictEqual(full.res.status, 'complete', JSON.stringify(full.res.col.unresolved));
+  assert.ok(checkPack(full.zip).ok, 'control');
+  const ENDS = [['a time that isn\'t one', (e) => { e.at = 'bad'; }], ['a name that isn\'t text', (e) => { e.byName = 42; }], ['a name over 80', (e) => { e.byName = 'x'.repeat(81); }],
+    ['a field this copy doesn\'t know', (e) => { e.extra = 1; }], ['no time', (e) => { delete e.at; }]];
+  for (const [what, damage] of ENDS) {
+    const c = checkPack(await repacked(W.PF, full.zip, (e, man, f) => { const x = f(rp), o = JSON.parse(e[x.pack]); damage(o.ended); e[x.pack] = Buffer.from(JSON.stringify(o, null, 2) + '\n'); }));
+    assert.ok(!c.ok && c.out.indexOf(W.key) >= 0, what + ': Python: ' + c.out);
+  }
+});
 /* EA: the file-name index groups every result, successful reads too: a copy under a witness's name that reads whole as
    another record (a 1.x plan, a plan/2, a plan decision of either format, a to-do record of another id, a scope record) holds
    that witness in the loader and the export, as a copy that differs. A matrix: each witness family × each valid record. */

@@ -458,6 +458,10 @@ def check_living(z, man):
             if lv.get("complete"):
                 sys.exit("living: " + r["key"] + " says its work is complete, but its run.json isn't in the pack")
             continue
+        # The one end validation every reader applies (end_problem), on the root run before its receipt or completeness.
+        ep = CF.end_problem(run)
+        if ep and lv.get("complete"):
+            sys.exit("living: " + r["key"] + " says its work is complete, but its run.json's end isn't one every reader accepts (" + ep[0] + ": " + ep[1] + ")")
         head = (run.get("living") or {}).get("head", "")
         reached.clear()
         plans_wanted.clear()
