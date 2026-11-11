@@ -306,4 +306,26 @@ rule('This version: a publication.json with a byte that isn\'t UTF-8 in its chan
     same([pub.current, pub.versions.map((v) => v.status)], [folderName, ['complete']], JSON.stringify(pub));
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+/* CF: one problem formatter for every reader: an unattributable request record that isn't complete JSON, and a proposals/
+   listing that fails, are named with byte-identical paths, kinds and reasons by run, next, runs and todo list. */
+rule('This version: run, next, runs and todo list name an unattributable unread request and a failed proposals/ listing in the same words', async () => {
+  const { files } = await folder();
+  const cases = [['an unattributable request that isn\'t complete JSON', (dir) => fs.writeFileSync(path.join(dir, 'proposals', 'req-notes-bot-' + 'a'.repeat(24) + '.json'), '{ bad')]];
+  if (process.getuid && process.getuid() !== 0) cases.push(['a proposals/ listing that fails', (dir) => fs.chmodSync(path.join(dir, 'proposals'), 0o311)]);
+  for (const [what, damage] of cases) {
+    const { root, dir } = tree(files);
+    try {
+      damage(dir);
+      const outs = {
+        run: cli(MINE, 'run', dir, 'release-notes/run-q', '--contract', '2', '--json'),
+        next: cli(MINE, 'next', dir, 'release-notes/run-q', '--as', 'person-avery', '--contract', '2', '--json'),
+        runs: cli(MINE, 'runs', dir, '--contract', '2', '--json'),
+        'todo list': cli(MINE, 'todo', 'list', dir, 'release-notes/run-q', '--json')
+      };
+      const seen = Object.keys(outs).map((k) => [k, outs[k].code, (outs[k].json.problems || []).filter((x) => /^proposals/.test(x.path)).map((x) => [x.path, x.kind, x.why])]);
+      assert.ok(seen[0][2].length, what + ': run names it: ' + outs.run.out.slice(0, 400));
+      same(seen, Object.keys(outs).map((k) => [k, 4, seen[0][2]]), what + ': ' + JSON.stringify(seen));
+    } finally { try { fs.chmodSync(path.join(dir, 'proposals'), 0o755); } catch (e) { /* gone */ } fs.rmSync(root, { recursive: true, force: true }); }
+  }
+});
 run();
