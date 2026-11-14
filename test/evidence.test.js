@@ -255,8 +255,8 @@ rule('Python takes a decision as proof of "Published in v2" only when the app wo
     ['no attribution', withInc({ by: undefined })],
     ['a later declined decision', withInc({}, (e, man, g) => { put(e, man, g, fixture.groupId + '.w7.3.json', inc(e, g, { status: 'declined', reason: 'Not now', rev: 3, seen: fixture.groupId + '.w6.2.json', version: undefined, folder: undefined })); })],
     ['another decision at the same rev', withInc({}, (e, man, g) => { put(e, man, g, fixture.groupId + '.w7.2.json', inc(e, g, { status: 'declined', reason: 'Not now', version: undefined, folder: undefined })); })],
-    /* TC: only files the app reads as decisions (a .json name, any case) count. */
-    ...['ignored.txt', fixture.groupId + '.w6.2.json.bak', fixture.groupId + '.w6.2'].map((name) => ['an "It\'s in v2" decision named ' + name, (e, man, g) => { unlisted(e, g); put(e, man, g, name, inc(e, g, {})); }])
+    /* TC: only files the app reads as decisions (a .json name, any ASCII case) count; WB: a long s (U+017F) isn't an s. */
+    ...['ignored.txt', fixture.groupId + '.w6.2.json.bak', fixture.groupId + '.w6.2', fixture.groupId + '.w6.2.j\u017Fon'].map((name) => ['an "It\'s in v2" decision named ' + name, (e, man, g) => { unlisted(e, g); put(e, man, g, name, inc(e, g, {})); }])
   ];
   const misses = [];
   for (const [what, edit] of cases) { const c = LW.checkPack(await LW.repacked(PF, zip, edit)); if (c.ok) misses.push(what + ': ' + c.out); }

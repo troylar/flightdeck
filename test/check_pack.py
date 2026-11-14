@@ -110,7 +110,7 @@ def check_claims(z, man):
             for q in sorted(by_path):
                 # Only what the app reads there as a decision: a file directly in the folder named .json, in any case (TC).
                 nm = q[len("corrections/" + proc + "/"):]
-                if not q.startswith("corrections/" + proc + "/") or "/" in nm or not re.search(r"\.json\Z", nm, re.I):
+                if not q.startswith("corrections/" + proc + "/") or "/" in nm or not CF.json_name(nm):
                     continue
                 try:
                     d = decision_of(decode(z.read(by_path[q])))

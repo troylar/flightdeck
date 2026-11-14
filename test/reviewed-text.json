@@ -25,12 +25,12 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "a47704be94f9b32041b0135a7b4e74a2bcad1fcfa358e921337a8819a31cf9c1",
-      "reviewed": "VB: a fact a landed done or the receipt rests on is held to the done's content, source, domain and the to-do's run, item and attempt; checked for direct writes and unconditional deletes"
+      "sha256": "13c220cd01628e4e927ad370f5c39710dd37f2c3f41780d0e10c1d180aed0b5e",
+      "reviewed": "WB: check_pack.py's decision file name rule is ASCII-exact (CF.json_name); checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
-      "sha256": "7e79d99ee8786e20125b84442268f6027f1fe840b794e2fa4209aae578390c53",
-      "reviewed": "VB: a fact a landed done or the receipt rests on is held to the done's content, source, domain and the to-do's run, item and attempt; checked for direct writes and unconditional deletes"
+      "sha256": "f3ac2876ecb5473f042bc60fc04b3ad33feb5c774d1b0bbafc22b15706f195e4",
+      "reviewed": "WB: check_pack.py's decision file name rule is ASCII-exact (CF.json_name); checked for direct writes and unconditional deletes"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
