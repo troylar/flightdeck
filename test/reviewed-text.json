@@ -25,12 +25,12 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "b3afd912648837dbb94e9f7fa390a419a0b4b39799a52eba5b760613249f30bf",
-      "reviewed": "SB: inclusion decisions read as cleanDecision reads them, only the group's current one; checked for direct writes and unconditional deletes"
+      "sha256": "eba80206ef8d5d5895323ae0b6e454cde9f76c1ef8a3a785ea8d89c922c1dcb6",
+      "reviewed": "SC: context reads confirmed by a hashed bounded reread, retried within the export's tries; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
-      "sha256": "49ac68adf1c24c25500b22ea40dacd4584a8ae0e6982f5c2cb963a538cc92efa",
-      "reviewed": "SB: inclusion decisions read as cleanDecision reads them, only the group's current one; checked for direct writes and unconditional deletes"
+      "sha256": "1fa95f4199e295327d279a3f59eee5477b7a49a9d070434aa8c4538b115ea357",
+      "reviewed": "SC: context reads confirmed by a hashed bounded reread, retried within the export's tries; checked for direct writes and unconditional deletes"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
@@ -425,8 +425,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "90c4b2d590676f51c17fb1ce7e00db0183ef6e99d07a1d48e9763806eb1c9fe5",
-      "reviewed": "RD: context reads confirmed against a fresh stat, a change named; checked for direct writes and unconditional deletes"
+      "sha256": "433fc11a9181fe46165ef0f676bab2afdcf2582ce08cb307e22c50d8e805fd1d",
+      "reviewed": "SC: context reads confirmed by a hashed bounded reread, retried within the export's tries; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "dd6a2a70f212cb0512ef142198a2ff83bd5fef55429e56fab44cd64a83edaeb6",

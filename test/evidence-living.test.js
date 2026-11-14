@@ -1844,12 +1844,14 @@ rule('Files of a keep\'s process read at once never read past the shared context
   const W = await made({ todos: 1, keep: 'placed' }), proc = W.key.split('/')[0], MiB = 1048576, CTX = 8 * MiB;
   const other = 'runs/' + proc + '/ctxrun0001/', files = Object.assign({}, W.files, { [other + 'run.json']: otherRoot(W, 'ctxrun0001') });
   for (let i = 0; i < 10; i++) files[other + 'notes-w' + i + '.jsonl'] = '\n'.repeat(MiB - 4096);
-  const fsx = new BytesFS(files), stat = fsx.stat.bind(fsx), blob = fsx.blob.bind(fsx), read = { bytes: 0 };
-  const n = new Map();
+  const fsx = new BytesFS(files), stat = fsx.stat.bind(fsx), blob = fsx.blob.bind(fsx), read = { bytes: 0, again: 0 };
+  const n = new Map(), opens = new Map();
   fsx.stat = (p) => { const k = (n.get(p) || 0) + 1; n.set(p, k); return p.indexOf(other + 'notes-') === 0 && k <= 2 ? stat(p).then((s) => s && Object.assign({}, s, { size: 10 })) : stat(p); };
-  fsx.blob = (p) => blob(p).then((b) => !b || p.indexOf(other + 'notes-') !== 0 ? b : { size: b.size, slice: (a, z) => ({ arrayBuffer: () => b.slice(a, z).arrayBuffer().then((ab) => { read.bytes += ab.byteLength; return ab; }) }) });
+  /* What is held is each file's first read; reading it again to confirm it (SC) holds one slice at a time, counted apart. */
+  fsx.blob = (p) => blob(p).then((b) => { if (!b || p.indexOf(other + 'notes-') !== 0) return b; const first = !opens.get(p); opens.set(p, 1); return { size: b.size, slice: (a, z) => ({ arrayBuffer: () => b.slice(a, z).arrayBuffer().then((ab) => { if (first) read.bytes += ab.byteLength; else read.again += ab.byteLength; return ab; }) }) }; });
   const { res, zip } = await pack(W.PF, fsx, W.key, { cap: 4 * CTX, maxFile: MiB, pool: false });
   assert.ok(read.bytes <= CTX, 'read ' + read.bytes + ' bytes of notes against a budget of ' + CTX);
+  assert.ok(read.again <= read.bytes, 'read again ' + read.again + ' bytes, more than were read');
   assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(other + 'notes-w') >= 0 && /too big/.test(u)), res.status + ' ' + JSON.stringify(res.col.unresolved));
   const mr = manifestOf(zip).runs[0], cl = mr.claims.filter((c) => c.correction === W.keepId)[0];
   assert.ok(cl && !cl.verified, 'the keep isn\'t confirmed ' + JSON.stringify(mr.claims));
@@ -1981,11 +1983,12 @@ rule('A keep whose process has a notes file that grows after it is opened leaves
   const W = await made({ todos: 1, keep: 'placed' }), proc = W.key.split('/')[0], notes = 'runs/' + proc + '/ctxrun0001/notes-w1.jsonl';
   const files = Object.assign({}, W.files, { ['runs/' + proc + '/ctxrun0001/run.json']: otherRoot(W, 'ctxrun0001'), [notes]: '{"x":1234567890}' });
   const fsx = new BytesFS(files), blob = fsx.blob.bind(fsx);
-  let grown = false;
-  fsx.blob = (p) => p !== notes ? blob(p) : Promise.resolve({
+  /* It grows after every open, so reading it again (SC) never finds it settled. */
+  let grown = 0;
+  fsx.blob = (p) => { if (p !== notes) return blob(p); let first = true; return Promise.resolve({
     size: fsx.files.get(p).length,
-    slice: (a, z) => { if (!grown) { grown = true; fsx.files.set(p, Buffer.concat([fsx.files.get(p), Buffer.from('\n'.repeat(3 * 1048576))])); } return { arrayBuffer: () => Promise.resolve(Uint8Array.from(fsx.files.get(p).subarray(a, z)).buffer) }; }
-  });
+    slice: (a, z) => { if (first) { first = false; grown++; fsx.files.set(p, Buffer.concat([fsx.files.get(p), Buffer.from('\n'.repeat(1048576))])); } return { arrayBuffer: () => Promise.resolve(Uint8Array.from(fsx.files.get(p).subarray(a, z)).buffer) }; }
+  }); };
   const { res, zip } = await pack(W.PF, fsx, W.key);
   assert.ok(grown, 'set-up: the notes grew after they were opened');
   assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(notes) >= 0), res.status + ' ' + JSON.stringify(res.col.unresolved));
@@ -2065,6 +2068,40 @@ rule('Python refuses a confirmed dependency whose own work requires a run that i
   const g2 = await pack(PF, new BytesFS(Object.assign({}, W.files, { ['proposals/' + fq.id + '.json']: T.text(fq) })), W.key);
   assert.strictEqual(g2.res.status, 'partial', 'set-up: the spread\'s run is missing');
   if (checkPack(await partial(g2.zip, () => {})).ok) misses.push('a request on the child fulfilling a spread of a missing run: Python accepts the child as confirmed');
+  assert.deepStrictEqual(misses, []);
+});
+/* SC: another run's file over one slice, replaced by bytes of the same length after its first slice is read (a run.json
+   replaced by a padded {}, notes whose first line is torn while the slice read later is the same): what's read mixes two
+   versions of the same size. Every such read is confirmed by reading it again and comparing SHA-256; a difference is read
+   again within the export's tries, so the file as it settles is judged: named, the keep unconfirmed, the pack partial. */
+rule('A keep whose process has a file replaced at the same size while it is read is judged as it settles, named', async () => {
+  const W = await made({ todos: 1, keep: 'placed' }), proc = W.key.split('/')[0], base = 'runs/' + proc + '/ctxrun0001/';
+  const L = 1048576 + 4096, pad = (t) => t + ' '.repeat(L - Buffer.byteLength(t));
+  const runText = pad(otherRoot(W, 'ctxrun0001')), notesText = '\n'.repeat(L);
+  const cases = [
+    ['run.json replaced by a padded {}', base + 'run.json', Buffer.from(pad('{}'))],
+    ['notes whose first line is torn', base + 'notes-w1.jsonl', Buffer.concat([Buffer.from('{\n'), Buffer.from(notesText.slice(2))])]
+  ];
+  const misses = [];
+  const world = () => new BytesFS(Object.assign({}, W.files, { [base + 'run.json']: runText, [base + 'notes-w1.jsonl']: notesText }));
+  const ctl = await pack(W.PF, world(), W.key);
+  assert.strictEqual(ctl.res.status, 'complete', 'the control: ' + JSON.stringify(ctl.res.col.unresolved));
+  for (const [what, path, next] of cases) {
+    assert.strictEqual(next.length, L, 'set-up: the same length');
+    const fsx = world(), blob = fsx.blob.bind(fsx);
+    let swapped = false;
+    /* Its slices read the file as it is now, as the command line's blob does. */
+    fsx.blob = (p) => p !== path ? blob(p) : Promise.resolve(fsx.files.get(p) ? { size: fsx.files.get(p).length, slice: (a, z) => ({ arrayBuffer: () => {
+      const ab = Uint8Array.from(fsx.files.get(p).subarray(a, z)).buffer;
+      if (!swapped) { swapped = true; fsx.files.set(p, next); }
+      return Promise.resolve(ab);
+    } }) } : null);
+    const { res, zip } = await pack(W.PF, fsx, W.key);
+    if (!swapped) { misses.push(what + ': set-up: never swapped'); continue; }
+    if (!(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(path) >= 0))) { misses.push(what + ': ' + res.status + ' ' + JSON.stringify(res.col.unresolved)); continue; }
+    const cl = manifestOf(zip).runs[0].claims.filter((c) => c.correction === W.keepId)[0];
+    if (!(cl && !cl.verified)) misses.push(what + ': the keep is confirmed');
+  }
   assert.deepStrictEqual(misses, []);
 });
 run();

@@ -2969,32 +2969,66 @@ PF.repo = (function () {
     /* Text of a file that's never packed (another run's records, people.json): sized first, then read in bounded slices,
        counting the bytes actually read (4.0, OC). Each slice takes its room from budget ({ left }, shared by reads made at
        once) before it is read, and gives back what it didn't use (QC); a file past the limit, or a slice that can't get its
-       room, is too big ({ over }), never read past either. */
-    function sizedText(path, limit, budget) {
+       room, is too big ({ over }), never read past either. The bytes read are confirmed against a fresh stat (RD) and by
+       reading the file again and comparing SHA-256 (SC), as discovery confirms packed files: a file that grew, shrank or
+       changed at the same size while it was read is read again within the export's tries, then named ({ changed }). */
+    function sizedText(path, limit, budget, attempt) {
+      attempt = attempt || 1;
+      var again = function (r) {
+        if (!r.changed) return r;
+        if (budget && r.held) budget.left += r.held;
+        return attempt < EV_TRIES ? sizedText(path, limit, budget, attempt + 1) : { changed: true };
+      };
       return statOf(path).then(function (size) {
         if (size == null) return { missing: true };
         if (size > limit || (budget && size > budget.left)) return { over: size };
         return ro.blob(path).then(function (b) {
           if (!b) return { missing: true, gone: true };
-          var parts = [], off = 0;
+          var parts = [], off = 0, h = S.create();
           var done = function (r) { if (b.close) b.close(); return r; };
           function step() {
-            /* At the size the open gave, the bytes read are confirmed against a fresh stat (RD): a file that grew or shrank
-               meanwhile (a blob whose size was fixed at the open reads the file as it is) changed while read, named. */
-            if (off >= b.size) return statOf(path).then(function (now) { return done(now === off ? { text: decoded(E.text(E.join(parts))) } : { changed: true }); });
+            if (off >= b.size) { done(null); return confirm(h.digest()); }
             var want = Math.min(b.size - off, EV_CHUNK);
-            if (off + want > limit || (budget && want > budget.left)) return done({ over: Math.max(b.size, 1) });
+            if (off + want > limit || (budget && want > budget.left)) return done({ over: Math.max(b.size, 1), held: off });
             if (budget) budget.left -= want;
             return b.slice(off, off + want).arrayBuffer().then(function (ab) {
               var u = new Uint8Array(ab);
               if (budget) budget.left += want - Math.min(want, u.length);
               if (!u.length) throw new Error('A file ended early while it was read.');
-              parts.push(u); off += u.length;
+              parts.push(u); h.update(u); off += u.length;
               return step();
             });
           }
+          /* Read again slice by slice, each slice's room taken from the budget and given back once hashed: the same size at
+             the second open, the same SHA-256, and the same size by a fresh stat afterwards, or it changed while read (a
+             file that grew or shrank after the first open shows in the second's size). */
+          function confirm(sha) {
+            return ro.blob(path).then(function (b2) {
+              if (!b2) return { changed: true, held: off };
+              var at = 0, h2 = S.create(), shut = function (r) { if (b2.close) b2.close(); return r; };
+              function next() {
+                if (at >= b2.size) {
+                  shut(null);
+                  if (at !== off || h2.digest() !== sha) return { changed: true, held: off };
+                  return statOf(path).then(function (now) { return now === off ? { text: decoded(E.text(E.join(parts))) } : { changed: true, held: off }; });
+                }
+                var want = Math.min(b2.size - at, EV_CHUNK);
+                if (budget && want > budget.left) return shut({ over: Math.max(b2.size, 1), held: off });
+                if (at + want > off) return shut({ changed: true, held: off });
+                if (budget) budget.left -= want;
+                return b2.slice(at, at + want).arrayBuffer().then(function (ab) {
+                  var u = new Uint8Array(ab);
+                  if (budget) budget.left += want;
+                  if (!u.length) throw new Error('A file ended early while it was read.');
+                  h2.update(u); at += u.length;
+                  return next();
+                });
+              }
+              return Promise.resolve().then(next).then(null, function (e) { if (b2.close) b2.close(); throw e; });
+            });
+          }
           return Promise.resolve().then(step).then(null, function (e) { if (b.close) b.close(); throw e; });
-        }).then(null, function () { return { missing: true, failed: true }; });
+        }).then(function (r) { if (r.over && budget && r.held) budget.left += r.held; return again(r); }, function () { return { missing: true, failed: true }; });
       });
     }
 
