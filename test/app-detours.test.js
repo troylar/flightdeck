@@ -795,4 +795,16 @@ rule('A to-do\'s plan never offers or records a switch to a newer version', asyn
   assert.strictEqual(kidPaths(app).length, before + 1, 'it starts on its pinned version');
 });
 
+/* WD: Run this checklist judges the run it is on with the one source verdict every reader uses: a version of that run that
+   can't be read (EACCES) since the screen was drawn writes no plan. */
+rule('Run this checklist writes no plan when the version of the run it is on can\'t be read since the screen was drawn', async () => {
+  const { app, todo } = await setup(['pass']), r = parentRun(app), fs = app.fs, read = fs.read.bind(fs);
+  const pi = 'publications/release-notes/' + r.folder + '/publication.json';
+  assert.ok(fs.files[pi], 'set-up: the version is there');
+  fs.read = (p, ...a) => p === pi ? Promise.reject(Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' })) : read(p, ...a);
+  app.click('td-detour', todo); await app.tick(300);
+  fs.read = read;
+  assert.strictEqual(plans(app).length, 0, 'no plan written: ' + app.live());
+});
+
 run();

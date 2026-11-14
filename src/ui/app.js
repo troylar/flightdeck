@@ -3538,6 +3538,17 @@
     });
     return out;
   }
+  /* WD: a run something rests on, read again from the folder (never this window's copy) and judged with the one source
+     verdict every reader uses (PF.appjson.sourceProblems): its read's own problems, a newer or damaged run, and a version that
+     doesn't match or couldn't be read. Resolves { run, pub } to rebuild from, or { why } (a sentence part) to refuse with. */
+  function sourceAgain(fx, r, name, used) {
+    return repo.readRunOnly(fx, r.process, r.id).then(function (one) {
+      if (!one.found || one.nofile) return { why: name + ' isn\'t in the folder now.' };
+      var P = PF.appjson.sourceProblems(one, r.process, r.id, name.charAt(0).toUpperCase() + name.slice(1), used);
+      if (P.length) return { why: name + ' can\'t be trusted as it is now (' + String(P[0].path) + ': ' + String(P[0].why || P[0].kind).replace(/\.$/, '') + ').' };
+      return { run: one.run, pub: one.pub };
+    }, function (e) { return { why: name + ' couldn\'t be read again right before it was used (' + (e && e.message || e) + ').' }; });
+  }
   function detourBack(r) {
     var b = r ? PF.detours.returnOf(r, data.plans || []) : null, pr = b ? findRun(b.from) : null;
     if (!pr) return null;
@@ -3565,17 +3576,15 @@
     var late = '';
     var depsAgain = function (fx) {
       late = '';
-      return repo.readRunOnly(fx, r.process, r.id).then(function (one) {
-        var jp = one.found && one.run ? PF.appjson.judgeRun(one.run, one.pub).concat((one.bad || []).filter(function (b) { return b && typeof b.path === 'string' && b.path.indexOf('runs/' + rk + '/') === 0; })) : null;
-        if (!jp || one.nofile) { late = 'the run it is on isn\'t in the folder now.'; return; }
-        if (jp.length) { late = 'the run it is on can\'t be trusted as it is now (' + String(jp[0].path) + ': ' + String(jp[0].why || jp[0].kind).replace(/\.$/, '') + ').'; return; }
+      return sourceAgain(fx, r, 'the run it is on', 'nothing can rest on it').then(function (one) {
+        if (one.why) { late = one.why; return; }
         return repo.readTodos(fx, { evidence: true }).then(function (sn) {
           var V2 = null; try { V2 = PF.todos.view(one.run, { records: sn.records, unread: sn.unread, people: sn.people, now: tdNow(), evidence: sn.evidence }); } catch (e) { V2 = null; }
           var x2 = V2 && V2.byTodo[todoId], F2 = x2 && x2.checklist ? PF.detours.planFor(one.run, x2, detourPub(x2.checklist), {}) : null;
           if (!F2 || F2.why || F2.plan.id !== id) { late = 'the to-do it is for isn\'t in the folder as it was, or isn\'t linked to that checklist now.'; return; }
           return detourPinWhy(fx, F.plan, detourPub(x.checklist)).then(function (w) { if (w) late = w; });
         });
-      }, function (e) { late = 'the run it is on couldn\'t be read again right before its plan was written (' + (e && e.message || e) + ').'; });
+      });
     };
     var pg = writeGuard({ still: function () {
       if (!guardOk(cx)) return false;

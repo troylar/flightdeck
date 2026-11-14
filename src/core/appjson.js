@@ -308,6 +308,22 @@ PF.appjson = (function () {
     }
     return out.concat(runProblems(r));
   }
+  /* A source run's checked read (PF.repo.readRunOnly: { run, pub, bad, nofile }) and its version, judged as runs judges them:
+     one verdict for every writer that rests on a run, the command line's and the app's alike (WD). Every problem by path and
+     kind, from the read's own diagnostics (a run.json missing, malformed, with an unknown field, from a newer Flightdeck, or
+     with a damaged snapshot) to a version that couldn't be read at all. [] when it can be trusted. what: how the caller names
+     it ("The run this keeps from"), used: what can't be done ("nothing can be kept from it"). */
+  function sourceProblems(one, proc, runId, what, used) {
+    var out = [], add = function (q) { if (!out.some(function (x) { return x.path === q.path && x.kind === q.kind; })) out.push(q); }, runFile = 'runs/' + proc + '/' + runId + '/run.json';
+    (one.bad || []).filter(function (b) { return b && typeof b.path === 'string' && b.path.indexOf('runs/' + proc + '/' + runId + '/') === 0; }).forEach(function (b) { add({ path: b.path, kind: b.kind || 'unreadable', why: String(b.why || 'It couldn\'t be read.') }); });
+    if (one.nofile) add({ path: runFile, kind: 'nofile', why: what + ' has no run.json in the team folder, so ' + used + '.' });
+    var r = one.run;
+    if (!r) { if (!out.length) add({ path: runFile, kind: 'unreadable', why: what + ' couldn\'t be read, so ' + used + '.' }); return out; }
+    if (newerRun(r)) add({ path: runFile, kind: 'newer', why: 'This run was made with a newer Flightdeck: ' + r._unrunnable });
+    judgeRun(r, one.pub).forEach(add);
+    if (one.pub && one.pub._readFailed) add({ path: R.pubDir(r), kind: 'unreadable', why: 'The version this run was made from couldn\'t be read (' + String(one.pub.why || 'it couldn\'t be read') + '), so what rests on it can\'t be checked.' });
+    return out;
+  }
   function version(p, clashes) {
     var info = p.info || {}, v = typeof info.version === 'number' ? info.version : P.versionOf(p.folder);
     return { folder: s(p.folder), version: typeof v === 'number' ? v : null, publishedAt: orNull(info.publishedAt), publishedBy: orNull(info.publishedBy),
@@ -644,5 +660,5 @@ PF.appjson = (function () {
   }
 
   return { CONTRACT: CONTRACT, CONTRACT2: CONTRACT2, WRITE1: WRITE1, reportOut: reportOut, targets: targets, SCHEMA2: SCHEMA2, process2: process2, next2: next2, runs2: runs2, followUps2: followUps2, run2: run2, summary2: summary2, CONTRACT_OF: contractOf, VERSIONS: VERSIONS, NOTE: NOTE, KINDS: KINDS, SCHEMA: SCHEMA, opt: opt, map: map, conforms: conforms, envelope: envelope, failure: failure, names: names,
-    v1Pub: v1Pub, v1Processes: v1Processes, v1Run: v1Run, pubProblem: pubProblem, newerRun: newerRun, runProblems: runProblems, judgeRun: judgeRun, processes: processes, process: process, runs: runs, run: run, next: next, followUps: followUps, summary: summary, request: request };
+    v1Pub: v1Pub, v1Processes: v1Processes, v1Run: v1Run, pubProblem: pubProblem, newerRun: newerRun, runProblems: runProblems, judgeRun: judgeRun, sourceProblems: sourceProblems, processes: processes, process: process, runs: runs, run: run, next: next, followUps: followUps, summary: summary, request: request };
 })();

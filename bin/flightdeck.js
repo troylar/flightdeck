@@ -774,17 +774,7 @@ const judgeRun = (PF, r, pub) => PF.appjson.judgeRun(r, pub);
    the read's own diagnostics (a run.json missing, malformed, with an unknown field, from a newer Flightdeck, or with a
    damaged snapshot) to a version that couldn't be read at all. [] when it can be trusted. what: how the caller names it
    ("The run this keeps from"), used: what can't be done ("nothing can be kept from it"). */
-function sourceProblems(PF, one, proc, runId, what, used) {
-  const out = [], add = (q) => { if (!out.some((x) => x.path === q.path && x.kind === q.kind)) out.push(q); }, runFile = 'runs/' + proc + '/' + runId + '/run.json';
-  (one.bad || []).filter((b) => b && typeof b.path === 'string' && b.path.indexOf('runs/' + proc + '/' + runId + '/') === 0).forEach((b) => add({ path: b.path, kind: b.kind || 'unreadable', why: String(b.why || 'It couldn\'t be read.') }));
-  if (one.nofile) add({ path: runFile, kind: 'nofile', why: what + ' has no run.json in the team folder, so ' + used + '.' });
-  const r = one.run;
-  if (!r) { if (!out.length) add({ path: runFile, kind: 'unreadable', why: what + ' couldn\'t be read, so ' + used + '.' }); return out; }
-  if (newerRun(PF, r)) add({ path: runFile, kind: 'newer', why: 'This run was made with a newer Flightdeck: ' + r._unrunnable });
-  judgeRun(PF, r, one.pub).forEach(add);
-  if (one.pub && one.pub._readFailed) add({ path: PF.run.pubDir(r), kind: 'unreadable', why: 'The version this run was made from couldn\'t be read (' + String(one.pub.why || 'it couldn\'t be read') + '), so what rests on it can\'t be checked.' });
-  return out;
-}
+function sourceProblems(PF, one, proc, runId, what, used) { return PF.appjson.sourceProblems(one, proc, runId, what, used); }
 /* A follow-up decision whose file says something cleanDecision doesn't keep as written (_drift, reading for other apps). */
 function decisionDrift(d) {
   return d && d._drift && d._drift.length ? { path: 'followups/' + d.process + '/' + d._file, kind: 'malformed', why: 'This decision isn\'t read as written: ' + d._drift.slice(0, 20).join(', ') + '.' } : null;
