@@ -2345,10 +2345,12 @@ def stage_problem(info, folder):
     return ""
 
 
-def check_stage(folder, name):
+def check_stage(folder, name, read=None, rbytes=None):
     """CF.check_publication for a stage under staged/ (PF.publish.verify with stage): the same envelope, hashes, payload,
-    checklist and screenshot checks, with the stage record in place of the version's folder name and number."""
-    files = {n: utf8_read(os.path.join(folder, n)) for n in ("map.md", "types.json", "publication.json")}
+    checklist and screenshot checks, with the stage record in place of the version's folder name and number. read and
+    rbytes as check_publication's: given, nothing is read from disk."""
+    rd, rb = read or utf8_read, rbytes or CF.read_bytes
+    files = {n: rd(os.path.join(folder, n)) for n in ("map.md", "types.json", "publication.json")}
     if files["publication.json"] is None:
         return "syncing", "publication.json hasn't arrived", None
     try:
@@ -2372,7 +2374,7 @@ def check_stage(folder, name):
         p = info["payload"]
         if sorted((info.get("images") or {}).keys()) != sorted(p["images"].keys()):
             return "unusable", "Its screenshots don't match its payload. Edited by hand.", info
-        if CF.sha(CF.read_bytes(os.path.join(folder, "map.md"))) != p["map"] or CF.sha(CF.read_bytes(os.path.join(folder, "types.json"))) != p["types"]:
+        if CF.sha(rb(os.path.join(folder, "map.md"))) != p["map"] or CF.sha(rb(os.path.join(folder, "types.json"))) != p["types"]:
             return "damaged", "files don't match their publication record (still syncing, or edited by hand)", info
     sp = stage_problem(info, name)
     if sp:
@@ -2402,9 +2404,9 @@ def check_stage(folder, name):
         return "unusable", "A screenshot it shows isn't in its publication record (%s). Edited by hand." % unlisted[0], info
     for src, want in (info.get("images") or {}).items():
         path = os.path.join(folder, *src.split("/"))
-        if not os.path.isfile(path):
+        data = rbytes(path) if rbytes is not None else (CF.read_bytes(path) if os.path.isfile(path) else None)
+        if data is None:
             return "syncing", "screenshot %s hasn't arrived" % src, info
-        data = CF.read_bytes(path)
         if CF.fnv(data) != want or CF.sha(data) != info["payload"]["images"].get(src):
             return "damaged", "screenshot %s doesn't match its record" % src, info
     return "complete", "", info
@@ -2423,18 +2425,17 @@ def version_verdict(r, read):
     base = ("staged/" if test else "publications/") + r["process"] + "/" + r["folder"] + "/"
     names = ("map.md", "types.json", "publication.json")
     texts = {n: read(base + n) for n in names}
-    tmp = tempfile.mkdtemp(prefix="flightdeck-version-")
-    try:
-        vdir = os.path.join(tmp, r["folder"])
-        os.mkdir(vdir)
-        for n in names:
-            if texts[n] is not None:
-                with open(os.path.join(vdir, n), "wb") as f:
-                    f.write(texts[n])
-        # Its files decoded as the app decodes them (utf8_read), published or staged alike; the payload is over the raw bytes.
-        state, why, info = check_stage(vdir, r["folder"]) if test else CF.check_publication(vdir, r["folder"], utf8_read)
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+    # Checked from the bytes read, in memory: nothing is written, not even a temporary file (QE). Its files decoded as the
+    # app decodes them (utf8_text), published or staged alike; the payload is over the raw bytes.
+    vdir = r["folder"]
+    mem = {os.path.join(vdir, n): texts[n] for n in names}
+    def rbytes(p):
+        b = mem.get(p)
+        return b if isinstance(b, bytes) else (b.encode("utf-8") if isinstance(b, str) else None)
+    def rtext(p):
+        b = rbytes(p)
+        return None if b is None else utf8_text(b)
+    state, why, info = check_stage(vdir, r["folder"], rtext, rbytes) if test else CF.check_publication(vdir, r["folder"], rtext, rbytes)
     # A screenshot is verified when the run is judged in the folder; it isn't packed with a dependency's version.
     ok = state == "complete" or (state == "syncing" and why.startswith("screenshot "))
     # A stage is its folder's process's (repo.readStage): a record or checklist naming another process is unusable.

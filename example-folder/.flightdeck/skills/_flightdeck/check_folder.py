@@ -3687,7 +3687,10 @@ def payload_needs(info):
     return "%d.%d" % (a[0], a[1]) if a and a[0] >= 2 else "2.0"
 
 
-def check_publication(folder, name, read=read_text):
+def check_publication(folder, name, read=read_text, rbytes=None):
+    """rbytes: a file's bytes by path, or None when it isn't there: given, nothing is read from disk (a pack's version is
+    checked from its packed bytes in memory, so the pack checker never writes a file)."""
+    rb = rbytes or read_bytes
     files = {n: read(os.path.join(folder, n)) for n in ("map.md", "types.json", "publication.json")}
     if files["publication.json"] is None:
         return "syncing", "publication.json hasn't arrived", None
@@ -3713,7 +3716,7 @@ def check_publication(folder, name, read=read_text):
         if sorted((info.get("images") or {}).keys()) != sorted(p["images"].keys()):
             return "unusable", "Its screenshots don't match its payload. Edited by hand.", info
         # The payload is over the exact bytes on disk, before any byte-order mark is dropped.
-        if sha(read_bytes(os.path.join(folder, "map.md"))) != p["map"] or sha(read_bytes(os.path.join(folder, "types.json"))) != p["types"]:
+        if sha(rb(os.path.join(folder, "map.md"))) != p["map"] or sha(rb(os.path.join(folder, "types.json"))) != p["types"]:
             return "damaged", "files don't match their publication record (still syncing, or edited by hand)", info
     # A staged version (2.1) lives under staged/ and only test runs use it: never a version here (PF.publish.verify).
     if isinstance(info.get("features"), list) and "staged" in info["features"]:
@@ -3749,12 +3752,17 @@ def check_publication(folder, name, read=read_text):
         return "unusable", "A screenshot it shows isn't in its publication record (%s). Edited by hand." % unlisted[0], info
     for src, want in (info.get("images") or {}).items():
         path = os.path.join(folder, *src.split("/"))
-        if not os.path.isfile(path):
-            return "syncing", "screenshot %s hasn't arrived" % src, info
-        with open(path, "rb") as f:
-            data = f.read()
-            if fnv(data) != want or (two and sha(data) != info["payload"]["images"].get(src)):
-                return "damaged", "screenshot %s doesn't match its record" % src, info
+        if rbytes is not None:
+            data = rbytes(path)
+            if data is None:
+                return "syncing", "screenshot %s hasn't arrived" % src, info
+        else:
+            if not os.path.isfile(path):
+                return "syncing", "screenshot %s hasn't arrived" % src, info
+            with open(path, "rb") as f:
+                data = f.read()
+        if fnv(data) != want or (two and sha(data) != info["payload"]["images"].get(src)):
+            return "damaged", "screenshot %s doesn't match its record" % src, info
     return "complete", "", info
 
 

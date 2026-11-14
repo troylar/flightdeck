@@ -1878,6 +1878,25 @@ rule('Python refuses a confirmed dependency a partial pack can\'t establish: ano
   }
   assert.deepStrictEqual(misses, []);
 });
+/* QE: the pack checker never writes, not even a temporary file: each dependency's version is verified from the packed bytes
+   in memory. Every write it could make is watched (test/no_writes.py, an audit hook), in every role world. */
+rule('check_pack.py writes nothing while it verifies a pack, its dependencies\' versions included', async () => {
+  if (!PY) return;
+  const fs = require('fs'), path = require('path'), os = require('os'), cp = require('child_process');
+  const misses = [];
+  for (const w of await roleWorlds()) {
+    const { zip } = await pack(w.PF, new BytesFS(w.files), w.key);
+    const z = w.force ? await repacked(w.PF, zip, (e, man) => forced(man)) : zip;
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-nowrite-')), file = path.join(dir, 'pack.zip');
+    fs.writeFileSync(file, z);
+    const r = cp.spawnSync(PY, ['-I', path.join(__dirname, 'no_writes.py'), path.join(__dirname, 'check_pack.py'), file], { encoding: 'utf8' });
+    fs.rmSync(dir, { recursive: true, force: true });
+    const wrote = String(r.stderr).split('\n').filter((l) => l.indexOf('WROTE: ') === 0);
+    if (wrote.length) misses.push(w.role + ': ' + wrote.slice(0, 4).join(' | '));
+    if (!w.force && r.status !== 0) misses.push(w.role + ': the check failed: ' + r.stdout + r.stderr);
+  }
+  assert.deepStrictEqual(misses, []);
+});
 /* ND: each run the work depends on is named as the export names it: exactly its key, role, head, chain, receipt and
    confirmed, typed; the receipt it names is the packed run's own (none when it has none); and a complete pack confirms
    every one. In every role. */
