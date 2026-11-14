@@ -25,12 +25,12 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "913cc0ae5c5182ef4acd5223d1235b67c3c9900ced7d2d52d4aa3e002eefab36",
-      "reviewed": "VA: check_pack.py walks the run's own dependencies where a confirmed dependency's walk reaches back to it; checked for direct writes and unconditional deletes"
+      "sha256": "a47704be94f9b32041b0135a7b4e74a2bcad1fcfa358e921337a8819a31cf9c1",
+      "reviewed": "VB: a fact a landed done or the receipt rests on is held to the done's content, source, domain and the to-do's run, item and attempt; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
-      "sha256": "8a8e71d571377a1b06c0cba712d2fcef05c0804e9c4b9b0ccd9bb2bac809145a",
-      "reviewed": "VA: check_pack.py walks the run's own dependencies where a confirmed dependency's walk reaches back to it; checked for direct writes and unconditional deletes"
+      "sha256": "7e79d99ee8786e20125b84442268f6027f1fe840b794e2fa4209aae578390c53",
+      "reviewed": "VB: a fact a landed done or the receipt rests on is held to the done's content, source, domain and the to-do's run, item and attempt; checked for direct writes and unconditional deletes"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
@@ -313,8 +313,8 @@
       "reviewed": "loops: items: item kind, feed binding, completeness fix, nouns, unknown-kind refusal in loop.js/map.js/publish.js/types.js and check_folder.py parity; pure checks only, checked for direct writes and unconditional deletes"
     },
     "src/core/receipts.js": {
-      "sha256": "074e037bbd246d76bfcb327043e5ea769376f930b12d997f8d81a8f825bbdeee",
-      "reviewed": "QA: every fact edge checked before skipping a walked fact; checked for direct writes and unconditional deletes"
+      "sha256": "f21c976f0449207e96b293eaddd897ca8133404a7e5ac6f555590b5386d6142a",
+      "reviewed": "VB: a fact a landed done or the receipt rests on is held to the done's content, source, domain and the to-do's run, item and attempt; checked for direct writes and unconditional deletes"
     },
     "src/core/refs.js": {
       "sha256": "24b7d2b52fcd99673fcc427db286a7224af83342da19efcd561ac850d6baa441",

@@ -20851,6 +20851,16 @@ PF.receipts = (function () {
         fState[id] = 1; stack.push({ x: y, i: 0 });
       }
     };
+    /* The one fact under an id, every copy the same; null otherwise (look names a fact that isn't, through unique). */
+    var soleFact = function (id) { var xs = byId[id] || []; return xs.length && xs[0].kind === 'fact' && xs.every(function (y) { return canon(y) === canon(xs[0]); }) ? xs[0] : null; };
+    var factProof = function (X, x, s, on, what) {
+      var F = PF.facts, fx = soleFact(s.fact), it = x ? F.itemOfTodo(X, x) : null;
+      if (!fx) return;
+      var why = !x ? 'its to-do was never added' : s.incarnation !== F.incarnationOf(x) ? 'it names another opening of its to-do' : !it ? 'its to-do isn\'t about a loop item' :
+        !fx.run || fx.run.process !== it.run.process || fx.run.id !== it.run.id || fx.loopStep !== it.loopStep || fx.uid !== it.uid || fx.attempt !== it.attempt ? 'the fact is about another run, item or attempt' :
+        fx.domain !== s.domain || F.sourceKey(fx.source) !== F.sourceKey(s.source) ? 'the fact is from another source or domain' : fx.content !== s.content ? 'the fact doesn\'t say what it said when the done landed' : '';
+      if (why) missing.push(on + 'proposals/' + s.fact + '.json: ' + what + ', but ' + why + '.');
+    };
     var chain = [], rs = null, spreads = Object.create(null), allKids = Object.create(null);
     var look = function (b) {
       if (!b) return;
@@ -20877,6 +20887,16 @@ PF.receipts = (function () {
       }
       if (k === rootKey) chain = ch;
       else for (var ri = 0; ri < runs.length; ri++) if (keyOf(runs[ri]) === k) { runs[ri].chain = ch.slice(); runs[ri].head = X.living ? X.living.head : ''; if (X.living && X.living.receipt) runs[ri].receipt = X.living.receipt; }
+      /* A done that landed on a fact's evidence is held to that fact as packed (VB): the content, source and domain the done
+         named, and the run, item and attempt of the to-do it checks off, in the opening it was suggested for. */
+      var opened = Object.create(null);
+      ch.forEach(function (id) {
+        var a = (byId[id] || [])[0], ap = a && (a.kind === 'compound' ? a.application : a.kind === 'application' ? a : null), e = ap && ap.effect;
+        if (!e || typeof e.todo !== 'string') return;
+        if (e.op === 'add') opened[e.todo] = { target: e.target, history: [{ op: 'add', application: id }] };
+        else if (e.op === 'reopen' && opened[e.todo]) opened[e.todo].history.push({ op: 'reopen', application: id });
+        else if (e.op === 'done' && e.support) factProof(X, opened[e.todo], e.support, on, 'application ' + id + ' checks off ' + e.todo + ' on this fact');
+      });
       ch.forEach(function (id) {
         var a = (byId[id] || [])[0];
         if (!a) return;
@@ -20896,6 +20916,8 @@ PF.receipts = (function () {
       if (k === rootKey) rs = v;
       /* Every request the receipt names as seen (pending ones included) is part of what it froze. */
       if (v && v.record) (v.record.seen || []).forEach(function (id) { var sx = witness(id, on + 'the receipt names this record as seen'); if (sx) saw(sx); });
+      /* Every fact it names as evidence says what it said when the run ended (VB). */
+      if (v && v.record) (v.record.evidence || []).forEach(function (ev) { var fx = ev && ev.fact ? soleFact(ev.fact) : null; if (fx && fx.content !== ev.content) missing.push(on + 'proposals/' + ev.fact + '.json: the receipt names it as the evidence ' + ev.todo + ' was checked off on, but it doesn\'t say what it said then.'); });
       /* Every keep it names (what was kept for next time) is a checked keep on this run, one witness under its id. */
       if (v && v.record) (v.record.keeps || []).forEach(function (id) { var kx = witness(id, on + 'the receipt names this keep', function (x) { return x.kind === 'keep' && mineRun(x); }); if (kx) saw(kx); });
       /* Facts used as evidence, evidence runs and their plans, the spreads this run's work holds and the parents whose spread

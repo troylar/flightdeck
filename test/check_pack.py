@@ -467,6 +467,33 @@ def group_id(k):
     return "g" + CF.text_hash(k) + CF.text_hash(k + "|2")
 
 
+def fact_content(f):
+    """PF.facts.contentOf: what an observation says, apart from when and by whom."""
+    es = sorted(arr(f.get("entries")), key=lambda e: str(obj(e).get("id")).encode("utf-16-be", "surrogatepass"))
+    return CF._tsha(["fact", f.get("domain"), js_truthy(f.get("complete")), f.get("reported"), len(arr(f.get("errors"))) > 0, es])
+
+
+def source_key(s):
+    """PF.facts.sourceKey: feed, site and account, the last two '' when absent."""
+    s = obj(s)
+    return [s.get("feed"), s.get("site") or "", s.get("account") or ""]
+
+
+def item_of(run, x):
+    """PF.facts.itemOfTodo: the loop item a to-do (as its add landed) is about, on the run that has the loop; else None."""
+    if x is None:
+        return None
+    t = obj(x.get("target"))
+    if js_truthy(t.get("item")):
+        i = obj(t.get("item"))
+        return {"run": {"process": run.get("process"), "id": run.get("id")}, "loopStep": i.get("loopStep"), "uid": i.get("uid"), "attempt": i.get("attempt")}
+    p = obj(run.get("parent"))
+    if js_truthy(p.get("item")) and all(isinstance(p.get(k), str) for k in ("process", "id", "step")):
+        pi = obj(p.get("item"))
+        return {"run": {"process": p["process"], "id": p["id"]}, "loopStep": p["step"], "uid": pi.get("uid"), "attempt": js_number(pi.get("attempt")) or 1}
+    return None
+
+
 def js_number(v):
     if isinstance(v, bool):
         return 1 if v else 0
@@ -807,6 +834,8 @@ def check_living(z, man):
         return scopes
 
     reached, plans_wanted, facts_wanted = set(), set(), set()
+    # Each fact a landed done or a receipt rests on, with what it must say (VB): (reference, item, opening, what, content only).
+    fact_refs: list = []
     dispatched = {}
 
     def applies(d, me):
@@ -935,6 +964,22 @@ def check_living(z, man):
             chain.insert(0, at)
             at = prev
         closed, want, asked = whole, [], set()
+        # A done that landed on a fact's evidence is held to that fact as packed (PF.receipts.deps, VB): the content, source
+        # and domain the done named, and the run, item and attempt of the to-do it checks off, in the opening it was suggested for.
+        opened: dict = {}
+        for at in chain if whole else []:
+            rec = wit(at)
+            e = obj(obj(rec.get("application") if rec.get("kind") == "compound" else rec).get("effect"))
+            td = e.get("todo")
+            if not isinstance(td, str):
+                continue
+            if e.get("op") == "add":
+                opened[td] = {"target": e.get("target"), "inc": at}
+            elif e.get("op") == "reopen" and td in opened:
+                opened[td]["inc"] = at
+            elif e.get("op") == "done" and isinstance(e.get("support"), dict):
+                x = opened.get(td)
+                fact_refs.append((e["support"], item_of(run, x), x["inc"] if x else None, "application " + at + " checks off " + td + " on it", False))
 
         def saw(rec):
             for x in arr(rec.get("seen")):
@@ -1012,6 +1057,10 @@ def check_living(z, man):
                 for x in arr(rec.get("seen")):
                     if wit(str(x)) is None:
                         good_receipt = False
+                # Every fact it names as evidence says what it said when the run ended (VB).
+                for ev in arr(rec.get("evidence")):
+                    if isinstance(ev, dict) and isinstance(ev.get("fact"), str):
+                        fact_refs.append((ev, None, None, "the receipt names it as the evidence " + str(ev.get("todo")) + " was checked off on", True))
                 # Every keep it names is a keep on this run, one witness under its id.
                 for x in arr(rec.get("keeps")):
                     kx = wit(str(x))
@@ -1175,6 +1224,23 @@ def check_living(z, man):
                     continue
                 fstate[sid] = 1
                 stack.append([srec, 0])
+        for sup, it, inc, what, content_only in fact_refs:
+            fid = sup.get("fact")
+            if not isinstance(fid, str) or not packed_ids(fid):
+                return "proposals/" + str(fid) + ".json, a fact the work rests on, isn't in the pack"
+            rec, amb = witness(fid)
+            if amb or not isinstance(rec, dict) or rec.get("kind") != "fact":
+                return "proposals/" + fid + ".json, a fact the work rests on, isn't that fact"
+            if content_only:
+                why = "it doesn't say what it said then" if fact_content(rec) != sup.get("content") else ""
+            else:
+                why = ("its to-do was never added" if inc is None else "it names another opening of its to-do" if sup.get("incarnation") != inc
+                       else "its to-do isn't about a loop item" if it is None
+                       else "the fact is about another run, item or attempt" if (rec.get("run") != it["run"] or rec.get("loopStep") != it["loopStep"] or rec.get("uid") != it["uid"] or rec.get("attempt") != it["attempt"])
+                       else "the fact is from another source or domain" if (rec.get("domain") != sup.get("domain") or source_key(rec.get("source")) != source_key(sup.get("source")))
+                       else "the fact doesn't say what it said when the done landed" if fact_content(rec) != sup.get("content") else "")
+            if why:
+                return "proposals/" + fid + ".json: " + what + ", but " + why
         # Every original reached is one the app reads, by its own family's reader.
         for path in sorted(reached):
             why = family_why(path)
@@ -1384,6 +1450,7 @@ def check_living(z, man):
                 reached.clear()
                 plans_wanted.clear()
                 facts_wanted.clear()
+                fact_refs.clear()
                 named = {x["key"]: x for x in lv.get("deps") or []}
                 why = walk_runs(r["key"], d["key"], named, {"chain": lv.get("chain"), "head": lv.get("head", "")})[0] or closure_tail()
                 if why:
@@ -1391,6 +1458,7 @@ def check_living(z, man):
             reached.clear()
             plans_wanted.clear()
             facts_wanted.clear()
+            fact_refs.clear()
         # A root no reader reads (root_unread: missing, not JSON, no run, or refused by the readers' verdict) is in a partial
         # pack only, and nothing more is read of it: its fields aren't a run's.
         if ru:
@@ -1414,6 +1482,7 @@ def check_living(z, man):
         reached.clear()
         plans_wanted.clear()
         facts_wanted.clear()
+        fact_refs.clear()
         if lv.get("head") != head:
             sys.exit("living: " + r["key"] + " names another work head than its run.json")
         own_receipt = obj(run.get("living")).get("receipt", "")

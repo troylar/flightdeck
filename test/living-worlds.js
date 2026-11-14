@@ -116,6 +116,57 @@ async function loopMade(o) {
   const files = {}; Object.keys(app.fs.files).forEach(p => { const t = app.fs.files[p].t, m = /^data:[^;,]*;base64,(.*)$/.exec(t); files[p] = m ? Buffer.from(m[1], 'base64') : t; });
   return { PF, files, key: P.process + '/' + P.id, run: P, kid: K, kidPath: kPath, kidKey: K.process + '/' + K.id };
 }
+/* A loop parent whose to-do on ABC-101 a tool checked off on a fact's evidence (a done it was granted, landed), the run then
+   ended with its receipt, which names that evidence (4.0, VB). */
+async function factMade() {
+  const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(80); app.choose('person-avery'); await app.tick();
+  const PF = app.PF, T = PF.todos, F = PF.facts, people = JSON.parse(app.fs.files['people.json'].t), now = new Date().toISOString();
+  for (const [md, id, rand] of [[KID, 'validate-story', 'vs000001'], [PARENT, 'release-readiness', 'rr000001']]) {
+    const b = PF.publish.build(md, { people, ...require('./harness').exampleSetup(PF), by: 'person-avery', changes: 'First', existing: [], now, rand, app: '4.0.0' });
+    assert.ok(!b.blockers, JSON.stringify(b.blockers));
+    Object.keys(b.files).forEach(k => { app.fs.files['publications/' + id + '/' + b.folder + '/' + k] = { t: b.files[k], m: Date.now() }; });
+  }
+  app.click('refresh'); await app.tick(80);
+  app.click('start', 'release-readiness'); await app.settle();
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150); app.set('loop-add-each', ''); await app.tick();
+  const refresh = async () => { app.click('refresh'); await app.tick(300); };
+  await refresh();
+  const pPath = app.files('runs/release-readiness/').find(p => /run\.json$/.test(p));
+  const W = async () => {
+    const d = await PF.repo.loadAll(app.fs, {}), parent = d.runs.find(x => x.process === 'release-readiness');
+    return { d, parent, items: PF.loop.view(parent, 'each', { records: d.scopes, runs: d.runs, procOf: () => null }).rollup.items };
+  };
+  const base = { by: { person: 'person-avery' }, people, at: new Date().toISOString(), app: '4.0.0' };
+  let w = await W();
+  const uid = w.items.find(i => i.key === 'ABC-101').uid, item = { loopStep: 'each', uid, attempt: 1 };
+  const add = T.prepare(w.parent, Object.assign({ body: { op: 'add', text: 'Merge the fix', target: { item } }, key: 'k-vb0001', records: w.d.todos, unread: w.d.todosUnread, now: Date.now() }, base));
+  assert.ok(!add.why, add.why);
+  await app.fs.write('proposals/' + add.name, T.text(add.file)); await refresh(); await refresh();
+  w = await W();
+  const ob = F.prepare(w.parent, { obs: { key: 'prs-vb', loopStep: 'each', item: 'ABC-101', source: { feed: 'bitbucket', site: 'git.example.com' }, domain: 'prs', observedAt: new Date(Date.now() - 30000).toISOString(), complete: true, reported: 1, entries: [{ id: '17', text: 'Fix the login', state: 'merged' }] },
+    by: { tool: 'git-bot', version: '1.0' }, records: w.d.todos, unread: w.d.todosUnread, items: w.items, at: new Date().toISOString(), app: '4.0.0', now: Date.now() });
+  assert.ok(!ob.why, ob.why);
+  await app.fs.write('proposals/' + ob.name, T.text(ob.file));
+  w = await W();
+  const g = T.grantOf(w.parent, { subject: { tool: 'git-bot' }, ops: ['done'], targets: [{ item }], by: 'person-avery', key: 'g-vb0001', records: w.d.todos, unread: w.d.todosUnread, people, at: new Date().toISOString(), app: '4.0.0', now: Date.now() });
+  assert.ok(!g.why, g.why);
+  await app.fs.write('proposals/' + g.name, T.text(g.file));
+  w = await W();
+  const x = T.view(w.parent, { records: w.d.todos, people, now: Date.now() }).byTodo[add.preview.todo];
+  const S = F.supportFor(w.parent, x, ob.id, { records: w.d.todos, unread: w.d.todosUnread, now: Date.now() });
+  assert.ok(!S.why, S.why);
+  const q = T.prepare(w.parent, { body: { op: 'done', todo: x.id, support: S.support }, by: { tool: 'git-bot', version: '1.0' }, records: w.d.todos, unread: w.d.todosUnread, people, at: new Date().toISOString(), app: '4.0.0', now: Date.now() });
+  assert.ok(!q.why, q.why);
+  await app.fs.write('proposals/' + q.name, T.text(q.file)); await refresh(); await refresh();
+  app.click('end', 'Cancelled'); await app.tick(300);
+  const r = JSON.parse(app.fs.files[pPath].t);
+  assert.ok(r.ended && r.living && r.living.receipt, 'set-up: the run ended with a receipt');
+  const rc = JSON.parse(app.fs.files['proposals/' + r.living.receipt + '.json'].t);
+  assert.ok((rc.evidence || []).some(e => e.fact === ob.id), 'set-up: the receipt names the fact: ' + JSON.stringify(rc.evidence));
+  const files = {}; Object.keys(app.fs.files).forEach(p => { files[p] = app.fs.files[p].t; });
+  return { PF, files, key: r.process + '/' + r.id, run: r, factId: ob.id, factPath: 'proposals/' + ob.id + '.json', todo: x.id };
+}
 async function roleWorlds() {
   const out = [];
   const L = await loopMade();
@@ -201,4 +252,4 @@ async function repacked(PF, zip, edit) {
 /* The manifest made to claim the run's work complete (an evidence run's plan isn't in these folders): only Python's own checks can then refuse it. */
 const forced = (man) => { man.status = 'complete'; man.runs.forEach((r) => { if (r.living) { r.living.complete = true; r.living.missing = []; (r.living.deps || []).forEach((d) => { d.confirmed = true; }); } }); };
 
-module.exports = { MD, made, pack, datePack, KID, PARENT, SHOT, loopMade, roleWorlds, PY, sha, unzip, rezip, checkPack, manifestOf, repacked, forced };
+module.exports = { MD, made, pack, datePack, KID, PARENT, SHOT, loopMade, factMade, roleWorlds, PY, sha, unzip, rezip, checkPack, manifestOf, repacked, forced };

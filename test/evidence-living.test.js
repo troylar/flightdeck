@@ -8,7 +8,7 @@ const assert = require('assert');
 const crypto = require('crypto');
 const { rule, run } = require('./harness');
 const { BytesFS } = require('./evidence-fixture');
-const { made, pack, datePack, SHOT, loopMade, roleWorlds, PY, sha, unzip, rezip, checkPack, manifestOf, repacked, forced } = require('./living-worlds');
+const { made, pack, datePack, SHOT, loopMade, factMade, roleWorlds, PY, sha, unzip, rezip, checkPack, manifestOf, repacked, forced } = require('./living-worlds');
 
 rule('A living run\'s pack holds its whole application chain and its receipt, says so, and writes nothing to the folder', async () => {
   const W = await made({ todos: 2 }), fsx = new BytesFS(W.files);
@@ -2261,6 +2261,33 @@ rule('Python walks the run\'s other dependencies when a confirmed dependency\'s 
     ['the evidence run with title 42', runEdit((o) => { o.title = 42; })],
     ['the evidence run in format preflight-run/4', runEdit((o) => { o.format = 'preflight-run/4'; })]
   ]) { if (checkPack(await partial(edit)).ok) misses.push(what + ': Python accepts rev-1 as confirmed'); }
+  assert.deepStrictEqual(misses, []);
+});
+/* VB: a fact a landed done rests on is held to what the done named and the receipt froze: its content, source and domain,
+   and the run, item and attempt of the to-do. The fact's entries changed under the same id, or its run changed to another,
+   leave the pack partial naming the fact (the ended outcome is unchanged), and Python refuses a complete claim. */
+rule('A fact a landed done rests on that no longer says what it said, or names another run, attempt or source, leaves the work unconfirmed, named', async () => {
+  const W = await factMade(), PF = W.PF;
+  const full = await pack(PF, new BytesFS(W.files), W.key);
+  assert.strictEqual(full.res.status, 'complete', 'the control: ' + JSON.stringify(full.res.col.unresolved));
+  if (PY) assert.ok(checkPack(full.zip).ok, 'Python accepts the control: ' + checkPack(full.zip).out);
+  const f = JSON.parse(W.files[W.factPath]);
+  const worlds = {
+    'its entries changed': Object.assign({}, f, { entries: [Object.assign({}, f.entries[0], { text: 'Fix the logout' })] }),
+    'its run changed': Object.assign({}, f, { run: { process: f.run.process, id: 'otherrun0001' } }),
+    'its attempt changed': Object.assign({}, f, { attempt: 2 }),
+    'its source changed': Object.assign({}, f, { source: { feed: 'github' } })
+  };
+  const misses = [];
+  for (const what of Object.keys(worlds)) {
+    const files = Object.assign({}, W.files, { [W.factPath]: JSON.stringify(worlds[what], null, 2) + '\n' });
+    assert.ok(PF.todos.cleanFile(JSON.parse(files[W.factPath]), W.factId + '.json').ok, what + ': set-up: the fact still reads');
+    const { res, zip } = await pack(PF, new BytesFS(files), W.key);
+    if (!(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(W.factId) >= 0))) misses.push(what + ': the export: ' + res.status + ' ' + JSON.stringify(res.col.unresolved));
+    const lv = manifestOf(zip).runs[0].living;
+    if (!lv || lv.receipt.state !== 'confirmed') misses.push(what + ': the receipt stays confirmed: ' + JSON.stringify(lv && lv.receipt));
+    if (PY) { const c = checkPack(await repacked(PF, zip, (e, man) => forced(man))); if (c.ok || c.out.indexOf(W.factId) < 0) misses.push(what + ': Python: ' + c.out); }
+  }
   assert.deepStrictEqual(misses, []);
 });
 run();
