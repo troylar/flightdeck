@@ -285,6 +285,8 @@ PF.appjson = (function () {
        the run, so a reader holds rather than reporting nothing. */
     var snapWhy = isNewer || !r._unrunnable ? '' : P.unrunnable(r.snapshot, r.types);
     if (snapWhy) out.push({ path: dir + 'run.json', kind: 'unusable', why: '"' + r.title + '" (' + key + '): its checklist can\'t be run by this copy: ' + snapWhy });
+    /* WB: a part of the run an ordinary read couldn't take in (repo's run._parts: a link, a notes file gone when read). */
+    (r._parts || []).forEach(function (x) { if (x && typeof x.path === 'string' && x.path.indexOf(dir) === 0) out.push({ path: x.path, kind: String(x.kind || 'unreadable'), why: String(x.why || '') }); });
     if (r._conflicts && r._conflicts.length) out.push({ path: dir, kind: 'conflict', why: 'Conflict copies or lost saves beside this run: ' + r._conflicts.join(', ') + '. A person resolves them in the app.' });
     return out;
   }

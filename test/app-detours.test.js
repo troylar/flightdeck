@@ -860,4 +860,24 @@ rule('A detour plan creation, Start or Decline writes nothing beside a linked fi
   }
 });
 
+/* WB: a part of a completed evidence run that an ordinary read can't take in (a listed notes file gone when read, or a
+   notes file listed as a link) holds the evidence on the screen, as the write guard holds it: after a refresh no Accept. */
+rule('A refreshed evidence view offers no Accept when a part of the evidence run is gone when read or listed as a link', async () => {
+  for (const how of ['wb-null', 'wb-link'].filter((h) => !process.env.WB_CASE || process.env.WB_CASE.split(',').indexOf(h) >= 0)) {
+    const { app, todo } = await setup(['pass']);
+    const key = await runIt(app, todo);
+    finish(app, key, 'pass');
+    const np = 'runs/' + key + '/notes-w9.jsonl', dir = 'runs/' + key;
+    app.fs.files[np] = { t: JSON.stringify({ id: 'n1', at: AT(), by: 'person-avery', text: 'Ran it' }) + '\n', m: Date.now() };
+    await toParent(app); await refresh(app, 300);
+    assert.ok(/data-act="td-evidence"/.test(app.html()), how + ': set-up: Accept offered');
+    const fs = app.fs, read = fs.read.bind(fs), list = fs.list.bind(fs);
+    if (how === 'wb-null') fs.read = (p, ...a) => p === np ? Promise.resolve(null) : read(p, ...a);
+    else { delete fs.files[np]; fs.list = (p, ...a) => list(p, ...a).then((items) => p === dir ? items.concat([{ name: 'notes-w9.jsonl', kind: 'link' }]) : items); }
+    await refresh(app, 400); await toParent(app); await refresh(app, 400);
+    assert.ok(!/data-act="td-evidence"/.test(app.html()), how + ': no Accept: ' + txt(app.html()).slice(0, 800));
+    fs.read = read; fs.list = list;
+  }
+});
+
 run();

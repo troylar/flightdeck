@@ -335,6 +335,7 @@ PF.repo = (function () {
     if (bad && !run._unrunnable) run._unrunnable = bad;
     if (entry.repairs && entry.repairs.length) run._repairs = entry.repairs;
     if (entry.drift && entry.drift.length) run._drift = entry.drift;
+    if (entry.parts && entry.parts.length) run._parts = entry.parts.map(function (x) { return { path: x.path, kind: x.kind, why: x.why }; });
     run._path = base; run._mtime = entry.mtime; run._conflicts = entry.conflicts.slice(); run._fileHash = entry.fileHash; run._notesSig = entry.notesSig;
     if (entry.recheckAt) run._recheckAt = entry.recheckAt;
     var notes = [], torn = [];
@@ -498,6 +499,10 @@ PF.repo = (function () {
       /* VF: a part of the run listed as a link is never read through, and named (as the command line names it), so every
          reader's verdict on the run sees it. */
       if (o.explain && bad) items.forEach(function (i) { if (i && i.kind === 'link' && (/^notes-[\w-]+\.jsonl$/.test(i.name) || /^run.*\.json$/i.test(i.name))) bad.push({ path: base + i.name, key: proc + '/' + id, kind: 'link', why: 'A link. Flightdeck never reads through links.' }); });
+      /* WB: an ordinary read (the app's) keeps the same part problems on the run (_parts: a part listed as a link, a listed
+         notes file gone when read), so the shared run verdict holds what the write guard's checked read holds. */
+      var parts = [];
+      if (!o.explain) items.forEach(function (i) { if (i && i.kind === 'link' && (/^notes-[\w-]+\.jsonl$/.test(i.name) || /^run.*\.json$/i.test(i.name))) parts.push({ path: base + i.name, kind: 'link', why: 'A link. Flightdeck never reads through links.' }); });
       if (names.indexOf('run.json') < 0) return o.explain ? NOFILE : null;
       /* Notes files only grow, so one that hasn't changed size or time since the last read is taken from memory. */
       var notesCache = cacheIn.notes;
@@ -520,7 +525,7 @@ PF.repo = (function () {
         });
       }
       function noteOrSay(n) {
-        if (!o.explain) return readNotes(n);
+        if (!o.explain) return readNotes(n).then(function (f) { if (!f) parts.push({ path: base + n, kind: 'vanished', why: 'was listed, then gone before it could be read' }); return f; });
         /* UC: a notes file listed and then read as gone is named (vanished), as a ledger names it, never read as no notes. */
         return readNotes(n).then(function (f) { if (!f) { full = false; stamps[n] = null; if (bad) bad.push({ path: base + n, key: proc + '/' + id, kind: 'vanished', why: 'was listed, then gone before it could be read' }); } return f; }, function (e) { full = false; stamps[n] = null; if (bad) bad.push({ path: base + n, key: proc + '/' + id, kind: errKind(e), why: why(e) }); return null; });
       }
@@ -542,10 +547,10 @@ PF.repo = (function () {
         var entry = { process: proc, folder: run.folder, internKey: run.folder + '|' + run.mapHash, base: base, text: res[0].text, mtime: res[0].mtime, fileHash: fileHash(res[0].text),
           notes: notesTexts, noteFiles: noteFiles, notesSig: U.hash(noteFiles.join('/') + '\u0000' + notesTexts.map(function (t) { return t == null ? '-' : t.length + ':' + U.hash(t); }).join('/')),
           unrunnable: run._unrunnable || res.pubProblem || '', ended: !!run.ended, endedAt: run.ended ? Date.parse(run.ended.at) || 0 : 0, conflicts: extra, recheckAt: 0,
-          names: names.slice().sort(), stamps: stamps, full: full };
+          names: names.slice().sort(), stamps: stamps, full: full, parts: parts };
         /* Reading for other apps: every record sanitize dropped, cut or replaced, named by where it is. */
         if (o.explain) { var raw = json(res[0].text); entry.repairs = R.repairs(raw); entry.drift = R.unexplained(raw) || []; }
-        function done() { Object.freeze(entry.conflicts); Object.freeze(entry.notes); Object.freeze(entry.noteFiles); Object.freeze(entry.names); Object.freeze(entry.stamps); return Object.freeze(entry); }
+        function done() { Object.freeze(entry.parts); Object.freeze(entry.conflicts); Object.freeze(entry.notes); Object.freeze(entry.noteFiles); Object.freeze(entry.names); Object.freeze(entry.stamps); return Object.freeze(entry); }
         /* A candidate whose save isn't listed in run.json, and that's old enough not to be a save still in progress, was
            overwritten by another window or computer: it's offered like any other conflict copy. */
         var lineage = run.lineage || [], lost = names.filter(function (n) { var t = candidateTag(n); return t && lineage.indexOf(t) < 0; });

@@ -25,8 +25,8 @@
       "reviewed": "VE: a run whose own checklist this copy can't run is named unusable at its run.json in the shared run verdict; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "341bf05e162261f27fcc3114cfb0d3c2a80f630d3f405a6ecd6c0ce558090781",
-      "reviewed": "WC: planGate refuses an entry named for the plan that isn't a plain file, named by its path, before the listing is filtered; checked for direct writes and unconditional deletes"
+      "sha256": "c08ad6f327157225b9a3d5f72534ec25d213616f893522b0423587aefe69496f",
+      "reviewed": "WB: the app's ordinary run read keeps a part it couldn't take in (a notes file gone when read, a part listed as a link) on the run as _parts, and runProblems names it; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -201,8 +201,8 @@
       "reviewed": "PF: name the real processes and process --contract 2 forms instead of read and versions; checked for direct writes and unconditional deletes"
     },
     "src/core/appjson.js": {
-      "sha256": "62e60a172caf230333f890d4160e5a1ab8cc5bbf4c66e0e47cedca926e532659",
-      "reviewed": "WD: one source verdict (PF.appjson.sourceProblems) for the command line and every app path that rereads a source run; Run this checklist holds on a source version that can't be read; checked for direct writes and unconditional deletes"
+      "sha256": "1331adfb3e86bc2dfcf60281ca35a95bd4564510cea439e0740061fd1d55be75",
+      "reviewed": "WB: the app's ordinary run read keeps a part it couldn't take in (a notes file gone when read, a part listed as a link) on the run as _parts, and runProblems names it; checked for direct writes and unconditional deletes"
     },
     "src/core/attach.js": {
       "sha256": "0e75bc0c0d748fe10aaf5657662e4ce8679c27f9d10d85c1e34891b1c9d58df0",
@@ -417,8 +417,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "1a379946e6b8809c464a267ef18ff75e2710c2760fa1779047d3e634cb79725c",
-      "reviewed": "WC: planGate refuses an entry named for the plan that isn't a plain file, named by its path, before the listing is filtered; checked for direct writes and unconditional deletes"
+      "sha256": "b34a4a5d6d9a04833d953fa091d5b103dfb42cae431c9dc8d86fd22be1d30a94",
+      "reviewed": "WB: the app's ordinary run read keeps a part it couldn't take in (a notes file gone when read, a part listed as a link) on the run as _parts, and runProblems names it; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "b55f12a945d86dc60d8760a60fc98e237eee5f8c28d9a027b8b6c6c808a3e746",
