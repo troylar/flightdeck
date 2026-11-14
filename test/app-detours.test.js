@@ -16,9 +16,9 @@ const SMOKE = ['---', 'process: smoke-test', 'title: Smoke test', 'owner: person
 const txt = (h) => h.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&#39;/g, "'").replace(/&quot;/g, '"');
 const AT = () => new Date().toISOString();
 
-function publish(app, md, rand) {
+function publish(app, md, rand, existing) {
   const PF = app.PF, people = JSON.parse(app.fs.files['people.json'].t);
-  const b = PF.publish.build(md, { people, ...require('./harness').exampleSetup(PF), by: 'person-morgan', changes: 'First', existing: [], now: AT(), rand, app: '4.0.0' });
+  const b = PF.publish.build(md, { people, ...require('./harness').exampleSetup(PF), by: 'person-morgan', changes: 'First', existing: existing || [], now: AT(), rand, app: '4.0.0' });
   assert.ok(!b.blockers, JSON.stringify(b.blockers));
   const proc = PF.map.parse(md).meta.process;
   Object.keys(b.files).forEach(k => { app.fs.files['publications/' + proc + '/' + b.folder + '/' + k] = { t: b.files[k], m: Date.now() }; });
@@ -657,6 +657,32 @@ rule('A detour Try again saves nothing on a pinned version damaged or gone since
     assert.strictEqual(kidPaths(app).length, before, how + ': no run saved');
     assert.ok(!/Run started/.test(txt(app.html()) + ' ' + app.live()), how + ': never said it started');
   }
+});
+
+/* Round 16. */
+const r16 = (h) => !process.env.UR_CASE || process.env.UR_CASE.split(',').indexOf(h) >= 0;
+const setPeople = (app, how) => {
+  const F = app.fs.files;
+  if (how === 'unreadable') F['people.json'] = { t: '{ "format": ', m: Date.now() };
+  else { const o = JSON.parse(F['people.json'].t); (o.people || o).forEach(p => { if (p.id === 'person-avery') p.inactive = true; }); F['people.json'] = { t: JSON.stringify(o, null, 2), m: Date.now() }; }
+};
+/* UE: a to-do's plan starts on the exact version its to-do pins: no Start on vN instead or Use the latest, and a switch
+   asked anyway writes nothing. */
+rule('A to-do\'s plan never offers or records a switch to a newer version', async () => {
+  const { app, todo, kp } = await setup(['pass']);
+  app.click('td-detour', todo); await app.tick(250);
+  const planPath = plans(app)[0], id = planPath.slice('proposals/'.length, -'.json'.length);
+  const k2 = publish(app, SMOKE.replace('Run the smoke suite', 'Run the whole smoke suite'), 'sm000002', [kp.info]);
+  await refresh(app, 300);
+  app.click('td-detour', todo); await app.tick(250);
+  assert.ok(/id="start-form"/.test(app.html()), 'set-up: its plan is open');
+  assert.ok(!/data-act="plan-retarget"/.test(app.html()) && !/data-act="plan-latest"/.test(app.html()), 'no switch offered');
+  app.click('plan-retarget', id, { folder: k2.folder }); await app.tick(300);
+  app.click('plan-latest', id); await app.tick(100);
+  assert.deepStrictEqual(app.files('proposals/' + id + '.status-'), [], 'no switch recorded');
+  const before = kidPaths(app).length;
+  app.chooseApprovers().submitForm('start-form'); await app.tick(400);
+  assert.strictEqual(kidPaths(app).length, before + 1, 'it starts on its pinned version');
 });
 
 run();

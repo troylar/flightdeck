@@ -28789,8 +28789,10 @@ PF.vk = (function () {
     if (plan && planHeldWhy(plan, ctx.data)) h += '<div class="notice bad" role="alert"><span>' + esc(planHeldWhy(plan, ctx.data)) + '</span></div>';
     if (plan && plan._conflicting) h += '<div class="notice bad" role="alert"><span><b>Two decisions on this plan disagree</b>: it was started and declined, or started twice. Someone may have started it already; check Runs before you start it again.</span></div>';
     if (plan && pick.older) {
-      h += '<div class="notice warn"><span>' + (pick.chosen ? 'You switched this plan to v' : 'This plan was made for v') + esc(pub.info.version) + '. v' + esc(latest.info.version) + ' is now published.</span><span class="row"><button class="mini" type="button" data-act="plan-diff" aria-expanded="' + !!st.planDiff + '">See what changed</button>' +
-        (pick.exact ? '<button class="btn" type="button" data-act="plan-retarget" data-id="' + esc(plan.id) + '" data-folder="' + esc(latest.info.folder) + '">Start on v' + esc(latest.info.version) + ' instead</button>' : '<button class="btn" type="button" data-act="plan-latest" data-id="' + esc(plan.id) + '">Switch to v' + esc(latest.info.version) + '</button>') + '</span></div>';
+      /* A to-do's plan starts on the exact version its to-do pins (4.0): it is never switched, here or by Use the latest. */
+      var pinned = /^plan-ev-[0-9a-f]{24}$/.test(String(plan.id));
+      h += '<div class="notice warn"><span>' + (pick.chosen ? 'You switched this plan to v' : 'This plan was made for v') + esc(pub.info.version) + '. v' + esc(latest.info.version) + ' is now published.' + (pinned ? ' Its to-do pins v' + esc(pub.info.version) + ', so it starts there.' : '') + '</span><span class="row"><button class="mini" type="button" data-act="plan-diff" aria-expanded="' + !!st.planDiff + '">See what changed</button>' +
+        (pinned ? '' : pick.exact ? '<button class="btn" type="button" data-act="plan-retarget" data-id="' + esc(plan.id) + '" data-folder="' + esc(latest.info.folder) + '">Start on v' + esc(latest.info.version) + ' instead</button>' : '<button class="btn" type="button" data-act="plan-latest" data-id="' + esc(plan.id) + '">Switch to v' + esc(latest.info.version) + '</button>') + '</span></div>';
       if (st.planDiff) h += '<section class="panel" aria-label="Changes from v' + pub.info.version + ' to v' + latest.info.version + '">' + diffHtml(PF.publish.diff(pub.md, latest.md), st, 'plan-diff') + '</section>';
     } else if (plan && pick.missing) {
       /* Say why, when the version is in the folder but can't be used here (still syncing, damaged, or too new for this copy). */
@@ -37912,6 +37914,9 @@ PF.examples = (function () {
   /* Why the exact version a checklist-linked to-do's plan pins can't be started now ('' when it can): its publication read
      again from the folder (never the copy read before), the very folder pinned, usable, with the pinned fingerprints, and
      the version the form was drawn from the same one. */
+  /* UE: a to-do's plan starts on the exact version its to-do pins; a switch to another version would only strand it. */
+  var PINNED_PLAN = 'This plan is a to-do\'s, and it starts on the exact version the to-do pins. It can\'t be switched to another version. Nothing was written.';
+  function pinnedPlan(id) { return /^plan-ev-[0-9a-f]{24}$/.test(String(id)); }
   function detourPinWhy(fsx, plan, pub) {
     var pin = plan.pin, name = plan.process + ' ' + pin.folder;
     return repo.readProcess(fsx, plan.process).then(function (proc) {
@@ -42926,6 +42931,7 @@ PF.examples = (function () {
     'plan-latest': function (id) {
       var plan = data.plans.filter(function (x) { return x.id === id; })[0], p = plan && procFind(plan.process);
       if (!p || !p.latest) return;
+      if (pinnedPlan(id)) { say(PINNED_PLAN, 'warn'); render(); return; }
       if (planHeld(plan)) { say(planHeld(plan), 'warn'); render(); return; }
       /* The exact version shown, never "whatever is latest": a newer one published later asks again. */
       state.planPick = { key: fsKey(), plan: id, hash: plan._sha, folder: p.latest.info.folder };
@@ -42937,6 +42943,7 @@ PF.examples = (function () {
       var plan = data.plans.filter(function (x) { return x.id === id; })[0], p = plan && procFind(plan.process), g = gen;
       var pub = p && (p.all || []).filter(function (x) { return x.info.folder === b.dataset.folder; })[0];
       if (!plan || !pub || !state.me) return;
+      if (pinnedPlan(id)) { say(PINNED_PLAN, 'warn'); render(); return; }
       if (planHeld(plan)) { say(planHeld(plan), 'warn'); render(); return; }
       if (state.planRetargeting) { say('Still switching this plan.', 'warn'); render(); return; }
       state.planRetargeting = true;

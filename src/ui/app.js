@@ -3580,6 +3580,9 @@
   /* Why the exact version a checklist-linked to-do's plan pins can't be started now ('' when it can): its publication read
      again from the folder (never the copy read before), the very folder pinned, usable, with the pinned fingerprints, and
      the version the form was drawn from the same one. */
+  /* UE: a to-do's plan starts on the exact version its to-do pins; a switch to another version would only strand it. */
+  var PINNED_PLAN = 'This plan is a to-do\'s, and it starts on the exact version the to-do pins. It can\'t be switched to another version. Nothing was written.';
+  function pinnedPlan(id) { return /^plan-ev-[0-9a-f]{24}$/.test(String(id)); }
   function detourPinWhy(fsx, plan, pub) {
     var pin = plan.pin, name = plan.process + ' ' + pin.folder;
     return repo.readProcess(fsx, plan.process).then(function (proc) {
@@ -8594,6 +8597,7 @@
     'plan-latest': function (id) {
       var plan = data.plans.filter(function (x) { return x.id === id; })[0], p = plan && procFind(plan.process);
       if (!p || !p.latest) return;
+      if (pinnedPlan(id)) { say(PINNED_PLAN, 'warn'); render(); return; }
       if (planHeld(plan)) { say(planHeld(plan), 'warn'); render(); return; }
       /* The exact version shown, never "whatever is latest": a newer one published later asks again. */
       state.planPick = { key: fsKey(), plan: id, hash: plan._sha, folder: p.latest.info.folder };
@@ -8605,6 +8609,7 @@
       var plan = data.plans.filter(function (x) { return x.id === id; })[0], p = plan && procFind(plan.process), g = gen;
       var pub = p && (p.all || []).filter(function (x) { return x.info.folder === b.dataset.folder; })[0];
       if (!plan || !pub || !state.me) return;
+      if (pinnedPlan(id)) { say(PINNED_PLAN, 'warn'); render(); return; }
       if (planHeld(plan)) { say(planHeld(plan), 'warn'); render(); return; }
       if (state.planRetargeting) { say('Still switching this plan.', 'warn'); render(); return; }
       state.planRetargeting = true;
