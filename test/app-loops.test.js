@@ -1386,7 +1386,8 @@ async function refusalRace(app, change) {
   app.set('loop-add-each', 'ABC-101, ABC-102'); app.click('loop-add', 'each'); await app.tick(150);
   const R = app.PF.repo, ss = R.saveScope; let changed = false;
   R.saveScope = function (f, n, file) {
-    if (!changed && /\.status-/.test(n) && file && file.op === 'refused') { changed = true; change(app, file.proposal); }
+    const args = arguments, self = this;
+    if (!changed && /\.status-/.test(n) && file && file.op === 'refused') { changed = true; return Promise.resolve(change(app, file.proposal)).then(() => ss.apply(self, args)); }
     return ss.apply(this, arguments);
   };
   const id = await ask(app, [{ op: 'start', item: { key: 'ABC-101' }, as: 'person-casey' }], 'zc-' + Math.random().toString(36).slice(2, 8));
@@ -1412,5 +1413,27 @@ rule('Round 21 (ZC): a refusal, its request replaced with an allowed one under t
     app.fs.files[p] = { t: app.fs.files[p].t.split('person-casey').join('person-avery'), m: Date.now() };
   });
   assert.notStrictEqual((outcome(app, id) || {}).op, 'refused', 'the allowed request isn\'t settled by the old refusal');
+});
+/* Round 22 (AA): a refusal settles only the request it judged, as it was when it was taken up. Replaced with Avery's allowed
+   one and the folder read again (Refresh) while the refusal waits, the old refusal isn't written, and the allowed request
+   is carried out. A OneDrive copy of the request that says something else, added while it waits, refuses it too. */
+rule('Round 22 (AA): a refusal, its request replaced with an allowed one and the folder read again before it is written, isn\'t written', async () => {
+  const app = await setup();
+  const id = await refusalRace(app, async (app, rid) => {
+    const p = 'proposals/' + rid + '.json';
+    app.fs.files[p] = { t: app.fs.files[p].t.split('person-casey').join('person-avery'), m: Date.now() };
+    app.click('refresh'); await app.tick(300);
+  });
+  assert.notStrictEqual((outcome(app, id) || {}).op, 'refused', 'the allowed request isn\'t settled by the old refusal: ' + JSON.stringify(outcome(app, id)));
+  app.click('refresh'); await app.tick(400);
+  assert.deepStrictEqual([(outcome(app, id) || {}).op, kidPaths(app).length], ['applied', 1], 'the allowed request is carried out');
+});
+rule('Round 22 (AA): a refusal, a different OneDrive copy of its request added before it is written, isn\'t written', async () => {
+  const app = await setup();
+  const id = await refusalRace(app, (app, rid) => {
+    const p = 'proposals/' + rid + '.json';
+    app.fs.files['proposals/' + rid + ' (1).json'] = { t: app.fs.files[p].t.split('person-casey').join('person-avery'), m: Date.now() };
+  });
+  assert.strictEqual(outcome(app, id), null, 'no refusal recorded: ' + JSON.stringify(outcome(app, id)));
 });
 run();

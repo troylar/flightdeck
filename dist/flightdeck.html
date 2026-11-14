@@ -36811,6 +36811,8 @@ PF.examples = (function () {
           /* Bound to the folder, its generation and the person it started in: after a switch nothing more is done or
              written, and the request stays pending for the recorder's window in its own folder. */
           var cx = loopGuard({ q: q });
+          /* Round 22 (AA): the request's records as they are now, when it is taken up: what a refusal may settle. */
+          cx.took = takeUp(q.id);
           loopCarry(r, sx.step.id, V, q, cx).then(function (out) { return loopOutcome(V, q, out.ok ? 'applied' : 'refused', out.why, cx); }, function (err) { return loopOutcome(V, q, 'refused', err && err.message || String(err), cx); })
             .then(function (wrote) { delete applying[gk]; if (wrote !== false) answered[gk] = true; if (wrote !== false && cx.g === gen) return load(true); }, function () { delete applying[gk]; });
         });
@@ -37297,7 +37299,7 @@ PF.examples = (function () {
     else opts.recheck = function (fs, phase, w) {
       var lk = V.loop.process + '/' + V.loop.run, pr = findRun(lk), j = outcomeJudge(lk, V.loop.step, q.id, cx.me, op === 'applied' && q.ops[0] !== 'resolve');
       if (!pr) return Promise.resolve(false);
-      if (op !== 'applied') return freshGuard(cx, fs, [lk], refusedJudge(lk, q.id, cx.me), { w: w, report: true, only: function (n) { return n === q.id + '.json' || n.indexOf(q.id + '.status-') === 0; } });
+      if (op !== 'applied') return cx.took ? freshGuard(cx, fs, [lk], refusedJudge(lk, q.id, cx.me, cx.took), { w: w, report: true, only: function (n) { return ownFile(n, q.id); } }) : Promise.resolve(false);
       /* A start's outcome follows the story runs it just started, which this window doesn't hold yet: it reports them, so the
          stories it holds are read but not listed fresh (that listing is for writes judged on coverage). */
       if (q.ops[0] !== 'approve') return freshGuard(cx, fs, covKeys(pr), j, { w: w, kids: q.ops[0] === 'start' ? '' : lk });
@@ -37322,16 +37324,30 @@ PF.examples = (function () {
       return JSON.stringify(PF.loop.seenFor(V.ledger, [], [qid]).seen) === JSON.stringify(PF.loop.seenFor(H.ledger, [], [qid]).seen);
     };
   }
-  /* Round 21 (ZC): a refusal's judge, on what its guard read now: the run (d.freshRuns), people, proposals/. */
-  function refusedJudge(key, qid, me) {
-    var ours = function (x) { var f = String(x && (x._file || x.file || x.path) || '').replace(/^proposals\//, ''); return f === qid + '.json' || f.indexOf(qid + '.status-') === 0; };
-    var canon = function (list) { return JSON.stringify(list.filter(ours).map(function (x) { return [String(x._file), x]; }).sort(function (a, b) { return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0; })); };
+  /* Round 22 (AA): a request's own files, by the shared copy rule: the request and any OneDrive copy of it, and its outcomes
+     (and their copies). */
+  function ownFile(name, qid) { name = String(name || '').replace(/^proposals\//, ''); return PF.requests.isCopyName(name, qid) || name.indexOf(qid + '.status-') === 0; }
+  /* Every record of a request's, each with its file and everything in it but the reader's own fields, in file order; null
+     when one of its files can't be read or no record of the request itself is there. */
+  function ownRecords(d, qid) {
+    var body = function (x) { var o = {}; Object.keys(x).sort().forEach(function (k) { if (k[0] !== '_') o[k] = x[k]; }); return o; };
+    var bad = (d.torn || []).concat(d.scopesUnread || []).some(function (x) { return ownFile(x && (x._file || x.file || x.path), qid); });
+    if (bad) return null;
+    var mine = (d.scopes || []).filter(function (x) { return x && ownFile(x._file, qid); });
+    var asks = mine.filter(function (x) { return x.id === qid && PF.requests.isCopyName(String(x._file), qid); });
+    /* Copies of the request itself: counted once when they say the same thing (PF.loop.sameRecord); different ones refuse. */
+    if (!asks.length || asks.some(function (x) { return !PF.loop.sameRecord(x, asks[0]); })) return null;
+    return JSON.stringify(mine.map(function (x) { return [String(x._file), body(x)]; }).sort(function (a, b) { return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0; }));
+  }
+  function takeUp(qid) { return ownRecords(data, qid); }
+  /* Round 21 (ZC), round 22 (AA): a refusal's judge, on what its guard read now: the run (d.freshRuns), people, and the
+     request's own files, which must be exactly those taken up (took): the same request, still with no outcome but those. */
+  function refusedJudge(key, qid, me, took) {
     return function (d) {
       var r = d.freshRuns && d.freshRuns[key];
       if (!r || !r.recorder || r.recorder.person !== me || r.recorder.session !== SESSION || actorWhy(r, d.people, me)) return false;
-      if ((d.torn || []).some(ours) || (d.scopesUnread || []).some(ours)) return false;
-      if (!(d.scopes || []).some(function (x) { return x && x._file === qid + '.json'; })) return false;
-      return canon(d.scopes || []) === canon(data.scopes || []);
+      var now = ownRecords(d, qid);
+      return !!now && now === took;
     };
   }
   function resolveJudge(res, q, op, seen, me) {
