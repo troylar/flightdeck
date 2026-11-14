@@ -360,6 +360,30 @@ rule('Python reads a "Published in v2" claim\'s correction only from notes files
   const c = LW.checkPack(await LW.repacked(PF, zip, (e, man, g) => { const y = g(fixture.notesPath); y.path = y.path.replace(/notes-w2\.jsonl$/, 'notes-w2.ignored.jsonl'); const old = y.pack; y.pack = y.pack.replace(/notes-w2\.jsonl$/, 'notes-w2.ignored.jsonl'); e[y.pack] = e[old]; delete e[old]; }));
   assert.ok(!c.ok, 'the notes renamed notes-w2.ignored.jsonl: ' + c.out);
 });
+/* VD: the claim's correction is read from the run's notes as the app reads them: only notes-<window>.jsonl directly in
+   the run folder, each line by the checked parse (nothing nested past 64 levels, no NaN). The notes file renamed so the app
+   ignores it, or the correction's line one the app drops as torn, and Python refuses. */
+rule('Python reads a "Published in v2" claim\'s correction only from notes the app reads, line by line as it parses them', async () => {
+  if (!PY) return console.log('  (skipped: no Python)');
+  const LW = require('./living-worlds'), PF = load();
+  const { zip } = await pack(await folder(), { run: 'release/run1' });
+  const claimOf = (man) => man.runs[0].claims.filter((c) => c.group === fixture.groupId)[0];
+  const cid = claimOf(LW.manifestOf(zip)).correction;
+  const lineEdit = (fn) => (e, man, g) => { const y = g(fixture.notesPath), lines = e[y.pack].toString('utf8').split('\n');
+    const i = lines.findIndex((l) => { try { return JSON.parse(l).id === cid; } catch (x) { return false; } });
+    assert.ok(i >= 0, 'set-up: the correction\'s line'); lines[i] = fn(lines[i]); e[y.pack] = Buffer.from(lines.join('\n')); };
+  const misses = [];
+  for (const [what, edit] of [
+    ['the correction\'s line with "extra": NaN', lineEdit((l) => l.replace(/^\{/, '{"extra": NaN, '))],
+    ['the correction\'s line with 70 nested arrays', lineEdit((l) => l.replace(/^\{/, '{"extra": ' + '['.repeat(70) + ']'.repeat(70) + ', '))]
+  ]) { const c = LW.checkPack(await LW.repacked(PF, zip, edit)); if (c.ok) misses.push(what + ': ' + c.out); }
+  /* The manifest itself, by the same strict parse. */
+  const ent = LW.unzip(zip); ent['manifest.json'] = Buffer.from(ent['manifest.json'].toString('utf8').replace(/^\{/, '{"extra": NaN, '));
+  const nan = LW.checkPack(await LW.rezip(PF, ent));
+  if (nan.ok) misses.push('the manifest with "extra": NaN: ' + nan.out);
+  assert.deepStrictEqual(misses, []);
+});
+
 rule('A /2 v2 proves "Published in v2" by its exact bytes: a byte-order mark added to its map.md (which the app refuses) leaves the claim unconfirmed', async () => {
   const fx = await build(load(), { v2note: true }), v2 = 'publications/release/' + fx.v2 + '/';
   assert.strictEqual(JSON.parse(fx.files[v2 + 'publication.json'].toString('utf8')).format, 'preflight-publication/2', 'v2 is a /2 version');

@@ -29,7 +29,12 @@ def main(path):
             if info.flag_bits & 0x800 == 0 and any(ord(c) > 127 for c in info.filename):
                 sys.exit("non-ASCII name without the UTF-8 flag: " + info.filename)
         digest = {n: hashlib.sha256(z.read(n)).hexdigest() for n in names}
-        man = json.loads(z.read("manifest.json").decode("utf-8"))
+        # The manifest by the same strict parse (VD: no NaN or Infinity, nothing nested past 64 levels), its whole numbers kept
+        # as integers for the shape checks.
+        try:
+            man = strict_json(z.read("manifest.json").decode("utf-8"), doubles=False)
+        except (ValueError, UnicodeDecodeError):
+            sys.exit("manifest: it isn't JSON this reader reads")
         bad = manifest_problem(man)
         if bad:
             sys.exit("manifest: " + bad)
@@ -508,8 +513,9 @@ def claimed_member(z, by_path, run_key, run, cid):
             for ln in t.split("\n"):
                 if not CF.js_trim(ln):
                     continue
+                # Each line by the app's checked parse (VD): nested past 64 levels, NaN or Infinity, or not JSON, it's torn.
                 try:
-                    x = json.loads(ln)
+                    x = strict_json(ln)
                 except ValueError:
                     continue
                 if isinstance(x, dict) and isinstance(x.get("id"), str) and isinstance(x.get("text"), str):
@@ -713,16 +719,21 @@ def manifest_problem(man):
     return ""
 
 
-def decode(raw):
-    """A packed original read as the app reads it (its checked parse): its text as TextDecoder gives it (RV.utf8_text), nothing
-    nested more than PF.util.JSON_DEPTH (64) levels deep, no NaN or Infinity, and every number a double. ValueError otherwise."""
-    text = RV.utf8_text(raw)
+def strict_json(text, doubles=True):
+    """Text parsed as the app's checked parse does (repo's json: PF.util.jsonTooDeep, then JSON.parse): nothing nested more
+    than 64 levels deep, no NaN or Infinity, every number a double. ValueError otherwise."""
     if CF.json_too_deep(text):
         raise ValueError(CF.DEEP_WHY)
     try:
-        return json.loads(text, parse_int=float, parse_constant=CF._no_constant)
+        return json.loads(text, parse_int=float if doubles else int, parse_constant=CF._no_constant)
     except RecursionError:
         raise ValueError(CF.DEEP_WHY)
+
+
+def decode(raw):
+    """A packed original read as the app reads it (its checked parse): its text as TextDecoder gives it (RV.utf8_text), nothing
+    nested more than PF.util.JSON_DEPTH (64) levels deep, no NaN or Infinity, and every number a double. ValueError otherwise."""
+    return strict_json(RV.utf8_text(raw))
 
 
 COPY = re.compile(r"^( \([0-9]{1,3}\)|-[A-Za-z0-9-]{1,63})$")

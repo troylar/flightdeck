@@ -25,12 +25,12 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "4e3a118d94fea854de31f23c149526c592d0fa43a7374c0cb9b1645282bf6c2e",
-      "reviewed": "TE: version files gone after sizing are named at capture; checked for direct writes and unconditional deletes"
+      "sha256": "40da211928af8449aa3abe6c8432ce19cb43aa3831f645110b789b9176b1807a",
+      "reviewed": "VD: notes lines and the manifest through the strict parser; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
-      "sha256": "3861cebb3744835bcacaf546ee5b9cffd67460cabc911199c798b7bfc5ceefc9",
-      "reviewed": "VC: notes files by the readers' name rule; checked for direct writes and unconditional deletes"
+      "sha256": "7eb49f5a1ca77c9a57a7faa2cdd98d06061a52efb67ed4a4e76bd0fb2c3db782",
+      "reviewed": "VD: notes lines and the manifest through the strict parser; checked for direct writes and unconditional deletes"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
