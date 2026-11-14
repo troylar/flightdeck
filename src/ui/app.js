@@ -3348,7 +3348,9 @@
       return stillSame(raw, rec.seen, null).then(function (same) { return same && fine() ? token() : false; }, no);
     };
     var plans = function () {
-      return PF.repo.readPlans(src, null, null).then(function (res) {
+      /* o.only (a refusal's report): just the files of the request it settles, so a record that can't be read (often why
+         it was refused) isn't read here; its own files that can't be read refuse. */
+      return PF.repo.readPlans(src, null, o.only || null).then(function (res) {
         /* A refusal's report (o.report) doesn't need the other records whole: its judge refuses only on its own request's. */
         if (!res || (!o.report && (res.torn || []).some(function (t) { return !t.parsed; }))) return false;
         var d = Object.assign({}, data, { people: people, scopes: res.scopes || [], scopesUnread: res.scopesUnread || [], todos: res.todos || [], todosUnread: res.todosUnread || [], torn: res.torn || [], freshRuns: reads });
@@ -4224,7 +4226,7 @@
     else opts.recheck = function (fs, phase, w) {
       var lk = V.loop.process + '/' + V.loop.run, pr = findRun(lk), j = outcomeJudge(lk, V.loop.step, q.id, cx.me, op === 'applied' && q.ops[0] !== 'resolve');
       if (!pr) return Promise.resolve(false);
-      if (op !== 'applied') return freshGuard(cx, fs, [lk], refusedJudge(lk, q.id, cx.me), { w: w, report: true });
+      if (op !== 'applied') return freshGuard(cx, fs, [lk], refusedJudge(lk, q.id, cx.me), { w: w, report: true, only: function (n) { return n === q.id + '.json' || n.indexOf(q.id + '.status-') === 0; } });
       /* A start's outcome follows the story runs it just started, which this window doesn't hold yet: it reports them, so the
          stories it holds are read but not listed fresh (that listing is for writes judged on coverage). */
       if (q.ops[0] !== 'approve') return freshGuard(cx, fs, covKeys(pr), j, { w: w, kids: q.ops[0] === 'start' ? '' : lk });
