@@ -1777,6 +1777,9 @@ PF.repo = (function () {
       ]).then(function (r) {
         var pubs = r[0], sp = r[1], st = r[2];
         if (!st.ok) throw new Error('This stage can\'t be read now: ' + st.why);
+        /* o.expect (VD): the stage exactly as the caller's guard judged it (its checklist and its record); a stage read now that
+           differs isn't the one that was checked, so nothing is published. */
+        if (o.expect && (st.md !== o.expect.md || JSON.stringify(st.info) !== JSON.stringify(o.expect.info))) throw new Error('The stage changed after it was checked (a sync may have replaced it), so it isn\'t the one that was checked. Nothing was published. Look again, then try again.');
         /* A version whose record can't be read, or reads incomplete, could be this stage's promotion: never promote past one.
            One that names this stage, complete or not, already is. */
         var unread = promotionUnknown(pubs, stageFolder);

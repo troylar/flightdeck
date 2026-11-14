@@ -653,6 +653,36 @@ rule('Promoting a staged version that includes a keep is the active owner\'s too
   assert.strictEqual(versions(app), n + 1, 'the owner promotes it');
 });
 
+/* VD: the promotion is guarded on the exact stage it publishes: a plain stage swapped for one with an applied keep (same
+   folder) between the guard's read and the promotion's own read publishes nothing for anyone but the owner. */
+rule('A stage swapped for one that includes a keep between the owner check and the promotion publishes nothing', async () => {
+  const { app } = await appliedKeep();
+  await openPage(app);
+  app.set('change-note', 'Post the notes'); app.click('stage-draft', 'release-notes'); await app.tick(300);
+  const st = app.files('staged/release-notes/').filter(f => /publication\.json$/.test(f));
+  assert.strictEqual(st.length, 1, 'set-up: staged');
+  const folder = JSON.parse(app.fs.files[st[0]].t).folder, base = 'staged/release-notes/' + folder + '/', n = versions(app);
+  assert.ok((JSON.parse(app.fs.files[st[0]].t).corrections || []).length, 'set-up: the stage includes the keep');
+  const kept = {}; app.files(base).forEach(f => { kept[f] = app.fs.files[f]; });
+  const PF = app.PF, people = JSON.parse(app.fs.files['people.json'].t);
+  const b = PF.publish.build(MD, { people, ...require('./harness').exampleSetup(PF), stage: true, by: 'person-morgan', changes: 'Plain', existing: [{ version: 1 }], now: new Date().toISOString(), rand: folder.replace(/^stage-/, ''), app: '4.0.0' });
+  assert.ok(!b.blockers && b.folder === folder, 'set-up: a plain stage of the same name ' + JSON.stringify(b.blockers || b.folder));
+  Object.keys(kept).forEach(f => { delete app.fs.files[f]; });
+  Object.keys(b.files).forEach(k => { app.fs.files[base + k] = { t: b.files[k], m: Date.now() }; });
+  app.choose('person-avery'); await app.tick(80); await refresh(app, 300); await openPage(app);
+  assert.ok(new RegExp('data-act="promote-stage"[^>]*data-id="' + folder + '"|data-id="' + folder + '"[^>]*data-act="promote-stage"').test(app.html()), 'set-up: Promote offered on the plain stage');
+  const fs = app.fs, read = fs.read.bind(fs); let swapped = false, stageReads = 0;
+  fs.read = (p, ...a) => {
+    if (p === base + 'publication.json') stageReads++;
+    if (!swapped && stageReads >= 1 && p === 'people.json') { swapped = true; Object.keys(b.files).forEach(k => { delete fs.files[base + k]; }); Object.keys(kept).forEach(f => { fs.files[f] = { t: kept[f].t, m: Date.now() }; }); }
+    return read(p, ...a);
+  };
+  app.click('promote-stage', folder); await app.tick(400);
+  fs.read = read;
+  assert.ok(swapped, 'set-up: swapped after the guard\'s read');
+  assert.strictEqual(versions(app), n, 'nothing published by someone else');
+});
+
 rule('Applying a keep whose person changes while the draft is being read writes neither the draft nor a decision', async () => {
   for (const change of ['person', 'folder-owner']) {
     const app = await setup(), id = await added(app, 'Post the release notes');

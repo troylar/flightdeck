@@ -1895,14 +1895,15 @@
       if (!still()) return { dropped: true };
       var lk = LOCKS ? lock : null;
       if (what !== 'promote') return repo.decideStage(sfs, pid, folder, what, { by: by, now: new Date().toISOString(), window: WRITER, app: APP_VERSION, lock: lk, still: still });
-      var promote = function (st, fr) { return repo.promote(sfs, pid, folder, { by: by, now: new Date().toISOString(), app: APP_VERSION, lock: lk, still: st, fresh: fr }); };
+      var promote = function (st, fr, sv) { return repo.promote(sfs, pid, folder, { by: by, now: new Date().toISOString(), app: APP_VERSION, lock: lk, still: st, fresh: fr, expect: sv && sv.ok ? { md: sv.md, info: sv.info } : { md: null, info: null } }); };
       /* A stage that includes what was kept for next time is promoted only by the checklist's active owner, asked again on
          people.json read right before the write; one that can't be read isn't promoted on a guess. */
       return repo.readStage(sfs, pid, folder).then(function (sv) {
         var listed = sv && sv.info && Array.isArray(sv.info.corrections) ? sv.info.corrections : [];
-        /* Kept content (MA): the stage's own text, judged inside the guard on what is read again before every write. */
+        /* Kept content (MA): the stage's own text, judged inside the guard on what is read again before every write. VD: and
+           promote publishes only that exact stage (its checklist and record), refusing one read differently. */
         var kg = keptGuard(pid, function () { return sv && typeof sv.md === 'string' ? sv.md : null; }, function () { return listed; }, { me: by, fs: sfs, gen: pg });
-        return kg.fresh(sfs).then(function () { return promote(function () { return still() && kg.still(); }, kg.fresh); }).then(function (res) { return res && res.dropped && !still() ? res : res && res.dropped ? { refused: 'Nothing was published: ' + kg.why() } : res; });
+        return kg.fresh(sfs).then(function () { return promote(function () { return still() && kg.still(); }, kg.fresh, sv); }).then(function (res) { return res && res.dropped && !still() ? res : res && res.dropped ? { refused: 'Nothing was published: ' + kg.why() } : res; });
       }, function (e) { return { refused: 'Nothing was published: the stage couldn\'t be read again right before it was (' + (e && e.message || e) + '), so whether it includes what was kept for next time can\'t be told.' }; });
     }).then(function (res) {
       state.stageBusy = null;
