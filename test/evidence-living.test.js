@@ -8,7 +8,7 @@ const assert = require('assert');
 const crypto = require('crypto');
 const { rule, run } = require('./harness');
 const { BytesFS } = require('./evidence-fixture');
-const { made, pack, datePack, SHOT, loopMade, factMade, evidenceMade, rereceipt, roleWorlds, PY, sha, unzip, rezip, checkPack, manifestOf, repacked, forced } = require('./living-worlds');
+const { made, pack, datePack, SHOT, loopMade, factMade, evidenceMade, spreadMade, rereceipt, roleWorlds, PY, sha, unzip, rezip, checkPack, manifestOf, repacked, forced } = require('./living-worlds');
 
 rule('A living run\'s pack holds its whole application chain and its receipt, says so, and writes nothing to the folder', async () => {
   const W = await made({ todos: 2 }), fsx = new BytesFS(W.files);
@@ -2399,5 +2399,23 @@ rule('Work the app can\'t replay (an application whose effect isn\'t what its re
   assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => /isn't what/.test(u)), 'the export names it: ' + res.status + ' ' + JSON.stringify(res.col.unresolved));
   assert.strictEqual(manifestOf(zip).runs[0].living.receipt.state, 'confirmed', 'the receipt stays confirmed');
   if (PY) { const c = checkPack(await repacked(PF, zip, (e, man) => forced(man))); assert.ok(!c.ok && /isn't what/.test(c.out), 'Python refuses it: ' + c.out); }
+});
+/* YB: a spread creation that leaves out its optional "spread" (readers derive it from the request's id) is replayed as the
+   app replays it: the export is complete, and Python accepts it, its effect read from the body the checker checked. */
+rule('A spread creation without its derived "spread" field is replayed as the app replays it, by the export and Python alike', async () => {
+  const W = await spreadMade(), PF = W.PF, T = PF.todos;
+  const ctl = await pack(PF, new BytesFS(W.files), W.key);
+  assert.strictEqual(ctl.res.status, 'complete', 'the control: ' + JSON.stringify(ctl.res.col.unresolved));
+  if (PY) assert.ok(checkPack(ctl.zip).ok, 'Python accepts the control: ' + checkPack(ctl.zip).out);
+  const o = JSON.parse(W.files[W.spreadPath]);
+  assert.ok(o.spread, 'set-up: the spread creation names its spread');
+  delete o.spread;
+  const files = Object.assign({}, W.files, { [W.spreadPath]: JSON.stringify(o, null, 2) + '\n' });
+  assert.ok(T.cleanFile(JSON.parse(files[W.spreadPath]), W.spreadPath.slice('proposals/'.length)).ok, 'set-up: the app reads it without the field');
+  const got = await PF.repo.readTodos(new BytesFS(files)), r = PF.run.sanitize(JSON.parse(files[W.runPath]));
+  assert.ok(!T.view(r, { records: T.recordsFor(got.records, r) }).broken, 'set-up: the app replays it');
+  const { res, zip } = await pack(PF, new BytesFS(files), W.key);
+  assert.strictEqual(res.status, 'complete', 'the export: ' + JSON.stringify(res.col.unresolved));
+  if (PY) { const c = checkPack(zip); assert.ok(c.ok, 'Python accepts it: ' + c.out); }
 });
 run();

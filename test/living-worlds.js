@@ -167,6 +167,34 @@ async function factMade() {
   const files = {}; Object.keys(app.fs.files).forEach(p => { files[p] = app.fs.files[p].t; });
   return { PF, files, key: r.process + '/' + r.id, run: r, runPath: pPath, factId: ob.id, factPath: 'proposals/' + ob.id + '.json', todo: x.id };
 }
+/* A loop parent with stories ABC-101 and ABC-102, whose recorder added a spread on the loop in one gesture (a compound,
+   landed): the run's work holds a spread creation (4.0, YB). */
+async function spreadMade() {
+  const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(80); app.choose('person-avery'); await app.tick();
+  const PF = app.PF, T = PF.todos, people = JSON.parse(app.fs.files['people.json'].t), now = new Date().toISOString();
+  for (const [md, id, rand] of [[KID, 'validate-story', 'vs000001'], [PARENT, 'release-readiness', 'rr000001']]) {
+    const b = PF.publish.build(md, { people, ...require('./harness').exampleSetup(PF), by: 'person-avery', changes: 'First', existing: [], now, rand, app: '4.0.0' });
+    assert.ok(!b.blockers, JSON.stringify(b.blockers));
+    Object.keys(b.files).forEach(k => { app.fs.files['publications/' + id + '/' + b.folder + '/' + k] = { t: b.files[k], m: Date.now() }; });
+  }
+  app.click('refresh'); await app.tick(80);
+  app.click('start', 'release-readiness'); await app.settle();
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
+  app.set('loop-add-each', 'ABC-101, ABC-102'); app.click('loop-add', 'each'); await app.tick(150); app.set('loop-add-each', ''); await app.tick();
+  app.click('refresh'); await app.tick(300);
+  const pPath = app.files('runs/release-readiness/').find(p => /run\.json$/.test(p));
+  const d = await PF.repo.loadAll(app.fs, {}), r = d.runs.find(x => x.process === 'release-readiness');
+  const procOf = (id) => { const x = d.processes.filter(p => p.process === id)[0]; return x ? { latest: x.index.latest, all: x.index.all, clashes: x.index.clashes, broken: [] } : null; };
+  const st = PF.map.findStep(PF.run.mapOf(r), 'each'), LV = PF.loop.view(r, 'each', { records: d.scopes, runs: d.runs, procOf }), childMap = PF.pins.childTarget(r, st.step, procOf).pub.map;
+  const P = T.prepare(r, { body: { op: 'spread-add', loopStep: 'each', text: 'Security sign-off', child: { beforeGate: 'assess-confirm' }, scope: PF.spreads.snapshot(LV) }, by: { person: 'person-avery' }, key: 'sp-yb0001', records: d.todos, unread: d.todosUnread, people, at: new Date().toISOString(), app: '4.0.0', childMap });
+  assert.ok(!P.why, P.why);
+  await app.fs.write('proposals/' + P.name, T.text(P.file));
+  for (let i = 0; i < 3; i++) { app.click('refresh'); await app.tick(300); }
+  const run = JSON.parse(app.fs.files[pPath].t);
+  assert.ok(run.living && run.living.head === P.file.id, 'set-up: the spread landed: ' + JSON.stringify(run.living) + ' ' + P.file.kind);
+  const files = {}; Object.keys(app.fs.files).forEach(p => { files[p] = app.fs.files[p].t; });
+  return { PF, files, key: run.process + '/' + run.id, run, runPath: pPath, spreadPath: 'proposals/' + P.name, spreadId: P.file.id };
+}
 /* A release-notes run with a to-do linked to a smoke-test checklist: run, completed with pass, accepted in the app (a done on
    that run's evidence, landed), the run then ended with its receipt, which names that evidence (4.0, WA). */
 const EVP = ['---', 'process: release-notes', 'title: Release notes', 'owner: person-avery', '---', '',
@@ -326,4 +354,4 @@ async function repacked(PF, zip, edit) {
 /* The manifest made to claim the run's work complete (an evidence run's plan isn't in these folders): only Python's own checks can then refuse it. */
 const forced = (man) => { man.status = 'complete'; man.runs.forEach((r) => { if (r.living) { r.living.complete = true; r.living.missing = []; (r.living.deps || []).forEach((d) => { d.confirmed = true; }); } }); };
 
-module.exports = { MD, made, pack, datePack, KID, PARENT, SHOT, loopMade, factMade, evidenceMade, rereceipt, roleWorlds, PY, sha, unzip, rezip, checkPack, manifestOf, repacked, forced };
+module.exports = { MD, made, pack, datePack, KID, PARENT, SHOT, loopMade, factMade, evidenceMade, spreadMade, rereceipt, roleWorlds, PY, sha, unzip, rezip, checkPack, manifestOf, repacked, forced };

@@ -1074,10 +1074,11 @@ def check_living(z, man):
             if p is None or p.get("kind") not in ("proposal", "compound"):
                 why = "its request " + str(pid) + " isn't here"
             else:
-                b = dict(p)
-                if b.get("op") == "add":
-                    b["todo"] = CF._todo_td(p["id"])
-                if CF._tsha({k: v for k, v in CF.todo_effect_of(b).items() if v is not None}) != ap.get("fingerprint"):
+                # What it asks for, from the body the shipped checker checked (YB): ids readers derive (an addition's to-do, a
+                # spread creation's spread) filled in as the app fills them.
+                bl: list = []
+                CF.todo_why(p, pid + ".json", body=bl)
+                if not bl or CF._tsha({k: v for k, v in CF.todo_effect_of(bl[0]).items() if v is not None}) != ap.get("fingerprint"):
                     why = "its effect isn't what " + pid + " asks for"
                 elif not comp and pid not in ancestors(at):
                     why = "it didn't see its request"

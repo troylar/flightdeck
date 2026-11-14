@@ -2617,9 +2617,11 @@ def receipt_why(o, name):
     return "is a receipt that isn't in its format: " + errors[0] if errors else ""
 
 
-def todo_why(o, name, nbytes=None, unchecked=None):
+def todo_why(o, name, nbytes=None, unchecked=None, body=None):
     """'' when the app reads this to-do record, else why it refuses it (PF.todos.cleanFile's reason). A link on an
-    international domain name isn't judged (todo_http_link gives SCOPE_IDN): its place is added to unchecked, never a reason."""
+    international domain name isn't judged (todo_http_link gives SCOPE_IDN): its place is added to unchecked, never a reason.
+    body, a list: a request or compound the app reads gets its checked body appended (what todo_effect_of reads), with the
+    fields readers derive from its id filled in."""
     if nbytes is not None and nbytes > TODO_LIMITS["bytes"]:
         return "is " + str(nbytes) + " bytes; a to-do record is at most " + str(TODO_LIMITS["bytes"])
     st = isinstance(o, dict) and o.get("format") == TODO_STATUS
@@ -3213,7 +3215,11 @@ def todo_why(o, name, nbytes=None, unchecked=None):
             err("grant")
         if o.get("reason") is not None:
             line(o["reason"], TODO_LIMITS["reason"], "reason")
-    return "is a to-do " + kind + " that isn't in its format: " + errors[0] if errors else ""
+    if errors:
+        return "is a to-do " + kind + " that isn't in its format: " + errors[0]
+    if body is not None and kind in ("proposal", "compound") and b:
+        body.append(b)
+    return ""
 
 
 # A loop's scope records (3.0, PF.loop): requests (flightdeck-plan/3) and decisions on them (flightdeck-plan-status/3). The
