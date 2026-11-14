@@ -25662,6 +25662,9 @@ PF.repo = (function () {
             var dq = PF.detours.versionDrift(one.run, one.pub); if (dq) jp.push(dq);
             /* The version as read now, for the whole-pin verdict (PF.detours.pinWhy), whether or not the run carries every field. */
             if (one.pub && one.pub.info) pubs[k] = { folder: one.pub.info.folder, version: one.pub.info.version, mapHash: one.pub.info.mapHash, typesHash: one.pub.info.typesHash };
+            /* SE: a part of the run that couldn't be read now (a notes file, a conflict copy), as run and runs name it by path
+               and kind: what the run says isn't fully known, so it is unread here, never evidence. */
+            (one.bad || []).forEach(function (b) { if (b && typeof b.path === 'string' && b.path.indexOf('runs/' + k + '/') === 0) jp.push({ path: b.path, kind: b.kind || 'unreadable', why: 'Part of the run a to-do\'s evidence names couldn\'t be read (' + String(b.why || 'it couldn\'t be read').replace(/\.$/, '') + '), so what rests on it can\'t be checked.' }); });
             if (!jp.length) { runs.push(one.run); return; }
             unreadRuns.push(k); jp.forEach(function (q) { problemAt(k, q.path, q.kind, q.why); }); return;
           }

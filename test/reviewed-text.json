@@ -25,8 +25,8 @@
       "reviewed": "SF: todo add --checklist and suggest-done --evidence-run hold on a source run judged with the keep command's shared verdict; no new writes; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "ada82273718a24839eac0c9fcef6768afbe4ffa80577c735df8f2d381899f9d9",
-      "reviewed": "SC: a to-do's plan Decline runs under the write guard: people.json read after the plan's final read, the decliner's authority asked right before the write; checked for direct writes and unconditional deletes"
+      "sha256": "c9610250b0c332d5ce614baaa5640395c33222fa848ca27a11d87e87c6443f2b",
+      "reviewed": "SE: a run whose read names a file of its own that can't be read is unread evidence, never accepted; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -417,8 +417,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "73c3bc567215fd201854e5e72337006586302c251330099e4d5cd3190634c5d9",
-      "reviewed": "SA: Try again's final read requires this window's exact start decision and the plan's fingerprint; checked for direct writes and unconditional deletes"
+      "sha256": "32b7d2a6aef0f8296ff9f05e85a14a1981bc9039310297ce4e7b5b0320a49807",
+      "reviewed": "SE: a run whose read names a file of its own that can't be read is unread evidence, never accepted; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "6b746f3a42b8e219f8372f3694c49d3d7e977370eb0a3e113baa49ecc4e0fba1",

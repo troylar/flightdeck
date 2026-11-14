@@ -494,6 +494,23 @@ rule('Every checklist-linked write path is guarded after every read and right be
   if (process.env.RACE_SAY) console.log(JSON.stringify(out));
 });
 
+/* SE: Accept's write guard reads the evidence run again; a part of it that can't be read now (its notes file) is part of the
+   verdict, as runs and run say: unread evidence is never accepted. */
+rule('Accept writes nothing when the evidence run has a file that can\'t be read since the screen was drawn', async () => {
+  const { app, todo } = await setup();
+  const key = await runIt(app, todo);
+  finish(app, key, 'pass');
+  const np = 'runs/' + key + '/notes-w9.jsonl';
+  app.fs.files[np] = { t: JSON.stringify({ id: 'n1', at: AT(), by: 'person-avery', text: 'Ran it' }) + '\n', m: Date.now() };
+  await toParent(app); await refresh(app, 300);
+  assert.ok(/data-act="td-evidence"/.test(app.html()), 'set-up: Accept offered');
+  const fs = app.fs, read = fs.read.bind(fs);
+  fs.read = (p, ...a) => p === np ? Promise.reject(Object.assign(new Error('The file is locked'), { name: 'NotReadableError' })) : read(p, ...a);
+  app.click('td-evidence', todo, { run: key.split('/')[1] }); await app.tick(250);
+  fs.read = read;
+  assert.strictEqual(evRecs(app).length, 0, 'nothing written');
+});
+
 /* PA: Start, Decline and the plan's creation read proposals/ last but for people.json, through the final check
    (PF.repo.planFinal): the exact plan, its copies and its decisions as that read finds them. A plan torn, gone, copied
    differently or decided while the pinned version is read, or a copy that arrives while the plan is read, writes nothing. */
