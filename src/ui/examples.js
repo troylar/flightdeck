@@ -171,7 +171,17 @@ PF.examples = (function () {
       correct(main, Object.assign({ ago: 30 }, pods));
       correct(main, { ago: 20, by: 'person-blake', step: 'close', op: 'add', where: 'after', text: 'Check the error budget dashboard before the ticket is closed' });
 
-      return runs.reduce(function (pr, r) { return pr.then(function () { return repo.saveRun(mem, r, 'example-session'); }); }, Promise.resolve()).then(function () {
+      /* The seeded runs are written as a save writes them (the candidate, then run.json), straight into this new in-memory
+         example folder: the run writer's gate (round 20) is for the team's folders and takes only a guard's token. */
+      var seedRun = function (r) {
+        var c = {}; Object.keys(r).forEach(function (k) { if (k[0] !== '_') c[k] = r[k]; });
+        if (R.testLast) c = R.testLast(c);
+        var id = PF.util.randomId(8), dir = 'runs/' + r.process + '/' + r.id + '/';
+        c.rev = (r.rev || 0) + 1; c.savedAt = new Date().toISOString(); c.savedBy = 'example-session'; c.lineage = ['example-session.' + id];
+        var text = JSON.stringify(c, null, 2);
+        return mem.write(dir + 'candidate-example-session-' + id + '.json', text).then(function () { return mem.write(dir + 'run.json', text); });
+      };
+      return runs.reduce(function (pr, r) { return pr.then(function () { return seedRun(r); }); }, Promise.resolve()).then(function () {
         /* Check-in v1 has enough clean runs; its owner signed it off as ready for a skill. */
         var ci = pub('check-in'), ready = PF.skills.readiness(runs, ci, null);
         return ready.enough ? repo.recordValidation(mem, ci, 'example-session', 'person-avery', 'Ran it with the team for two sprints; the steps are what we do.', { completed: ready.completed, clean: ready.clean, runs: ready.cleanRuns }) : null;

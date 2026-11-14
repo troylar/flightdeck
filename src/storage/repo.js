@@ -1220,24 +1220,50 @@ PF.repo = (function () {
   /* This window wrote into a run's folder: what the cache knew about it is dropped, so the next refresh reads it, even if a
      save happened to leave the same size and time. */
   function forgetRun(fs, run) { var c = cacheOf(fs); if (c.runs) delete c.runs[run.process + '/' + run.id]; }
-  /* Round 19 (writer boundary): a folder the app has opened is registered here with its admit(token, what) check. Every
-     write of a run (the candidate, run.json, a conflict copy) and of a scope record to it is then refused unless the
-     write's guard handed over a token admit accepts: one the app's fresh guard minted for that run, revision and write,
-     or a create token for a run not in the folder yet. Callers can't make one themselves, so the check holds however the
-     writer is reached (an alias, a wrapper, a property). A folder nobody registered (the example seed, the command line,
-     the storage tests) writes as before. Found by its own object or anything made from it (Object.create). */
-  var GUARDED = typeof WeakMap === 'function' ? new WeakMap() : null;
-  function guardWrites(fs, admit) { if (GUARDED && fs && typeof fs === 'object' && typeof admit === 'function') GUARDED.set(fs, admit); }
-  function admitOf(fs) {
-    for (var f = fs, n = 0; GUARDED && f && typeof f === 'object' && n < 32; f = Object.getPrototypeOf(f), n++) { var a = GUARDED.get(f); if (a) return a; }
-    return null;
+  /* Round 20 (the writer boundary): the gate belongs to this copy of the storage code, not to a folder object. The app
+     installs it once (gateWrites), before it opens any folder, and nothing can remove or replace it. From then on every
+     write of a run (its candidate, run.json, a conflict copy, a retried start) and of a scope or to-do record goes through
+     it, whatever object is passed as the folder (a wrapper, a Proxy, an object made from it): it is refused unless its
+     guard hands over a token for exactly that write, its kind, path, the run it belongs to and its revision, the state the
+     destination must be in (absent, or the fingerprint of the file it replaces) and the SHA-256 of its bytes. This writer
+     works all of them out itself, and reads the destination again right before writing. A copy that never installs a gate
+     (the command line, the storage tests, another window in a test) writes as before. */
+  var GATE = null;
+  function gateWrites(admit) {
+    if (GATE) throw new Error('The write gate is already set.');
+    if (typeof admit !== 'function') throw new Error('The write gate is a function.');
+    GATE = admit;
   }
   function unguarded() { var e = new Error('This write has no write-time check, so nothing was written.'); e.dropped = true; e.unguarded = true; return e; }
+  function notAdmitted() { var e = new Error('This write wasn\'t admitted by its check, so nothing was written.'); e.dropped = true; e.unguarded = true; return e; }
+  /* What a write is: { kind: 'run' | 'create' | 'scope', path, expect: 'absent' | <fingerprint>, key, rev }, with its bytes' hash. */
+  function writeAs(what, text) { return Object.freeze(Object.assign({}, what, { hash: fileHash(text) })); }
+  /* One gated write: the destination read again, then the token, then the write, with nothing awaited between the last two. */
+  function gatedWrite(fs, w, text, tok) {
+    if (!GATE) return fs.write(w.path, text);
+    if (fileHash(text) !== w.hash) return Promise.reject(notAdmitted());
+    return fs.read(w.path).then(function (f) { return f ? fileHash(f.text) : 'absent'; }).then(function (now) {
+      if (now !== w.expect) {
+        var e = new Error(w.expect === 'absent' ? 'A file is already at ' + w.path + ', so nothing was written over it.' : 'The file changed before it could be written, so nothing was written.');
+        e.dropped = true; e.arrived = true; throw e;
+      }
+      if (GATE(tok, w) !== true) throw notAdmitted();
+      return fs.write(w.path, text);
+    });
+  }
+  /* The run a scope or to-do record is about, when it names one (a status decision names only its request). */
+  function subjectOf(file) {
+    if (file && file.loop && typeof file.loop.process === 'string' && typeof file.loop.run === 'string') return file.loop.process + '/' + file.loop.run;
+    if (file && file.run && typeof file.run.process === 'string' && typeof file.run.id === 'string') return file.run.process + '/' + file.run.id;
+    return '';
+  }
   function saveRun(fs, run, session, opts) {
     opts = opts || {};
-    var admit = admitOf(fs), rkey = run.process + '/' + run.id;
-    /* A write with no guard at all is refused at once, and admit is told (a test build throws there, synchronously). */
-    if (admit && typeof opts.recheck !== 'function' && !(typeof opts.create === 'function' && !run._fileHash)) { admit(null, { kind: 'run', key: rkey, unguarded: true }); return Promise.reject(unguarded()); }
+    var rkey = run.process + '/' + run.id, isNew = !run._fileHash, wkind = isNew ? 'create' : 'run';
+    var guardFn = typeof opts.recheck === 'function' ? opts.recheck : isNew && typeof opts.create === 'function' ? opts.create : null;
+    /* A write with no guard at all is refused at once, and the gate is told (a test build throws there, synchronously). */
+    if (GATE && !guardFn) { GATE(null, { kind: wkind, key: rkey, unguarded: true }); return Promise.reject(unguarded()); }
+    var mk = null, tokFirst = null;
     forgetRun(fs, run);
     var writer = opts.writer || session;
     var path = 'runs/' + run.process + '/' + run.id + '/run.json';
@@ -1266,19 +1292,20 @@ PF.repo = (function () {
     }
     /* opts.recheck(fs) (round 10, BB): an asynchronous guard awaited before the first write (candidate or conflict copy) and
        again before the final one. false, or a rejection, writes nothing more (e.dropped). */
-    /* phase: 'first' (before anything is written), 'conflict' (before a conflict copy) or 'final' (before run.json, once the
-       candidate is written). In a registered folder its answer must be a token admit accepts for this run and phase. A new
-       run with no guard of its own asks opts.create (the app's create capability) for one instead. */
-    function recheck(phase) {
+    /* phase: 'first' (before the candidate), 'conflict' (before a conflict copy) or 'final' (before run.json, once the
+       candidate is written); w: exactly the write it is asked for (writeAs). With a gate its answer is the token for w,
+       handed to gatedWrite. A new run's guard may be given as opts.create. */
+    function recheck(phase, w) {
       var drop = function () { var e = new Error('dropped'); e.dropped = true; return e; };
-      var info = { kind: 'run', key: rkey, rev: run.rev || 0, phase: phase, isNew: !run._fileHash };
-      if (typeof opts.recheck !== 'function') {
-        if (!admit) return Promise.resolve();
-        if (!run._fileHash && typeof opts.create === 'function' && admit(opts.create(phase, rkey), Object.assign({}, info, { kind: 'create' }))) return Promise.resolve();
-        return Promise.reject(unguarded());
-      }
-      return Promise.resolve().then(function () { return opts.recheck(fs, phase); }).then(function (ok) { if (ok === false || (admit && !admit(ok, info))) throw drop(); }, function (err) { var e = drop(); e.cause = err; throw e; });
+      if (!guardFn) return Promise.resolve(null);
+      return Promise.resolve().then(function () { return guardFn(fs, phase, w); }).then(function (tok) {
+        if (tok === false) throw drop();
+        /* Anything but a token (true, a plain object) is the gate's to refuse: a test build throws there. */
+        if (GATE && (tok == null || typeof tok !== 'object')) { GATE(null, w); throw drop(); }
+        return tok;
+      }, function (err) { var e = drop(); e.cause = err; throw e; });
     }
+    function asWrite(path, expect, text) { return writeAs({ kind: wkind, path: path, expect: expect, key: rkey, rev: run.rev || 0 }, text); }
     /* The publication record may have arrived (by sync) after the run was loaded; a newer format makes the run read-only. */
     function checkAndWrite() {
     return pubProblem(fs, run, null, opts.strict).then(function (why) {
@@ -1292,8 +1319,9 @@ PF.repo = (function () {
       return Promise.resolve().then(function () { return opts.prewrite(fs); }).then(function (ok) { if (ok === false) throw drop(); return f; }, function (err) { var e = drop(); e.cause = err; throw e; });
     }).then(function (f) {
       /* A create never replaces a run already there (round 19). */
-      if (admit && f && !run._fileHash && !opts.recheck) { var ex = new Error('A run with this ID is already in the folder, so nothing was written.'); ex.exists = true; throw ex; }
-      return recheck('first').then(function () { return f; });
+      if (GATE && f && isNew) { var ex = new Error('A run with this ID is already in the folder, so nothing was written.'); ex.exists = true; throw ex; }
+      mk = made || make();
+      return recheck('first', asWrite(mk.cand, 'absent', mk.text)).then(function (tok) { tokFirst = tok; return f; });
     }).then(function (f) {
       var e;
       /* opts.still: asked after every read, right before the first write; false writes nothing (e.dropped). */
@@ -1315,22 +1343,23 @@ PF.repo = (function () {
           e = new Error('changed'); e.disk = disk;
           var keep = 'runs/' + run.process + '/' + run.id + '/run.conflict-' + writer + '-' + Date.now() + '.json';
           /* Archived history is a record of what happened whichever version wins, so it's written first. */
-          return archiveOverflow(fs, run, writer).then(function () { return recheck('conflict'); }).then(function () { if (typeof opts.still === 'function' && !opts.still()) { var d = new Error('dropped'); d.dropped = true; throw d; } return fs.write(keep, JSON.stringify(stripMeta(run), null, 2)); })
+          var kt = JSON.stringify(stripMeta(run), null, 2), wk = asWrite(keep, 'absent', kt);
+          return archiveOverflow(fs, run, writer).then(function () { return recheck('conflict', wk); }).then(function (tok) { if (typeof opts.still === 'function' && !opts.still()) { var d = new Error('dropped'); d.dropped = true; throw d; } return gatedWrite(fs, wk, kt, tok); })
             .then(function () { forgetRun(fs, run); e.keptAs = keep; throw e; }, function () { throw e; });
         }
       }
       /* A run this window read from (or saved to) the folder whose file is gone now was deleted or moved by someone: it's
          never written back by an ordinary save, only by an explicit restore. A run never saved yet is created here. */
       if (!f && run._fileHash && !opts.restoreMissing) { e = new Error('This run\'s file is gone from the team folder, so it wasn\'t written back. Someone may have deleted or moved it.'); e.missing = true; throw e; }
-      var m = made || make(), copy = m.copy, dir = m.dir, text = m.text, cand = m.cand;
+      var m = mk, copy = m.copy, dir = m.dir, text = m.text, cand = m.cand, wCand = asWrite(cand, 'absent', text), wRun = asWrite(path, f ? fileHash(f.text) : 'absent', text);
       wrote = true;
       /* opts.still again before each further write: a switch after the candidate landed writes nothing more, and the
          candidate stays where recovery finds it (a save not listed in run.json), never removed as a failed write. */
       var again = function () { if (typeof opts.still === 'function' && !opts.still()) { var d = new Error('dropped'); d.dropped = true; d.kept = cand; throw d; } };
-      return fs.write(cand, text)
+      return gatedWrite(fs, wCand, text, tokFirst)
         .then(function () { again(); return archiveOverflow(fs, run, writer); })
-        .then(function () { return recheck('final').then(null, function (d) { d.kept = cand; throw d; }); })
-        .then(function () { again(); return fs.write(path, text); })
+        .then(function () { return recheck('final', wRun).then(null, function (d) { d.kept = cand; throw d; }); })
+        .then(function (tok) { again(); return gatedWrite(fs, wRun, text, tok).then(null, function (d) { if (d && d.dropped) d.kept = cand; throw d; }); })
         .then(function () {
           forgetRun(fs, run);
           run.rev = copy.rev; run.savedAt = copy.savedAt; run._fileHash = fileHash(text); run.lineage = copy.lineage;
@@ -2086,15 +2115,22 @@ PF.repo = (function () {
   /* A scope request or decision (3.0, PF.loop) is a new file written once, never replacing one (expect null). */
   function saveScope(fs, name, file, opts) {
     if (!/^req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24}(\.status-[a-z0-9][a-z0-9-]{0,39}-[0-9a-f]{8})?\.json$/.test(name)) return Promise.reject(new Error('That isn\'t the name of a scope record.'));
-    /* Round 19: in a registered folder a scope record is written only on a token its guard hands over right before the write. */
-    var admit = admitOf(fs);
-    if (admit) {
-      var rc = opts && opts.recheck;
-      if (typeof rc !== 'function') { admit(null, { kind: 'scope', name: name, unguarded: true }); return Promise.resolve({ dropped: true, unguarded: true }); }
-      var refused = null;
-      opts = Object.assign({}, opts, { recheck: function (f2) { return Promise.resolve(rc(f2)).then(function (tok) { if (tok === false) return false; try { return admit(tok, { kind: 'scope', name: name }); } catch (e) { refused = e; return false; } }); } });
-      /* What admit threw (a test build) is the answer, never swallowed into a quiet refusal. */
-      return saveChecked(fs, 'proposals/' + name, PF.loop.text(file), null, opts).then(function (res) { if (refused) throw refused; return res; });
+    /* Round 20: with the gate, a scope or to-do record is written only on its guard's token for exactly this file: its path,
+       absent, the run it names and its bytes. The guard is asked right before the write; the gated write reads the path
+       again first. A refusal writes nothing ({ dropped }); a test build's gate throws, and that is the answer. */
+    if (GATE) {
+      var rc = opts && opts.recheck, text = PF.loop.text(file), path = 'proposals/' + name;
+      if (typeof rc !== 'function') { GATE(null, { kind: 'scope', path: path, unguarded: true }); return Promise.resolve({ dropped: true, unguarded: true }); }
+      var w = writeAs({ kind: 'scope', path: path, expect: 'absent', key: subjectOf(file) }, text), tok = null, refused = null;
+      var gfs = {
+        read: function (p, o) { return fs.read(p, o); },
+        write: function (p, t) { if (p !== path || t !== text) return Promise.reject(notAdmitted()); return gatedWrite(fs, w, t, tok).then(null, function (e) { refused = e; throw e; }); }
+      };
+      var o2 = Object.assign({}, opts, { recheck: function () { return Promise.resolve(rc(fs, 'first', w)).then(function (t) { if (t === false) return false; if (!t || typeof t !== 'object') { try { GATE(null, w); } catch (e) { refused = e; } return false; } tok = t; return true; }); } });
+      return saveChecked(gfs, path, text, null, o2).then(function (res) { if (refused && !refused.dropped) throw refused; return res; }, function (e) {
+        if (e && e === refused && e.dropped) return { dropped: true, arrived: !!e.arrived };
+        throw e;
+      });
     }
     return saveChecked(fs, 'proposals/' + name, PF.loop.text(file), null, opts);
   }
@@ -2212,12 +2248,15 @@ PF.repo = (function () {
           return own.then(function (ok) {
             if (others.length || !ok) throw new Error('The run\'s folder has files but no run.json. Restore run.json from a backup.' + said);
             stillOk(o);
-            /* Round 19: a retried start is a create: in a registered folder it needs the app's create token. */
-            var admit = admitOf(fs);
-            if (admit && !(typeof o.create === 'function' && admit(o.create('final', proc + '/' + id), { kind: 'create', key: proc + '/' + id, rev: run.rev || 0, phase: 'final', isNew: true }))) throw unguarded();
-            /* From here the run may land whatever the write answers: the caller is told first (2.3.1). */
-            if (typeof o.writing === 'function') o.writing();
-            return fs.write(path, k.text).then(function () { forgetRun(fs, run); return { written: true }; }, function (e) { if (e && typeof e === 'object') e.maybeWritten = true; throw e; });
+            /* Round 20: a retried start is a create: with the gate it needs its guard's token for exactly this run.json, absent. */
+            var w = writeAs({ kind: 'create', path: path, expect: 'absent', key: proc + '/' + id, rev: run.rev || 0 }, k.text);
+            var ask = !GATE ? Promise.resolve(null) : typeof o.create !== 'function' ? (GATE(null, { kind: 'create', key: w.key, unguarded: true }), Promise.reject(unguarded())) : Promise.resolve(o.create(fs, 'final', w)).then(function (t) { if (!t || typeof t !== 'object') throw unguarded(); return t; });
+            return ask.then(function (tok) {
+              stillOk(o);
+              /* From here the run may land whatever the write answers: the caller is told first (2.3.1). */
+              if (typeof o.writing === 'function') o.writing();
+              return gatedWrite(fs, w, k.text, tok).then(function () { forgetRun(fs, run); return { written: true }; }, function (e) { if (e && typeof e === 'object' && !e.dropped) e.maybeWritten = true; throw e; });
+            });
           });
         }, function (e) { throw new Error('The run\'s folder ' + why(e) + '.' + said); });
       });
@@ -3410,5 +3449,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, guardWrites: guardWrites, readPeopleOnly: function (fs) { return loadPeople(readOnlyView(fs, 'Reading for other apps')); }, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, saveScope: saveScope, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, gateWrites: gateWrites, readPeopleOnly: function (fs) { return loadPeople(readOnlyView(fs, 'Reading for other apps')); }, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, saveScope: saveScope, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

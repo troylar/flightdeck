@@ -25,8 +25,8 @@
       "reviewed": "round 17 VD: only add and bind can be delegated"
     },
     "docs/design.md": {
-      "sha256": "71868467c7f66f83b8ca8fab5097934e0c2fb871edfbb019f460448e3ecaf557",
-      "reviewed": "Round 19 (XA): a loop run's ordinary save takes the whole guard; outside loops a version still arriving saves"
+      "sha256": "5e5d787a6233f1bdc931458ce0126eeb16b7d2347df17de40c9a945c82ab86f7",
+      "reviewed": "Round 20: write tokens bound to kind, path, destination state, run, revision and bytes, minted only by fresh guards; the write gate set once per storage copy; create guards check absence and people; the request outcome guarded; the example seed written directly. Checked for direct writes and unconditional deletes."
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -405,16 +405,16 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "f4dac86effc4e54240b7f106f3de1e8529aa1f49c17c042a0bee3b633915438c",
-      "reviewed": "Round 19: writer-boundary tokens, save() through the fresh guard, publication verdict, start rebuilt from the guard's read, excepted arrival wording"
+      "sha256": "e909937495a99b5780f5569b6f1aa5b66a01aaf4eecd9d2b2dba2a7876f122d4",
+      "reviewed": "Round 20: write tokens bound to kind, path, destination state, run, revision and bytes, minted only by fresh guards; the write gate set once per storage copy; create guards check absence and people; the request outcome guarded; the example seed written directly. Checked for direct writes and unconditional deletes."
     },
     "src/ui/app.js": {
-      "sha256": "2393ad9a07f0c9ec47a2bd4bce980f8170786f3a12876aa4d52f9ee57bb4b8b7",
-      "reviewed": "Round 19 (XA): a loop run's ordinary save takes the whole guard; outside loops a version still arriving saves"
+      "sha256": "6270306763521dbb19ca023acdb22fae11f8c527b4647e321967cb186b6f1d2e",
+      "reviewed": "Round 20: write tokens bound to kind, path, destination state, run, revision and bytes, minted only by fresh guards; the write gate set once per storage copy; create guards check absence and people; the request outcome guarded; the example seed written directly. Checked for direct writes and unconditional deletes."
     },
     "src/ui/examples.js": {
-      "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
-      "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
+      "sha256": "7db943140369906843961189dc3f34c8ec9430164cca3cb0f3a9f5bdd6ab946f",
+      "reviewed": "Round 20: write tokens bound to kind, path, destination state, run, revision and bytes, minted only by fresh guards; the write gate set once per storage copy; create guards check absence and people; the request outcome guarded; the example seed written directly. Checked for direct writes and unconditional deletes."
     },
     "src/ui/exporter.js": {
       "sha256": "34ce0bba932e2272dba19be20cdea63b055198f9c8fac8f698bfd733d37cfc3b",
