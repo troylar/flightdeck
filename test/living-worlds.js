@@ -51,13 +51,20 @@ async function made(o) {
     if (pl) assert.ok(pl.file && pl.file.anchor, 'set-up: the keep is placed ' + JSON.stringify(pl.why || pl.status));
     const k = pl ? pl.file : PF.learn.build({ run: { process: r0.process, id: r0.id }, by: 'person-avery', at: new Date().toISOString(), app: '4.0.0', source: { todo: td }, change: { text: 'Check the release notes twice', where: 'end' }, needs: 'It isn\'t placed yet.' });
     await app.fs.write('proposals/' + k.id + '.json', JSON.stringify(k, null, 2) + '\n');
+    /* o.keep2: the same to-do kept again, at the end of the review phase: another keep, another place. */
+    if (o.keep2) {
+      const p2 = PF.learn.prepare(r0, { source: { todo: td }, text: 'Ask for a second review', place: { phase: 'review' }, by: { person: 'person-avery' }, records: (d.todos || []).concat([k]), people, at: new Date().toISOString(), app: '4.0.0' });
+      assert.ok(p2.file && p2.file.anchor, 'set-up: the second keep is placed ' + JSON.stringify(p2.why || p2.status));
+      await app.fs.write('proposals/' + p2.file.id + '.json', JSON.stringify(p2.file, null, 2) + '\n');
+      o.keep2Id = p2.file.id;
+    }
     app.click('refresh'); await app.tick(400);
     o.keepId = k.id;
   }
   if (o.end !== false) { app.click('end', 'Cancelled'); await app.tick(300); }
   const runPath = app.files('runs/release-notes/').find(p => /run\.json$/.test(p)), r = JSON.parse(app.fs.files[runPath].t);
   const files = {}; Object.keys(app.fs.files).forEach(p => { files[p] = app.fs.files[p].t; });
-  return { PF, files, key: r.process + '/' + r.id, run: r, runPath, request: o.request || null, pendingId: o.pendingId || '', keepId: o.keepId || '' };
+  return { PF, files, key: r.process + '/' + r.id, run: r, runPath, request: o.request || null, pendingId: o.pendingId || '', keepId: o.keepId || '', keep2Id: o.keep2Id || '' };
 }
 async function pack(PF, fsx, key, more) {
   const parts = [];

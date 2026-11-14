@@ -2155,4 +2155,45 @@ rule('Python refuses a confirmed dependency whose work reaches back to a run who
   const gone = checkPack(await partial((e, man, g) => { const y = g('proposals/' + head + '.json'); delete e[y.pack]; man.files = man.files.filter((f) => f !== y); }));
   assert.ok(!gone.ok && /depends on in turn/.test(gone.out), 'the run\'s work head gone: ' + gone.out);
 });
+/* A run with a keep (o.keep2: a second one, elsewhere) whose change v2 of its checklist makes: v2 published from the keep's
+   group applied to the draft, its applied decision in corrections/. */
+async function keptInV2(o) {
+  const W = await made(Object.assign({ todos: 1, keep: 'placed' }, o)), PF = W.PF, C = PF.corrections, proc = W.key.split('/')[0];
+  const d = await PF.repo.loadAll(new BytesFS(W.files), {}), runs = d.runs.filter((r) => r.process === proc), members = PF.learn.members(d.todos, runs, proc);
+  const v1 = Object.keys(W.files).filter((p) => p.indexOf('publications/' + proc + '/') === 0)[0].split('/')[2], v1base = 'publications/' + proc + '/' + v1 + '/';
+  const g = C.forProcess(runs, proc, [], null, members).filter((x) => x.keep && x.members.some((m) => m.keep.record === W.keepId))[0], md1 = String(W.files[v1base + 'map.md']), rv = C.review(g, md1);
+  const dec = C.decision(g, 'person-avery', 'applied', '', new Date().toISOString(), { act: 'a1', result: C.outcome(g, rv.text, rv.added) });
+  const gs = C.forProcess(runs, proc, [Object.assign(C.cleanDecision(dec, proc), { _file: g.id + '.w4.1.json' })], null, members);
+  const opts = (corr) => ({ people: JSON.parse(W.files['people.json']), ...require('./harness').exampleSetup(PF), by: 'person-avery', changes: 'Kept step', existing: [JSON.parse(String(W.files[v1base + 'publication.json']))], now: Date.now(), rand: 'rn000002', app: '4.0.0', corrections: corr });
+  const b = PF.publish.build(rv.text, opts(C.forPublish(rv.text, gs).list));
+  assert.ok(!b.blockers, JSON.stringify(b.blockers));
+  const v2 = 'publications/' + proc + '/' + b.folder, files = Object.assign({}, W.files, { ['corrections/' + proc + '/' + g.id + '.w4.1.json']: JSON.stringify(dec, null, 2) + '\n' });
+  Object.keys(b.files).forEach((k) => { files[v2 + '/' + k] = b.files[k]; });
+  /* The same version number and listing, published from v1's unchanged text. */
+  const same = PF.publish.build(md1, opts(C.forPublish(rv.text, gs).list));
+  assert.ok(!same.blockers && same.folder === b.folder, 'set-up: v1\'s text as v2 ' + JSON.stringify(same.blockers));
+  return { W, PF, proc, files, v2, b, unchanged: same, groupId: g.id };
+}
+/* TB: a "Published in vN" claim is bound to the correction it names, read from the packed originals with its group worked
+   out from them, and to the version's own checklist making the change, as the app's landing rules decide: the claim moved
+   onto another keep, or v2 holding v1's unchanged text with its listing and the applied decision kept, and Python refuses. */
+rule('Python holds a "Published in vN" claim to the correction it names and the change in that version\'s checklist', async () => {
+  if (!PY) return;
+  const K = await keptInV2({ keep2: true }), PF = K.PF, W = K.W;
+  const { res, zip } = await pack(PF, new BytesFS(K.files), W.key);
+  const claimOf = (man, id) => man.runs[0].claims.filter((c) => c.correction === id)[0];
+  assert.ok(res.status === 'complete' && claimOf(manifestOf(zip), W.keepId).verified, 'set-up: ' + res.status + ' ' + JSON.stringify(manifestOf(zip).runs[0].claims));
+  const ctl = checkPack(zip);
+  assert.ok(ctl.ok, 'the control: ' + ctl.out);
+  const misses = [];
+  for (const [what, edit] of [
+    ['the claim moved onto the other keep', (e, man) => { const c = claimOf(man, W.keepId), o = claimOf(man, W.keep2Id); if (o) man.runs[0].claims = man.runs[0].claims.filter((x) => x !== o); c.correction = W.keep2Id; }],
+    ['the claim naming a correction the pack doesn\'t hold', (e, man) => { claimOf(man, W.keepId).correction = 'req-keep-' + 'f'.repeat(24); }],
+    ['v2 holding v1\'s unchanged text, its listing kept', (e, man, g) => { Object.keys(K.unchanged.files).forEach((n) => { const y = g(K.v2 + '/' + n); if (y) e[y.pack] = Buffer.from(K.unchanged.files[n]); }); }]
+  ]) {
+    const c = checkPack(await repacked(PF, zip, edit));
+    if (c.ok) misses.push(what + ': Python accepts');
+  }
+  assert.deepStrictEqual(misses, []);
+});
 run();

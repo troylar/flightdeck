@@ -119,6 +119,24 @@ def check_claims(z, man):
                 sys.exit(who + "the correction's current decision in the pack " + ("is two made at once" if tie else "doesn't apply it" if cur else "isn't there"))
             if not (listed or (cur["status"] == "included" and cur["folder"] == folder)):
                 sys.exit(who + "the correction isn't in " + vdir + ": the version doesn't list it, and its current decision doesn't include it there")
+            # The correction itself, from the packed originals, its group worked out from them, and the app's landing rules
+            # (TB): a version above the correction's own, whose checklist makes the change.
+            rp = "runs/" + r["key"] + "/run.json"
+            try:
+                rrun = decode(z.read(by_path[rp])) if rp in by_path else None
+            except ValueError:
+                rrun = None
+            mem = claimed_member(z, by_path, r["key"], rrun, c.get("correction")) if isinstance(rrun, dict) and isinstance(c.get("correction"), str) else None
+            if mem is None:
+                sys.exit(who + "the correction it's about isn't in the pack as one the app reads")
+            if mem["group"] != group or mem["process"] != proc:
+                sys.exit(who + "the correction it's about is in another group than the claim names")
+            own = max(0, mem["version"] - 1) if mem["test"] else mem["version"]
+            if int(m.group(1)) <= own:
+                sys.exit(who + "v" + m.group(1) + " isn't a version after the correction's own (v" + str(own) + ")")
+            g = {"target": mem["target"], "change": mem["change"], "legacy": mem["legacy"], "newer": mem["newer"], "decision": cur}
+            if not satisfied(g, rtext(vdir + "/map.md") or ""):
+                sys.exit(who + vdir + "'s checklist doesn't make the change")
 
 
 DECIDE = ("open", "applied", "declined", "withdrawn", "included")
@@ -144,8 +162,393 @@ def decision_of(o):
         if not m or isinstance(ver, bool) or not isinstance(ver, (int, float)) or int(m.group(1)) != ver:
             return None
         folder = o["folder"]
-    return {"group": o["group"], "status": o["status"], "rev": rev, "folder": folder}
+    res = o.get("result")
+    r = {"step": res["step"] if isinstance(res.get("step"), str) and CID.match(res["step"]) else "", "sig": res["sig"]} if isinstance(res, dict) and isinstance(res.get("sig"), str) and HEX8.match(res["sig"]) else None
+    return {"group": o["group"], "status": o["status"], "rev": rev, "folder": folder, "result": None if o.get("addressed") is True else r,
+            "addressed": o.get("addressed") is True and o["status"] == "applied"}
 
+
+
+# ---- Where a correction landed (TB): the app's landing rules (PF.corrections.satisfied and its helpers), ported. A claim's
+# correction is read from the packed originals (the run's notes, or its keep record), its group worked out from them, and the
+# version's map.md must make its change, read as the outline builder reads a draft (PF.outline.parse). ----
+OPS = ("wording", "add", "move", "roles", "screenshot", "remove", "describe")
+NOTE_OPS = ("wording", "screenshot", "describe")
+APPLIES = ("wording", "add", "move", "roles", "remove")
+CID = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}\Z", re.I | re.A)
+ROLE = re.compile(r"^[A-Za-z0-9_-]{1,60}\Z", re.A)
+HEX8 = re.compile(r"^[0-9a-f]{8}\Z")
+SP = CF.jsre(r"\s+")
+D = CF.JS_DOT
+
+
+def js_truthy(v):
+    return v not in (None, False, 0, "") and not (isinstance(v, float) and math.isnan(v))
+
+
+def norm(t):
+    return CF.js_trim(re.sub(SP, " ", t if isinstance(t, str) else "", flags=re.A))
+
+
+def jstr(v, n):
+    return CF.js_slice(v, n) if isinstance(v, str) else ""
+
+
+def whole(v):
+    return math.floor(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v >= 0 else 0
+
+
+def outline(text):
+    """PF.outline.parse, as far as landing reads it: phases (id, key, title, note, steps, tracks, an explicit gate), and steps
+    (id, key, type, text, must, planned, roles, binds, fields, note, screenshots, track, phase)."""
+    L = [x[:-1] if x.endswith("\r") else x for x in text.split("\n")]
+    n, i = len(L), 0
+    if L[0] and L[0].strip(CF.JS_WS) == "---":
+        i = 1
+        while i < n and L[i].strip(CF.JS_WS) != "---":
+            i += 1
+        i += 1
+    phases, steps = [], []
+    phase = step = gate = track = None
+    questions = False
+    while i < n:
+        line = L[i]
+        i += 1
+        if not line.strip(CF.JS_WS):
+            continue
+        m = re.match(CF.jsre(r"^###\s+Track:\s*(" + D + r"+?)\s*\Z"), line, re.I | re.A)
+        if m:
+            step = None
+            if phase is None or gate is not None:
+                continue
+            tid, rest = CF.take_id(m.group(1))
+            roles, title = CF.tokens(rest, "@")
+            track = {"id": tid, "title": title, "roles": roles, "index": len(phase["tracks"])}
+            phase["tracks"].append(track)
+            continue
+        m = re.match(CF.jsre(r"^##\s+(" + D + r"+?)\s*\Z"), line, re.A)
+        if m:
+            step = gate = track = None
+            hid, hrest = CF.take_id(m.group(1))
+            if re.match(r"^questions\b", hrest, re.I | re.A):
+                questions, phase = True, None
+                continue
+            g = re.match(CF.jsre(r"^Gate:\s*(" + D + r"+)\Z"), hrest, re.I | re.A)
+            if g:
+                if phase is None or phase["gate"] is not None:
+                    continue
+                gate = {"id": hid, "note": "", "shots": []}
+                phase["gate"] = gate
+                continue
+            pm = re.match(CF.jsre(r"^(" + D + r"*?)\s+·\s+(READ-DO|DO-CONFIRM)\Z"), hrest, re.A)
+            phase = {"id": hid, "title": CF.js_trim(pm.group(1) if pm else hrest), "note": "", "shots": [], "steps": [], "tracks": [], "gate": None, "index": len(phases)}
+            phases.append(phase)
+            continue
+        if questions:
+            continue
+        m = re.match(CF.jsre(r"^- \[( |!|~)\]\s+(" + D + r"+)\Z"), line, re.A)
+        if m:
+            if phase is None or gate is not None:
+                continue
+            sid, core = CF.take_id(m.group(2))
+            typ, rest = "", core
+            tm = re.match(CF.jsre(r"^\{([a-z][A-Za-z0-9_.-]*)\}\s+(" + D + r"*)\Z"), core, re.I | re.A)
+            if tm:
+                typ, rest = tm.group(1), tm.group(2)
+            roles, r2 = CF.tokens(rest, "@")
+            binds, txt = CF.tokens(r2, "^")
+            step = {"id": sid, "type": typ, "text": txt, "must": m.group(1) == "!", "planned": m.group(1) == "~", "roles": roles, "binds": binds, "fields": {},
+                    "note": "", "shots": [], "phase": phase, "track": track["index"] if track else -1, "trackId": track["id"] if track else "", "index": len(steps)}
+            phase["steps"].append(step)
+            steps.append(step)
+            continue
+        wt = step or (phase if phase is not None and gate is None and track is None else None)
+        if wt is not None and re.match(CF.jsre(r"^\s{2,}only when\b"), line, re.I | re.A):
+            continue
+        tg = step or gate or (phase if phase is not None and track is None else None)
+        m = re.match(CF.jsre(r"^\s{2,}>\s?(" + D + r"*)\Z"), line, re.A)
+        if m:
+            if tg is not None:
+                tg["note"] = (tg["note"] + "\n" if tg["note"] else "") + m.group(1)
+            continue
+        m = tg is not None and re.match(CF.jsre(r"^\s{2,}!\[(" + D + r"*?)\]\(([^)\s]+)\)\s*\Z"), line, re.A)
+        if m:
+            tg["shots"].append(m.group(2))
+            continue
+        m = re.match(CF.jsre(r"^\s{2,}([A-Za-z0-9_-]+):\s*(" + D + r"*)\Z"), line, re.A)
+        if m:
+            if gate is not None and m.group(1) in ("approves", "at", "due", "after"):
+                continue
+            if step is not None:
+                if m.group(1) != "__proto__":
+                    step["fields"][m.group(1)] = CF.js_trim(m.group(2))
+                continue
+    count: dict = {}
+    for st in steps:
+        if st["id"]:
+            count[st["id"]] = count.get(st["id"], 0) + 1
+    for st in steps:
+        st["key"] = st["id"] if st["id"] and count[st["id"]] == 1 else "#" + str(st["index"])
+    pc: dict = {}
+    for ph in phases:
+        if ph["id"]:
+            pc[ph["id"]] = pc.get(ph["id"], 0) + 1
+    for ph in phases:
+        ph["key"] = ph["id"] if ph["id"] and pc[ph["id"]] == 1 else "#" + str(ph["index"])
+    return {"phases": phases, "steps": steps}
+
+
+def step_sig(o, sid):
+    """PF.corrections.stepSig: the step as the checklist parser reads it, its line left out (the first step with that ID)."""
+    st = next((x for x in o["steps"] if x["id"] == sid), None)
+    if st is None:
+        return ""
+    roles = st["roles"] or (list(st["phase"]["tracks"][st["track"]]["roles"]) if st["track"] >= 0 else [])
+    shots = [x for x in st["shots"] if re.match(r"^images/[A-Za-z0-9_./-]+\Z", x, re.A) and ".." not in x]
+    body = {"type": st["type"], "text": st["text"], "must": st["must"], "planned": st["planned"], "roles": sorted(roles), "binds": st["binds"],
+            "fields": {k: st["fields"][k] for k in sorted(st["fields"])}, "note": st["note"], "shots": shots, "track": st["trackId"]}
+    return CF.text_hash(CF.js_json(body))
+
+
+def draft_step(o, sid):
+    if not sid:
+        return None
+    return next((x for x in o["steps"] if x["id"] == str(sid).lower() and x["key"] == x["id"]), None)
+
+
+def draft_phase(o, pid):
+    if not pid:
+        return None
+    return next((x for x in o["phases"] if x["id"] == pid and x["key"] == x["id"]), None)
+
+
+def on_note(g):
+    t, op = g["target"], g["change"]["op"]
+    return not t.get("step") and (bool(t.get("gate")) or (op not in ("describe", "add") and not g.get("legacy") and bool(t.get("phase"))))
+
+
+def draft_note(o, t):
+    if t.get("gate"):
+        ps = [p for p in o["phases"] if p["gate"] is not None and p["gate"]["id"] == t["gate"]]
+    else:
+        ps = [p for p in o["phases"] if p["id"] == t.get("phase") and p["key"] == p["id"]]
+    if len(ps) != 1:
+        return None
+    return {"note": (ps[0]["gate"] if t.get("gate") else ps[0])["note"] or ""}
+
+
+def placed(g, o):
+    ch, anchor = g["change"], draft_step(o, g["target"].get("step"))
+    if ch["where"] != "end":
+        if anchor is None:
+            return None
+        ps = anchor["phase"]["steps"]
+        k = ps.index(anchor)
+        return ps[k + 1] if k + 1 < len(ps) and ps[k + 1]["track"] == anchor["track"] else None
+    ph = anchor["phase"] if anchor is not None else draft_phase(o, g["target"].get("phase"))
+    if ph is None:
+        return None
+    tr = anchor["track"] if anchor is not None else len(ph["tracks"]) - 1
+    grp = [x for x in ph["steps"] if x["track"] == tr]
+    return grp[-1] if grp else None
+
+
+def is_already(g, o):
+    ch, s = g["change"], draft_step(o, g["target"].get("step"))
+    if on_note(g):
+        dn = draft_note(o, g["target"])
+        return dn is not None and ch["op"] == "wording" and norm(dn["note"]) == norm(ch["to"])
+    if ch["op"] == "remove":
+        return s is None
+    if ch["op"] == "add":
+        at = placed(g, o)
+        return at is not None and norm(at["text"]) == norm(ch["text"])
+    if s is None:
+        return False
+    if ch["op"] == "wording":
+        return norm(s["text"]) == norm(ch["to"])
+    if ch["op"] == "roles":
+        lane = s["phase"]["tracks"][s["track"]]["roles"] if s["track"] >= 0 else []
+        return " ".join(sorted(s["roles"] or lane)) == " ".join(sorted(ch["to"]))
+    if ch["op"] == "move":
+        ps = s["phase"]["steps"]
+        i = ps.index(s)
+        if ch["to"].get("after"):
+            return i > 0 and ps[i - 1]["id"] == ch["to"]["after"]
+        return s["phase"]["id"] == ch["to"]["phase"] and (i == 0 if ch["to"]["where"] == "start" else i == len(ps) - 1)
+    return False
+
+
+def satisfied(g, text):
+    """Whether a checklist's text makes a group's change (PF.corrections.satisfied): a change that can't be checked counts as
+    made; a person's applied result stands in only for the expected text, never the place or a removal."""
+    ch = g["change"]
+    if ch["op"] not in APPLIES or g.get("legacy") or g.get("newer"):
+        return True
+    o, d = outline(text), g.get("decision")
+    r = d["result"] if d and d["status"] in ("applied", "included") and not d["addressed"] and d["result"] and d["result"]["sig"] != CF.text_hash("gone") else None
+    if on_note(g):
+        dn = draft_note(o, g["target"])
+        return dn is not None and (norm(dn["note"]) == norm(ch["to"]) or (r is not None and CF.text_hash("note|" + norm(dn["note"])) == r["sig"]))
+
+    def mine(st):
+        return r is not None and st is not None and r["step"] == st["id"] and step_sig(o, st["id"]) == r["sig"]
+    s = draft_step(o, g["target"].get("step"))
+    if ch["op"] == "remove":
+        return s is None
+    if ch["op"] == "add":
+        at = placed(g, o)
+        return at is not None and (norm(at["text"]) == norm(ch["text"]) or mine(at))
+    if s is None:
+        return False
+    if ch["op"] == "wording":
+        return norm(s["text"]) == norm(ch["to"]) or mine(s)
+    return is_already(g, o)
+
+
+def clean_change(ch):
+    """PF.corrections.cleanChange."""
+    ch = ch if isinstance(ch, (dict, list)) else {}
+    ch = ch if isinstance(ch, dict) else {}
+    op = ch.get("op") if ch.get("op") in OPS else "describe"
+    out = {"op": op}
+    if op == "wording":
+        out["to"] = jstr(ch.get("to"), 2000)
+        if not out["to"]:
+            out = {"op": "describe"}
+    elif op == "add":
+        out["text"], out["where"] = jstr(ch.get("text"), 2000), "end" if ch.get("where") == "end" else "after"
+        if not out["text"]:
+            out = {"op": "describe"}
+    elif op == "move":
+        t = ch.get("to") if isinstance(ch.get("to"), dict) else {}
+        if isinstance(t.get("after"), str) and CID.match(t["after"]):
+            out["to"] = {"after": t["after"]}
+        elif isinstance(t.get("phase"), str) and CID.match(t["phase"]):
+            out["to"] = {"phase": t["phase"], "where": "start" if t.get("where") == "start" else "end"}
+        else:
+            out = {"op": "describe"}
+    elif op == "roles":
+        out["to"] = [x for x in ch["to"] if isinstance(x, str) and ROLE.match(x)][:100] if isinstance(ch.get("to"), list) else []
+    elif op == "screenshot" and isinstance(ch.get("shot"), str) and re.match(r"^images/[A-Za-z0-9_./-]+\Z", ch["shot"], re.A) and ".." not in ch["shot"]:
+        out["shot"] = CF.js_slice(ch["shot"], 500)
+    return out
+
+
+def clean_correction(n):
+    """PF.corrections.cleanNote: what a correction note says, as the app keeps it."""
+    t = n.get("target") if isinstance(n.get("target"), (dict, list)) else {}
+    t = t if isinstance(t, dict) else {}
+    c = {"cv": whole(n.get("cv")) or 1, "version": whole(n.get("version")), "folder": jstr(n.get("folder"), 80),
+         "target": {"phase": jstr(t.get("phase"), 60), "step": jstr(t.get("step"), 60) or jstr(n.get("step"), 60) or None},
+         "change": clean_change(n.get("change")), "from": jstr(n.get("from"), 2000), "base": n["base"] if isinstance(n.get("base"), str) and HEX8.match(n["base"]) else "", "newer": False}
+    if c["cv"] >= 2 and not c["target"]["step"] and isinstance(t.get("gate"), str) and CID.match(t["gate"]):
+        c["target"]["gate"] = t["gate"]
+    if c["cv"] >= 2 and not c["target"]["step"] and c["change"]["op"] not in NOTE_OPS:
+        c["change"] = {"op": "describe"}
+    nch = n.get("change")
+    if c["cv"] > 2 or (js_truthy(nch) and (nch.get("op") if isinstance(nch, dict) else None) != c["change"]["op"]):
+        c["change"], c["newer"] = {"op": "describe"}, True
+    return c
+
+
+def target_key(t):
+    return t.get("step") or ("gate:" + t["gate"] if t.get("gate") else "phase:" + str(t.get("phase") or ""))
+
+
+def group_id(k):
+    return "g" + CF.text_hash(k) + CF.text_hash(k + "|2")
+
+
+def js_number(v):
+    if isinstance(v, bool):
+        return 1 if v else 0
+    if isinstance(v, (int, float)):
+        return 0 if isinstance(v, float) and math.isnan(v) else v
+    if isinstance(v, str):
+        try:
+            x = float(CF.js_trim(v)) if CF.js_trim(v) else 0
+            return 0 if math.isnan(x) else x
+        except ValueError:
+            return 0
+    return 0
+
+
+def claimed_member(z, by_path, run_key, run, cid):
+    """The correction a claim is about, from the packed originals as the app reads them: a correction (or a suggested fix
+    from before 1.13) in the run's notes, or a keep record of the run filed for a checklist (PF.learn.members). Returns the
+    member with its group's ID, or None when the pack doesn't hold one the app reads."""
+    o = None
+    p = "proposals/" + cid + ".json"
+    if p in by_path:
+        raw = z.read(by_path[p])
+        try:
+            o = decode(raw)
+        except ValueError:
+            return None
+        if not isinstance(o, dict) or o.get("kind") != "keep" or o.get("id") != cid or CF.todo_why(o, cid + ".json", len(raw)):
+            return None
+        a, tpl, ch, rr = o.get("anchor"), o.get("template"), o.get("change"), o.get("run")
+        if not (isinstance(a, dict) and isinstance(tpl, dict) and isinstance(ch, dict) and isinstance(rr, dict)) or str(rr.get("process")) + "/" + str(rr.get("id")) != run_key:
+            return None
+        m = {"process": tpl.get("process"), "target": {"phase": a.get("phase"), "step": a.get("after") or None}, "change": {"op": "add", "text": ch.get("text"), "where": ch.get("where")},
+             "sig": o.get("base"), "version": js_number(tpl.get("version")), "test": run.get("test") is True or run.get("_test") is True, "legacy": False, "newer": False}
+        m["group"] = group_id("\n".join([str(m["process"]), "keep", m["target"]["step"] or "phase:" + str(m["target"]["phase"]), str(ch.get("where")), str(m["sig"])]))
+        return m
+    notes = []
+    for q in sorted(by_path):
+        if q.startswith("runs/" + run_key + "/notes-") and q.endswith(".jsonl"):
+            try:
+                t = RV.utf8_text(z.read(by_path[q]))
+            except ValueError:
+                continue
+            for ln in t.split("\n"):
+                if not CF.js_trim(ln):
+                    continue
+                try:
+                    x = json.loads(ln)
+                except ValueError:
+                    continue
+                if isinstance(x, dict) and isinstance(x.get("id"), str) and isinstance(x.get("text"), str):
+                    notes.append(x)
+    proc, mine = run.get("process"), [x for x in notes if CF.js_slice(x["id"], 40) == cid and x.get("kind") in ("correction", "fix", "map")]
+    if len(mine) != 1:
+        return None
+    n = mine[0]
+    by = n.get("by") if isinstance(n.get("by"), str) else ""
+    if n.get("kind") == "correction" and any(x.get("kind") == "correction" and (x.get("by") if isinstance(x.get("by"), str) else "") == by and x.get("replaces") == cid for x in notes):
+        return None
+    snap = run.get("snapshot") if isinstance(run.get("snapshot"), str) else ""
+    ro = outline(snap)
+    rver = js_number(run.get("version"))
+    if n.get("kind") == "correction":
+        c = clean_correction(n)
+        g = {"target": c["target"], "change": c["change"]}
+        frm, sig = c["from"], c["base"]
+        if not c["newer"] and on_note(g):
+            t = c["target"]
+            ps = [p2 for p2 in ro["phases"] if p2["gate"] is not None and p2["gate"]["id"] == t["gate"]] if t.get("gate") else [p2 for p2 in ro["phases"] if p2["id"] == t.get("phase")]
+            note = ((ps[0]["gate"] if t.get("gate") else ps[0])["note"] or "") if len(ps) == 1 else None
+            frm, sig = (CF.js_slice(note, 2000), CF.text_hash("note|" + norm(note))) if note is not None else ("", "")
+        ch = c["change"]
+        k = norm(ch["to"]) if ch["op"] == "wording" else ch["where"] + "|" + norm(ch["text"]) if ch["op"] == "add" else CF.js_json(ch["to"]) if ch["op"] == "move" else ",".join(ch["to"]) if ch["op"] == "roles" else "" if ch["op"] == "remove" else CF.js_slice(cid, 40)
+        m = {"process": proc, "target": c["target"], "change": ch, "version": c["version"] or rver, "test": run.get("test") is True or run.get("_test") is True, "legacy": False, "newer": c["newer"]}
+        m["group"] = group_id("\n".join([str(proc), target_key(c["target"]), sig or frm or "", ch["op"], k]))
+        return m
+    # A suggested fix or a checklist-change note from before 1.13: a described problem.
+    if n.get("kind") == "fix":
+        t0 = n.get("target") if isinstance(n.get("target"), dict) else {}
+        t = {"phase": jstr(t0.get("phase"), 60), "step": jstr(t0.get("step"), 60) or None}
+    else:
+        t = {"phase": "", "step": jstr(n.get("step"), 60) or None}
+    fv = n.get("version")
+    fv = math.floor(fv) if isinstance(fv, (int, float)) and not isinstance(fv, bool) and math.isfinite(fv) else 0
+    x = next((st for st in ro["steps"] if st["id"] == t["step"]), None) if t["step"] else None
+    if not t["phase"] and x is not None:
+        t = {"phase": x["phase"]["id"], "step": t["step"]}
+    m = {"process": proc, "target": t, "change": {"op": "describe"}, "version": (fv if n.get("kind") == "fix" else 0) or rver, "test": run.get("test") is True or run.get("_test") is True, "legacy": True, "newer": False}
+    m["group"] = group_id("\n".join([str(proc), target_key(t), x["text"] if x is not None else "", "describe", CF.js_slice(cid, 40)]))
+    return m
 
 KEY = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}/[a-z0-9-]{1,40}\Z", re.I | re.A)
 DAY = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}\Z", re.A)

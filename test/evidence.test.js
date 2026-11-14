@@ -260,12 +260,91 @@ rule('Python takes a decision as proof of "Published in v2" only when the app wo
   const base = { kind: 'correction-decision', process: 'release', group: 'g1', members: [], status: 'included', reason: '', by: 'person-avery', at: NOW, rev: 2, seen: null, act: '', dv: 2, version: 2, folder: 'v2-abc' };
   const vars = [{}, { dv: 99 }, { dv: -1 }, { dv: 2.5 }, { dv: '2' }, { dv: null }, { dv: 0 }, { format: 'flightdeck-correction-decision/2' }, { format: 'flightdeck-correction-decision/3' }, { features: ['zzz'] },
     { by: 42 }, { at: null }, { group: 'bad id!' }, { group: 'g'.repeat(41) }, { status: 'nope' }, { status: 'applied' }, { version: 3 }, { version: '2' }, { version: 2.0 }, { folder: 'v2' }, { folder: 'v2-ABC' },
-    { folder: 'v2-abc\n' }, { rev: -1 }, { rev: 'x' }, { rev: 2.7 }, { kind: 'fix-decision' }].map((v) => Object.assign({}, base, v));
+    { folder: 'v2-abc\n' }, { rev: -1 }, { rev: 'x' }, { rev: 2.7 }, { kind: 'fix-decision' },
+    { result: { step: 'deploy', sig: '0123abcd' } }, { result: { step: 'Bad Step!', sig: '0123abcd' } }, { result: { sig: '0123ABCD' } }, { result: { step: 'deploy' } }, { result: 'x' },
+    { status: 'applied', addressed: true, result: { step: 'deploy', sig: '0123abcd' } }, { status: 'applied', addressed: 'yes' }, { addressed: true }].map((v) => Object.assign({}, base, v));
   vars.push((() => { const o = Object.assign({}, base); delete o.by; return o; })(), (() => { const o = Object.assign({}, base); delete o.dv; return o; })());
-  const C = PF.corrections, js = vars.map((o) => { const d = C.cleanDecision(JSON.parse(JSON.stringify(o)), 'release'); return d && d.kind === 'correction-decision' ? { group: d.group, status: d.status, rev: d.rev, folder: d.folder || null } : null; });
+  const C = PF.corrections, js = vars.map((o) => { const d = C.cleanDecision(JSON.parse(JSON.stringify(o)), 'release'); return d && d.kind === 'correction-decision' ? { group: d.group, status: d.status, rev: d.rev, folder: d.folder || null, result: d.result || null, addressed: d.addressed } : null; });
   const py = JSON.parse(require('child_process').execFileSync(PY, ['-I', '-c', 'import sys, json; sys.path.insert(0, sys.argv[1]); import check_pack as P; print(json.dumps([P.decision_of(o) for o in json.load(sys.stdin)]))', __dirname], { input: JSON.stringify(vars), encoding: 'utf8' }));
   vars.forEach((o, i) => { if (JSON.stringify(py[i]) !== JSON.stringify(js[i])) misses.push('the reader on ' + JSON.stringify(o) + ': ' + JSON.stringify(py[i]) + ' against ' + JSON.stringify(js[i])); });
   assert.deepStrictEqual(misses, []);
+});
+
+/* TB: the claim is bound to the correction it names, read from the run's packed notes with its group worked out from them,
+   and to v2's own checklist making the change: v2 holding v1's unchanged text with its listing kept, or the claim naming
+   another note, and Python refuses. */
+rule('Python refuses a "Published in v2" claim whose version doesn\'t make the change or whose correction isn\'t the one it names', async () => {
+  if (!PY) return console.log('  (skipped: no Python)');
+  const LW = require('./living-worlds'), PF = load();
+  const { zip } = await pack(await folder(), { run: 'release/run1' });
+  const v2 = 'publications/release/' + fixture.v2 + '/', alt = await build(load(), { v2same: true });
+  assert.ok(alt.v2 === fixture.v2, 'set-up: the same version folder');
+  const claimOf = (man) => man.runs[0].claims.filter((c) => c.group === fixture.groupId)[0];
+  const misses = [];
+  for (const [what, edit] of [
+    ['v2 holding v1\'s unchanged text, its listing kept', (e, man, g) => { ['map.md', 'types.json', 'publication.json'].forEach((n) => { e[g(v2 + n).pack] = alt.files[v2 + n]; }); }],
+    ['the claim naming another note', (e, man) => { claimOf(man).correction = 'c-nothing'; }]
+  ]) { const c = LW.checkPack(await LW.repacked(PF, zip, edit)); if (c.ok) misses.push(what + ': ' + c.out); }
+  assert.deepStrictEqual(misses, []);
+});
+
+/* TB's port held to the app: the outline as landing reads it, step signatures and satisfied, on every example checklist
+   and mutations of it (lines removed, doubled, swapped and reworded, roles, tracks, notes, Windows line endings, line
+   separators), for corrections of every kind on every step and phase, with and without a person's recorded result. */
+rule('check_pack.py reads a version\'s checklist and decides whether it makes a change as the app does', async () => {
+  if (!PY) return console.log('  (skipped: no Python)');
+  const PF = load(), C = PF.corrections, M = PF.map, O = PF.outline, dir = path.join(__dirname, '..', 'example-folder', 'maps', 'drafts');
+  const bases = fs.readdirSync(dir).filter((n) => /\.md$/.test(n)).sort().map((n) => fs.readFileSync(path.join(dir, n), 'utf8'));
+  let seed = 7; const rnd = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
+  const texts = [];
+  bases.forEach((t) => {
+    texts.push(t, t.replace(/\n/g, '\r\n'));
+    for (let k = 0; k < 6; k++) {
+      const L = t.split('\n'), i = rnd(L.length), j = rnd(L.length);
+      const muts = [
+        () => { L.splice(i, 1); }, () => { L.splice(i, 0, L[i]); }, () => { const x = L[i]; L[i] = L[j]; L[j] = x; },
+        () => { L[i] = L[i].replace(/(- \[.\] )(.*?)( \{#|$)/, '$1$2 again$3'); }, () => { L[i] = L[i].replace(/(- \[.\] [^{]*?)( \{#|$)/, '$1 @qa$2'); },
+        () => { L.splice(i, 0, '### Track: Second @ops'); }, () => { L.splice(i + 1, 0, '  > A note with a separator'); }, () => { L[i] = L[i] + '\t '; }
+      ];
+      muts[rnd(muts.length)](); muts[rnd(muts.length)]();
+      texts.push(L.join('\n'));
+    }
+  });
+  const outlineOf = (t) => { const o = O.parse(t); return { phases: o.phases.map((p) => ({ id: p.id, key: p.key, note: p.note, gate: p.gate ? { id: p.gate.id, note: p.gate.note } : null, tracks: p.tracks.map((x) => x.roles) })),
+    steps: o.steps.map((x) => ({ id: x.id, key: x.key, text: x.text, roles: x.roles, track: x.track, phase: x.phase.index, note: x.note })) }; };
+  const cases = [], sigs = [];
+  texts.forEach((t, ti) => {
+    const o = O.parse(t), ids = o.steps.map((x) => x.id).filter(Boolean), phs = o.phases.map((p) => p.id).filter(Boolean);
+    ids.forEach((id) => sigs.push([ti, id, C.stepSig(M.parse(t), id)]));
+    const pick = (a) => a[rnd(a.length)];
+    for (let k = 0; k < 12 && ids.length; k++) {
+      const step = pick(ids), ph = pick(phs), other = o.steps.filter((x) => x.id === step)[0];
+      const changes = [{ op: 'wording', to: other ? other.text : 'x' }, { op: 'wording', to: 'Something else' }, { op: 'add', text: pick(o.steps).text, where: pick(['after', 'end']) },
+        { op: 'remove' }, { op: 'move', to: { after: pick(ids) } }, { op: 'move', to: { phase: ph, where: pick(['start', 'end']) } }, { op: 'roles', to: pick([[], ['qa'], ['ops', 'qa']]) }, { op: 'screenshot' }];
+      const ch = pick(changes), target = k % 4 === 3 ? { phase: ph, step: null } : { phase: ph, step: step };
+      const note = k % 5 === 4 ? { op: 'wording', to: pick(o.phases).note || 'A note' } : null;
+      const sig = pick(o.steps) && C.stepSig(M.parse(t), pick(ids));
+      const dec = k % 3 === 0 ? { status: 'applied', result: { step: pick(ids), sig: sig || '00000000' }, addressed: false } : null;
+      const g = { target: note ? { phase: ph, step: null } : target, change: note || ch, legacy: false, newer: false, decision: dec };
+      cases.push([ti, g, C.satisfied(Object.assign({}, g, { first: {}, decision: dec }), t)]);
+    }
+  });
+  const input = { texts, sigs, cases };
+  const out = JSON.parse(cp.execFileSync(PY, ['-I', '-c', [
+    'import sys, json; sys.path.insert(0, sys.argv[1]); import check_pack as P',
+    'd = json.load(sys.stdin)',
+    'def ol(t):',
+    '    o = P.outline(t)',
+    '    return {"phases": [{"id": p["id"], "key": p["key"], "note": p["note"], "gate": {"id": p["gate"]["id"], "note": p["gate"]["note"]} if p["gate"] else None, "tracks": [x["roles"] for x in p["tracks"]]} for p in o["phases"]],',
+    '            "steps": [{"id": x["id"], "key": x["key"], "text": x["text"], "roles": x["roles"], "track": x["track"], "phase": x["phase"]["index"], "note": x["note"]} for x in o["steps"]]}',
+    'print(json.dumps({"outlines": [ol(t) for t in d["texts"]], "sigs": [P.step_sig(P.outline(d["texts"][ti]), i) for ti, i, _ in d["sigs"]], "sat": [P.satisfied(g, d["texts"][ti]) for ti, g, _ in d["cases"]]}))'
+  ].join('\n'), __dirname], { input: JSON.stringify(input), encoding: 'utf8', maxBuffer: 1 << 28 }));
+  const misses = [];
+  texts.forEach((t, i) => { if (JSON.stringify(out.outlines[i]) !== JSON.stringify(outlineOf(t))) misses.push('outline of text ' + i); });
+  sigs.forEach((x, i) => { if (out.sigs[i] !== x[2]) misses.push('stepSig of ' + x[1] + ' in text ' + x[0]); });
+  cases.forEach((x, i) => { if (out.sat[i] !== x[2]) misses.push('satisfied ' + JSON.stringify(x[1]) + ' in text ' + x[0] + ': ' + out.sat[i] + ' against ' + x[2]); });
+  assert.ok(cases.length > 300 && sigs.length > 300, 'set-up: ' + cases.length + ' cases, ' + sigs.length + ' signatures');
+  assert.deepStrictEqual(misses.slice(0, 10), []);
 });
 
 rule('A /2 v2 proves "Published in v2" by its exact bytes: a byte-order mark added to its map.md (which the app refuses) leaves the claim unconfirmed', async () => {
