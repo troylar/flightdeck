@@ -186,6 +186,9 @@ PF.detours = (function () {
     var title = String(run.title || run.process).slice(0, 60);
     if (run.parent || run.folder !== c.folder || run.mapHash !== c.mapHash || (typeof run.typesHash === 'string' && run.typesHash !== c.typesHash)) return { why: title + ' isn\'t a run of ' + c.process + ' ' + c.folder + ' on its own.' };
     if (!run.ended || run.ended.outcome !== 'Completed') return { why: title + (run.ended ? ' ended ' + String(run.ended.outcome || '').toLowerCase() + ', not completed.' : ' hasn\'t completed yet.') };
+    /* VC: a completion that doesn't stand as read (R.childCheck, the one verdict linked runs use) is never evidence. */
+    var cc = PF.run.childCheck(run);
+    if (cc) return { why: title + ' completed, but ' + cc + '.' };
     var res = PF.run.resultOf(run), value = res ? res.value : '';
     if (res && res.conflict) return { why: title + '\'s result can\'t be told: its ^' + res.name + ' and its decision disagree. Correct that run first.' };
     if (c.accepts && c.accepts.indexOf(value) < 0) return { why: title + ' returned ' + (value || 'no result') + '; this to-do accepts ' + c.accepts.join(' or ') + '.' };
@@ -213,6 +216,8 @@ PF.detours = (function () {
     if (!run) return 'The run it was checked off on (' + k + ') isn\'t in the folder now.';
     var title = String(run.title || run.process).slice(0, 60), res = run.ended ? PF.run.resultOf(run) : null, value = res ? res.value : '';
     if (!run.ended) return title + ', which it was checked off on, was reopened since.';
+    var cc = PF.run.childCheck(run);
+    if (cc) return title + ', which it was checked off on, completed, but ' + cc + '.';
     if (PF.run.answerOf(run) !== e.answer || value !== e.result) return title + ', which it was checked off on, changed since' + (value !== e.result ? ': it returned ' + (value || 'no result') + ' (was ' + (e.result || 'no result') + ')' : ': it was corrected or ended again') + '.';
     return '';
   }

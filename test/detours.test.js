@@ -130,6 +130,28 @@ rule('A result the to-do doesn\'t accept is refused; any completed run counts wh
   assert.strictEqual(D.evidenceFor(W2.r, y, 'k1', W2.ev()).evidence.result, 'fail');
 });
 
+/* VC: a completed run whose completion no longer stands as read (a mandatory step open again, R.childCheck) is never
+   evidence, a request on it holds, and a to-do already done on it stays done and says so. */
+rule('A completed run whose completion doesn\'t stand as read is never evidence, and a to-do done on it says so', () => {
+  const W = world(), x = W.linked('Smoke test the build', ['pass']), plan = W.plan(x), c = W.finish(W.start(plan, 'k1'), 'pass');
+  const ev = D.evidenceFor(W.r, x, 'k1', W.ev()).evidence;
+  const A = W.prep({ op: 'done', todo: x.id, evidence: ev }, tool); assert.ok(!A.why, A.why); W.push(A.record, A.name); W.land();
+  const it = T.inbox([W.r], { records: W.recs, people: W.people, me: 'person-morgan', evidence: W.ev() }).filter((y) => y.id === A.id)[0];
+  const d = T.decide(W.r, { request: A.id, op: 'accept', by: 'person-morgan', shown: it.consequence.fingerprint, records: W.recs, people: W.people, at: AT, writer: 'w1', rev: rev(), evidence: W.ev() });
+  assert.ok(!d.why, d.why); W.push(d.record, d.name); W.land();
+  assert.strictEqual(W.view().byTodo[x.id].state, 'done', 'set-up: done on k1');
+  /* Its first mandatory step reads open again: the run still says Completed, with its answer and result as they were. */
+  Object.assign(c.steps.suite, { s: 'open', reopened: true }); delete c.memo;
+  assert.ok(R.childCheck(c), 'set-up: its completion doesn\'t stand as read');
+  const W2 = world(), y = W2.linked('Smoke test the build', ['pass']), p2 = W2.plan(y), c2 = W2.finish(W2.start(p2, 'k1'), 'pass');
+  Object.assign(c2.steps.suite, { s: 'open', reopened: true }); delete c2.memo;
+  const F = D.evidenceFor(W2.r, y, 'k1', W2.ev());
+  assert.ok(F.why && !F.evidence && /doesn't stand/.test(F.why), 'never evidence: ' + F.why);
+  const done = W.view().byTodo[x.id];
+  assert.strictEqual(done.state, 'done', 'an already-done to-do stays done');
+  assert.ok(/doesn't stand/.test(D.provenance(W.r, done, W.ev())), 'and says so: ' + D.provenance(W.r, done, W.ev()));
+});
+
 rule('A tool\'s done on evidence is one request by what it rests on, and waits for a person: nothing resolves on its own', () => {
   const W = world(), x = W.linked('Smoke test the build', ['pass']), plan = W.plan(x), c = W.finish(W.start(plan, 'k1'), 'pass');
   const ev = D.evidenceFor(W.r, x, 'k1', W.ev()).evidence;
