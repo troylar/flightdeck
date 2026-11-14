@@ -170,10 +170,20 @@ def json_too_deep(text):
     return False
 
 
+def js_index(k):
+    """k as a JavaScript array index (an int), or None: canonical decimal below 4294967295. The length is checked before
+    int(), so a key of thousands of digits stays an ordinary key and never reaches Python's digit limit."""
+    if not isinstance(k, str) or len(k) > 10 or not re.fullmatch(r"0|[1-9][0-9]*", k):
+        return None
+    i = int(k)
+    return i if i < 4294967295 else None
+
+
 def js_keys(obj):
     """Object keys in JavaScript's order: array-index keys ascending first, then the rest as written."""
-    idx = sorted((k for k in obj if re.fullmatch(r"0|[1-9][0-9]*", k) and int(k) < 4294967295), key=int)
-    return idx + [k for k in obj if k not in idx]
+    idx = sorted((k for k in obj if js_index(k) is not None), key=js_index)
+    held = set(idx)
+    return idx + [k for k in obj if k not in held]
 
 
 def js_json(v):

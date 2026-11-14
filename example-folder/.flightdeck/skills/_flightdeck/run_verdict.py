@@ -99,11 +99,11 @@ def get(v, k):
     """v[k] as JavaScript reads it from a value parsed from JSON (a list by index, a string by code unit)."""
     if isinstance(v, dict):
         return v.get(k, MISSING)
-    if isinstance(v, list) and re.fullmatch(r"0|[1-9][0-9]*", str(k)) and int(k) < len(v):
-        return v[int(k)]
-    if isinstance(v, str) and re.fullmatch(r"0|[1-9][0-9]*", str(k)):
+    i = CF.js_index(str(k))
+    if isinstance(v, list) and i is not None and i < len(v):
+        return v[i]
+    if isinstance(v, str) and i is not None:
         u = v.encode("utf-16-le", "surrogatepass")
-        i = int(k)
         return u[2 * i:2 * i + 2].decode("utf-16-le", "surrogatepass") if 2 * i < len(u) else MISSING
     if isinstance(v, str) and k == "length":
         return CF.js_len(v)
