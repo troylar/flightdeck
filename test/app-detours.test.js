@@ -731,6 +731,37 @@ rule('A detour start whose decision write landed but answered an error offers Tr
   assert.strictEqual(mineDec(app).length, 1, 'still one decision');
 });
 
+/* VA: a start decision write that answered an error keeps Try again whatever its read-back gives (an error, or nothing):
+   Try again confirms the exact reservation first, and only one confirmed absent is reserved again. */
+rule('A detour start whose decision write answered an error and whose read-back failed still offers Try again, which saves one run', async () => {
+  for (const how of ['landed-readerror', 'landed-readnull', 'lost-readnull'].filter((h) => !process.env.VA_CASE || process.env.VA_CASE.split(',').indexOf(h) >= 0)) {
+    const S = await setup(['pass']), app = S.app;
+    app.click('td-detour', S.todo); await app.tick(250);
+    const fs = app.fs, w = fs.write.bind(fs), read = fs.read.bind(fs), before = kidPaths(app).length, isDec = (p) => /^proposals\/plan-ev-.*\.status-.*-d\.json$/.test(p);
+    let failed = false, readBack = false;
+    fs.write = (p, ...a) => {
+      if (failed || !isDec(p)) return w(p, ...a);
+      failed = true;
+      return (/^landed/.test(how) ? w(p, ...a) : Promise.resolve()).then(() => { throw new Error('The network went away'); });
+    };
+    fs.read = (p, ...a) => {
+      if (failed && !readBack && isDec(p)) { readBack = true; return /readerror/.test(how) ? Promise.reject(new Error('EIO: i/o error')) : Promise.resolve(null); }
+      return read(p, ...a);
+    };
+    app.chooseApprovers().submitForm('start-form'); await app.tick(300);
+    fs.write = w; fs.read = read;
+    assert.ok(failed && readBack, how + ': set-up: the write answered an error and was read back');
+    assert.strictEqual(mineDec(app).length, /^landed/.test(how) ? 1 : 0, how + ': set-up: the decision ' + (/^landed/.test(how) ? 'landed' : 'didn\'t land'));
+    assert.strictEqual(kidPaths(app).length, before, how + ': no run yet');
+    assert.ok(/data-act="plan-resume"/.test(app.html()), how + ': Try again offered');
+    app.click('plan-resume', idOf(app, 'plan-resume')); await app.tick(500);
+    assert.strictEqual(kidPaths(app).length, before + 1, how + ': Try again saved the run: ' + app.live());
+    assert.strictEqual(mineDec(app).length, 1, how + ': one decision');
+    const d = JSON.parse(app.fs.files[mineDec(app)[0]].t), r = JSON.parse(app.fs.files[kidPaths(app).filter(p => p.indexOf(d.run) >= 0)[0]].t);
+    assert.strictEqual(r.id, d.run, how + ': the decision names the run saved');
+  }
+});
+
 /* UE: a to-do's plan starts on the exact version its to-do pins: no Start on vN instead or Use the latest, and a switch
    asked anyway writes nothing. */
 rule('A to-do\'s plan never offers or records a switch to a newer version', async () => {

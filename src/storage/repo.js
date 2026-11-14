@@ -2256,6 +2256,18 @@ PF.repo = (function () {
     var go = function () {
       stillOk(o);
       return fs.read(k.dec).then(function (f) {
+        /* VA: a reservation the first write couldn't confirm (k.unsure), confirmed absent now, is made again from its exact
+           bytes (k.decText) once o.reserve passes, and read back; a read that fails confirms nothing and writes nothing. */
+        if (!f && k.unsure && typeof o.reserve === 'function' && typeof k.decText === 'string') {
+          return Promise.resolve(o.reserve()).then(function () {
+            stillOk(o);
+            return fs.write(k.dec, k.decText);
+          }).then(function () { return fs.read(k.dec); }).then(function (b) {
+            if (!b || b.text !== k.decText) throw new Error('Its decision on this plan couldn\'t be confirmed after it was written again, so the run wasn\'t saved. Try again.');
+            if (typeof o.reserved === 'function') o.reserved();
+            return typeof o.lock === 'function' ? o.lock('preflight:run:' + proc + '/' + id, check) : check();
+          });
+        }
         /* The decision is read through the one plan reader, as the gate reads it. */
         var d = f ? json(f.text) : null, v = d && typeof d === 'object' && !Array.isArray(d) ? PF.plans.clean(d, k.dec.slice('proposals/'.length), false) : null;
         if (!v || !v.ok || v.why || v.kind !== 'status' || d.proposal !== planId || d.status !== 'accepted' || d.run !== id || d.by !== o.me) throw gone();

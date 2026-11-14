@@ -25,8 +25,8 @@
       "reviewed": "VE: a run whose own checklist this copy can't run is named unusable at its run.json in the shared run verdict; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "b9cc81760a5acee2d38f7dad246669181c61fd0d6cf550df2a1963c5513a76fe",
-      "reviewed": "VF: a part of a run listed as a link is named (link) in the run's read, so the shared evidence verdict holds it; checked for direct writes and unconditional deletes"
+      "sha256": "cb51ad85d339fed135635a63e88ed462713ed21c9ecb17c2cd0ea97f743f0d60",
+      "reviewed": "VA: an unsure start reservation keeps Try again, which confirms it first and makes it again only when confirmed absent, past the plan's final check and the starter's authority; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -417,12 +417,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "50eabf2e7e13fbbb18d024136798cc538610dd9df57066f05b7c31978ecc9448",
-      "reviewed": "VF: a part of a run listed as a link is named (link) in the run's read, so the shared evidence verdict holds it; checked for direct writes and unconditional deletes"
+      "sha256": "50b9af7c24a794de0d829bb2a8bb0bcc876e98a35cd0d481d3812fb182a49973",
+      "reviewed": "VA: an unsure start reservation keeps Try again, which confirms it first and makes it again only when confirmed absent, past the plan's final check and the starter's authority; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "b3f20213190261073aa1f13fa4247da9efe7a5c3c32a522cbd9d85fdf1ab5d65",
-      "reviewed": "VD: Promote publishes only the exact stage its kept-content guard judged, refusing one read differently; checked for direct writes and unconditional deletes"
+      "sha256": "eb8a9b003f6dc6aefbd4f2367dc159ec2caec8ce1bf4584056f9a46217301c0e",
+      "reviewed": "VA: an unsure start reservation keeps Try again, which confirms it first and makes it again only when confirmed absent, past the plan's final check and the starter's authority; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

@@ -25099,6 +25099,18 @@ PF.repo = (function () {
     var go = function () {
       stillOk(o);
       return fs.read(k.dec).then(function (f) {
+        /* VA: a reservation the first write couldn't confirm (k.unsure), confirmed absent now, is made again from its exact
+           bytes (k.decText) once o.reserve passes, and read back; a read that fails confirms nothing and writes nothing. */
+        if (!f && k.unsure && typeof o.reserve === 'function' && typeof k.decText === 'string') {
+          return Promise.resolve(o.reserve()).then(function () {
+            stillOk(o);
+            return fs.write(k.dec, k.decText);
+          }).then(function () { return fs.read(k.dec); }).then(function (b) {
+            if (!b || b.text !== k.decText) throw new Error('Its decision on this plan couldn\'t be confirmed after it was written again, so the run wasn\'t saved. Try again.');
+            if (typeof o.reserved === 'function') o.reserved();
+            return typeof o.lock === 'function' ? o.lock('preflight:run:' + proc + '/' + id, check) : check();
+          });
+        }
         /* The decision is read through the one plan reader, as the gate reads it. */
         var d = f ? json(f.text) : null, v = d && typeof d === 'object' && !Array.isArray(d) ? PF.plans.clean(d, k.dec.slice('proposals/'.length), false) : null;
         if (!v || !v.ok || v.why || v.kind !== 'status' || d.proposal !== planId || d.status !== 'accepted' || d.run !== id || d.by !== o.me) throw gone();
@@ -43001,7 +43013,10 @@ PF.examples = (function () {
       var rg = dt ? writeGuard({}) : null, rlate = '';
       queued(function () {
         if (!still()) return { dropped: true };
-        return repo.resumeStart(k.fs, k.plan, k, { me: k.me, lock: LOCKS ? lock : null, still: still, final: dt ? function () { return detourPinWhy(k.fs, k.pinPlan, k.pub).then(function (w) { if (w) throw new Error(w.charAt(0).toUpperCase() + w.slice(1) + ' Nothing was written.'); return repo.planFinal(k.fs, { id: k.plan }, { action: 'start', sha: k.sha, folder: k.folder, own: { path: k.dec, text: k.decText } }); }).then(function () { return rg.fresh(k.fs); }).then(function () { if (!still() || !rg.still()) { rlate = rg.why(); var e = new Error(rlate); e.dropped = true; throw e; } }); } : null, writing: function () { k.certain = false; if (state.msg && state.msg.pendingStart) state.msg = null; render(); } });
+        /* VA: a reservation this window couldn't confirm, found absent now, is made again with its exact bytes only past the
+           plan's own final check and the starter's authority, as the start's was. */
+        var reserve = dt && k.unsure ? function () { return detourPinWhy(k.fs, k.pinPlan, k.pub).then(function (w) { if (w) throw new Error(w.charAt(0).toUpperCase() + w.slice(1) + ' Nothing was written.'); return repo.planFinal(k.fs, { id: k.plan }, { action: 'start', sha: k.sha, folder: k.folder }); }).then(function () { return rg.fresh(k.fs); }).then(function () { if (!still() || !rg.still()) { rlate = rg.why(); var e = new Error(rlate); e.dropped = true; throw e; } }); } : null;
+        return repo.resumeStart(k.fs, k.plan, k, { me: k.me, lock: LOCKS ? lock : null, still: still, reserve: reserve, reserved: function () { k.unsure = false; }, final: dt ? function () { return detourPinWhy(k.fs, k.pinPlan, k.pub).then(function (w) { if (w) throw new Error(w.charAt(0).toUpperCase() + w.slice(1) + ' Nothing was written.'); return repo.planFinal(k.fs, { id: k.plan }, { action: 'start', sha: k.sha, folder: k.folder, own: { path: k.dec, text: k.decText } }); }).then(function () { return rg.fresh(k.fs); }).then(function () { if (!still() || !rg.still()) { rlate = rg.why(); var e = new Error(rlate); e.dropped = true; throw e; } }); } : null, writing: function () { k.certain = false; if (state.msg && state.msg.pendingStart) state.msg = null; render(); } });
       }).then(function (res) {
         state.resuming = false;
         if (res && res.dropped && rlate) { releaseNav(held); say('The run wasn\'t saved: ' + rlate + ' The plan stays started for this run; Try again once that\'s fixed.', 'warn'); render(); return null; }
@@ -44627,7 +44642,7 @@ PF.examples = (function () {
        plan's lock, whatever this page last read. Its decision, naming the run, is written first and the run then (2.1.1):
        the decision reserves the plan for this one run, so a run that doesn't save can only be saved again, never started
        twice. The exact bytes it tried are kept in this window, by plan (state.pendingStarts), for Try again (repo.resumeStart). */
-    var formSha = e.target.dataset.planHash, startFolder = pub.info.folder, dec = null, decOut = {}, pinLate = '', detour = !!(plan && plan.pin && /^plan-ev-[0-9a-f]{24}$/.test(String(plan.id)));
+    var formSha = e.target.dataset.planHash, startFolder = pub.info.folder, dec = null, decUnsure = false, decOut = {}, pinLate = '', detour = !!(plan && plan.pin && /^plan-ev-[0-9a-f]{24}$/.test(String(plan.id)));
     var sg2 = detour ? writeGuard({}) : null;
     /* YC: a detour's start lands only on the form it was submitted from: anything done since (another form opened, a name
        typed, a layer opened) keeps it saved and says so, and nothing on screen is reset or navigated away from. */
@@ -44647,15 +44662,18 @@ PF.examples = (function () {
       var decide = function () {
         return repo.decidePlan(sfs, plan, { action: 'start', sha: formSha, folder: startFolder, final: detour, lock: LOCKS ? lock : null, still: still, write: function () {
           var mark = function () { return repo.recordPlanStatus(sfs, plan, WRITER, 'accepted', r.id, who, null, APP_VERSION, decOut).then(function (path) { dec = path; return save(true); }); };
-          /* UD: a to-do plan's decision write that answered an error may have landed: read back, found exactly as written, the
-             plan is reserved for this run, so its run is kept for Try again (written then, under its guard), never stranded. */
+          /* UD, VA: a to-do plan's decision write that answered an error may have landed. Read back: found exactly as written,
+             the plan is reserved for this run; not found, or a read-back that fails, can't tell, so the reservation is kept as
+             unsure (decUnsure). Either way its run is kept, unwritten, for Try again, which confirms the exact reservation
+             first (and makes it again only once it is confirmed absent), never stranded. Another text there is refused. */
           if (detour) mark = function () {
             return repo.recordPlanStatus(sfs, plan, WRITER, 'accepted', r.id, who, null, APP_VERSION, decOut).then(function (path) { dec = path; return save(true); }, function (e) {
               if (!decOut.path) throw e;
-              return sfs.read(decOut.path).then(null, function () { throw e; }).then(function (f) {
-                if (!f || f.text !== decOut.text) throw e;
-                dec = decOut.path;
-                return save(true, 'its decision was written, though writing it answered an error: ' + String(e && e.message || e));
+              var msg = String(e && e.message || e);
+              return sfs.read(decOut.path).then(function (f) { return { f: f }; }, function () { return { failed: true }; }).then(function (b) {
+                if (b.f && b.f.text !== decOut.text) throw e;
+                dec = decOut.path; decUnsure = !b.f;
+                return save(true, decUnsure ? 'Flightdeck couldn\'t confirm whether its decision was written (writing it answered: ' + msg + ')' : 'its decision was written, though writing it answered an error: ' + msg);
               });
             });
           };
@@ -44686,7 +44704,7 @@ PF.examples = (function () {
       function (err) {
         endBusy(); releaseNav(held);
         if (dec && err && err.pending && still()) {
-          state.pendingStarts[plan.id] = { plan: plan.id, title: plan.title || plan.id, fs: sfs, key: skey, me: who, process: r.process, id: r.id, path: err.pending.path, text: err.pending.text, certain: err.pending.certain, cand: err.pending.cand, dec: dec, decText: decOut.text, sha: formSha, folder: startFolder, pinPlan: plan, pub: pub };
+          state.pendingStarts[plan.id] = { plan: plan.id, title: plan.title || plan.id, fs: sfs, key: skey, me: who, process: r.process, id: r.id, path: err.pending.path, text: err.pending.text, certain: err.pending.certain, cand: err.pending.cand, dec: dec, decText: decOut.text, unsure: decUnsure, sha: formSha, folder: startFolder, pinPlan: plan, pub: pub };
           say('The plan is marked started, but ' + PF.vk.unsavedWords(err.pending) + ' (' + err.message + '). Try again.', 'bad'); state.msg.pendingStart = true; render(); return;
         }
         if (dec && err && err.pending) { say(aboutWhat(still, sg, sfs, skey, who) + 'The plan is marked started, but ' + PF.vk.unsavedWords(err.pending) + ' (' + err.message + '). The person using this window changed while it was saving, so Try again isn\'t offered here.', 'warn'); render(); return; }
