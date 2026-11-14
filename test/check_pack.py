@@ -1137,6 +1137,10 @@ def check_living(z, man):
                         continue
                     if isinstance(ev.get("fact"), str):
                         fact_refs.append((ev, None, None, "the receipt names it as the evidence " + str(td) + " was checked off on", True))
+                # And the other way (WC): every to-do the work left checked off on evidence is named, as an honest receipt froze it.
+                for td, x in opened.items():
+                    if x["state"] == "done" and (x["support"] or x["evidence"]) and td not in named:
+                        work_problems.append(str(me["process"]) + "/" + str(me["id"]) + "'s receipt: " + td + " was checked off on evidence, but the receipt doesn't name that evidence")
                 # Every keep it names is a keep on this run, one witness under its id.
                 for x in arr(rec.get("keeps")):
                     kx = wit(str(x))

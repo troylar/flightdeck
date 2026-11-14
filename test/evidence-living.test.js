@@ -2339,4 +2339,20 @@ rule('A done on a run\'s evidence whose run now gives another answer, or a recei
   }
   assert.deepStrictEqual(misses, []);
 });
+/* WC: the check runs both ways: an honest receipt froze the evidence of every to-do the work checked off on evidence, so a
+   receipt made again with that entry left out leaves the pack partial, naming the to-do, in the fact world and the
+   evidence world alike; Python refuses a complete claim. */
+rule('A receipt that leaves out the evidence a landed done rests on leaves the work unconfirmed, named', async () => {
+  const misses = [];
+  for (const [what, make] of [['the fact world', factMade], ['the evidence world', evidenceMade]]) {
+    const W = await make(), PF = W.PF;
+    const ctl = await pack(PF, new BytesFS(rereceipt(W, (ev) => ev)), W.key);
+    if (ctl.res.status !== 'complete') misses.push(what + ': the control: ' + JSON.stringify(ctl.res.col.unresolved));
+    if (PY && !checkPack(ctl.zip).ok) misses.push(what + ': Python, the control: ' + checkPack(ctl.zip).out);
+    const { res, zip } = await pack(PF, new BytesFS(rereceipt(W, () => [])), W.key);
+    if (!(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(W.todo) >= 0 && /receipt/.test(u)))) misses.push(what + ': the export: ' + res.status + ' ' + JSON.stringify(res.col.unresolved));
+    if (PY) { const c = checkPack(await repacked(PF, zip, (e, man) => forced(man))); if (c.ok || c.out.indexOf(W.todo) < 0) misses.push(what + ': Python: ' + c.out); }
+  }
+  assert.deepStrictEqual(misses, []);
+});
 run();

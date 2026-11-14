@@ -495,6 +495,8 @@ PF.receipts = (function () {
           var fx = ev.fact ? soleFact(ev.fact) : null;
           if (ev.fact && fx && fx.content !== ev.content) missing.push(on + 'proposals/' + ev.fact + '.json: the receipt names it as the evidence ' + ev.todo + ' was checked off on, but it doesn\'t say what it said then.');
         });
+        /* And the other way (WC): every to-do the work left checked off on evidence is named, as an honest receipt froze it. */
+        Object.keys(opened).forEach(function (id) { var x = opened[id]; if (x.state === 'done' && (x.support || x.evidence) && !named[id]) missing.push(on + v.path + ': ' + id + ' was checked off on evidence, but the receipt doesn\'t name that evidence.'); });
       }
       /* Every keep it names (what was kept for next time) is a checked keep on this run, one witness under its id. */
       if (v && v.record) (v.record.keeps || []).forEach(function (id) { var kx = witness(id, on + 'the receipt names this keep', function (x) { return x.kind === 'keep' && mineRun(x); }); if (kx) saw(kx); });

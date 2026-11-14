@@ -25,12 +25,12 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "688a53577993c02d530ab8a63e3f5e98af39e75f9114fcf14e9306a09e20883d",
-      "reviewed": "WA: each receipt evidence entry is bound to its to-do's landed done through the replayed chain, and a done on a run's evidence to that run's answer and result; checked for direct writes and unconditional deletes"
+      "sha256": "cedef19b7cbbdd3f6131d8bb39bf365768e518738d623175ebcc1b4faea13217",
+      "reviewed": "WC: every to-do the replay leaves checked off on evidence must have its receipt entry; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
-      "sha256": "93b139620434dfcb77361b78ed8c05839f533634f046b9872e386198895488dc",
-      "reviewed": "WA: each receipt evidence entry is bound to its to-do's landed done through the replayed chain, and a done on a run's evidence to that run's answer and result; checked for direct writes and unconditional deletes"
+      "sha256": "3ff21f8db144f98e0091865cbe78dc03edc4eb30e4c6f73ca0987ba46c850f74",
+      "reviewed": "WC: every to-do the replay leaves checked off on evidence must have its receipt entry; checked for direct writes and unconditional deletes"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
@@ -313,8 +313,8 @@
       "reviewed": "loops: items: item kind, feed binding, completeness fix, nouns, unknown-kind refusal in loop.js/map.js/publish.js/types.js and check_folder.py parity; pure checks only, checked for direct writes and unconditional deletes"
     },
     "src/core/receipts.js": {
-      "sha256": "de841e3f006f6e0e2fe1a04013bc0cdc5f48b7fc256d80dc548d1b3bdb3d8bf6",
-      "reviewed": "WA: each receipt evidence entry is bound to its to-do's landed done through the replayed chain, and a done on a run's evidence to that run's answer and result; checked for direct writes and unconditional deletes"
+      "sha256": "803aa75d88d576dc86396872b9143323805b2dff8a0e40ca2fea6d39aa97c7d7",
+      "reviewed": "WC: every to-do the replay leaves checked off on evidence must have its receipt entry; checked for direct writes and unconditional deletes"
     },
     "src/core/refs.js": {
       "sha256": "24b7d2b52fcd99673fcc427db286a7224af83342da19efcd561ac850d6baa441",
