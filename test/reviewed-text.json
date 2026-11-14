@@ -25,8 +25,8 @@
       "reviewed": "round 17 VD: only add and bind can be delegated"
     },
     "docs/design.md": {
-      "sha256": "b66c86cae4eaca4f670b28663f6739a7ab2d4d9f9d59300d0e61b29ec5416e7d",
-      "reviewed": "Round 21 (ZA): a write token is kept with the folder its guard read and admitted only for a write to that folder, the one this window has open. Checked for direct writes and unconditional deletes."
+      "sha256": "1bb1502964797648b919f6a97f69fad8a0263662fb96dbf9f83cdee33ab87a59",
+      "reviewed": "ZB: to-do writes on a loop's parent list story runs fresh; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -409,8 +409,8 @@
       "reviewed": "Round 21 (ZA): a write token is kept with the folder its guard read and admitted only for a write to that folder, the one this window has open. Checked for direct writes and unconditional deletes."
     },
     "src/ui/app.js": {
-      "sha256": "0a528b53c1e104acef12de909c04582f3e39ec28eff7b34f144f942bbc485e4b",
-      "reviewed": "Round 21 (ZA): a write token is kept with the folder its guard read and admitted only for a write to that folder, the one this window has open. Checked for direct writes and unconditional deletes."
+      "sha256": "c08a91555c0a9e1b50384f19ce88313871548271ac6f8192a6f229eb6fd87562",
+      "reviewed": "ZB: to-do writes on a loop's parent list story runs fresh; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "7db943140369906843961189dc3f34c8ec9430164cca3cb0f3a9f5bdd6ab946f",
