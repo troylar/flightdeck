@@ -1033,7 +1033,8 @@ def check_living(z, man):
             if sup:
                 fact_refs.append((sup, item_of(run, x), x["inc"], wf, False))
             if evd:
-                run_refs.append((evd, x, run, wr))
+                # The to-do as it stands at this done (XA): a later reopen changes x, never the opening this done landed in.
+                run_refs.append((evd, dict(x), run, wr))
 
         def saw(rec):
             for x in arr(rec.get("seen")):

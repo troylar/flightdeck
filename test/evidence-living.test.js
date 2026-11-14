@@ -2355,4 +2355,28 @@ rule('A receipt that leaves out the evidence a landed done rests on leaves the w
   }
   assert.deepStrictEqual(misses, []);
 });
+/* XA: a done on a run's evidence is judged in the opening it landed in, whatever came after. Add, done on a run, reopen, end:
+   complete, and Python accepts it. That earlier done made again (its request id, effect and fingerprint, and every reference
+   to it) to name the later opening's plan is named by the export, and Python refuses a complete claim. */
+rule('A done on a run\'s evidence is held to the opening it landed in, even after the to-do was reopened', async () => {
+  const W = await evidenceMade({ reopen: true }), PF = W.PF, T = PF.todos, D = PF.detours;
+  const ctl = await pack(PF, new BytesFS(W.files), W.key);
+  assert.strictEqual(ctl.res.status, 'complete', 'the honest history: ' + JSON.stringify(ctl.res.col.unresolved));
+  if (PY) assert.ok(checkPack(ctl.zip).ok, 'Python accepts the honest history: ' + checkPack(ctl.zip).out);
+  /* The forged history: the done's evidence names the plan of the opening the reopen made. */
+  const donePath = Object.keys(W.files).find((p) => /^proposals\/req-evidence-[0-9a-f]{24}\.json$/.test(p)), done = JSON.parse(W.files[donePath]);
+  const later = D.planId({ process: W.run.process, id: W.run.id }, W.todo, W.reopenId), e2 = Object.assign({}, done.evidence, { plan: later }), newId = D.requestId(W.todo, e2);
+  const files = {};
+  Object.keys(W.files).forEach((p) => { const t = W.files[p]; files[p] = typeof t === 'string' && (/^proposals\//.test(p) || p === W.runPath) ? t.split(done.id).join(newId) : t; });
+  delete files[donePath];
+  const forged = JSON.parse(JSON.stringify(done)); forged.id = newId; forged.evidence = e2; forged.application.effect.evidence = e2; forged.application.fingerprint = T.fingerprint(forged.application.effect);
+  files['proposals/' + newId + '.json'] = JSON.stringify(forged, null, 2) + '\n';
+  const p1 = JSON.parse(W.files['proposals/' + done.evidence.plan + '.json']);
+  files['proposals/' + later + '.json'] = JSON.stringify(Object.assign({}, p1, { id: later }), null, 2) + '\n';
+  const F = rereceipt(Object.assign({}, W, { files }), (ev) => ev);
+  assert.ok(T.cleanFile(JSON.parse(F['proposals/' + newId + '.json']), newId + '.json').ok, 'set-up: the forged done reads');
+  const { res, zip } = await pack(PF, new BytesFS(F), W.key);
+  assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => /another opening/.test(u)), 'the export names it: ' + res.status + ' ' + JSON.stringify(res.col.unresolved));
+  if (PY) { const c = checkPack(await repacked(PF, zip, (e, man) => forced(man))); assert.ok(!c.ok && /another opening/.test(c.out), 'Python refuses it: ' + c.out); }
+});
 run();

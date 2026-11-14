@@ -173,7 +173,8 @@ const EVP = ['---', 'process: release-notes', 'title: Release notes', 'owner: pe
   '## Draft · DO-CONFIRM {#draft}', '- [!] {confirm} Write the notes {#write}', ''].join('\n');
 const SMOKE = ['---', 'process: smoke-test', 'title: Smoke test', 'owner: person-avery', 'context: verdict:choice(pass|fail)', 'result: verdict', '---', '',
   '## Test · DO-CONFIRM {#test}', '- [!] {confirm} Run the smoke suite {#suite}', '- [!] {decide} Record the result {#call}', '  options: pass, fail', '  sets: verdict=decision', ''].join('\n');
-async function evidenceMade() {
+async function evidenceMade(o) {
+  o = o || {};
   const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true }); await app.tick(80); app.choose('person-avery'); await app.tick();
   const PF = app.PF, T = PF.todos, people = JSON.parse(app.fs.files['people.json'].t), at = () => new Date().toISOString();
   const refresh = async (ms) => { app.click('refresh'); await app.tick(ms || 250); };
@@ -212,13 +213,24 @@ async function evidenceMade() {
   await toParent(); await refresh(300);
   app.click('td-evidence', x.id, { run: c.id }); await app.tick(250);
   await refresh(400); await refresh(300);
+  /* o.reopen: the to-do reopened by the recorder after its done landed (XA): the receipt then names no evidence. */
+  let reopenId = '';
+  if (o.reopen) {
+    d = await PF.repo.loadAll(app.fs, {});
+    const R2 = T.prepare(PF.run.sanitize(parent()), { body: { op: 'reopen', todo: x.id, reason: 'Run it again' }, by: { person: 'person-avery' }, key: 'ui-wa-reopen', records: d.todos, unread: d.todosUnread, people, at: at(), app: '4.0.0' });
+    assert.ok(!R2.why, R2.why);
+    app.fs.files['proposals/' + R2.name] = { t: T.text(R2.file), m: Date.now() };
+    await refresh(400); await refresh(300);
+    assert.strictEqual(parent().living.head, R2.file.id, 'set-up: the reopen landed');
+    reopenId = R2.file.id;
+  }
   app.click('end', 'Cancelled'); await app.tick(300);
   const r = parent();
   assert.ok(r.ended && r.living && r.living.receipt, 'set-up: the run ended with a receipt');
   const rc = JSON.parse(app.fs.files['proposals/' + r.living.receipt + '.json'].t);
-  assert.ok((rc.evidence || []).some(e => e.run && e.run.id === c.id), 'set-up: the receipt names the run: ' + JSON.stringify(rc.evidence));
+  assert.ok(o.reopen ? !(rc.evidence || []).length : (rc.evidence || []).some(e => e.run && e.run.id === c.id), 'set-up: the receipt\'s evidence: ' + JSON.stringify(rc.evidence));
   const files = {}; Object.keys(app.fs.files).forEach(p => { files[p] = app.fs.files[p].t; });
-  return { PF, files, key: r.process + '/' + r.id, run: r, runPath: pPath, evPath: kPath, evKey: c.process + '/' + c.id, todo: x.id };
+  return { PF, files, key: r.process + '/' + r.id, run: r, runPath: pPath, evPath: kPath, evKey: c.process + '/' + c.id, todo: x.id, reopenId };
 }
 /* The run's receipt made again as Flightdeck writes one, its evidence edited (edit gets the list and returns the new one): a
    valid receipt under the id its content gives, run.json naming it. Returns the files. */
