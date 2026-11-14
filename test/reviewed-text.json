@@ -25,12 +25,12 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "f0094131ece8cf703c8f810eed5e4e0c2f702fe9a88413238d10afd8d18a2ad9",
-      "reviewed": "XA: a done on a run's evidence is judged in the opening it landed in, the to-do snapshotted when queued; checked for direct writes and unconditional deletes"
+      "sha256": "de85a7600454ad230fb29a77b186fe979a374a64ed61af2bd9a7a868798e90ba",
+      "reviewed": "XB: the export and check_pack.py replay the chain by the app's rules before binding the receipt; check_folder.py's effect_of hoisted, no change in what it checks; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
-      "sha256": "5fe7544a9a3ef16d916279882abf710d59e58115f6df415ec937ab243886e77a",
-      "reviewed": "XA: a done on a run's evidence is judged in the opening it landed in, the to-do snapshotted when queued; checked for direct writes and unconditional deletes"
+      "sha256": "f1888f293ac4248d13cd445508f25d6dac78756b938ce890dc33ad9e11e5b313",
+      "reviewed": "XB: the export and check_pack.py replay the chain by the app's rules before binding the receipt; check_folder.py's effect_of hoisted, no change in what it checks; checked for direct writes and unconditional deletes"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
@@ -53,8 +53,8 @@
       "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "80b726f91a373c7f15a967f817d493baf29a486c59f393cd23202c2a99033274",
-      "reviewed": "SB: inclusion decisions read as cleanDecision reads them, only the group's current one; checked for direct writes and unconditional deletes"
+      "sha256": "33d6f5d91257bea93fca97fbf150bdb60cdcab9c4af24627a29ebbcc0297bd06",
+      "reviewed": "XB: the export and check_pack.py replay the chain by the app's rules before binding the receipt; check_folder.py's effect_of hoisted, no change in what it checks; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
       "sha256": "197779e5fb047d6137527db0211659a2db320470f3086d61b5126d6e868b0cf8",
@@ -201,8 +201,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "7b396af91fb2136cc8cd8e673fb5708a7cc9cae940bd0c09e549e96f95935192",
-      "reviewed": "SB: inclusion decisions read as cleanDecision reads them, only the group's current one; checked for direct writes and unconditional deletes"
+      "sha256": "ae4f18d26db26795482003c2cfab04ae28b751e368c4f3d9e81768144eea238d",
+      "reviewed": "XB: the export and check_pack.py replay the chain by the app's rules before binding the receipt; check_folder.py's effect_of hoisted, no change in what it checks; checked for direct writes and unconditional deletes"
     },
     "src/core/appjson.js": {
       "sha256": "98019ea60f70df332d6774d2ac26d0bbd028e95f1f76f543cbe54c89cb8cd4fe",
@@ -313,8 +313,8 @@
       "reviewed": "loops: items: item kind, feed binding, completeness fix, nouns, unknown-kind refusal in loop.js/map.js/publish.js/types.js and check_folder.py parity; pure checks only, checked for direct writes and unconditional deletes"
     },
     "src/core/receipts.js": {
-      "sha256": "803aa75d88d576dc86396872b9143323805b2dff8a0e40ca2fea6d39aa97c7d7",
-      "reviewed": "WC: every to-do the replay leaves checked off on evidence must have its receipt entry; checked for direct writes and unconditional deletes"
+      "sha256": "8dbd16bfe481fe3ff61d607e00d4e43b5661a7a0d9032e92b3fc46bc82a7f76f",
+      "reviewed": "XB: the export and check_pack.py replay the chain by the app's rules before binding the receipt; check_folder.py's effect_of hoisted, no change in what it checks; checked for direct writes and unconditional deletes"
     },
     "src/core/refs.js": {
       "sha256": "24b7d2b52fcd99673fcc427db286a7224af83342da19efcd561ac850d6baa441",

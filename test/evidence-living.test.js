@@ -2379,4 +2379,25 @@ rule('A done on a run\'s evidence is held to the opening it landed in, even afte
   assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => /another opening/.test(u)), 'the export names it: ' + res.status + ' ' + JSON.stringify(res.col.unresolved));
   if (PY) { const c = checkPack(await repacked(PF, zip, (e, man) => forced(man))); assert.ok(!c.ok && /another opening/.test(c.out), 'Python refuses it: ' + c.out); }
 });
+/* XB: the receipt is bound only to work the app can replay. The done's application made to rest on a clone of its fact (the
+   same item and content, another id), its fingerprint made to match but its request left as it was, with the receipt made
+   again to name the clone: the app's replay breaks there ("its effect isn't what ... asks for"), so the export is partial,
+   naming it, and Python refuses a complete claim. The ended outcome is unchanged. */
+rule('Work the app can\'t replay (an application whose effect isn\'t what its request asks for) leaves the pack partial, named', async () => {
+  const W = await factMade(), PF = W.PF, T = PF.todos, F = PF.facts, f = JSON.parse(W.files[W.factPath]);
+  const cloneId = F.idFor('git-bot', 'prs-clone'), clone = Object.assign({}, f, { id: cloneId, key: 'prs-clone' });
+  const appPath = Object.keys(W.files).find((p) => { if (!/^proposals\/.*\.status-/.test(p)) return false; const o = JSON.parse(W.files[p]); return o.kind === 'application' && o.effect && o.effect.op === 'done' && o.effect.support; });
+  assert.ok(appPath, 'set-up: the done\'s application');
+  const a = JSON.parse(W.files[appPath]); a.effect.support.fact = cloneId; a.fingerprint = T.fingerprint(a.effect);
+  const files = Object.assign(rereceipt(W, (ev) => ev.map((e) => Object.assign({}, e, { fact: cloneId }))), { [appPath]: JSON.stringify(a, null, 2) + '\n', ['proposals/' + cloneId + '.json']: JSON.stringify(clone, null, 2) + '\n' });
+  const name = appPath.slice('proposals/'.length);
+  assert.ok(T.cleanFile(JSON.parse(files[appPath]), name).ok, 'set-up: the application reads on its own');
+  const got = await PF.repo.readTodos(new BytesFS(files)), r = PF.run.sanitize(JSON.parse(files[W.runPath]));
+  const V = T.view(r, { records: T.recordsFor(got.records, r) });
+  assert.ok(V.broken && /isn't what/.test(V.broken.why), 'set-up: the app\'s replay breaks there: ' + JSON.stringify(V.broken));
+  const { res, zip } = await pack(PF, new BytesFS(files), W.key);
+  assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => /isn't what/.test(u)), 'the export names it: ' + res.status + ' ' + JSON.stringify(res.col.unresolved));
+  assert.strictEqual(manifestOf(zip).runs[0].living.receipt.state, 'confirmed', 'the receipt stays confirmed');
+  if (PY) { const c = checkPack(await repacked(PF, zip, (e, man) => forced(man))); assert.ok(!c.ok && /isn't what/.test(c.out), 'Python refuses it: ' + c.out); }
+});
 run();

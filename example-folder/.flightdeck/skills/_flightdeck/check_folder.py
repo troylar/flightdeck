@@ -2017,6 +2017,42 @@ def _spread_child_id(spread, uid, attempt, run):
     return "req-spread-" + _thash(["spread", spread, uid, attempt, run["process"], run["id"]], 24)
 
 
+def todo_effect_of(p):
+    """PF.todos.effectOf: what a checked request asks for, as its application must carry it (shared with check_pack.py)."""
+    if p["op"] in TODO_SOPS:
+        e = {"op": p["op"], "spread": p.get("spread")}
+        if p["op"] == "spread-add":
+            e["loopStep"], e["text"], e["child"], e["scope"] = p.get("loopStep"), p.get("text"), p.get("child"), p.get("scope")
+            if p.get("owner"):
+                e["owner"] = p["owner"]
+        if p.get("item"):
+            e["item"] = p["item"]
+        if p.get("dest"):
+            e["dest"] = p["dest"]
+        if p["op"] == "spread-stop":
+            e["owed"] = p.get("owed")
+        if p.get("reason"):
+            e["reason"] = p["reason"]
+        return e
+    e = {"op": p["op"], "todo": p.get("todo")}
+    if p["op"] == "add":
+        e["text"] = p.get("text")
+        e["target"] = p.get("target")
+        e["placement"] = p.get("placement")
+        for k in ("owner", "reason", "origin", "fulfills", "checklist"):
+            if p.get(k):
+                e[k] = p[k]
+    if p["op"] == "wont" or (p["op"] in ("reopen", "done", "move") and p.get("reason")):
+        e["reason"] = p.get("reason")
+    if p["op"] == "move":
+        e["to"] = p.get("to")
+    if p["op"] == "done" and p.get("support"):
+        e["support"] = p["support"]
+    if p["op"] == "done" and p.get("evidence"):
+        e["evidence"] = p["evidence"]
+    return e
+
+
 def _todo_td(proposal):
     import hashlib
     return "td-" + hashlib.sha256(js_json(["td", proposal]).encode("utf-8")).hexdigest()[:24]
@@ -2933,40 +2969,6 @@ def todo_why(o, name, nbytes=None, unchecked=None):
                 out["evidence"] = detour_clean_evidence(e["evidence"], err)
         return out
 
-    def effect_of(p):
-        if p["op"] in TODO_SOPS:
-            e = {"op": p["op"], "spread": p.get("spread")}
-            if p["op"] == "spread-add":
-                e["loopStep"], e["text"], e["child"], e["scope"] = p.get("loopStep"), p.get("text"), p.get("child"), p.get("scope")
-                if p.get("owner"):
-                    e["owner"] = p["owner"]
-            if p.get("item"):
-                e["item"] = p["item"]
-            if p.get("dest"):
-                e["dest"] = p["dest"]
-            if p["op"] == "spread-stop":
-                e["owed"] = p.get("owed")
-            if p.get("reason"):
-                e["reason"] = p["reason"]
-            return e
-        e = {"op": p["op"], "todo": p.get("todo")}
-        if p["op"] == "add":
-            e["text"] = p.get("text")
-            e["target"] = p.get("target")
-            e["placement"] = p.get("placement")
-            for k in ("owner", "reason", "origin", "fulfills", "checklist"):
-                if p.get(k):
-                    e[k] = p[k]
-        if p["op"] == "wont" or (p["op"] in ("reopen", "done", "move") and p.get("reason")):
-            e["reason"] = p.get("reason")
-        if p["op"] == "move":
-            e["to"] = p.get("to")
-        if p["op"] == "done" and p.get("support"):
-            e["support"] = p["support"]
-        if p["op"] == "done" and p.get("evidence"):
-            e["evidence"] = p["evidence"]
-        return e
-
     def clean_authority(a):
         if isinstance(a, dict) and len(a) == 1:
             k = list(a)[0]
@@ -3176,7 +3178,7 @@ def todo_why(o, name, nbytes=None, unchecked=None):
                 n_ok = not errors
                 if not _tstr(a.get("fingerprint")) or not T_FP.match(a["fingerprint"]) or (eff and n_ok and a["fingerprint"] != _tsha(eff)):
                     err("application fingerprint")
-                if b and eff and not errors and _tsha({k: v for k, v in effect_of(b).items() if v is not None}) != _tsha(eff):
+                if b and eff and not errors and _tsha({k: v for k, v in todo_effect_of(b).items() if v is not None}) != _tsha(eff):
                     err("application effect isn't what the compound asks for")
     elif kind == "grant":
         only(o, T_COMMON + ["subject", "ops", "targets", "limits"], "It")

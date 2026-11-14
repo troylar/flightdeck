@@ -445,6 +445,10 @@ PF.receipts = (function () {
       else for (var ri = 0; ri < runs.length; ri++) if (keyOf(runs[ri]) === k) { runs[ri].chain = ch.slice(); runs[ri].head = X.living ? X.living.head : ''; if (X.living && X.living.receipt) runs[ri].receipt = X.living.receipt; }
       /* A done that landed on a fact's evidence is held to that fact as packed (VB): the content, source and domain the done
          named, and the run, item and attempt of the to-do it checks off, in the opening it was suggested for. */
+      /* The chain as the app replays it (XB, PF.todos.view: each application's effect what its request asks for, seen in order,
+         and every step one the to-do's state allows): work the app can't replay is named, and the pack is partial. */
+      var TV = X.living ? PF.todos.view(X, { records: mine, unread: (o.unread || []).filter(function (u) { return u && (!u.run || (u.run.process === X.process && u.run.id === X.id)); }) }) : null;
+      if (TV && TV.broken) missing.push(on + 'proposals/' + TV.broken.record + '.json: ' + TV.broken.why);
       /* Each to-do as the chain leaves it (WA): its opening, state and the evidence it was checked off on. */
       var opened = Object.create(null);
       ch.forEach(function (id) {

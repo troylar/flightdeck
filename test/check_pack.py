@@ -513,6 +513,43 @@ def answer_of(run):
     return CF.js_String(ra) + " " + (CF.js_String(ea) if js_truthy(ea) else "")
 
 
+def has_pair(lst, p):
+    """PF.todos.hasPair: an item's uid and attempt in a list."""
+    p = obj(p)
+    return any(obj(y).get("uid") == p.get("uid") and obj(y).get("attempt") == p.get("attempt") for y in arr(lst))
+
+
+def spread_why(spreads, e):
+    """PF.todos.spreadReplayWhy: why a spread effect doesn't fit the spreads as they stand, or ''."""
+    sp, op = e.get("spread"), e.get("op")
+    s = spreads.get(sp)
+    if op == "spread-add":
+        return ("it adds spread " + str(sp) + " again") if s else ("it would add more than 50 spreads" if len(spreads) >= 50 else "")
+    if s is None:
+        return "it changes spread " + str(sp) + ", which was never added"
+    if op == "spread-stop":
+        return ("spread " + str(sp) + " is already stopped") if s["state"] == "stopped" else ""
+    if op == "spread-include":
+        if s["state"] == "stopped":
+            return "spread " + str(sp) + " is stopped"
+        if not has_pair(obj(s["scope"]).get("cleared"), e.get("item")):
+            return "it includes " + str(obj(e.get("item")).get("uid")) + ", which wasn't cleared when the spread was added"
+        if has_pair(s["included"], e.get("item")):
+            return str(obj(e.get("item")).get("uid")) + " is already included"
+    return ""
+
+
+def spread_apply(spreads, e):
+    """PF.todos.spreadReplay, as far as spread_why reads it."""
+    op = e.get("op")
+    if op == "spread-add":
+        spreads[e.get("spread")] = {"state": "active", "scope": e.get("scope"), "included": []}
+    elif op == "spread-include":
+        spreads[e["spread"]]["included"].append({"uid": obj(e.get("item")).get("uid"), "attempt": obj(e.get("item")).get("attempt")})
+    elif op == "spread-stop":
+        spreads[e["spread"]]["state"] = "stopped"
+
+
 def item_of(run, x):
     """PF.facts.itemOfTodo: the loop item a to-do (as its add landed) is about, on the run that has the loop; else None."""
     if x is None:
@@ -1003,11 +1040,70 @@ def check_living(z, man):
         closed, want, asked = whole, [], set()
         # A done that landed on a fact's evidence is held to that fact as packed (PF.receipts.deps, VB): the content, source
         # and domain the done named, and the run, item and attempt of the to-do it checks off, in the opening it was suggested for.
+        # It is the app's replay (PF.todos reduce, XB), the one replay here: each landed effect, in chain order, checked
+        # against its request and the work as it stood, before anything is taken from it. One that doesn't fit breaks the chain:
+        # named, and nothing after it is replayed.
         opened: dict = {}
+        mine = {}
+        for path in sorted(reached):
+            # By the record each name stands for (a status record's id is its name, as the app reads it).
+            o, rid = (packed(path), record_name(path)) if path.startswith("proposals/") else (None, "")
+            if rid and isinstance(o, dict) and o.get("run") == me and o.get("kind") not in ("fact", "keep", "receipt"):
+                mine.setdefault(rid, o)
+
+        def ancestors(rid):
+            out, stack = set(), list(arr(obj(mine.get(rid)).get("seen")))
+            while stack:
+                y = stack.pop()
+                if isinstance(y, str) and y not in out and y in mine:
+                    out.add(y)
+                    stack.extend(arr(mine[y].get("seen")))
+            return out
+
+        landed, spreads, added = set(), {}, 0
         for at in chain if whole else []:
             rec = wit(at)
-            e = obj(obj(rec.get("application") if rec.get("kind") == "compound" else rec).get("effect"))
-            td = e.get("todo")
+            comp = rec.get("kind") == "compound"
+            ap = obj(rec.get("application")) if comp else rec
+            e = obj(ap.get("effect"))
+            pid = at if comp else rec.get("proposal")
+            p = mine.get(pid) if isinstance(pid, str) else None
+            td, op = e.get("todo"), e.get("op")
+            x0 = opened.get(td) if isinstance(td, str) else None
+            st = x0["state"] if x0 else None
+            if p is None or p.get("kind") not in ("proposal", "compound"):
+                why = "its request " + str(pid) + " isn't here"
+            else:
+                b = dict(p)
+                if b.get("op") == "add":
+                    b["todo"] = CF._todo_td(p["id"])
+                if CF._tsha({k: v for k, v in CF.todo_effect_of(b).items() if v is not None}) != ap.get("fingerprint"):
+                    why = "its effect isn't what " + pid + " asks for"
+                elif not comp and pid not in ancestors(at):
+                    why = "it didn't see its request"
+                elif ap.get("previous") and not comp and ap.get("previous") not in ancestors(at):
+                    why = "it didn't see the application before it"
+                elif pid in landed:
+                    why = pid + " was applied twice"
+                elif op in CF.TODO_SOPS:
+                    why = spread_why(spreads, e)
+                elif op == "add":
+                    why = ("it adds " + str(td) + " again") if x0 else ("it would add more than 500 to-dos" if added >= 500 else "")
+                elif x0 is None:
+                    why = "it changes " + str(td) + ", which was never added"
+                elif op == "reopen":
+                    why = (td + " is already open") if st == "open" else ""
+                else:
+                    why = (td + " is already " + {"done": "done", "wont": "won't do", "moved": "moved"}.get(st, str(st))) if st != "open" else ""
+            if why:
+                work_problems.append("proposals/" + at + ".json: The application " + at + " can't be applied: " + why + ".")
+                break
+            landed.add(pid)
+            if op in CF.TODO_SOPS:
+                spread_apply(spreads, e)
+                continue
+            if op == "add":
+                added += 1
             if not isinstance(td, str):
                 continue
             op, sup, evd = e.get("op"), e.get("support"), e.get("evidence")
@@ -1026,7 +1122,7 @@ def check_living(z, man):
             if op == "reopen":
                 x.update({"inc": at, "state": "open", "support": None, "evidence": None})
                 continue
-            x["state"] = op
+            x["state"] = "moved" if op == "move" else op
             if op != "done":
                 continue
             x["support"], x["evidence"] = sup, evd
