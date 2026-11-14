@@ -25,8 +25,8 @@
       "reviewed": "VE: a run whose own checklist this copy can't run is named unusable at its run.json in the shared run verdict; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "b716a988430b16dd98fc94fa9201690f829f344dbe491e5dea12f22f892d65c7",
-      "reviewed": "WE: Run this checklist makes the plan again with the same attribution and time and compares it whole, pin included, never by id alone; checked for direct writes and unconditional deletes"
+      "sha256": "341bf05e162261f27fcc3114cfb0d3c2a80f630d3f405a6ecd6c0ce558090781",
+      "reviewed": "WC: planGate refuses an entry named for the plan that isn't a plain file, named by its path, before the listing is filtered; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -417,8 +417,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "50b9af7c24a794de0d829bb2a8bb0bcc876e98a35cd0d481d3812fb182a49973",
-      "reviewed": "VA: an unsure start reservation keeps Try again, which confirms it first and makes it again only when confirmed absent, past the plan's final check and the starter's authority; checked for direct writes and unconditional deletes"
+      "sha256": "1a379946e6b8809c464a267ef18ff75e2710c2760fa1779047d3e634cb79725c",
+      "reviewed": "WC: planGate refuses an entry named for the plan that isn't a plain file, named by its path, before the listing is filtered; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "b55f12a945d86dc60d8760a60fc98e237eee5f8c28d9a027b8b6c6c808a3e746",

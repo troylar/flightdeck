@@ -830,4 +830,34 @@ rule('Run this checklist writes no plan when its to-do now pins another version 
   assert.ok(!made.some(p => p.pin && p.pin.folder === kp.folder), 'no plan on the old pin: ' + app.live());
 });
 
+/* WC: a linked file named for the plan (a decision or a copy) is never read through and never left out: plan creation,
+   Start and Decline each write nothing beside one, and say its path. */
+rule('A detour plan creation, Start or Decline writes nothing beside a linked file named for its plan', async () => {
+  const decided = (app) => app.files('proposals/plan-ev-').filter(p => /\.status-.*-d\.json$/.test(p));
+  for (const act of ['create', 'start', 'decline'].filter((h) => !process.env.WC_CASE || process.env.WC_CASE.split(',').indexOf(h) >= 0)) {
+    const { app, todo } = await setup(['pass']), fs = app.fs, list = fs.list.bind(fs), read = fs.read.bind(fs);
+    let id = null;
+    const linked = () => { fs.list = (d, ...a) => list(d, ...a).then((x) => d === 'proposals' && id ? x.concat([{ name: id + '.status-other-d.json', kind: 'link' }]) : x); };
+    if (act === 'create') {
+      fs.read = (p, ...a) => { const m = /^proposals\/(plan-ev-[0-9a-f]{24})\.json$/.exec(p); if (m && !id) id = m[1]; return read(p, ...a); };
+      linked();
+      app.click('td-detour', todo); await app.tick(400);
+      fs.read = read; fs.list = list;
+      assert.ok(id, 'create: set-up: its name was read');
+      assert.deepStrictEqual(plans(app), [], 'create: no plan written beside a linked decision');
+      continue;
+    }
+    app.click('td-detour', todo); await app.tick(250);
+    const before = kidPaths(app).length;
+    id = plans(app)[0].slice('proposals/'.length, -'.json'.length);
+    linked();
+    if (act === 'start') app.chooseApprovers().submitForm('start-form');
+    else { const did = (/data-act="decline-plan"[^>]*data-id="([^"]+)"/.exec(app.html()) || /data-id="([^"]+)"[^>]*data-act="decline-plan"/.exec(app.html()))[1]; app.click('decline-plan', did); }
+    await app.tick(400); fs.list = list;
+    assert.strictEqual(kidPaths(app).length, before, act + ': no run saved');
+    assert.deepStrictEqual(decided(app), [], act + ': no decision written');
+    assert.ok(/status-other-d\.json/.test(app.live() + ' ' + txt(app.html())), act + ': the linked file is named: ' + app.live());
+  }
+});
+
 run();

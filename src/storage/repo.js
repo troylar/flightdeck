@@ -2181,6 +2181,10 @@ PF.repo = (function () {
     var id = plan.id, said = ' Nothing was written.';
     var mine = function (n) { if (n.indexOf(id) !== 0) return false; var c = n.charAt(id.length); return c === '.' || c === ' ' || c === '-' || c === '('; };
     return fs.list('proposals').then(null, function (e) { throw new Error('proposals/ couldn\'t be read (' + why(e) + '), so it isn\'t known whether this plan was already decided.' + said); }).then(function (items) {
+      /* WC: an entry named for this plan that isn't a plain file (a link, never read through, or anything else) could be a
+         decision or a copy of it: it refuses, named by its path, before the listing is filtered, never left out. */
+      var odd = items.filter(function (i) { return i && i.kind !== 'file' && mine(String(i.name)); }).map(function (i) { return 'proposals/' + i.name; });
+      if (odd.length) throw new Error(odd.slice(0, 3).join(', ') + (odd.length > 3 ? ' and ' + (odd.length - 3) + ' more' : '') + (odd.length > 1 ? ' aren\'t plain files' : ' isn\'t a plain file') + ' (Flightdeck never reads through links), so it isn\'t known whether this plan was already decided.' + said);
       var names = items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) { return i.name; });
       return Promise.all(names.map(function (n) {
         var path = 'proposals/' + n;
