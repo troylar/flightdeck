@@ -3145,18 +3145,21 @@ PF.repo = (function () {
         }).then(function (got) { return acc.concat(got); });
       }); }, Promise.resolve([]));
       /* Other runs and the versions are read only to work out where corrections stand: sizes first, within one budget. */
+      /* What the process folder holds is named before anything is filtered (4.0, OB, QB): a listing that fails, a run folder
+         or notes file that is a link, and a run folder that gives no run.json are each a run that can't be read. */
+      var listFails = [];
       var runMetas = ro.list('runs/' + proc).then(function (items) {
+        items.forEach(function (i) { if (i.kind === 'link') listFails.push({ key: proc + '/' + i.name, why: 'runs/' + proc + '/' + i.name + ' (link)' }); });
         return limited(items.filter(function (i) { return i.kind === 'dir'; }).map(function (i) { return i.name; }).sort(), 8, function (id) {
-          var base = 'runs/' + proc + '/' + id + '/';
+          var base = 'runs/' + proc + '/' + id + '/', key = proc + '/' + id;
           return ro.list(base.slice(0, -1)).then(function (files) {
             var has = files.some(function (i) { return i.name === 'run.json' && i.kind === 'file'; });
+            var links = files.filter(function (i) { return i.kind === 'link' && (i.name === 'run.json' || /^notes-[\w-]+\.jsonl$/.test(i.name)); }).map(function (i) { return base + i.name + ' (link)'; });
             var want = has ? ['run.json'].concat(files.filter(function (i) { return i.kind === 'file' && /^notes-[\w-]+\.jsonl$/.test(i.name); }).map(function (i) { return i.name; }).sort()) : [];
-            /* A run the process folder listed whose own folder gives no run.json (gone, or a link Flightdeck never reads
-               through) is vanished, named before anything is filtered (4.0, OB). */
-            return Promise.all(want.map(function (n) { return statOf(base + n); })).then(function (sizes) { return { key: proc + '/' + id, base: base, want: want, sizes: sizes, noRun: !has }; });
-          });
+            return Promise.all(want.map(function (n) { return statOf(base + n); })).then(function (sizes) { return { key: key, base: base, want: want, sizes: sizes, noRun: !has, links: links }; });
+          }, function () { return { key: key, base: base, want: [], sizes: [], listFailed: true, links: [] }; });
         });
-      });
+      }, function () { listFails.push({ key: '', why: 'runs/' + proc + ' (unreadable)' }); return []; });
       var pubMetas = ro.list('publications/' + proc).then(function (items) {
         return limited(items.filter(function (i) { return i.kind === 'dir' && P.versionOf(i.name); }).map(function (i) { return i.name; }).sort(), 8, function (folder) {
           var b = 'publications/' + proc + '/' + folder + '/', want = ['map.md', 'types.json', 'publication.json'];
@@ -3170,7 +3173,14 @@ PF.repo = (function () {
         /* Every other run's file that was listed but gone when sized, or couldn't be read, is named by its path and kind: where
            corrections stand can't be worked out without it (4.0, NC). A run in the pack answers for its own files. */
         var fails = [], budget = { left: CTX_MAX };
-        r[1].forEach(function (m) { if (selected[m.key]) return; if (m.noRun) fails.push(m.base + 'run.json (vanished)'); m.want.forEach(function (n, i) { if (m.sizes[i] == null) fails.push(m.base + n + ' (vanished)'); }); });
+        listFails.forEach(function (f) { if (!selected[f.key]) fails.push(f.why); });
+        r[1].forEach(function (m) {
+          if (selected[m.key]) return;
+          if (m.listFailed) { fails.push(m.base.slice(0, -1) + ' (unreadable)'); return; }
+          m.links.forEach(function (x) { fails.push(x); });
+          if (m.noRun && !m.links.some(function (x) { return x.indexOf(m.base + 'run.json') === 0; })) fails.push(m.base + 'run.json (vanished)');
+          m.want.forEach(function (n, i) { if (m.sizes[i] == null) fails.push(m.base + n + ' (vanished)'); });
+        });
         var runs = limited(r[1].filter(function (m) { return m.want.length; }), 8, function (m) {
           /* A run in the pack is read from its snapshot; any other only as text. */
           var read = function (n, i) {
@@ -3182,8 +3192,12 @@ PF.repo = (function () {
             });
           };
           return Promise.all(m.want.map(read)).then(function (t) {
-            /* Only a run in its own folder: a copy of one elsewhere would add its corrections again. */
-            if (t[0] == null || !R.sanitize(json(t[0])) || elsewhere(json(t[0]), proc, m.key.split('/')[1])) return null;
+            /* A run.json read that won't parse or isn't a run is named (QB). Only a run in its own folder counts: a copy of
+               one elsewhere would add its corrections again. */
+            if (t[0] == null) return null;
+            var o = json(t[0]);
+            if (!o || !R.sanitize(o)) { if (!selected[m.key]) fails.push(m.base + 'run.json (malformed)'); return null; }
+            if (elsewhere(o, proc, m.key.split('/')[1])) return null;
             return build({ text: t[0], base: m.base, notes: t.slice(1), conflicts: [], fileHash: fileHash(t[0]), notesSig: '', unrunnable: '' }, null);
           });
         });

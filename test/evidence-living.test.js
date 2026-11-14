@@ -1806,6 +1806,37 @@ rule('Python checks every dependency called confirmed in full, even in a partial
   }
   assert.deepStrictEqual(misses, []);
 });
+/* QB: what the keep's process holds is named before anything is filtered: another run's folder or notes listed as a link, a
+   listing that fails, and a run.json that won't parse or isn't a run each leave the keep unconfirmed and the pack partial,
+   named by path, and Python refuses a complete claim. */
+rule('A keep whose process holds a link, a listing that fails or a run.json that isn\'t a run leaves the pack partial, named', async () => {
+  const W = await made({ todos: 1, keep: 'placed' }), proc = W.key.split('/')[0];
+  const other = 'runs/' + proc + '/ctxrun0001/', files = Object.assign({}, W.files, { [other + 'run.json']: otherRoot(W, 'ctxrun0001'), [other + 'notes-w1.jsonl']: '' });
+  const ctl = await pack(W.PF, new BytesFS(files), W.key);
+  assert.strictEqual(ctl.res.status, 'complete', 'the control: ' + JSON.stringify(ctl.res.col.unresolved));
+  const asLink = (dir, name) => (fsx) => { const list = fsx.list.bind(fsx); fsx.list = (p) => list(p).then((items) => p === dir ? items.map((i) => i.name === name ? Object.assign({}, i, { kind: 'link' }) : i) : items); };
+  const failing = (dir, after) => (fsx) => { const list = fsx.list.bind(fsx); let n = 0; fsx.list = (p) => p === dir && n++ >= after ? Promise.reject(new Error('EIO: i/o error')) : list(p); };
+  const cases = [
+    ['the run folder listed as a link', files, asLink('runs/' + proc, 'ctxrun0001'), other.slice(0, -1)],
+    ['the notes listed as a link', files, asLink(other.slice(0, -1), 'notes-w1.jsonl'), other + 'notes-w1.jsonl'],
+    ['the run folder\'s listing fails', files, failing(other.slice(0, -1), 0), other.slice(0, -1)],
+    ['the process folder\'s listing fails after the run is found', files, failing('runs/' + proc, 1), 'runs/' + proc],
+    ['run.json is "{"', Object.assign({}, files, { [other + 'run.json']: '{' }), null, other + 'run.json'],
+    ['run.json is {}', Object.assign({}, files, { [other + 'run.json']: '{}' }), null, other + 'run.json']
+  ];
+  const misses = [];
+  for (const [what, fl, hook, at] of cases) {
+    const fsx = new BytesFS(fl); if (hook) hook(fsx);
+    let got;
+    try { got = await pack(W.PF, fsx, W.key); } catch (e) { misses.push(what + ': the export failed: ' + e.message); continue; }
+    const { res, zip } = got;
+    if (!(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(at) >= 0))) { misses.push(what + ': ' + res.status + ' ' + JSON.stringify(res.col.unresolved)); continue; }
+    const mr = manifestOf(zip).runs[0], cl = mr.claims.filter((c) => c.correction === W.keepId)[0];
+    if (!(cl && !cl.verified && mr.living && !mr.living.complete)) misses.push(what + ': the keep is confirmed ' + JSON.stringify(mr.claims));
+    if (PY && checkPack(await repacked(W.PF, zip, (e, man) => forced(man))).ok) misses.push(what + ': Python accepts a complete claim');
+  }
+  assert.deepStrictEqual(misses, []);
+});
 /* ND: each run the work depends on is named as the export names it: exactly its key, role, head, chain, receipt and
    confirmed, typed; the receipt it names is the packed run's own (none when it has none); and a complete pack confirms
    every one. In every role. */

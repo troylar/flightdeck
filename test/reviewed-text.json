@@ -29,8 +29,8 @@
       "reviewed": "QA: every fact edge checked before skipping a walked fact; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
-      "sha256": "c41dcc15ee7ca2125c29ed245680b375f51359b3a05dbf1baab744c2de5c14be",
-      "reviewed": "OD: check_pack.py checks confirmed deps in full, named runs equal found, roles from references; checked for direct writes and unconditional deletes"
+      "sha256": "ec8fd4981a87204ef4d5777bb135a3995edbf1c24818c6811d722c328746071c",
+      "reviewed": "QB: context links, failed listings and malformed run.json named before filtering; checked for direct writes and unconditional deletes"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
@@ -425,8 +425,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "b0f60e7fac6b99f7556f61644e101c09a4418565b90b03c50feb3b0dfae9163d",
-      "reviewed": "OC: context files read in bounded slices against the file limit and the context budget; checked for direct writes and unconditional deletes"
+      "sha256": "81433b9f34a9a52f7ca1758a58ed7f1417b5cacf0d4146344c4884eb9563431f",
+      "reviewed": "QB: context links, failed listings and malformed run.json named before filtering; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "dd6a2a70f212cb0512ef142198a2ff83bd5fef55429e56fab44cd64a83edaeb6",
