@@ -3825,7 +3825,7 @@
     if (keep && keep.sig === sig && keep.P && keep.P.id === P.id) P = keep.P;
     state.tdKey = { sig: sig, key: key, P: P, at: at };
     var cx = loopGuard({ run: r.process + '/' + r.id, readable: true }), text = PF.todos.text(P.file), endBusy = busyStart(), sg = gen;
-    var recheck = function (fs, phase, w) { return freshGuard(cx, fs, runKeysFor(r), function (d) { var P2 = prep(d); return !P2.why && P2.name === P.name && PF.todos.text(P2.file) === text; }, { w: w }); };
+    var recheck = function (fs, phase, w) { return freshGuard(cx, fs, covKeys(r), function (d) { var P2 = prep(d); return !P2.why && P2.name === P.name && PF.todos.text(P2.file) === text; }, { w: w }); };
     scopeSave(cx.fs, P.name, P.file, { still: function () { return guardOk(cx); }, recheck: recheck }).then(function (res) {
       endBusy(); if (sg !== gen) return;
       if (res && res.dropped) { say('Nothing was written: the folder, the person or the run changed before it was. Ask again if it still needs doing.', 'warn'); render(); return; }
@@ -3894,7 +3894,7 @@
     var cx = loopGuard({ run: r.process + '/' + r.id, readable: true }), endBusy = busyStart(), sg = gen, fk = fsKey(), gone = function () { return sg !== gen || fsKey() !== fk; };
     /* Round 17 (VB): right before the write, the fresh guard builds the record again from the runs, people and records read
        now; only exactly these bytes are written. */
-    var keys = runKeysFor(r), recheck = function (fs, phase, w) { return freshGuard(cx, fs, keys, function (d) { return tdSame(made, d); }, { w: w }); };
+    var keys = covKeys(r), recheck = function (fs, phase, w) { return freshGuard(cx, fs, keys, function (d) { return tdSame(made, d); }, { w: w }); };
     return scopeSave(cx.fs, made.name, made.file, { still: function () { return guardOk(cx); }, recheck: recheck }).then(function (res) {
       endBusy(); if (gone()) return false;
       if (res && res.dropped) { said('Nothing was written: the folder, the person, the run or what it decides changed before it was. Read the folder again.', 'warn'); render(); return false; }
@@ -3977,7 +3977,7 @@
       var cx = loopGuard({ run: r.process + '/' + r.id, readable: true }), endBusy = busyStart(), sg = gen;
       /* Round 17 (VB): before each item's write, the fresh guard: its run (and its parent) read again, people.json, and the
          records; still a plain addition there, and exactly this decision built again from what was read. */
-      var recheck = function (fs, phase, wr) { return freshGuard(cx, fs, runKeysFor(r), function (d) { if (!same()) return false; var w = plainNow(x, d); if (w) { late = w; return false; } return tdSame(made, d); }, { w: wr }); };
+      var recheck = function (fs, phase, wr) { return freshGuard(cx, fs, covKeys(r), function (d) { if (!same()) return false; var w = plainNow(x, d); if (w) { late = w; return false; } return tdSame(made, d); }, { w: wr }); };
       scopeSave(cx.fs, made.name, made.file, { still: function () { if (!(same() && guardOk(cx))) return false; late = plainNow(x); return !late; }, recheck: recheck }).then(function (res) {
         endBusy(); if (sg !== gen || !here()) return;
         if (res && res.dropped && late) { tdSettled(slot, mem); alone.push({ x: x, why: late }); step(i + 1); return; }
@@ -4111,7 +4111,7 @@
          revokes, people and records read now. */
       var want = JSON.stringify(plan.write || plan.settle || null);
       var recheck = function (fs, phase, w) {
-        return freshGuard(cx, fs, runKeysFor(r), function (d) {
+        return freshGuard(cx, fs, covKeys(r), function (d) {
           var V2 = PF.todos.view(r, { records: d.todos || [], unread: d.todosUnread || [], people: d.people }), q2 = V2 && V2.requests[q.id];
           var p2 = q2 ? PF.todos.applyPlan(r, V2, q2, spInputsOf(d)) : null;
           return !!p2 && !p2.landed && !p2.skip && !p2.adopt && JSON.stringify(p2.write || p2.settle || null) === want;
@@ -4139,7 +4139,7 @@
         if (!plan2.adopt) throw new Error('The to-do request changed while it was carried out.');
         var ae = (a.kind === 'compound' ? a.application : a).effect, x = ae.todo ? V2.byTodo[ae.todo] || null : null;
         R.todoLand(rr, m, a, { who: me, now: now, typesHash: types, app: APP_VERSION, todo: x, spread: ae.spread ? V2.bySpread[ae.spread] || null : null });
-      }, { background: true, redo: true, freshKeys: runKeysFor(r) });
+      }, { background: true, redo: true, freshKeys: covKeys(r) });
       return mutateRun(key, cx.g, ed.fn, ed.opts).then(function (ok) { return ok !== false; });
     });
   }

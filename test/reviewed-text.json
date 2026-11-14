@@ -25,8 +25,8 @@
       "reviewed": "round 17 VD: only add and bind can be delegated"
     },
     "docs/design.md": {
-      "sha256": "5e5d787a6233f1bdc931458ce0126eeb16b7d2347df17de40c9a945c82ab86f7",
-      "reviewed": "Round 20: write tokens bound to kind, path, destination state, run, revision and bytes, minted only by fresh guards; the write gate set once per storage copy; create guards check absence and people; the request outcome guarded; the example seed written directly. Checked for direct writes and unconditional deletes."
+      "sha256": "27212672c8c0d12fb321aebedf68fb583a9a433390dc8813a8304136763220f6",
+      "reviewed": "Round 20 (YE): to-do requests, decisions, applications and landings on a loop's parent read every story's run and its pinned version (covKeys). Checked for direct writes and unconditional deletes."
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -409,8 +409,8 @@
       "reviewed": "Round 20: write tokens bound to kind, path, destination state, run, revision and bytes, minted only by fresh guards; the write gate set once per storage copy; create guards check absence and people; the request outcome guarded; the example seed written directly. Checked for direct writes and unconditional deletes."
     },
     "src/ui/app.js": {
-      "sha256": "6270306763521dbb19ca023acdb22fae11f8c527b4647e321967cb186b6f1d2e",
-      "reviewed": "Round 20: write tokens bound to kind, path, destination state, run, revision and bytes, minted only by fresh guards; the write gate set once per storage copy; create guards check absence and people; the request outcome guarded; the example seed written directly. Checked for direct writes and unconditional deletes."
+      "sha256": "0c9755b8ec265fe7060c2841cb43d2f99ce9bc1a9c67efea6fa5daad7b9edfe7",
+      "reviewed": "Round 20 (YE): to-do requests, decisions, applications and landings on a loop's parent read every story's run and its pinned version (covKeys). Checked for direct writes and unconditional deletes."
     },
     "src/ui/examples.js": {
       "sha256": "7db943140369906843961189dc3f34c8ec9430164cca3cb0f3a9f5bdd6ab946f",
