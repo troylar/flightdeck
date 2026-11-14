@@ -393,4 +393,51 @@ rule('todo add --checklist and suggest-done --evidence-run hold on a source run 
   }
 });
 
+/* UB: the run a checklist request rests on is judged first, with the shared source verdict, whatever is wrong with it: held,
+   exit 4, by path and kind, never an early failure with no problems. Exit 5 is only for a run that isn't there at all. */
+const ckCalls = (F, L) => ({
+  'add-dry': ['todo', 'add', F.root, PR, '--key', 't-2', '--text', 'Smoke again', '--phase', 'ship', '--checklist', F.pin, '--dry-run', '--json', ...TOOL],
+  'add': ['todo', 'add', F.root, PR, '--key', 't-2', '--text', 'Smoke again', '--phase', 'ship', '--checklist', F.pin, '--json', ...TOOL],
+  'suggest-dry': ['todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--dry-run', '--json', ...TOOL],
+  'suggest': ['todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--json', ...TOOL]
+});
+const heldOut = (x, label) => {
+  assert.strictEqual(x.code, 4, label + ': holds, exit 4: ' + JSON.stringify([x.code, x.complete, x.data && x.data.status, x.error, x.problems]));
+  assert.ok((x.problems || []).some(q => q.path && q.kind), label + ': names a path and kind');
+  assert.ok(!x.data || x.data.status === 'held', label + ': held, never a preview: ' + (x.data && x.data.status));
+};
+rule('todo add --checklist and suggest-done --evidence-run hold, named, on a source run torn, newer, with an unknown field, missing its run.json or with a damaged snapshot', async () => {
+  const cases = { torn: (o) => null, newer: (o) => Object.assign(o, { format: 'preflight-run/99' }), unknown: (o) => Object.assign(o, { zzzLater: 1 }), missing: (o) => undefined, snapshot: (o) => Object.assign(o, { snapshot: '---\nprocess: [\n## {#' }) };
+  for (const how of Object.keys(cases).filter((h) => !process.env.UB_CASE || process.env.UB_CASE.split(',').indexOf(h) >= 0)) {
+    const F = await folder(), L = await linked(F, 'pass'); await started(F, L, 'k1', 'pass');
+    const f = runFile(F.root, PR), o = JSON.parse(fs.readFileSync(f, 'utf8')), v = cases[how](o);
+    if (how === 'torn') fs.writeFileSync(f, '{ "format": ');
+    else if (how === 'missing') { fs.unlinkSync(f); fs.writeFileSync(path.join(path.dirname(f), 'notes-w.jsonl'), ''); }
+    else fs.writeFileSync(f, JSON.stringify(v, null, 2));
+    if (how !== 'missing') { const rr = json('run', F.root, PR, '--json'); assert.ok(rr.code === 4 || rr.code === 1, how + ': set-up: run doesn\'t trust it: ' + rr.code); }
+    const before = ls(F.root), calls = ckCalls(F, L);
+    for (const k of Object.keys(calls)) heldOut(json(...calls[k]), how + ' ' + k);
+    assert.deepStrictEqual(ls(F.root), before, how + ': nothing filed');
+  }
+  const F = await folder(), L = await linked(F, 'pass');
+  const gone = json('todo', 'add', F.root, 'release-readiness/r-99', '--key', 't-3', '--text', 'x', '--phase', 'ship', '--checklist', F.pin, '--json', ...TOOL);
+  assert.strictEqual(gone.code, 5, 'a run that isn\'t there is exit 5: ' + gone.code);
+  void L;
+});
+/* UB: the source and its version are read and judged again inside the final dependency read (and before a preview): damaged
+   during the later reads (the pinned version's, the evidence run's), they hold, and nothing is filed. */
+rule('todo add --checklist and suggest-done --evidence-run hold when the source run or its version is damaged during their later reads', async () => {
+  for (const how of ['details', 'pubjson'].filter((h) => !process.env.UB_CASE || process.env.UB_CASE.split(',').indexOf('late-' + h) >= 0)) {
+    for (const k of ['add-dry', 'add', 'suggest-dry', 'suggest']) {
+      const F = await folder(), L = await linked(F, 'pass'); await started(F, L, 'k1', 'pass');
+      const f = 'runs/' + PR + '/run.json', o = JSON.parse(fs.readFileSync(path.join(F.root, f), 'utf8')); o.details = [];
+      const files = how === 'details' ? { [f]: JSON.stringify(o, null, 2) } : { ['publications/release-readiness/' + F.pp.info.folder + '/publication.json']: '{ "format": ' };
+      const before = ls(F.root);
+      const x = hooked(ckCalls(F, L)[k], { LA_AT: '/publications/smoke-test/', LA_ROOT: F.root, LA_FILES: JSON.stringify(files) });
+      heldOut(x, how + ' ' + k);
+      assert.deepStrictEqual(ls(F.root), before, how + ' ' + k + ': nothing filed');
+    }
+  }
+});
+
 run();

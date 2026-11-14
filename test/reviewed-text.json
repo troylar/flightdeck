@@ -13,16 +13,16 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "c660972b1e32dc5016c3adc6aad47973c7172006c8297be2cb5dbb57091bf4ed",
-      "reviewed": "SF: todo add --checklist and suggest-done --evidence-run hold on a source run judged with the keep command's shared verdict; no new writes; checked for direct writes and unconditional deletes"
+      "sha256": "ce17157570f030ae35a6fbc620a26f905ab00c009f1acc8f962671a2328db816",
+      "reviewed": "UB: the source run of todo checklist requests judged first and again before a preview and inside the final dependency read; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "e641a0f9f4655b4634b9d2661fe4e4b97222f23ece79f5917e6c99f174218087",
       "reviewed": "4.0 slice 5 commit 6, checklist-linked to-dos: PF.detours (pins, the evidence plan, evidence, provenance), the checklist and evidence fields in to-do records, repo.readEvidence, the app's Run this checklist, Accept and the way back, the living-run skill and command guide sections, the 4.0.0 release entry; checked for direct writes and unconditional deletes: the plan is written create-once through repo.savePlan under the run guard, a done on a run through saveScope with a fresh read before the write, nothing deleted"
     },
     "docs/apps.md": {
-      "sha256": "f16e4676582587e6591ab4bdd833bfcf281929e4e865b67beda8d6e157da2456",
-      "reviewed": "SF: todo add --checklist and suggest-done --evidence-run hold on a source run judged with the keep command's shared verdict; no new writes; checked for direct writes and unconditional deletes"
+      "sha256": "aa89238afe2efd2335c2ead00a925d07239e0feaf11126310023ce372b0764c9",
+      "reviewed": "UB: the source run of todo checklist requests judged first and again before a preview and inside the final dependency read; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
       "sha256": "d385fbf34ccf7dae1fb8f3a5da3a83a505c32717c81a35f8c9c5c83a61acc39a",
