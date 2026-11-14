@@ -666,6 +666,23 @@ const setPeople = (app, how) => {
   if (how === 'unreadable') F['people.json'] = { t: '{ "format": ', m: Date.now() };
   else { const o = JSON.parse(F['people.json'].t); (o.people || o).forEach(p => { if (p.id === 'person-avery') p.inactive = true; }); F['people.json'] = { t: JSON.stringify(o, null, 2), m: Date.now() }; }
 };
+/* UA: a to-do's Try again is under the write guard: people.json read after its final read, the starter's authority asked
+   right before the run is written; refused, the reservation stays and Try again is still offered. */
+rule('A detour Try again saves no run when its starter is inactive or people.json can\'t be read, and stays on offer', async () => {
+  for (const how of ['ua-inactive-before', 'ua-unreadable-before', 'ua-inactive-during', 'ua-unreadable-during'].filter(r16)) {
+    const S = await interrupted(), app = S.app, before = kidPaths(app).length, fs = app.fs, read = fs.read.bind(fs), kind = /inactive/.test(how) ? 'inactive' : 'unreadable';
+    let done = false;
+    if (/before/.test(how)) { setPeople(app, kind); done = true; }
+    else fs.read = (p, ...a) => { if (!done && /^runs\/smoke-test\/[^/]+\/run\.json$/.test(p)) { done = true; setPeople(app, kind); } return read(p, ...a); };
+    app.click('plan-resume', idOf(app, 'plan-resume')); await app.tick(400); fs.read = read;
+    assert.ok(done, how + ': set-up: people changed');
+    assert.strictEqual(kidPaths(app).length, before, how + ': no run saved');
+    assert.ok(!/Run started/.test(txt(app.html()) + ' ' + app.live()), how + ': never said it started');
+    assert.ok(/data-act="plan-resume"/.test(app.html()), how + ': Try again still offered');
+    assert.strictEqual(mineDec(app).length, 1, how + ': the reservation stays');
+  }
+});
+
 /* UE: a to-do's plan starts on the exact version its to-do pins: no Start on vN instead or Use the latest, and a switch
    asked anyway writes nothing. */
 rule('A to-do\'s plan never offers or records a switch to a newer version', async () => {

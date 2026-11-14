@@ -25,8 +25,8 @@
       "reviewed": "UB: the source run of todo checklist requests judged first and again before a preview and inside the final dependency read; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "d385fbf34ccf7dae1fb8f3a5da3a83a505c32717c81a35f8c9c5c83a61acc39a",
-      "reviewed": "UE: a to-do's plan offers and records no switch to another version; checked for direct writes and unconditional deletes"
+      "sha256": "f3c6627fcf0db89306e729cdabb363cf06b120b06f549b65f50959cd93a0e8da",
+      "reviewed": "UA: a to-do's Try again runs under the write guard: people.json after the final read, the starter asked right before the run write, the reservation kept on refusal; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -421,8 +421,8 @@
       "reviewed": "SE: a run whose read names a file of its own that can't be read is unread evidence, never accepted; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "bfbc5d1a28ef0fbb4bee88f2280ae961f54e4541e50bc2e760b2de36bdae1ecc",
-      "reviewed": "UE: a to-do's plan offers and records no switch to another version; checked for direct writes and unconditional deletes"
+      "sha256": "38412dd7db4cd1960ef315f19df421895e71fc965bc3c9eee8020990063df5e0",
+      "reviewed": "UA: a to-do's Try again runs under the write guard: people.json after the final read, the starter asked right before the run write, the reservation kept on refusal; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

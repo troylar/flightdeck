@@ -8643,12 +8643,15 @@
          the one on offer: a change while it waits writes nothing, even one changed back (that forgot it). */
       var still = function () { return g === gen && state.pendingStarts[k.plan] === k && state.fs === k.fs && fsKey() === k.key && state.me === k.me; };
       /* SA, SD: a to-do's Try again checks, last, the exact version its plan pins (as Start does), then proposals/: its own
-         decision as written and the plan as the form showed it. */
+         decision as written and the plan as the form showed it. UA: then, under the write guard, people.json, and the
+         starter's authority is asked right before the run is written; refused, the reservation stays and Try again with it. */
+      var rg = dt ? writeGuard({}) : null, rlate = '';
       queued(function () {
         if (!still()) return { dropped: true };
-        return repo.resumeStart(k.fs, k.plan, k, { me: k.me, lock: LOCKS ? lock : null, still: still, final: dt ? function () { return detourPinWhy(k.fs, k.pinPlan, k.pub).then(function (w) { if (w) throw new Error(w.charAt(0).toUpperCase() + w.slice(1) + ' Nothing was written.'); return repo.planFinal(k.fs, { id: k.plan }, { action: 'start', sha: k.sha, folder: k.folder, own: { path: k.dec, text: k.decText } }); }); } : null, writing: function () { k.certain = false; if (state.msg && state.msg.pendingStart) state.msg = null; render(); } });
+        return repo.resumeStart(k.fs, k.plan, k, { me: k.me, lock: LOCKS ? lock : null, still: still, final: dt ? function () { return detourPinWhy(k.fs, k.pinPlan, k.pub).then(function (w) { if (w) throw new Error(w.charAt(0).toUpperCase() + w.slice(1) + ' Nothing was written.'); return repo.planFinal(k.fs, { id: k.plan }, { action: 'start', sha: k.sha, folder: k.folder, own: { path: k.dec, text: k.decText } }); }).then(function () { return rg.fresh(k.fs); }).then(function () { if (!still() || !rg.still()) { rlate = rg.why(); var e = new Error(rlate); e.dropped = true; throw e; } }); } : null, writing: function () { k.certain = false; if (state.msg && state.msg.pendingStart) state.msg = null; render(); } });
       }).then(function (res) {
         state.resuming = false;
+        if (res && res.dropped && rlate) { releaseNav(held); say('The run wasn\'t saved: ' + rlate + ' The plan stays started for this run; Try again once that\'s fixed.', 'warn'); render(); return null; }
         if (res && res.dropped) { releaseNav(held); say('The run wasn\'t saved. ' + nothingWritten(g, k.fs, k.key, k.me), 'warn'); render(); return null; }
         if (g !== gen) { releaseNav(held); return null; }
         if (state.pendingStarts[k.plan] === k) delete state.pendingStarts[k.plan];
