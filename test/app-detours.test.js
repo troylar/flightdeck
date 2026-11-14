@@ -605,4 +605,18 @@ rule('Run this checklist writes no plan beside a decision on its plan\'s ID that
   }
 });
 
+/* SD: Try again verifies the exact pinned version again, as Start does, before its final read. */
+rule('A detour Try again saves nothing on a pinned version damaged or gone since the start was interrupted', async () => {
+  /* SD: the pinned version damaged or gone after the start was interrupted, with no refresh. */
+  for (const how of ['sd-damage', 'sd-delete'].filter(r15)) {
+    const S = await interrupted(), app = S.app, F = app.fs.files, before = kidPaths(app).length;
+    const dir = 'publications/smoke-test/' + S.kp.folder + '/';
+    if (how === 'sd-damage') F[dir + 'map.md'] = { t: F[dir + 'map.md'].t + '\n- [!] {confirm} Something else {#extra}\n', m: Date.now() };
+    else Object.keys(F).filter(k => k.indexOf(dir) === 0).forEach(k => delete F[k]);
+    app.click('plan-resume', idOf(app, 'plan-resume')); await app.tick(400);
+    assert.strictEqual(kidPaths(app).length, before, how + ': no run saved');
+    assert.ok(!/Run started/.test(txt(app.html()) + ' ' + app.live()), how + ': never said it started');
+  }
+});
+
 run();
