@@ -3563,7 +3563,8 @@
       var r2 = findRun(rk), V2 = r2 ? todoView(r2) : null, x2 = V2 && V2.byTodo[todoId], F2 = x2 ? PF.detours.planFor(r2, x2, detourPub(x2.checklist), {}) : null;
       return !!F2 && !F2.why && F2.plan.id === id;
     } });
-    repo.savePlan(cx.fs, F.plan, { fresh: pg.fresh, still: pg.still }).then(function (res) {
+    /* PA: proposals/ read last before people.json: no different or unreadable copy of this plan beside it. */
+    repo.savePlan(cx.fs, F.plan, { fresh: function (fx) { return repo.planFinal(fx, F.plan, { create: true }).then(function () { return pg.fresh(fx); }); }, still: pg.still }).then(function (res) {
       endBusy(); if (sg !== gen) return;
       if (res && res.dropped) { say('Nothing was written: the folder, the person or the run changed before its plan was. Run this checklist again if it still needs doing.', 'warn'); render(); return; }
       /* Already there (made from another window or computer): the same plan by its name, which is opened. */
@@ -8638,7 +8639,7 @@
       var still = function () { return g === gen && state.pendingStarts[k.plan] === k && state.fs === k.fs && fsKey() === k.key && state.me === k.me; };
       queued(function () {
         if (!still()) return { dropped: true };
-        return repo.resumeStart(k.fs, k.plan, k, { me: k.me, lock: LOCKS ? lock : null, still: still, writing: function () { k.certain = false; if (state.msg && state.msg.pendingStart) state.msg = null; render(); } });
+        return repo.resumeStart(k.fs, k.plan, k, { me: k.me, lock: LOCKS ? lock : null, still: still, final: dt ? function () { return repo.planFinal(k.fs, { id: k.plan }, { action: 'start', mine: function (d) { return d.status === 'accepted' && d.run === k.id && d.by === k.me; } }); } : null, writing: function () { k.certain = false; if (state.msg && state.msg.pendingStart) state.msg = null; render(); } });
       }).then(function (res) {
         state.resuming = false;
         if (res && res.dropped) { releaseNav(held); say('The run wasn\'t saved. ' + nothingWritten(g, k.fs, k.key, k.me), 'warn'); render(); return null; }
@@ -8658,7 +8659,7 @@
           say(aboutWhat(same, g, k.fs, k.key, k.me) + (k.saved ? 'Couldn\'t save the run: ' : k.certain === false ? 'Flightdeck couldn\'t confirm whether the run saved: ' : 'Couldn\'t save the run: ') + e.message, 'bad'); render();
         });
     },
-    'decline-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0], g = gen; if (!p) return; if (planHeld(p)) { say(planHeld(p), 'warn'); render(); return; } var dfs = state.fs, dkey = fsKey(), who = state.me, still = planStill(g, dfs, dkey, who), dt = /^plan-ev-[0-9a-f]{24}$/.test(String(p.id)), pmark = pageMark(navSeq), moved = function () { return dt && pmark(); }; queued(function () { if (!still()) return { dropped: true }; return repo.decidePlan(dfs, p, { action: 'declined', sha: p._sha, lock: LOCKS ? lock : null, still: still, write: function () { return repo.recordPlanStatus(dfs, p, WRITER, 'declined', null, who, null, APP_VERSION); } }); }).then(function (res) { if (res && res.dropped) { say('The plan wasn\'t declined. ' + nothingWritten(g, dfs, dkey, who), 'warn'); render(); return; } if (g !== gen) return; if (!still()) return load(true); if (moved()) { say('Plan declined. It stays in the folder for reference; what you\'re doing now was left as it is.'); return load(true); } home(); say('Plan declined. It stays in the folder for reference.'); return load(true); }, function (e) { say(aboutWhat(still, g, dfs, dkey, who) + 'Couldn\'t decline it: ' + e.message, 'bad'); render(); }); },
+    'decline-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0], g = gen; if (!p) return; if (planHeld(p)) { say(planHeld(p), 'warn'); render(); return; } var dfs = state.fs, dkey = fsKey(), who = state.me, still = planStill(g, dfs, dkey, who), dt = /^plan-ev-[0-9a-f]{24}$/.test(String(p.id)), pmark = pageMark(navSeq), moved = function () { return dt && pmark(); }; queued(function () { if (!still()) return { dropped: true }; return repo.decidePlan(dfs, p, { action: 'declined', sha: p._sha, final: dt, lock: LOCKS ? lock : null, still: still, write: function () { return repo.recordPlanStatus(dfs, p, WRITER, 'declined', null, who, null, APP_VERSION); } }); }).then(function (res) { if (res && res.dropped) { say('The plan wasn\'t declined. ' + nothingWritten(g, dfs, dkey, who), 'warn'); render(); return; } if (g !== gen) return; if (!still()) return load(true); if (moved()) { say('Plan declined. It stays in the folder for reference; what you\'re doing now was left as it is.'); return load(true); } home(); say('Plan declined. It stays in the folder for reference.'); return load(true); }, function (e) { say(aboutWhat(still, g, dfs, dkey, who) + 'Couldn\'t decline it: ' + e.message, 'bad'); render(); }); },
     diff: function (id) { state.diffOf = state.diffOf === id ? null : id; render(); },
     publish: function (id) {
       /* One write at a time (2.16): a second click, or the dialog's other button while this one writes, does nothing. */
@@ -10273,13 +10274,16 @@
          started (a plan marked started without its run is worse), but nothing is opened or announced. */
       if (!still()) return { dropped: true };
       var decide = function () {
-        return repo.decidePlan(sfs, plan, { action: 'start', sha: formSha, folder: startFolder, lock: LOCKS ? lock : null, still: still, write: function () {
+        return repo.decidePlan(sfs, plan, { action: 'start', sha: formSha, folder: startFolder, final: detour, lock: LOCKS ? lock : null, still: still, write: function () {
           var mark = function () { return repo.recordPlanStatus(sfs, plan, WRITER, 'accepted', r.id, who, null, APP_VERSION).then(function (path) { dec = path; return save(true); }); };
           if (!detour) return mark();
           /* Run this checklist: after the pin's read, people.json is read again and the whole guard asked right before the
              decision is written; only a decision actually written has its run saved (and only that is recovered). */
           var drop = function (w) { pinLate = w; var e = new Error(w); e.dropped = true; throw e; };
-          return detourPinWhy(sfs, plan, pub).then(function (w) { if (w) drop(w); return sg2.fresh(sfs); })
+          /* PA: proposals/ is read last but for people.json, after the pin: the exact plan, its copies and its decisions as
+             that final read finds them. */
+          return detourPinWhy(sfs, plan, pub).then(function (w) { if (w) drop(w); return repo.planFinal(sfs, plan, { action: 'start', sha: formSha, folder: startFolder }).then(null, function (e) { drop(String(e && e.message || e).replace(/ Nothing was written\.$/, '')); }); })
+            .then(function () { return sg2.fresh(sfs); })
             .then(function () { if (!still() || !sg2.still()) drop(sg2.why()); return mark(); });
         } });
       };

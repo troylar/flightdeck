@@ -2162,7 +2162,7 @@ PF.repo = (function () {
   function decidePlan(fs, plan, o) {
     var id = plan && plan.id;
     if (typeof id !== 'string' || !id) return Promise.reject(new Error('No such plan.'));
-    var go = function () { stillOk(o); return planGate(fs, plan, o).then(function () { stillOk(o); return o.write(); }); };
+    var go = function () { stillOk(o); return (o.final ? planFinal(fs, plan, o) : planGate(fs, plan, o)).then(function () { stillOk(o); return o.write(); }); };
     return (typeof o.lock === 'function' ? o.lock('preflight:plan:' + id, go) : Promise.resolve().then(go)).then(null, function (e) {
       if (e && e.dropped) return { dropped: true };
       throw e;
@@ -2192,18 +2192,28 @@ PF.repo = (function () {
         if (!about) return;
         if (v.kind === 'plan') copies.push(o2); else decisions.push(o2);
       });
+      /* A plan about to be written (o.create): no copy yet, or only copies the same as it; never beside one that differs. */
+      if (o.create) { if (!copies.every(function (c) { return PF.requests.same(c, plan); })) throw new Error('A different copy of this plan is in the folder. Delete the wrong one first.' + said); return; }
       if (!copies.length) throw new Error('This plan isn\'t in the folder now.' + said);
       var texts = copies.map(function (c) { return JSON.stringify(stripMeta(c)); });
       if (!copies.every(function (c) { return PF.requests.same(c, copies[0]); })) throw new Error('Two different copies of this plan are in the folder. Delete the wrong one first.' + said);
-      if (texts.map(function (t) { return PF.sha256.hex(t); }).indexOf(o.sha) < 0) throw new Error('This plan changed since the form showed it. Open it again to see the new plan.' + said);
+      if (!(o.mine && o.sha == null) && texts.map(function (t) { return PF.sha256.hex(t); }).indexOf(o.sha) < 0) throw new Error('This plan changed since the form showed it. Open it again to see the new plan.' + said);
       var hashes = texts.map(function (t) { return U.hash(t); });
       /* A start or decline on this plan's ID holds it whatever version of the plan it was made on (2.1.1): one made before
          an edit, or on a copy since deleted, still counts. A switch counts only for the exact plan, as it isn't a decision. */
-      var made = decisions.filter(function (d) { return d.status !== 'retargeted'; }), done = made.filter(function (d) { return d.status === 'accepted'; })[0] || made[0];
+      var made = decisions.filter(function (d) { return d.status !== 'retargeted' && !(o.mine && o.mine(d)); }), done = made.filter(function (d) { return d.status === 'accepted'; })[0] || made[0];
       if (done) throw new Error((done.status === 'accepted' ? 'This plan was already started' + (typeof done.run === 'string' ? ' (' + done.run + ')' : '') + '. Find its run on Runs.' : 'This plan was already ' + (done.status === 'declined' ? 'declined' : 'decided on') + '.') + ' To run it again, make a new plan.' + said);
       var moves = decisions.filter(function (d) { return d.status === 'retargeted' && hashes.indexOf(d.proposalHash) >= 0; });
       if (moves.length && o.action === 'retargeted') throw new Error('This plan was already switched to another version. Open it again to see where it starts.' + said);
       if (o.action === 'start' && moves.some(function (d) { return !d.to || d.to.folder !== o.folder; })) throw new Error('This plan was switched to another version in another window. Open it again to see where it starts.' + said);
+    });
+  }
+  /* The plan gate as the last read of proposals/ (PF.repo.proposalsFinal): listed, every file read and judged from a listing
+     of its own, listed again. A file that arrived or went meanwhile is a move: nothing is written. o as planGate takes it,
+     with o.create (the plan about to be written) and o.mine (a decision of this window's own that doesn't count). */
+  function planFinal(fs, plan, o) {
+    return proposalsFinal(fs, { read: function (rf) { return planGate(rf, plan, o); } }).then(function (F) {
+      if (F.moved) throw new Error('A file in proposals/ arrived or went while this plan was read, so it isn\'t known whether it was decided. Nothing was written.');
     });
   }
   /* A start or decline goes to <plan>.status-<session>-d.json and a switch to <plan>.status-<session>.json (2.1.1), so a start
@@ -2256,6 +2266,8 @@ PF.repo = (function () {
           var own = paths.length > others.length ? fs.read(k.cand).then(function (c) { return !!c && c.text === k.text; }) : Promise.resolve(true);
           return own.then(function (ok) {
             if (others.length || !ok) throw new Error('The run\'s folder has files but no run.json. Restore run.json from a backup.' + said);
+            return o.final ? o.final() : null;
+          }).then(function () {
             stillOk(o);
             /* From here the run may land whatever the write answers: the caller is told first (2.3.1). */
             if (typeof o.writing === 'function') o.writing();
@@ -2739,8 +2751,8 @@ PF.repo = (function () {
        the last listing is a move, never a read that agrees. */
     var rf = Object.create(fs);
     rf.list = function (d) { return fs.list(d).then(function (items) { if (d === 'proposals') mid.push(namesOf(items)); return items; }); };
-    return Promise.resolve(o.deps ? o.deps(fs) : null).then(function (d) { dep = d; return names(); }).then(function (n) { n0 = n; return readPlans(rf, o.bad || null, null, !!o.two); })
-      .then(function (got) { return names().then(function (n1) { return { got: got, deps: dep, moved: n0 !== n1 || !mid.length || mid.some(function (m) { return m !== n0; }), sig: proposalsSig(got) }; }); });
+    return Promise.resolve(o.deps ? o.deps(fs) : null).then(function (d) { dep = d; return names(); }).then(function (n) { n0 = n; return o.read ? o.read(rf) : readPlans(rf, o.bad || null, null, !!o.two); })
+      .then(function (got) { return names().then(function (n1) { return { got: got, deps: dep, moved: n0 !== n1 || !mid.length || mid.some(function (m) { return m !== n0; }), sig: o.read ? '' : proposalsSig(got) }; }); });
   }
   /* Every record readPlans gave, by file and content, and every file it couldn't read: equal exactly when two reads agree. */
   function proposalsSig(got, test) {
@@ -3604,5 +3616,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, proposalsFinal: proposalsFinal, proposalsSig: proposalsSig, readTodos: readTodos, readKept: readKept, withdrawKeep: withdrawKeep, readEvidence: readEvidence, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, saveScope: saveScope, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, proposalsFinal: proposalsFinal, planFinal: planFinal, proposalsSig: proposalsSig, readTodos: readTodos, readKept: readKept, withdrawKeep: withdrawKeep, readEvidence: readEvidence, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, saveScope: saveScope, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

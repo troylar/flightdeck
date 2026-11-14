@@ -494,4 +494,60 @@ rule('Every checklist-linked write path is guarded after every read and right be
   if (process.env.RACE_SAY) console.log(JSON.stringify(out));
 });
 
+/* PA: Start, Decline and the plan's creation read proposals/ last but for people.json, through the final check
+   (PF.repo.planFinal): the exact plan, its copies and its decisions as that read finds them. A plan torn, gone, copied
+   differently or decided while the pinned version is read, or a copy that arrives while the plan is read, writes nothing. */
+rule('A detour Start, Decline or plan creation writes nothing when its plan is torn, gone, copied or decided during its last reads', async () => {
+  const pick = (h) => !process.env.PA_CASE || process.env.PA_CASE.split(',').indexOf(h) >= 0;
+  const decided = (app) => app.files('proposals/plan-ev-').filter(p => /\.status-.*-d\.json$/.test(p));
+  const change = (app, planPath, how) => {
+    const F = app.fs.files, id = planPath.slice('proposals/'.length, -'.json'.length), plan = JSON.parse(F[planPath].t);
+    if (how === 'tear') F[planPath] = { t: '{ "format": ', m: Date.now() };
+    if (how === 'delete') delete F[planPath];
+    if (how === 'torncopy') F['proposals/' + id + ' (1).json'] = { t: '{ "format": ', m: Date.now() };
+    if (how === 'differs') { const o = Object.assign({}, plan, { title: 'Another title' }); F['proposals/' + id + ' (1).json'] = { t: JSON.stringify(o, null, 2) + '\n', m: Date.now() }; }
+    if (how === 'decided') F['proposals/' + id + '.status-other-d.json'] = { t: JSON.stringify(app.PF.plans.decision(plan, 'accepted', 'r-other1', 'person-blake', AT(), null, '4.0.0'), null, 2), m: Date.now() };
+  };
+  /* Start: the change lands during the pinned version's read inside the write (after proposals/ was read under the lock). */
+  for (const how of ['tear', 'delete', 'torncopy', 'differs', 'decided'].filter((h) => pick('start-' + h))) {
+    const { app, todo } = await setup(['pass']);
+    app.click('td-detour', todo); await app.tick(250);
+    const planPath = plans(app)[0], before = kidPaths(app).length, fs = app.fs, list = fs.list.bind(fs), read = fs.read.bind(fs);
+    let listed = false, done = false;
+    fs.list = (d, ...a) => list(d, ...a).then((x) => { if (d === 'proposals') listed = true; return x; });
+    fs.read = (p, ...a) => { if (listed && !done && /^publications\/smoke-test\//.test(p)) { done = true; change(app, planPath, how); } return read(p, ...a); };
+    app.chooseApprovers().submitForm('start-form'); await app.tick(400);
+    fs.list = list; fs.read = read;
+    assert.ok(done, 'start ' + how + ': set-up: changed during the pin read');
+    assert.strictEqual(kidPaths(app).length, before, 'start ' + how + ': no run saved');
+    assert.ok(!decided(app).some(p => !/status-other-d/.test(p)), 'start ' + how + ': no decision written: ' + decided(app).join(', '));
+  }
+  /* Start and Decline: a copy that arrives right after proposals/ is first listed for the decision. */
+  for (const act of ['start', 'decline'].filter((h) => pick(h + '-early'))) {
+    for (const how of ['torncopy', 'differs']) {
+      const { app, todo } = await setup(['pass']);
+      app.click('td-detour', todo); await app.tick(250);
+      const planPath = plans(app)[0], before = kidPaths(app).length, fs = app.fs, list = fs.list.bind(fs);
+      let done = false;
+      fs.list = (d, ...a) => list(d, ...a).then((x) => { if (d === 'proposals' && !done) { done = true; change(app, planPath, how); } return x; });
+      if (act === 'start') app.chooseApprovers().submitForm('start-form');
+      else { const id = (/data-act="decline-plan"[^>]*data-id="([^"]+)"/.exec(app.html()) || /data-id="([^"]+)"[^>]*data-act="decline-plan"/.exec(app.html()))[1]; app.click('decline-plan', id); }
+      await app.tick(400); fs.list = list;
+      assert.ok(done, act + ' ' + how + ': set-up: a copy arrived');
+      assert.strictEqual(kidPaths(app).length, before, act + ' ' + how + ': no run saved');
+      assert.deepStrictEqual(decided(app), [], act + ' ' + how + ': no decision written');
+    }
+  }
+  /* Creation: a torn copy of the plan arrives after its name is first read, before it is written. */
+  if (pick('create')) {
+    const { app, todo } = await setup(['pass']);
+    const fs = app.fs, read = fs.read.bind(fs);
+    let done = false;
+    fs.read = (p, ...a) => { if (!done && /^proposals\/plan-ev-[0-9a-f]{24}\.json$/.test(p) && !fs.files[p]) { done = true; fs.files[p.slice(0, -'.json'.length) + ' (1).json'] = { t: '{ "format": ', m: Date.now() }; } return read(p, ...a); };
+    app.click('td-detour', todo); await app.tick(400); fs.read = read;
+    assert.ok(done, 'create: set-up: a torn copy arrived');
+    assert.deepStrictEqual(plans(app), [], 'create: the plan isn\'t written beside a copy that can\'t be read');
+  }
+});
+
 run();
