@@ -429,4 +429,35 @@ for (const [which, nth] of [['the decision', 1], ['the application', 2]]) rule('
   assert.deepStrictEqual(real.map(q => q + ' ' + ((() => { try { return JSON.parse(fs0.files[q].t).op; } catch (e) { return ''; } })())), [], 'nothing written after the change');
   assert.strictEqual(fs0.files[parentPath(app)].t, parent, 'the run is as it was');
 });
+/* Round 21 (ZB): coverage is read fresh: the guard lists the loop's story runs again, so a story's run that arrives while
+   the write waits (its pinned version not there yet) refuses instead of going unread. */
+for (const [which, nth] of [['the decision', 1], ['the application', 2]]) rule('Round 21 (ZB): a spread stop, another story\'s run arriving (its version not yet there) while ' + which + '\'s existence read waits, writes nothing more', async () => {
+  const app = await setup();
+  await landedSpread(app);
+  const P = await askStop(app);
+  await refresh(app, 300);
+  const fs0 = app.fs, read = fs0.read, write = fs0.write, hold = gate(), had = new Set(app.files('proposals/'));
+  /* The first read of the nth new record (its existence read; the decision is the first, the application the second). */
+  let hit = null; const late = [], paths = [];
+  fs0.read = function (q) { const a = arguments; if (!hit && /^proposals\/[^/]+\.json$/.test(q) && !had.has(q) && !fs0.files[q] && paths.indexOf(q) < 0) { paths.push(q); if (paths.length === nth) { hit = q; return hold.p.then(() => read.apply(fs0, a)); } } return read.apply(fs0, a); };
+  fs0.write = function (q) { if (hit) late.push(q); if (/^proposals\//.test(q)) had.add(q); return write.apply(fs0, arguments); };
+  app.click('td-inbox', ''); await app.tick(20);
+  const b = new RegExp('data-act="td-accept" data-id="(' + P.file.id + ')" data-run="([^"]+)" data-fp="([^"]+)"').exec(ov(app)) || /data-act="td-accept" data-id="([^"]+)" data-run="([^"]+)" data-fp="([^"]+)"/.exec(ov(app));
+  assert.ok(b, 'set-up: the stop is offered: ' + txt(ov(app)).slice(0, 300));
+  app.click('td-accept', b[1], { run: b[2], fp: b[3] });
+  for (let t = 0; t < 60 && !hit; t++) { await app.tick(50); if (t % 10 === 9) app.click('refresh'); }
+  assert.ok(hit, 'set-up: ' + which + ' reached its existence read');
+  const parent = fs0.files[parentPath(app)].t, kp = kidOf(app, 'ABC-102'), k = JSON.parse(fs0.files[kp].t);
+  /* Another computer starts ABC-104's run (a copy of ABC-102's, renamed) on a version whose files haven't arrived yet. */
+  const nid = 'zb' + hex(6), dir = kp.split('/').slice(0, 2).join('/') + '/' + nid;
+  k.id = nid; k.folder = 'v9-zb000009'; k.parent = Object.assign({}, k.parent, { item: Object.assign({}, k.parent.item, { key: 'ABC-104' }) });
+  fs0.files[dir + '/run.json'] = { t: JSON.stringify(k, null, 2), m: Date.now() };
+  hold.open();
+  for (let i = 0; i < 12; i++) await app.tick(50);
+  fs0.read = read; fs0.write = write;
+  /* A request the recorder couldn't carry out may be answered (op 'refused'): that is its outcome, not a write. */
+  const real = late.filter(q => !/^runs\/[^/]+\/[^/]+\/history-/.test(q)).filter(q => !(/^proposals\//.test(q) && (() => { try { return JSON.parse(fs0.files[q].t).op === 'refused'; } catch (e) { return false; } })()));
+  assert.deepStrictEqual(real.map(q => q + ' ' + ((() => { try { return JSON.parse(fs0.files[q].t).op; } catch (e) { return ''; } })())), [], 'nothing written after the change');
+  assert.strictEqual(fs0.files[parentPath(app)].t, parent, 'the run is as it was');
+});
 run();

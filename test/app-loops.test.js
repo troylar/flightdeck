@@ -1360,4 +1360,57 @@ rule('Round 20 (YD): a story\'s run that arrives after its start\'s candidate is
   hold.open(); await app.tick(600); fs0.write = write;
   assert.strictEqual(fs0.files[there].t, text, 'the run that arrived is as it arrived');
 });
+/* Round 21 (ZA): a scope token is bound to the folder its guard checked. Add's record sent to another folder holding the
+   same files (where Avery is inactive), its guard asked about this folder: refused, and neither folder changes. */
+rule('Round 21 (ZA): a scope record sent to another folder with the same files, its guard asked about this one, writes nothing', async () => {
+  const app = await setup(), R = app.PF.repo, ss = R.saveScope, real = app.fs;
+  const files = JSON.parse(JSON.stringify(real.files));
+  const doc = JSON.parse(files['people.json'].t), list = Array.isArray(doc) ? doc : doc.people;
+  list.forEach(x => { if (x.id === 'person-avery') x.inactive = true; });
+  files['people.json'] = { t: JSON.stringify(doc, null, 2), m: Date.now() };
+  const other = { read: (q) => Promise.resolve(files[q] ? { text: files[q].t, mtime: files[q].m, size: files[q].t.length } : null),
+    list: (q) => { const pre = q ? q + '/' : '', seen = {}, out = []; Object.keys(files).forEach(k => { if (k.indexOf(pre) !== 0) return; const rest = k.slice(pre.length), i = rest.indexOf('/'), n = i < 0 ? rest : rest.slice(0, i); if (!seen[n]) { seen[n] = true; out.push({ name: n, kind: i < 0 ? 'file' : 'dir' }); } }); return Promise.resolve(out); },
+    write: (q, t) => { files[q] = { t: String(t), m: Date.now() }; return Promise.resolve(); }, remove: (q) => { delete files[q]; return Promise.resolve(); } };
+  const otherBefore = JSON.stringify(files), before = JSON.stringify(app.files('').map(f => [f, real.files[f].t]));
+  let calls = 0;
+  R.saveScope = function (f, n, file, o) { o = Object.assign({}, o); const rc = o.recheck; o.recheck = function (x, phase, w) { return rc.call(this, real, phase, w); }; calls++; return ss.call(this, other, n, file, o); };
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(250);
+  R.saveScope = ss;
+  assert.ok(calls > 0, 'set-up: Add wrote its record');
+  assert.deepStrictEqual([JSON.stringify(files) === otherBefore, JSON.stringify(app.files('').map(f => [f, real.files[f].t])) === before], [true, true], 'neither folder changed');
+});
+/* Round 21 (ZC): a refusal is recorded only by the run's recorder, about the very request it refused. Casey (not the
+   recorder) asks to start ABC-101; right before the refusal is written, either the run is handed to Blake, or the request
+   is replaced with Avery's under the same name. Neither refusal is written: the request stays pending. */
+async function refusalRace(app, change) {
+  app.set('loop-add-each', 'ABC-101, ABC-102'); app.click('loop-add', 'each'); await app.tick(150);
+  const R = app.PF.repo, ss = R.saveScope; let changed = false;
+  R.saveScope = function (f, n, file) {
+    if (!changed && /\.status-/.test(n) && file && file.op === 'refused') { changed = true; change(app, file.proposal); }
+    return ss.apply(this, arguments);
+  };
+  const id = await ask(app, [{ op: 'start', item: { key: 'ABC-101' }, as: 'person-casey' }], 'zc-' + Math.random().toString(36).slice(2, 8));
+  await app.tick(300);
+  R.saveScope = ss;
+  assert.ok(changed, 'set-up: the refusal was about to be written');
+  return id;
+}
+rule('Round 21 (ZC): a refusal, the run handed to Blake right before it is written, isn\'t written', async () => {
+  const app = await setup();
+  const id = await refusalRace(app, (app) => {
+    const p = app.files('runs/release-readiness/').find(q => /run\.json$/.test(q)), r = JSON.parse(app.fs.files[p].t);
+    r.recorder = Object.assign({}, r.recorder, { person: 'person-blake', session: 'session-blake' }); r.rev = (r.rev || 0) + 1;
+    app.fs.files[p] = { t: JSON.stringify(r, null, 2), m: Date.now() };
+  });
+  assert.strictEqual(outcome(app, id), null, 'no refusal recorded: ' + JSON.stringify(outcome(app, id)));
+});
+rule('Round 21 (ZC): a refusal, its request replaced with an allowed one under the same name right before it is written, isn\'t written', async () => {
+  const app = await setup();
+  const id = await refusalRace(app, (app, rid) => {
+    const p = 'proposals/' + rid + '.json';
+    assert.ok(app.fs.files[p], 'set-up: the request is at ' + p);
+    app.fs.files[p] = { t: app.fs.files[p].t.split('person-casey').join('person-avery'), m: Date.now() };
+  });
+  assert.notStrictEqual((outcome(app, id) || {}).op, 'refused', 'the allowed request isn\'t settled by the old refusal');
+});
 run();

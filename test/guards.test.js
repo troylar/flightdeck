@@ -159,6 +159,58 @@ rule('The write gate is set once: a second gate, or none, is refused', async () 
   const o = await outcome(app, () => app.PF.repo.saveRun(app.fs, r, 'mutant', { recheck: () => true }));
   assert.deepStrictEqual([refused(o), o.wrote], [true, false], JSON.stringify(o));
 });
+/* Round 21 (ZA): a token is bound to the folder its guard checked. Another folder holding the same files (a copy; the
+   destination there is in the very state the write names) is written to through the app's own writer call, with the
+   app's genuine guard asked about the real folder: refused, for every kind, and neither folder changes. */
+function copyFolder(app) {
+  const files = JSON.parse(JSON.stringify(app.fs.files));
+  return { files,
+    read: (p) => Promise.resolve(files[p] ? { text: files[p].t, mtime: files[p].m, size: files[p].t.length } : null),
+    list: (p) => { const pre = p ? p + '/' : '', seen = {}, out = []; Object.keys(files).forEach(k => { if (k.indexOf(pre) !== 0) return; const rest = k.slice(pre.length), i = rest.indexOf('/'), n = i < 0 ? rest : rest.slice(0, i); if (!seen[n]) { seen[n] = true; out.push({ name: n, kind: i < 0 ? 'file' : 'dir' }); } }); return Promise.resolve(out); },
+    write: (p, t) => { files[p] = { t: String(t), m: Date.now() }; return Promise.resolve(); },
+    remove: (p) => { delete files[p]; return Promise.resolve(); },
+    stat: (p) => Promise.resolve(files[p] ? { size: files[p].t.length, mtime: files[p].m } : null) };
+}
+/* Every writer call the app makes while act() runs goes to the other folder, its guard asked about the real one. */
+async function replayElsewhere(app, act) {
+  const R = app.PF.repo, sr = R.saveRun, ss = R.saveScope, other = copyFolder(app), real = app.fs, calls = [];
+  const there = (fn) => fn && function (f, phase, w) { return fn.call(this, real, phase, w); };
+  R.saveRun = function (f, r, s, o) { o = Object.assign({}, o); o.recheck = there(o.recheck); o.create = there(o.create); calls.push('run'); return sr.call(this, other, r, s, o); };
+  R.saveScope = function (f, n, file, o) { o = Object.assign({}, o); o.recheck = there(o.recheck); calls.push('scope'); return ss.call(this, other, n, file, o); };
+  const before = snapshot(app), otherBefore = JSON.stringify(other.files);
+  try { await act(); } finally { R.saveRun = sr; R.saveScope = ss; }
+  await app.tick(150);
+  return { calls, otherWrote: JSON.stringify(other.files) !== otherBefore, realWrote: snapshot(app) !== before };
+}
+rule('Round 21 (ZA): a run\'s write sent to another folder with the same files, its guard asked about this one, is refused and writes nothing', async () => {
+  const app = await opened(), key = await startAndCheck(app);
+  app.click('open-run', key); await app.tick(60);
+  const step = (/data-act="toggle" data-id="([^"]+)"/.exec(app.html()) || [])[1];
+  assert.ok(step, 'set-up: a step to check');
+  const o = await replayElsewhere(app, async () => { app.click('toggle', step); await app.tick(200); });
+  assert.ok(o.calls.includes('run'), 'set-up: the save was made');
+  assert.deepStrictEqual([o.otherWrote, o.realWrote], [false, false], JSON.stringify(o));
+});
+rule('Round 21 (ZA): a new run\'s write sent to another folder with the same files, its guard asked about this one, is refused and writes nothing', async () => {
+  const app = await opened();
+  app.click('start', 'check-in'); await app.settle();
+  const o = await replayElsewhere(app, async () => { app.chooseApprovers().submitForm('start-form'); await app.tick(200); });
+  assert.ok(o.calls.includes('run'), 'set-up: the start was made');
+  assert.deepStrictEqual([o.otherWrote, o.realWrote], [false, false], JSON.stringify(o));
+});
+/* Round 21 (ZD): a recovery's backup (replaced-*.json) is written only with its guard's token, like every other write. */
+rule('Round 21 (ZD): a backup written without its guard throws in the test build and writes nothing', async () => {
+  const app = await opened(), { r } = aRun(app);
+  const o = await outcome(app, () => app.PF.repo.keepDisplaced(app.fs, r, 'mutant'));
+  assert.deepStrictEqual([o.how, o.wrote], ['threw', false], JSON.stringify(o));
+});
+rule('Round 21 (ZD): a backup with a token made by hand, or a guard that answers true, is refused and writes nothing', async () => {
+  const app = await opened(), { r } = aRun(app);
+  for (const g of [(f, ph, w) => Object.assign({}, w), () => true]) {
+    const o = await outcome(app, () => app.PF.repo.keepDisplaced(app.fs, r, 'mutant', g));
+    assert.deepStrictEqual([refused(o), o.wrote], [true, false], JSON.stringify(o));
+  }
+});
 /* The same mutants made in the app's own source: a click handler that aliases, wraps or calls the writer through a property,
    or through a Proxy of the folder, built into the page. Each click throws in the test build and writes nothing. */
 const HTML = fs.readFileSync(path.join(__dirname, '..', 'dist', 'flightdeck.html'), 'utf8');
@@ -168,7 +220,8 @@ const SOURCE = {
   helper: "'mutant': function () { var h = function (r) { return repo.saveRun(state.fs, r, SESSION, { writer: WRITER }); }; h(data.runs[0]); },",
   property: "'mutant': function () { var o = { put: PF.repo.saveRun }; o.put(state.fs, data.runs[0], SESSION, { writer: WRITER }); },",
   proxy: "'mutant': function () { repo.saveRun(new Proxy(state.fs, {}), data.runs[0], SESSION, { writer: WRITER }); },",
-  scope: "'mutant': function () { var w = repo.saveScope; w(state.fs, '" + SCOPE + "', { format: 'flightdeck-plan/3' }, {}); },"
+  scope: "'mutant': function () { var w = repo.saveScope; w(state.fs, '" + SCOPE + "', { format: 'flightdeck-plan/3' }, {}); },",
+  backup: "'mutant': function () { repo.keepDisplaced(state.fs, data.runs[0], WRITER); },"
 };
 for (const m of Object.keys(SOURCE)) rule('A writer reached by ' + m + ' in the app\'s own source throws when clicked in the test build, and nothing is written', async () => {
   assert.strictEqual(HTML.split(ANCHOR).length, 2, 'set-up: one place to put the mutant');
