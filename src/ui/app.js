@@ -3123,7 +3123,7 @@
     return new Promise(function (res) {
       var rk = rk0, r0 = rk ? findRun(rk) : null, runs = Object.create(null), disk = Object.create(null);
       if (r0) { runs[rk] = r0.rev || 0; disk[rk] = r0._fileHash; }
-      var answer = function (ok) { if (answered) return; answered = true; if (timer != null) clearTimeout(timer); res(ok === true ? (w ? mintFor(w, { runs: runs, disk: disk }) : true) : false); };
+      var answer = function (ok) { if (answered) return; answered = true; if (timer != null) clearTimeout(timer); res(ok === true ? (w ? mintFor(w, { runs: runs, disk: disk, folder: fs || (cx && cx.fs) }) : true) : false); };
       timer = setTimeout(function () { answer(false); }, GUARD_MS);
       snapshotOnce(cx, fs, pin).then(answer, function () { answer(false); });
     });
@@ -3261,7 +3261,7 @@
     if (!ks.length && !o.create) return Promise.resolve(false);
     /* Round 20: what this guard checked, and the token for exactly the write it was asked about (o.w), or true for a guard
        asked outside a write. */
-    var token = function () { return o.w ? mintFor(o.w, { runs: revs, disk: disk, create: o.create || '', absent: absent }) : true; };
+    var token = function () { return o.w ? mintFor(o.w, { runs: revs, disk: disk, create: o.create || '', absent: absent, folder: raw }) : true; };
     var judged = function () { return o.light ? settle() : plans(); };
     var next = function (i) { return i + 1 < ks.length ? runAt(i + 1) : o.create ? created() : judged(); };
     /* Round 20 (YC, YD): a new run's guard reads where it goes: no run.json there (a folder holding only this save's
@@ -3331,25 +3331,28 @@
      one the guard covered: a run it read with that revision, its run.json in the state read (a candidate or conflict copy
      where nothing is), a new run it found absent, or a record about one of its runs. admitWrite, the gate repo was given
      once in this window, takes each token once, for exactly that write; a test build throws on anything else. */
-  var MINTED = typeof WeakSet === 'function' ? new WeakSet() : null;
+  /* Round 21 (ZA): each token is kept with the folder its guard read (never one a caller names), and admitted only for a
+     write to that very folder, the one this window has open. */
+  var MINTED = typeof WeakMap === 'function' ? new WeakMap() : null;
   var WFIELDS = ['kind', 'path', 'expect', 'hash', 'key', 'rev'];
-  function writeToken(w) {
+  function writeToken(w, folder) {
     var t = Object.freeze(WFIELDS.reduce(function (o, k) { o[k] = w[k]; return o; }, {}));
-    if (MINTED) MINTED.add(t);
+    if (MINTED) MINTED.set(t, folder);
     return t;
   }
   function mintFor(w, g) {
     if (!w || typeof w !== 'object' || w.unguarded || typeof w.path !== 'string' || typeof w.hash !== 'string') return false;
+    if (!g.folder || g.folder !== state.fs) return false;
     var key = typeof w.key === 'string' ? w.key : '', dir = 'runs/' + key + '/', has = function (k) { return !!k && Object.prototype.hasOwnProperty.call(g.runs || {}, k); };
     var ok = false;
     if (w.kind === 'run') ok = has(key) && g.runs[key] === w.rev && w.path.indexOf(dir) === 0 && (w.path === dir + 'run.json' ? !!g.disk && w.expect === g.disk[key] : w.expect === 'absent');
     else if (w.kind === 'create') ok = !!key && g.create === key && g.absent === true && w.expect === 'absent' && w.path.indexOf(dir) === 0;
     else if (w.kind === 'scope') ok = w.expect === 'absent' && /^proposals\/[^/]+$/.test(w.path) && (!key || has(key));
-    return ok ? writeToken(w) : false;
+    return ok ? writeToken(w, g.folder) : false;
   }
-  function admitWrite(tok, w) {
+  function admitWrite(tok, w, dest) {
     var ok = !!(MINTED && tok && typeof tok === 'object' && MINTED.has(tok) && w && !w.unguarded);
-    if (ok) { MINTED.delete(tok); ok = WFIELDS.every(function (k) { return tok[k] === w[k]; }); }
+    if (ok) { var folder = MINTED.get(tok); MINTED.delete(tok); ok = !!folder && folder === dest && dest === state.fs && WFIELDS.every(function (k) { return tok[k] === w[k]; }); }
     if (!ok && window.FLIGHTDECK_STRICT_GUARDS) throw new Error('A write its guard didn\'t admit: ' + JSON.stringify(w));
     return ok;
   }

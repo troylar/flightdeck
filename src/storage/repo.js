@@ -1247,7 +1247,8 @@ PF.repo = (function () {
         var e = new Error(w.expect === 'absent' ? 'A file is already at ' + w.path + ', so nothing was written over it.' : 'The file changed before it could be written, so nothing was written.');
         e.dropped = true; e.arrived = true; throw e;
       }
-      if (GATE(tok, w) !== true) throw notAdmitted();
+      /* The gate is told the folder written to: a token is good only for the folder its guard read (round 21, ZA). */
+      if (GATE(tok, w, fs) !== true) throw notAdmitted();
       return fs.write(w.path, text);
     });
   }
