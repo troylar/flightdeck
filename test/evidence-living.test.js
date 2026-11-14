@@ -2418,4 +2418,43 @@ rule('A spread creation without its derived "spread" field is replayed as the ap
   assert.strictEqual(res.status, 'complete', 'the export: ' + JSON.stringify(res.col.unresolved));
   if (PY) { const c = checkPack(zip); assert.ok(c.ok, 'Python accepts it: ' + c.out); }
 });
+/* YA: Python reads the run's work in the app's causal order (PF.loop.causal): a record that saw one it can't follow (a
+   circle, a receipt, a fact, a record the folder doesn't hold) is held, with everything after it, and a held link breaks
+   the chain. Each forgery keeps every id valid (what a record saw is in no id), the export is partial, and Python refuses
+   a complete claim, on the run itself and on a run its work depends on. */
+rule('Work whose records can\'t be read in causal order is held: a circle or a predecessor outside the work leaves the pack partial, named', async () => {
+  const resee = (files, path, seen) => { const o = JSON.parse(files[path]); o.seen = seen; return Object.assign({}, files, { [path]: JSON.stringify(o, null, 2) + '\n' }); };
+  const recs = (files, run) => Object.keys(files).filter((p) => /^proposals\/req-/.test(p)).map((p) => [p, JSON.parse(files[p])]).filter(([, o]) => o.run && o.run.process === run.process && o.run.id === run.id);
+  const misses = [];
+  const check = async (what, PF, files, key) => {
+    const { res, zip } = await pack(PF, new BytesFS(files), key);
+    if (res.status !== 'partial') misses.push(what + ': the export: ' + res.status);
+    if (PY) { const c = checkPack(await repacked(PF, zip, (e, man) => forced(man))); if (c.ok) misses.push(what + ': Python: ' + c.out); }
+  };
+  /* The run itself: two to-dos added (compounds A then B, B the head), ended with a receipt. */
+  const W = await made({ todos: 2 }), r = JSON.parse(W.files[W.runPath]), mine = recs(W.files, r);
+  const A = mine.find(([, o]) => o.kind === 'compound' && o.id !== r.living.head), B = mine.find(([, o]) => o.id === r.living.head);
+  assert.ok(A && B && B[1].seen.indexOf(A[1].id) >= 0, 'set-up: B saw A');
+  const ctl = await pack(W.PF, new BytesFS(W.files), W.key);
+  assert.strictEqual(ctl.res.status, 'complete', 'the control');
+  if (PY) assert.ok(checkPack(ctl.zip).ok, 'Python accepts the control: ' + checkPack(ctl.zip).out);
+  await check('A saw the head (a circle)', W.PF, resee(W.files, A[0], [B[1].id]), W.key);
+  await check('A saw the receipt', W.PF, resee(W.files, A[0], [r.living.receipt]), W.key);
+  /* A new request of the run that saw A, which A saw in turn. */
+  const T = W.PF.todos, q = T.buildProposal({ run: { process: r.process, id: r.id }, producer: { name: 'notes-bot', version: '1.0' }, key: 'k-ya1', seen: [A[1].id], at: new Date().toISOString(), body: { op: 'add', text: 'Late', target: { phase: 'draft' }, placement: T.placementFor(W.PF.run.mapOf(W.PF.run.sanitize(r)), { phase: 'draft' }) } });
+  await check('A saw a request that saw A', W.PF, Object.assign(resee(W.files, A[0], [q.id]), { ['proposals/' + q.id + '.json']: T.text(q) }), W.key);
+  /* A fact (informational, never in the causal order) as a predecessor. */
+  const FW = await factMade(), fr = JSON.parse(FW.files[FW.runPath]), fm = recs(FW.files, fr), first = fm.find(([, o]) => o.kind === 'compound');
+  assert.ok(first, 'set-up: the fact world\'s first compound');
+  await check('a record saw a fact', FW.PF, resee(FW.files, first[0], [FW.factId]), FW.key);
+  /* A run the work depends on: the story run's own to-do saw itself through its head. */
+  const L = await loopMade(), K = L.kid, km = recs(L.files, K), kh = km.find(([, o]) => o.id === K.living.head);
+  assert.ok(kh, 'set-up: the story run\'s head');
+  await check('the story run\'s head saw itself', L.PF, resee(L.files, kh[0], [kh[1].id]), L.key);
+  /* A predecessor of another run (packed: the story run's head) for the parent's own head. */
+  const ph = recs(L.files, L.run).find(([, o]) => o.id === L.run.living.head);
+  assert.ok(ph, 'set-up: the parent\'s head');
+  await check('the parent\'s head saw another run\'s record', L.PF, resee(L.files, ph[0], [kh[1].id]), L.key);
+  assert.deepStrictEqual(misses, []);
+});
 run();

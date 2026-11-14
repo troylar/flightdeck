@@ -932,4 +932,11 @@ rule('3.0.1: A loop at Latest that passes a detail its child no longer has is li
   has(c.suggestions, /Release readiness \(published\) .*passes \^issue to this checklist/);
 });
 
+/* YA: a record that saw itself is a circle, held with everything after it; reading it never fails (3.0's reducer threw). */
+rule('A record that names itself among what it saw is held, with every record after it, and reading never fails', () => {
+  const LP = PF.loop, a = { id: 'r1', seen: ['r1'] }, b = { id: 'r2', seen: ['r1'] }, c = { id: 'r3', seen: [] };
+  const got = LP.causal([a, b, c]);
+  same(got.order.map(r => r.id), ['r3']);
+  same(got.held.map(h => h.record).sort(), ['r1', 'r2']);
+});
 run();

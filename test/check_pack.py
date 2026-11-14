@@ -1044,30 +1044,75 @@ def check_living(z, man):
         # against its request and the work as it stood, before anything is taken from it. One that doesn't fit breaks the chain:
         # named, and nothing after it is replayed.
         opened: dict = {}
-        mine = {}
+        # The run's work in the app's causal order (PF.loop.causal over the run's own records, as the export's PF.todos.view
+        # reads them, YA): only records the app reads as this run's to-do records, by the record each name stands for (a status
+        # record's id is its name), never a fact, keep or receipt. Copies of one id that differ, a record that saw one outside
+        # that set or in a circle (itself included), and everything after either, are held; only records read in order replay.
+        mine, split = {}, set()
         for path in sorted(reached):
-            # By the record each name stands for (a status record's id is its name, as the app reads it).
-            o, rid = (packed(path), record_name(path)) if path.startswith("proposals/") else (None, "")
-            if rid and isinstance(o, dict) and o.get("run") == me and o.get("kind") not in ("fact", "keep", "receipt"):
-                mine.setdefault(rid, o)
+            rid = record_name(path)
+            if not rid:
+                continue
+            d, o = dispatch(path), packed(path)
+            if d["fam"] != "todo" or d["bad"] or d["run"] != me or not isinstance(o, dict) or o.get("kind") in ("fact", "keep", "receipt"):
+                continue
+            if rid in mine and copy_body(mine[rid]) != copy_body(o):
+                split.add(rid)
+            mine.setdefault(rid, o)
+        state, anc, held = {}, {}, set()
+
+        def finish(i):
+            state[i] = 2
+            if i in split:
+                anc[i] = None
+                held.add(i)
+                return
+            a, ok = set(), True
+            for y in arr(mine[i].get("seen")):
+                # Not here, not finished, held, or this record itself (its ancestors aren't known yet): held.
+                if not isinstance(y, str) or y not in mine or state.get(y) != 2 or anc.get(y) is None:
+                    ok = False
+                    continue
+                a.add(y)
+                a |= anc[y]
+            anc[i] = a if ok else None
+            if not ok:
+                held.add(i)
+
+        for root in sorted(mine):
+            stack = [[root, False]]
+            while stack:
+                top = stack[-1]
+                i = top[0]
+                if top[1]:
+                    stack.pop()
+                    finish(i)
+                    continue
+                if i in state:
+                    stack.pop()
+                    continue
+                state[i], top[1] = 1, True
+                if i in split:
+                    continue
+                for y in reversed(arr(mine[i].get("seen"))):
+                    if isinstance(y, str) and y in mine and y not in state:
+                        stack.append([y, False])
+        readable = {k: v for k, v in mine.items() if k not in held}
 
         def ancestors(rid):
-            out, stack = set(), list(arr(obj(mine.get(rid)).get("seen")))
-            while stack:
-                y = stack.pop()
-                if isinstance(y, str) and y not in out and y in mine:
-                    out.add(y)
-                    stack.extend(arr(mine[y].get("seen")))
-            return out
+            return anc.get(rid) or set()
 
         landed, spreads, added = set(), {}, 0
         for at in chain if whole else []:
+            if at not in readable:
+                work_problems.append("proposals/" + at + ".json: The application " + at + " can't be read in order yet.")
+                break
             rec = wit(at)
             comp = rec.get("kind") == "compound"
             ap = obj(rec.get("application")) if comp else rec
             e = obj(ap.get("effect"))
             pid = at if comp else rec.get("proposal")
-            p = mine.get(pid) if isinstance(pid, str) else None
+            p = readable.get(pid) if isinstance(pid, str) else None
             td, op = e.get("todo"), e.get("op")
             x0 = opened.get(td) if isinstance(td, str) else None
             st = x0["state"] if x0 else None

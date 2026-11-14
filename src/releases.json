@@ -81,6 +81,14 @@
         "before": "In 3.0, when a story's run or the version it runs on couldn't be read, the loop read that story's result as none and sent its approval back for review.",
         "now": "The approval stays as it is and the loop's gate waits until the run and its version read again. If nothing changed, it stays approved; if the result changed, it goes back for review then. This applies to every loop, with or without spreads or to-dos.",
         "where": "A run's loop"
+      },
+      {
+        "kind": "fixed",
+        "area": "Loops",
+        "title": "A loop record that names itself no longer stops the loop from reading",
+        "before": "In 3.0, a loop record that listed itself among the records it saw made reading the loop fail.",
+        "now": "That record is held, with every record after it, and the rest of the loop reads as usual.",
+        "where": "A run's loop"
       }
     ]
   },

@@ -1,8 +1,8 @@
 {
   "texts": {
     "CHANGELOG.md": {
-      "sha256": "6f2f8cc5f31d38546c03149d74abb528b6a7df9662c678c003610639ca63ab0e",
-      "reviewed": "4.0 slice 6 commit 8, readers, checker and release: appjson and bin/flightdeck.js read pending to-do requests before a run gains living and an ended run's receipt (missing or mismatch named, exit 4), check_folder.py's receipt_why port, the living-run, status and learn-from-runs skills, the command guide, file formats, docs/apps.md, the 4.0.0 release entries and the rehearsal waiver; checked for direct writes and unconditional deletes: the readers only read, the skills tell an assistant never to write a receipt or end a run, nothing deleted"
+      "sha256": "25f9bf9e38254c9ef15a63ef247f54fe2fc0917bb3bf43516347639e02887330",
+      "reviewed": "YA: PF.loop.causal holds a record that names itself; release entry; check_pack.py mirrors causal order; checked for direct writes and unconditional deletes"
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
@@ -25,8 +25,8 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "1cc53d2f0a79b34be8dc1f4909ccf743674a435d1b4e8b95f77b2a5227f3d53e",
-      "reviewed": "YB: check_pack.py reads a request's effect from the body check_folder.py's todo_why checked (derived ids filled in); todo_why gains an optional body list; checked for direct writes and unconditional deletes"
+      "sha256": "ba511fb65dcfc45be701fbec36db8535021e9a610d921576b9e5be2ba187243a",
+      "reviewed": "YA: PF.loop.causal holds a record that names itself; release entry; check_pack.py mirrors causal order; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "f1888f293ac4248d13cd445508f25d6dac78756b938ce890dc33ad9e11e5b313",
@@ -273,8 +273,8 @@
       "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
     },
     "src/core/loop.js": {
-      "sha256": "a786204ab8506e98db085794958d687caf186ac9f31d56281bef5dcf969f3f5c",
-      "reviewed": "AA: one copy rule (copyBody) in the export and check_pack"
+      "sha256": "e05a905d16c6ef5af49e5b47e9658f35907b185e12bbd5ade4e42c91ae873055",
+      "reviewed": "YA: PF.loop.causal holds a record that names itself; release entry; check_pack.py mirrors causal order; checked for direct writes and unconditional deletes"
     },
     "src/core/map.js": {
       "sha256": "f9eae33f6635cd1b3983fc1c71eb7a3b3c8dc1c70ca3ef8ce8807d5228165d2f",
@@ -417,8 +417,8 @@
       "reviewed": "FD: every fact line reachable on the run screen (count left out, Show all), contrary lines first; checked for direct writes and unconditional deletes"
     },
     "src/releases.json": {
-      "sha256": "5c41072802963b1c2271eb845bd846a4537f2656a4d1294f03ec7be340122603",
-      "reviewed": "4.0 slice 6 commit 8, readers, checker and release: appjson and bin/flightdeck.js read pending to-do requests before a run gains living and an ended run's receipt (missing or mismatch named, exit 4), check_folder.py's receipt_why port, the living-run, status and learn-from-runs skills, the command guide, file formats, docs/apps.md, the 4.0.0 release entries and the rehearsal waiver; checked for direct writes and unconditional deletes: the readers only read, the skills tell an assistant never to write a receipt or end a run, nothing deleted"
+      "sha256": "344cd7a51e19d608023feb3673aa50117e3a6f578a08b0efa64840f2fcac7489",
+      "reviewed": "YA: PF.loop.causal holds a record that names itself; release entry; check_pack.py mirrors causal order; checked for direct writes and unconditional deletes"
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",

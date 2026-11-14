@@ -93,7 +93,8 @@ PF.loop = (function () {
       (by[id].seen || []).forEach(function (s) {
         var j = idx[s];
         if (j === undefined) { ok = false; missing.push(s); return; }
-        if (state[j] !== 2 || anc[j] === null) { ok = false; return; }
+        /* Not finished, held, or this record itself (it names itself: its ancestors aren't known yet): a circle, held. */
+        if (state[j] !== 2 || !anc[j]) { ok = false; return; }
         a[j >>> 5] |= 1 << (j & 31);
         var aj = anc[j]; for (var k = 0; k < W; k++) a[k] |= aj[k];
       });

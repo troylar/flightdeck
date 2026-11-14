@@ -23,6 +23,10 @@ Living runs: to-dos a run takes on while it runs.
 - **Evidence packs hold what a run's to-dos rest on** (Evidence). A pack of a run with to-dos holds its to-do records: the chain of applications, the requests and decisions behind them, facts and runs used as evidence, its loops' records, its receipt, and the proof of what it kept for next time. Anything missing, unreadable or changing makes the pack partial and is named. The manifest's living section can be checked on its own. *Where:* Export evidence, flightdeck export
 - **A loop's approval stays put while a story's run can't be read** (Loops). The approval stays as it is and the loop's gate waits until the run and its version read again. If nothing changed, it stays approved; if the result changed, it goes back for review then. This applies to every loop, with or without spreads or to-dos. *Where:* A run's loop
 
+### Fixed
+
+- **A loop record that names itself no longer stops the loop from reading** (Loops). That record is held, with every record after it, and the rest of the loop reads as usual. *Where:* A run's loop
+
 ## 3.0.1 · Nov 9, 2026
 
 AI assistant files that match 3.0, and a folder check that reads loops.
