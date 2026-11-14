@@ -1030,4 +1030,22 @@ for (const name of Object.keys(OLD_RACES)) {
   });
 }
 
+/* WA: Keep for next time reads the run it keeps from again inside its final check and judges it as every reader does; the
+   keep is made again from that read, never from this window's copy. A run.json deleted or emptied, or its version damaged or
+   unreadable, since the screen was drawn (no refresh) files no keep. */
+rule('A keep files nothing when the run it keeps from was deleted, emptied or its version damaged since the screen was drawn', async () => {
+  for (const how of ['wa-delete', 'wa-empty', 'wa-pub', 'wa-pub-unreadable'].filter((h) => !process.env.WA_CASE || process.env.WA_CASE.split(',').indexOf(h) >= 0)) {
+    const app = await setup(), id = await added(app, 'Post the release notes'), F = app.fs.files, rp = runPath(app);
+    const pubDir = 'publications/release-notes/' + theRun(app).folder + '/', read = app.fs.read.bind(app.fs);
+    if (how === 'wa-delete') delete F[rp];
+    else if (how === 'wa-empty') { const o = theRun(app); o.details = []; F[rp] = { t: JSON.stringify(o, null, 2), m: Date.now() }; }
+    else if (how === 'wa-pub') F[pubDir + 'map.md'] = { t: F[pubDir + 'map.md'].t.replace('Write the notes', 'Skip the notes'), m: Date.now() };
+    else app.fs.read = (p, ...a) => p === pubDir + 'publication.json' ? Promise.reject(Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' })) : read(p, ...a);
+    app.click('keep', id, { kind: 'todo' }); await app.tick(200);
+    app.fs.read = read;
+    assert.strictEqual(keeps(app).length, 0, how + ': no keep filed: ' + app.live());
+    assert.ok(!/Suggest for next time in release-notes/.test(txt(app.html()) + ' ' + app.live()), how + ': never said kept');
+  }
+});
+
 run();
