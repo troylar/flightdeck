@@ -26153,12 +26153,29 @@ PF.repo = (function () {
     function statOf(path) { return ro.stat(path).then(function (st) { return st ? st.size : null; }); }
     /* One decoder for every record, as a browser reads files: UTF-8, a byte-order mark dropped. */
     function decoded(t) { return t == null ? null : String(t).replace(/^﻿/, ''); }
-    /* Text of a file that's never packed (another run's records, people.json): sized first, never over limit. */
-    function sizedText(path, limit) {
+    /* Text of a file that's never packed (another run's records, people.json): sized first, then read in bounded slices,
+       counting the bytes actually read (4.0, OC). A file that grew since its stat is never read past the limit, nor past
+       what is left of budget ({ left }, when given): past either it is too big ({ over }). */
+    function sizedText(path, limit, budget) {
       return statOf(path).then(function (size) {
         if (size == null) return { missing: true };
-        if (size > limit) return { over: size };
-        return ro.read(path).then(function (f) { return f ? { text: decoded(f.text) } : { missing: true, gone: true }; }, function () { return { missing: true, failed: true }; });
+        if (size > limit || (budget && size > budget.left)) return { over: size };
+        return ro.blob(path).then(function (b) {
+          if (!b) return { missing: true, gone: true };
+          var parts = [], off = 0, room = budget ? Math.min(limit, budget.left) : limit;
+          var done = function (r) { if (b.close) b.close(); return r; };
+          function step() {
+            if (off > room) return done({ over: Math.max(off, size, 1) });
+            if (off >= b.size) return done({ text: decoded(E.text(E.join(parts))) });
+            return b.slice(off, Math.min(b.size, off + EV_CHUNK, room + 1)).arrayBuffer().then(function (ab) {
+              var u = new Uint8Array(ab);
+              if (!u.length) throw new Error('A file ended early while it was read.');
+              parts.push(u); off += u.length; if (budget) budget.left -= u.length;
+              return step();
+            });
+          }
+          return Promise.resolve().then(step).then(null, function (e) { if (b.close) b.close(); throw e; });
+        }).then(null, function () { return { missing: true, failed: true }; });
       });
     }
 
@@ -26341,14 +26358,14 @@ PF.repo = (function () {
         if (over || total > CTX_MAX) return { decisions: ds, groups: [], pubs: [], runs: [], index: null, why: 'The runs and versions of ' + proc + ' are too big to read here (' + E.size(total) + '), so where its corrections stand can\'t be worked out.' };
         /* Every other run's file that was listed but gone when sized, or couldn't be read, is named by its path and kind: where
            corrections stand can't be worked out without it (4.0, NC). A run in the pack answers for its own files. */
-        var fails = [];
+        var fails = [], budget = { left: CTX_MAX };
         r[1].forEach(function (m) { if (selected[m.key]) return; if (m.noRun) fails.push(m.base + 'run.json (vanished)'); m.want.forEach(function (n, i) { if (m.sizes[i] == null) fails.push(m.base + n + ' (vanished)'); }); });
         var runs = limited(r[1].filter(function (m) { return m.want.length; }), 8, function (m) {
           /* A run in the pack is read from its snapshot; any other only as text. */
           var read = function (n, i) {
             if (selected[m.key]) return record(m.base + n).then(function (x) { return x.text == null ? null : x.text; });
             if (m.sizes[i] == null) return Promise.resolve(null);
-            return sizedText(m.base + n, recordMax).then(function (x) {
+            return sizedText(m.base + n, recordMax, budget).then(function (x) {
               if (x.text == null) fails.push(m.base + n + (x.over ? ' (too big)' : x.failed ? ' (unreadable)' : ' (vanished)'));
               return x.text == null ? null : x.text;
             });

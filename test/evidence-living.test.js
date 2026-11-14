@@ -1693,8 +1693,9 @@ rule('A keep whose process has a run that can\'t be read leaves the pack partial
   const ctl = await pack(W.PF, new BytesFS(files), W.key);
   assert.strictEqual(ctl.res.status, 'complete', 'the control: ' + JSON.stringify(ctl.res.col.unresolved));
   const failing = (how, at) => {
-    const fsx = new BytesFS(files), read = fsx.read.bind(fsx), stat = fsx.stat.bind(fsx);
+    const fsx = new BytesFS(files), read = fsx.read.bind(fsx), blob = fsx.blob.bind(fsx), stat = fsx.stat.bind(fsx);
     fsx.read = (p) => p === other + at && how !== 'stat' ? (how === 'eio' ? Promise.reject(new Error('EIO: i/o error')) : Promise.resolve(null)) : read(p);
+    fsx.blob = (p) => p === other + at && how !== 'stat' ? (how === 'eio' ? Promise.reject(new Error('EIO: i/o error')) : Promise.resolve(null)) : blob(p);
     fsx.stat = (p) => p === other + at && how === 'stat' ? Promise.resolve(null) : stat(p);
     return fsx;
   };
@@ -1726,6 +1727,24 @@ rule('A keep whose process lists a run whose run.json is gone, or a link, by its
     const mr = manifestOf(zip).runs[0], cl = mr.claims.filter((c) => c.correction === W.keepId)[0];
     assert.ok(cl && !cl.verified && mr.living && !mr.living.complete, how + ': the keep isn\'t confirmed ' + JSON.stringify(mr.claims));
     if (PY) assert.ok(!checkPack(await repacked(W.PF, zip, (e, man) => forced(man))).ok, how + ': Python refuses a complete claim');
+  }
+});
+/* OC: another run's files are read within bounds, counting the bytes actually read: one small when sized but over the file
+   limit when read, or files that together read past the context budget, are too big, named, and the pack is partial. */
+rule('A keep whose process has a run whose files grow past the file limit or the context budget after sizing leaves the pack partial, named', async () => {
+  const W = await made({ todos: 1, keep: 'placed' }), proc = W.key.split('/')[0], MiB = 1048576, more = { cap: 32 * MiB, maxFile: MiB };
+  const other = 'runs/' + proc + '/ctxrun0001/', base = Object.assign({}, W.files, { [other + 'run.json']: otherRoot(W, 'ctxrun0001') });
+  const lying = (files) => { const fsx = new BytesFS(files), stat = fsx.stat.bind(fsx); fsx.stat = (p) => p.indexOf(other + 'notes-') === 0 ? stat(p).then((s) => s && Object.assign({}, s, { size: 10 })) : stat(p); return fsx; };
+  const ctl = await pack(W.PF, lying(Object.assign({}, base, { [other + 'notes-w1.jsonl']: '' })), W.key, more);
+  assert.strictEqual(ctl.res.status, 'complete', 'the control: ' + JSON.stringify(ctl.res.col.unresolved));
+  const big = Object.assign({}, base, { [other + 'notes-w1.jsonl']: '\n'.repeat(3 * MiB) });
+  const many = Object.assign({}, base); for (let i = 0; i < 10; i++) many[other + 'notes-w' + i + '.jsonl'] = '\n'.repeat(MiB - 4096);
+  for (const [what, files, at] of [['one file past the limit', big, other + 'notes-w1.jsonl'], ['files past the context budget', many, other + 'notes-w']]) {
+    const { res, zip } = await pack(W.PF, lying(files), W.key, more);
+    assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(at) >= 0 && /too big/.test(u)), what + ': ' + res.status + ' ' + JSON.stringify(res.col.unresolved));
+    const mr = manifestOf(zip).runs[0], cl = mr.claims.filter((c) => c.correction === W.keepId)[0];
+    assert.ok(cl && !cl.verified, what + ': the keep isn\'t confirmed ' + JSON.stringify(mr.claims));
+    if (PY) assert.ok(!checkPack(await repacked(W.PF, zip, (e, man) => forced(man))).ok, what + ': Python refuses a complete claim');
   }
 });
 /* ND: each run the work depends on is named as the export names it: exactly its key, role, head, chain, receipt and
