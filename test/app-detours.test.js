@@ -527,6 +527,20 @@ rule('Accept writes nothing when a listed file of the evidence run is gone when 
   assert.strictEqual(evRecs(app).length, 0, 'nothing written');
 });
 
+/* VF: a part of the evidence run listed as a link (never read through) is named, and Accept writes nothing. */
+rule('Accept writes nothing when a part of the evidence run is listed as a link', async () => {
+  const { app, todo } = await setup();
+  const key = await runIt(app, todo);
+  finish(app, key, 'pass');
+  await toParent(app); await refresh(app, 300);
+  assert.ok(/data-act="td-evidence"/.test(app.html()), 'set-up: Accept offered');
+  const fs = app.fs, list = fs.list.bind(fs), dir = 'runs/' + key;
+  fs.list = (p, ...a) => list(p, ...a).then((items) => p === dir ? items.concat([{ name: 'notes-w9.jsonl', kind: 'link' }]) : items);
+  app.click('td-evidence', todo, { run: key.split('/')[1] }); await app.tick(250);
+  fs.list = list;
+  assert.strictEqual(evRecs(app).length, 0, 'nothing written');
+});
+
 /* PA: Start, Decline and the plan's creation read proposals/ last but for people.json, through the final check
    (PF.repo.planFinal): the exact plan, its copies and its decisions as that read finds them. A plan torn, gone, copied
    differently or decided while the pinned version is read, or a copy that arrives while the plan is read, writes nothing. */

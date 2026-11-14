@@ -25,8 +25,8 @@
       "reviewed": "VE: a run whose own checklist this copy can't run is named unusable at its run.json in the shared run verdict; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "b66196e12c53436a2eabf085395d233cfcd6456d99b3a5415456d22919eff509",
-      "reviewed": "VE: a run whose own checklist this copy can't run is named unusable at its run.json in the shared run verdict; checked for direct writes and unconditional deletes"
+      "sha256": "b9cc81760a5acee2d38f7dad246669181c61fd0d6cf550df2a1963c5513a76fe",
+      "reviewed": "VF: a part of a run listed as a link is named (link) in the run's read, so the shared evidence verdict holds it; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -417,8 +417,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "def5daf46ae2946b320da0391e5d79bc7f412f3cf2a90a93e6e0ce1185d733e5",
-      "reviewed": "VD: Promote publishes only the exact stage its kept-content guard judged, refusing one read differently; checked for direct writes and unconditional deletes"
+      "sha256": "50eabf2e7e13fbbb18d024136798cc538610dd9df57066f05b7c31978ecc9448",
+      "reviewed": "VF: a part of a run listed as a link is named (link) in the run's read, so the shared evidence verdict holds it; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "b3f20213190261073aa1f13fa4247da9efe7a5c3c32a522cbd9d85fdf1ab5d65",

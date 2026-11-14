@@ -495,6 +495,9 @@ PF.repo = (function () {
       var names = items.filter(function (i) { return i.kind === 'file'; }).map(function (i) { return i.name; });
       var extra = names.filter(function (n) { return n !== 'run.json' && /^run.*\.json$/i.test(n); });
       var noteFiles = names.filter(function (n) { return /^notes-[\w-]+\.jsonl$/.test(n); });
+      /* VF: a part of the run listed as a link is never read through, and named (as the command line names it), so every
+         reader's verdict on the run sees it. */
+      if (o.explain && bad) items.forEach(function (i) { if (i && i.kind === 'link' && (/^notes-[\w-]+\.jsonl$/.test(i.name) || /^run.*\.json$/i.test(i.name))) bad.push({ path: base + i.name, key: proc + '/' + id, kind: 'link', why: 'A link. Flightdeck never reads through links.' }); });
       if (names.indexOf('run.json') < 0) return o.explain ? NOFILE : null;
       /* Notes files only grow, so one that hasn't changed size or time since the last read is taken from memory. */
       var notesCache = cacheIn.notes;
