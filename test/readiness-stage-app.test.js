@@ -29,7 +29,7 @@ async function tested(app, folder, n) {
   const PF = app.PF, st = await PF.repo.readStage(app.fs, 'release', folder);
   for (let i = 1; i <= n; i++) {
     const r = completeRun(PF, PF.run.create(st, { test: true, title: 'Try ' + i, id: 'run-try' + i, details: { ticket: 'T', commit: 'c', environment: 'p', tag: 'v1' }, roles: ROLES, by: 'person-avery', session: 'w', now: '2026-10-22T09:00:00.000Z', app: '2.1.0' }), '2026-10-22T09:00:00.000Z');
-    await PF.repo.saveRun(app.otherWindow(), r, 'w');
+    await app.otherRepo().saveRun(app.fs, r, 'w');
   }
   app.click('refresh'); await app.tick(120);
   app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();
@@ -95,7 +95,7 @@ rule('A stage whose only test run is still going says 0 of 3 clean, and offers n
   const { app, folder } = await staged('person-casey');
   const PF = app.PF, st = await PF.repo.readStage(app.fs, 'release', folder);
   const r = PF.run.create(st, { test: true, title: 'Going', id: 'run-going', details: { ticket: 'T', commit: 'c', environment: 'p', tag: 'v1' }, roles: ROLES, by: 'person-avery', session: 'w', now: '2026-10-22T09:00:00.000Z', app: '2.1.0' });
-  await PF.repo.saveRun(app.otherWindow(), r, 'w');
+  await app.otherRepo().saveRun(app.fs, r, 'w');
   app.click('refresh'); await app.tick(120);
   app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();
   assert.ok(/0 of 3 clean test runs/.test(line(app, folder)), line(app, folder));
@@ -211,7 +211,7 @@ rule('Signing off the default version on test runs never counts a run on screen 
   const PF = app.PF, d = await PF.repo.loadAll(app.fs), pub = d.processes.filter(p => p.process === 'release')[0].index.latest;
   assert.strictEqual(pub.info.version, 3, 'set-up: v3 is the default');
   const r = completeRun(PF, PF.run.create(pub, { title: 'Real one', id: 'run-real1', details: { ticket: 'T', commit: 'c', environment: 'p', tag: 'v1' }, roles: ROLES, by: 'person-avery', session: 'w', now: '2026-10-22T09:00:00.000Z', app: '2.1.0' }), '2026-10-22T09:00:00.000Z');
-  await PF.repo.saveRun(app.otherWindow(), r, 'w');
+  await app.otherRepo().saveRun(app.fs, r, 'w');
   app.click('refresh'); await app.tick(160);
   // Its file is then replaced by another run's: it stays on screen, but no longer counts.
   app.fs.files['runs/release/run-real1/run.json'] = { t: app.fs.files['runs/release/run-try1/run.json'].t, m: Date.now() + 1 };

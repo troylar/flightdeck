@@ -1276,7 +1276,7 @@ const scopeChange = async (app, change, key) => {
   const PF = app.PF, LP = PF.loop, r = parentRun(app);
   const c = LP.cleanIntent({ loop: { process: 'release-readiness', run: r.id, step: 'each' }, changes: [change] }, key, { name: 'release-helper', version: '1.0' });
   assert.strictEqual(c.errors.length, 0, c.errors.join(' '));
-  const d = await PF.repo.loadAll(app.otherWindow(), {}), V = LP.view(r, 'each', { records: d.scopes, runs: d.runs });
+  const d = await PF.repo.loadAll(new Proxy(app.fs, {}), {}), V = LP.view(r, 'each', { records: d.scopes, runs: d.runs });
   const f = LP.buildRequest(c.intent, { seen: V.ledger.heads, children: [], now: new Date().toISOString(), app: '3.0.0' });
   app.fs.files['proposals/' + f.id + '.json'] = { t: LP.text(f), m: Date.now() };
   return f.id;
@@ -1290,7 +1290,7 @@ rule('Round 19 (XC): a start request whose story is given to someone else while 
   fs0.read = function (q) { const a = arguments; if (!hit && /^runs\/validate-story\/[^/]+\/run\.json$/.test(q) && !fs0.files[q]) { hit = q; return hold.p.then(() => read.apply(fs0, a)); } return read.apply(fs0, a); };
   const PF = app.PF, LP = PF.loop, r = parentRun(app);
   const c = LP.cleanIntent({ loop: { process: 'release-readiness', run: r.id, step: 'each' }, changes: [{ op: 'start', item: { key: 'ABC-101' }, as: 'person-blake' }] }, 'xc-start', { name: 'release-helper', version: '1.0' });
-  const d = await PF.repo.loadAll(app.otherWindow(), {}), V = LP.view(r, 'each', { records: d.scopes, runs: d.runs });
+  const d = await PF.repo.loadAll(new Proxy(app.fs, {}), {}), V = LP.view(r, 'each', { records: d.scopes, runs: d.runs });
   const f = LP.buildRequest(c.intent, { seen: V.ledger.heads, children: [], now: new Date().toISOString(), app: '3.0.0' });
   app.fs.files['proposals/' + f.id + '.json'] = { t: LP.text(f), m: Date.now() };
   app.click('refresh');
@@ -1300,5 +1300,64 @@ rule('Round 19 (XC): a start request whose story is given to someone else while 
   hold.open(); await app.tick(600); fs0.read = read;
   assert.deepStrictEqual(kidPaths(app), [], 'no run started');
   assert.notStrictEqual((outcome(app, f.id) || {}).op, 'applied', 'the start request isn\'t recorded applied');
+});
+/* Round 20 (YA): a scope token is made by the guard for exactly one record: its path, absent, the run it names and its
+   bytes. Taken from a real Add (answered false, so nothing is written) and used for anything else, it writes nothing. */
+rule('Round 20 (YA): a genuine scope token writes neither other bytes at its path, nor another record, nor a run', async () => {
+  const app = await setup(), R = app.PF.repo, ss = R.saveScope, got = [];
+  R.saveScope = function (f, n, file, o) { o = Object.assign({}, o); const rc = o.recheck; o.recheck = function () { return Promise.resolve(rc.apply(this, arguments)).then((t) => { got.push({ t, n, file }); return false; }); }; return ss.call(this, f, n, file, o); };
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(200);
+  R.saveScope = ss;
+  const one = got.find(x => x.t && typeof x.t === 'object');
+  assert.ok(one, 'set-up: Add\'s guard made a token');
+  const before = JSON.stringify(app.files('').map(f => [f, app.fs.files[f].t]));
+  const other = JSON.parse(JSON.stringify(one.file)); other.changes[0].item.key = 'ABC-999';
+  const tries = {
+    'other bytes at its path': () => R.saveScope(app.fs, one.n, other, { recheck: () => one.t }),
+    'another record': () => R.saveScope(app.fs, one.n.replace(/[0-9a-f]{4}\.json$/, 'abcd.json'), one.file, { recheck: () => one.t }),
+    'the loop\'s run': () => { const r = app.PF.run.sanitize(JSON.parse(app.fs.files[app.files('runs/release-readiness/').find(f => /run\.json$/.test(f))].t)); r._fileHash = R.fileHash(app.fs.files[app.files('runs/release-readiness/').find(f => /run\.json$/.test(f))].t); r.title = 'Taken over'; return R.saveRun(app.fs, r, 'mutant', { recheck: () => one.t }); }
+  };
+  for (const k of Object.keys(tries)) {
+    let how = 'resolved', v;
+    try { await Promise.resolve(tries[k]()).then(x => { v = x; }, () => { how = 'rejected'; }); } catch (e) { how = 'threw'; }
+    assert.ok(how !== 'resolved' || (v && v.dropped), k + ': ' + how + ' ' + JSON.stringify(v));
+  }
+  await app.tick(100);
+  assert.strictEqual(JSON.stringify(app.files('').map(f => [f, app.fs.files[f].t])), before, 'nothing written');
+});
+/* Round 20 (YC): a new run is started only past the fresh guard: the person starting it read again in people.json, active.
+   The start form for a second release run; while its run.json read waits, Avery is marked inactive. Nothing is written. */
+rule('Round 20 (YC): a run started from the form, its starter marked inactive while its first read waits, writes nothing', async () => {
+  const app = await setup(), runs = () => app.files('runs/release-readiness/').filter(f => /run\.json$/.test(f) || /candidate-/.test(f));
+  const had = runs().slice();
+  app.click('start', 'release-readiness'); await app.settle();
+  const fs0 = app.fs, read = fs0.read, hold = gate(); let hit = null;
+  fs0.read = function (q) { const a = arguments; if (!hit && /^runs\/release-readiness\/[^/]+\/run\.json$/.test(q) && !fs0.files[q]) { hit = q; return hold.p.then(() => read.apply(fs0, a)); } return read.apply(fs0, a); };
+  app.chooseApprovers().submitForm('start-form');
+  for (let t = 0; t < 40 && !hit; t++) await app.tick(50);
+  assert.ok(hit, 'set-up: the new run\'s first read');
+  const doc = JSON.parse(app.fs.files['people.json'].t), list = Array.isArray(doc) ? doc : doc.people;
+  list.forEach(x => { if (x.id === 'person-avery') x.inactive = true; });
+  app.fs.files['people.json'] = { t: JSON.stringify(doc, null, 2), m: Date.now() };
+  hold.open(); await app.tick(600); fs0.read = read;
+  assert.deepStrictEqual(runs(), had, 'no run, no candidate');
+});
+/* Round 20 (YD): a story's run is created only where nothing is: a run.json that arrives after its candidate is never
+   written over. Start ABC-101; once the candidate is written, another computer's run.json (rev 99, Blake recording) lands
+   there. Nothing is written over it. */
+rule('Round 20 (YD): a story\'s run that arrives after its start\'s candidate is never written over', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  const fs0 = app.fs, write = fs0.write, hold = gate(); let cand = null;
+  fs0.write = function (q) { const a = arguments; if (!cand && /^runs\/validate-story\/[^/]+\/candidate-[^/]+\.json$/.test(q)) { cand = q; return write.apply(fs0, a).then((x) => hold.p.then(() => x)); } return write.apply(fs0, a); };
+  app.click('loop-start', 'each', { item: 'ABC-101' });
+  for (let t = 0; t < 40 && !cand; t++) await app.tick(50);
+  assert.ok(cand, 'set-up: the start\'s candidate was written');
+  const there = cand.replace(/candidate-[^/]+\.json$/, 'run.json'), theirs = JSON.parse(fs0.files[cand].t);
+  theirs.rev = 99; theirs.recorder = Object.assign({}, theirs.recorder, { person: 'person-blake', session: 'other-computer' }); theirs.savedBy = 'other-computer';
+  const text = JSON.stringify(theirs, null, 2);
+  fs0.files[there] = { t: text, m: Date.now() };
+  hold.open(); await app.tick(600); fs0.write = write;
+  assert.strictEqual(fs0.files[there].t, text, 'the run that arrived is as it arrived');
 });
 run();

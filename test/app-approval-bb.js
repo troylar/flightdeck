@@ -261,7 +261,8 @@ function namer(app, kid) {
     if (p === first) return 'proposals/<scope 1>';
     if (head && p === head) return 'proposals/<application>';
     if (/^proposals\/[^/]+$/.test(p)) return 'proposals/<' + (/\/req-/.test(p) ? 'scope' : 'record') + '>';
-    return p.split(kidDir).join('runs/validate-story/<story>').split('/' + rid).join('/<run>').replace(/^runs\/validate-story\/(?!<story>)[^/]+/, 'runs/validate-story/<other>');
+    /* Round 20: a release run other than the fixture's is the one being started (its ID is new in every cell). */
+    return p.split(kidDir).join('runs/validate-story/<story>').split('/' + rid).join('/<run>').replace(/^runs\/validate-story\/(?!<story>)[^/]+/, 'runs/validate-story/<other>').replace(/^runs\/release-readiness\/(?!<run>)[^/]+/, 'runs/release-readiness/<new>');
   };
 }
 const CHANGES = {
@@ -438,6 +439,14 @@ const PATHS = {
     changes: AUTH,
     offered: () => '',
     go: async (app) => { app.click('pick', 'recorder', { kind: 'handoff' }); app.set('handoff-to', 'person-blake'); app.click('handoff'); }
+  },
+  /* Round 20 (YC): a run started from the start form. A create, past the fresh guard: nothing where it goes, and the person
+     starting it read again in people.json, active. */
+  'Start a run': {
+    changes: ['people.json EIO', 'the approver taken out of people.json', 'the approver marked inactive'],
+    before: (app) => JSON.stringify(app.files('runs/release-readiness/')),
+    offered: () => '',
+    go: async (app) => { app.click('start', 'release-readiness'); await app.settle(); app.chooseApprovers().submitForm('start-form'); }
   },
   'Land a delegated fulfillment': {
     needs: 'grantTool', changes: AUTH.concat(['the story\'s run handed to another session', 'the delegation revoked']),

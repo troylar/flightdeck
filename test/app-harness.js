@@ -350,14 +350,15 @@ function boot(opts) {
   const timerQ = [], clock = { now: 0, id: 1 };
   const appSetTimeout = !opts.timers ? setTimeout : (fn, ms) => { if (!(ms > 0)) return setTimeout(fn, 0); const t = { id: 'm' + clock.id++, at: clock.now + ms, fn }; timerQ.push(t); return t.id; };
   const appClearTimeout = !opts.timers ? clearTimeout : id => { const i = timerQ.findIndex(t => t.id === id); if (i >= 0) timerQ.splice(i, 1); else clearTimeout(id); };
-  const ctx = vm.createContext({
+  const base = {
     window, document, history, location, localStorage: storage(), sessionStorage, navigator: Object.assign(opts.locks ? { locks: opts.locks } : {}, opts.navigator || {}), BroadcastChannel: opts.Channel, console, Date: opts.Date || Date, Math, JSON, Promise, Blob, fetch, btoa, Uint8Array,
     setTimeout: appSetTimeout, clearTimeout: appClearTimeout, setInterval: fn => { intervals.push(fn); return 0; }, requestAnimationFrame: fn => setTimeout(fn, 0), URL: opts.urlParser ? Object.assign(class extends URL {}, { createObjectURL: b => { lastBlob = b; return 'blob:x'; }, revokeObjectURL() {} }) : { createObjectURL: b => { lastBlob = b; return 'blob:x'; }, revokeObjectURL() {} },
     crypto: globalThis.crypto, TextEncoder, TextDecoder, indexedDB: opts.indexedDB, IntersectionObserver: opts.IntersectionObserver,
     // An elapsed-time clock the test moves (performance.now()); left out, the app falls back on Date.now().
     performance: opts.performance,
     getComputedStyle: opts.layout ? () => ({ getPropertyValue: () => '#1D7650', backgroundColor: 'rgba(0, 0, 0, 0)', position: 'static', visibility: 'visible', lineHeight: '20px' }) : undefined
-  });
+  };
+  const ctx = vm.createContext(Object.assign({}, base));
   vm.runInContext(script('pf-core'), ctx);
   /* Builds before 1.17 kept storage inside pf-app (the cross-version tests run those). */
   if (/<script id="pf-storage">/.test(html)) vm.runInContext(script('pf-storage'), ctx);
@@ -402,9 +403,18 @@ function boot(opts) {
     badge: () => els['tab-badge'].innerHTML,
     badgeInert: () => els['tab-badge'].hasAttribute('inert'),
     overlay: () => els.overlay.innerHTML,
-    /* Round 19: another window's view of the same folder. The app registers its own folder object for guarded writes, so a
-       test that writes as another window (repo.saveRun) does it through this, which the app never registered. */
-    otherWindow() { return new Proxy(this.fs, {}); },
+    /* Round 20: another window's storage code. The app installs its write gate on its own copy of repo, once; a test that
+       writes as another window or computer would (repo.saveRun) uses this one, its own copy of core and storage, which
+       never installs a gate. */
+    otherRepo() {
+      if (!this._otherRepo) {
+        const c = vm.createContext(Object.assign({}, base, { window: {} }));
+        vm.runInContext(script('pf-core'), c);
+        if (/<script id="pf-storage">/.test(html)) vm.runInContext(script('pf-storage'), c);
+        this._otherRepo = c.PF.repo;
+      }
+      return this._otherRepo;
+    },
     // Submit a form as a browser would: its data-* attributes, and its fields' values (typed with set(), else as drawn), come
     // from the page. dataset overrides what the page drew, to simulate a form drawn earlier.
     /* Who approves is chosen on the start and plan forms (2.10): a test that isn't about that choice picks the rotation's

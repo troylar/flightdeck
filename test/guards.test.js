@@ -1,14 +1,15 @@
-// Round 19: the write-time guard is enforced where the bytes are written, not where a writer is called. The folder the app
-// opens is registered with repo, and repo's run writer (the candidate, run.json, a conflict copy) and scope record writer
-// refuse any write that doesn't hand over a token one of the app's guards made, for that run and revision, right before the
-// write. However a write is reached (an alias, a wrapper, a property, an object made from the folder, a token made by
-// hand), in the test build (FLIGHTDECK_STRICT_GUARDS) it throws, and nothing is written.
+// Round 20: the write-time guard is enforced where the bytes are written. The app installs its write gate on its own copy of
+// repo, once, before it opens a folder; from then on repo's run writer (the candidate, run.json, a conflict copy, a retried
+// start) and its scope writer refuse any write that doesn't hand over a token one of the app's guards made, right after a
+// fresh check, for exactly that write: its kind, its path, the run and revision, the state the destination must be in
+// (absent, or the fingerprint of the file it replaces) and the SHA-256 of its bytes. However a write is reached (an alias, a
+// wrapper, a property, a Proxy of the folder, an object made from it at any depth, a token made by hand or taken from another
+// write), in the test build (FLIGHTDECK_STRICT_GUARDS) it throws or is refused, and nothing is written.
 //
 // The writers, for reference (documentation only; nothing here depends on the list): save() (every mutateRun, so every
 // loopEdit, X, Reopen, Hand off, Try again: the ordinary fresh guard unless the change names its own), loopLaunch (a story's
-// run: the fresh guard, with a create binding), launchChild, continueTwo, csHarvest, resumeStart and startTestRun (new runs:
-// a create capability, refused when run.json is there), and scopeSave (every scope record: its fresh guard, or the report
-// token of a carried-out request's outcome).
+// run), launchChild, continueTwo, the start form, resumeStart and startTestRun (new runs: the fresh guard with a create key,
+// the destination absent), and scopeSave (every scope and to-do record, a carried-out request's outcome included).
 'use strict';
 const assert = require('assert');
 const fs = require('fs'), path = require('path');
@@ -21,20 +22,38 @@ async function opened(html) {
   return app;
 }
 /* A run in the opened folder, read as the app reads one (its fingerprint set). */
-function aRun(app) {
-  const p = app.files('runs/').find(f => /\/run\.json$/.test(f));
+function aRun(app, pick) {
+  const p = app.files('runs/').filter(f => /\/run\.json$/.test(f)).find(f => !pick || pick(f)) ;
   const r = app.PF.run.sanitize(JSON.parse(app.fs.files[p].t));
   r._fileHash = app.PF.repo.fileHash(app.fs.files[p].t);
   return { r, p, text: app.fs.files[p].t };
 }
 const snapshot = (app) => JSON.stringify(app.files('').map(f => [f, app.fs.files[f].t]));
-/* What a call did: threw (synchronously), rejected, or resolved; and whether anything in the folder changed. */
+/* What a call did: threw (synchronously), rejected, or resolved (and with what); and whether anything in the folder changed. */
 async function outcome(app, call) {
   const before = snapshot(app);
-  let how = 'resolved', why = '';
-  try { const p = call(); await Promise.resolve(p).then(null, (e) => { how = 'rejected'; why = e && e.message; }); } catch (e) { how = 'threw'; why = e && e.message; }
+  let how = 'resolved', why = '', value;
+  try { const p = call(); await Promise.resolve(p).then((v) => { value = v; }, (e) => { how = 'rejected'; why = e && e.message; }); } catch (e) { how = 'threw'; why = e && e.message; }
   await app.tick(100);
-  return { how, why, wrote: snapshot(app) !== before };
+  return { how, why, value, wrote: snapshot(app) !== before };
+}
+const refused = (o) => o.how !== 'resolved' || !!(o.value && o.value.dropped);
+
+/* Tokens the app's own guards hand over during a real click, taken before repo can use them: each write is answered false
+   (so nothing is written), and the token and the write it was made for are kept. */
+function capture(app) {
+  const R = app.PF.repo, got = [], sr = R.saveRun, ss = R.saveScope;
+  const steal = (fn) => function (f, phase, w) { return Promise.resolve(fn.apply(this, arguments)).then((t) => { got.push({ t, w }); return false; }); };
+  R.saveRun = function (f, r, s, o) { o = Object.assign({}, o); if (o.recheck) o.recheck = steal(o.recheck); if (o.create) o.create = steal(o.create); return sr.call(this, f, r, s, o); };
+  R.saveScope = function (f, n, file, o) { o = Object.assign({}, o); if (o.recheck) o.recheck = steal(o.recheck); return ss.call(this, f, n, file, o); };
+  return { got, off: () => { R.saveRun = sr; R.saveScope = ss; } };
+}
+/* Starts a check-in run from the form (a create), and answers one of its steps (an ordinary save). */
+async function startAndCheck(app) {
+  app.click('start', 'check-in'); await app.settle();
+  app.chooseApprovers().submitForm('start-form'); await app.tick(150);
+  const key = (/data-act="open-run" data-id="(check-in\/[^"]+)"/.exec(app.html()) || [])[1] || app.files('runs/check-in/').filter(f => /run\.json$/.test(f)).map(f => f.split('/').slice(1, 3).join('/')).pop();
+  return key;
 }
 
 const MUTANTS = {
@@ -42,47 +61,113 @@ const MUTANTS = {
   'a helper that wraps it': (app, r) => { const h = (f, x) => app.PF.repo.saveRun(f, x, 'mutant', { writer: 'mutant' }); return h(app.fs, r); },
   'a call through a property': (app, r) => { const o = { s: app.PF.repo.saveRun }; return o.s(app.fs, r, 'mutant'); },
   'an object made from the folder': (app, r) => app.PF.repo.saveRun(Object.create(app.fs), r, 'mutant'),
-  'a guard that answers true': (app, r) => app.PF.repo.saveRun(app.fs, r, 'mutant', { recheck: () => true })
+  'an object made from the folder 33 times over': (app, r) => { let f = app.fs; for (let i = 0; i < 33; i++) f = Object.create(f); return app.PF.repo.saveRun(f, r, 'mutant'); },
+  'a Proxy of the folder': (app, r) => app.PF.repo.saveRun(new Proxy(app.fs, {}), r, 'mutant'),
+  'a fresh wrapper of the folder': (app, r) => { const f = app.fs; return app.PF.repo.saveRun({ read: (p, o) => f.read(p, o), write: (p, t) => f.write(p, t), list: (p) => f.list(p), remove: (p) => f.remove(p) }, r, 'mutant'); },
+  'a guard that answers true': (app, r) => app.PF.repo.saveRun(app.fs, r, 'mutant', { recheck: () => true }),
+  'a Proxy and a guard that answers true': (app, r) => app.PF.repo.saveRun(new Proxy(app.fs, {}), r, 'mutant', { recheck: () => true })
 };
-for (const m of Object.keys(MUTANTS)) rule('A run written through ' + m + ', without its guard\'s token, throws in the test build and writes nothing', async () => {
+for (const m of Object.keys(MUTANTS)) rule('A run written through ' + m + ', without its guard\'s token, is refused in the test build and writes nothing', async () => {
   const app = await opened(), { r } = aRun(app);
-  r.title = 'Changed by a mutant';
+  r.title = 'Changed by a mutant'; r.recorder = Object.assign({}, r.recorder, { person: 'person-blake' });
   const o = await outcome(app, () => MUTANTS[m](app, r));
-  assert.deepStrictEqual([o.how === 'resolved', o.wrote], [false, false], JSON.stringify(o));
-  assert.ok(/guard didn't admit/.test(o.why), 'refused by the writer\'s check: ' + o.why);
+  assert.deepStrictEqual([refused(o), o.wrote], [true, false], JSON.stringify(o));
+  assert.ok(/guard didn't admit|wasn't admitted|no write-time check/.test(o.why), 'refused by the writer\'s check: ' + o.why);
 });
-rule('A token made by hand, shaped like the guard\'s, is refused: it was never made by the guard', async () => {
-  const app = await opened(), { r } = aRun(app), key = r.process + '/' + r.id;
+rule('A token made by hand, shaped like a guard\'s, is refused: it was never made by a guard', async () => {
+  const app = await opened(), { r, p, text } = aRun(app), key = r.process + '/' + r.id;
   r.title = 'Changed with a forged token';
-  const o = await outcome(app, () => app.PF.repo.saveRun(app.fs, r, 'mutant', { recheck: () => ({ kind: 'fresh', runs: { [key]: r.rev || 0 }, create: '' }) }));
-  assert.deepStrictEqual([o.how, o.wrote], ['rejected', false], JSON.stringify(o));
+  const forge = (f, phase, w) => Object.assign({}, w);
+  const o = await outcome(app, () => app.PF.repo.saveRun(app.fs, r, 'mutant', { recheck: forge }));
+  assert.deepStrictEqual([refused(o), o.wrote, app.fs.files[p].t === text], [true, false, true], JSON.stringify(o) + key);
 });
-rule('A new run written without its create capability throws in the test build and writes nothing', async () => {
+rule('A new run written without its guard throws in the test build and writes nothing', async () => {
   const app = await opened(), { r } = aRun(app);
   const n = JSON.parse(JSON.stringify(r)); n.id = 'mutant-new-run'; delete n._fileHash;
-  const o = await outcome(app, () => { const w = app.PF.repo.saveRun; return w(app.fs, n, 'mutant'); });
+  const o = await outcome(app, () => { const w = app.PF.repo.saveRun; return w(new Proxy(app.fs, {}), n, 'mutant'); });
   assert.deepStrictEqual([o.how, o.wrote], ['threw', false], JSON.stringify(o));
+});
+
+/* Genuine tokens, used for anything but the write they were made for. */
+rule('A genuine run token is good only for its own write: another run, another revision or other bytes are refused, and nothing is written', async () => {
+  const app = await opened(), key = await startAndCheck(app);
+  assert.ok(key, 'set-up: a run started');
+  app.click('open-run', key); await app.tick(60);
+  const step = (/data-act="toggle" data-id="([^"]+)"/.exec(app.html()) || [])[1];
+  assert.ok(step, 'set-up: a step to check');
+  const c = capture(app);
+  app.click('toggle', step); await app.tick(200);
+  c.off();
+  const one = c.got.find(x => x.t && typeof x.t === 'object' && (!x.w || x.w.kind === 'run'));
+  assert.ok(one, 'set-up: the save\'s guard made a token: ' + JSON.stringify(c.got.map(x => [typeof x.t, x.w && x.w.kind])));
+  const mine = aRun(app, f => f.indexOf('runs/' + key + '/') === 0), other = aRun(app, f => f.indexOf('runs/' + key + '/') !== 0 && /^runs\/check-in\//.test(f)) ;
+  const cases = {
+    'another run': () => { other.r.title = 'Another run, its token'; return app.PF.repo.saveRun(app.fs, other.r, 'mutant', { recheck: () => one.t }); },
+    'another revision': () => { const x = aRun(app, f => f.indexOf('runs/' + key + '/') === 0).r; x.rev = (x.rev || 0) + 7; return app.PF.repo.saveRun(app.fs, x, 'mutant', { recheck: () => one.t }); },
+    'other bytes': () => { const x = aRun(app, f => f.indexOf('runs/' + key + '/') === 0).r; x.title = 'Other bytes'; return app.PF.repo.saveRun(app.fs, x, 'mutant', { recheck: () => one.t }); }
+  };
+  for (const k of Object.keys(cases)) {
+    const o = await outcome(app, cases[k]);
+    assert.deepStrictEqual([k, refused(o), o.wrote], [k, true, false], JSON.stringify(o));
+  }
+  assert.strictEqual(aRun(app, f => f.indexOf('runs/' + key + '/') === 0).text, mine.text, 'the run is as it was');
+});
+rule('A genuine create token is good only for a run that is still absent: once a run.json is there, it writes nothing', async () => {
+  const app = await opened(), c = capture(app);
+  app.click('start', 'check-in'); await app.settle();
+  app.chooseApprovers().submitForm('start-form'); await app.tick(200);
+  c.off();
+  const one = c.got.find(x => x.t && typeof x.t === 'object' && (!x.w || x.w.kind === 'create'));
+  assert.ok(one, 'set-up: the start\'s guard made a create token: ' + JSON.stringify(c.got.map(x => [typeof x.t, x.w && x.w.kind])));
+  const ckey = (one.w && one.w.key) || one.t.key;
+  /* A run arrives where the new one would go (another computer's), then the token is tried there. */
+  const dir = 'runs/' + ckey + '/', there = dir + 'run.json', theirs = JSON.stringify({ arrived: true });
+  app.fs.files[there] = { t: theirs, m: Date.now() };
+  const n = app.PF.run.sanitize(JSON.parse(aRun(app).text)); n.process = ckey.split('/')[0]; n.id = ckey.split('/')[1]; delete n._fileHash;
+  const o = await outcome(app, () => app.PF.repo.saveRun(app.fs, n, 'mutant', { create: () => one.t }));
+  assert.deepStrictEqual([refused(o), app.fs.files[there].t], [true, theirs], JSON.stringify(o));
+});
+/* A genuine scope token used elsewhere is in app-loops.test.js (YA), which has a loop to write one for. */
+rule('A genuine run token never writes a scope record (another kind)', async () => {
+  const app = await opened(), c = capture(app);
+  const key = await startAndCheck(app);
+  app.click('open-run', key); await app.tick(60);
+  const step = (/data-act="toggle" data-id="([^"]+)"/.exec(app.html()) || [])[1];
+  app.click('toggle', step); await app.tick(200);
+  c.off();
+  const one = c.got.find(x => x.t && typeof x.t === 'object');
+  assert.ok(one, 'set-up: a genuine token');
+  const o = await outcome(app, () => app.PF.repo.saveScope(app.fs, SCOPE, scopeFile(), { recheck: () => one.t }));
+  assert.ok(refused(o) && !o.wrote, 'a run token never writes a scope record: ' + JSON.stringify(o));
 });
 const SCOPE = 'req-mutant-0123456789abcdef01234567.json';
 const scopeFile = () => ({ format: 'flightdeck-plan/3', features: ['loops'] });
 for (const [m, call] of [
   ['an alias of the scope writer', (app) => { const w = app.PF.repo.saveScope; return w(app.fs, SCOPE, scopeFile(), {}); }],
-  ['a call through a property, with a guard that answers true', (app) => { const o = { s: app.PF.repo.saveScope }; return o.s(app.fs, SCOPE, scopeFile(), { recheck: () => true }); }]
+  ['a call through a property, with a guard that answers true', (app) => { const o = { s: app.PF.repo.saveScope }; return o.s(app.fs, SCOPE, scopeFile(), { recheck: () => true }); }],
+  ['a Proxy of the folder, with a token made by hand', (app) => app.PF.repo.saveScope(new Proxy(app.fs, {}), SCOPE, scopeFile(), { recheck: (f, ph, w) => Object.assign({}, w) })]
 ]) rule('A scope record written through ' + m + ' is refused and nothing is written', async () => {
   const app = await opened();
   const o = await outcome(app, () => call(app));
-  assert.ok(o.how !== 'resolved' || !o.wrote, JSON.stringify(o));
-  assert.strictEqual(o.wrote, false);
-  assert.ok(o.how === 'threw' || /guard didn't admit/.test(o.why), 'refused by the writer\'s check: ' + JSON.stringify(o));
+  assert.deepStrictEqual([refused(o), o.wrote], [true, false], JSON.stringify(o));
+  assert.ok(o.how === 'threw' || /guard didn't admit|wasn't admitted|no write-time check/.test(o.why) || (o.value && o.value.dropped), 'refused by the writer\'s check: ' + JSON.stringify(o));
+});
+rule('The write gate is set once: a second gate, or none, is refused', async () => {
+  const app = await opened();
+  assert.throws(() => app.PF.repo.gateWrites(() => true), /already set/);
+  const { r } = aRun(app); r.title = 'After a second gate';
+  const o = await outcome(app, () => app.PF.repo.saveRun(app.fs, r, 'mutant', { recheck: () => true }));
+  assert.deepStrictEqual([refused(o), o.wrote], [true, false], JSON.stringify(o));
 });
 /* The same mutants made in the app's own source: a click handler that aliases, wraps or calls the writer through a property,
-   built into the page. Each click throws in the test build and writes nothing. */
+   or through a Proxy of the folder, built into the page. Each click throws in the test build and writes nothing. */
 const HTML = fs.readFileSync(path.join(__dirname, '..', 'dist', 'flightdeck.html'), 'utf8');
 const ANCHOR = "    'loop-unsettle': function (id) {";
 const SOURCE = {
   alias: "'mutant': function () { var w = repo.saveRun; w(state.fs, data.runs[0], SESSION, { writer: WRITER }); },",
   helper: "'mutant': function () { var h = function (r) { return repo.saveRun(state.fs, r, SESSION, { writer: WRITER }); }; h(data.runs[0]); },",
   property: "'mutant': function () { var o = { put: PF.repo.saveRun }; o.put(state.fs, data.runs[0], SESSION, { writer: WRITER }); },",
+  proxy: "'mutant': function () { repo.saveRun(new Proxy(state.fs, {}), data.runs[0], SESSION, { writer: WRITER }); },",
   scope: "'mutant': function () { var w = repo.saveScope; w(state.fs, '" + SCOPE + "', { format: 'flightdeck-plan/3' }, {}); },"
 };
 for (const m of Object.keys(SOURCE)) rule('A writer reached by ' + m + ' in the app\'s own source throws when clicked in the test build, and nothing is written', async () => {

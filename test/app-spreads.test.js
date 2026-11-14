@@ -7,6 +7,7 @@ const assert = require('assert');
 const { rule, run } = require('./harness');
 const F = require('./app-spread-fixture');
 const { KID, PARENT, setup, addStories, parentPath, parentRun, kidPaths, kidOf, backToParent, txt, ov, refresh, hex, finish, now, askSpread, sync, decisions, homeCount, accepts, landedSpread, fulfilled } = require('./app-spread-fixture');
+const { gate } = require('./app-harness');
 
 rule('The loop shows one spread row with a chip per story; a story that joins is announced as owed', async () => {
   const app = await setup();
@@ -384,5 +385,48 @@ rule('Round 19 (XB): Delegate on a fulfilled spread\'s loop, the run\'s version 
 });
 for (const how of ['Send back', 'Send back request']) rule('Round 19 (XB): ' + how + ' on a fulfilled spread\'s approved loop, the run\'s version absent while it waits at the parent read, writes nothing more', async () => {
   assert.deepStrictEqual(await BB.writeRace(bbSpread, how, 'at the parent read', 'the run\'s version absent'), []);
+});
+/* Round 20 (YE): a spread stop is decided and carried out on coverage, so its guard reads every story's run of the loop and
+   the version each is pinned to. A tool asks to stop "Security sign-off"; the recorder accepts it. While the decision's (or
+   the application's) existence read waits, ABC-102's pinned publication.json is removed: nothing more is written. */
+async function askStop(app) {
+  const PF = app.PF, T = PF.todos, S = PF.spreads, W = await now(app), r = W.parent;
+  const V = T.view(r, { records: W.d.todos, unread: W.d.todosUnread, people: W.people });
+  const covIn = S.inputs({ runs: W.d.runs, records: W.d.todos, unread: W.d.todosUnread, scopes: W.d.scopes, scopesUnread: W.d.scopesUnread, people: W.people, procOf: W.procOf, processes: W.d.processes, procsRead: () => true, partsFailed: {}, failed: [] });
+  const C = S.coverage(r, V, covIn).spreads[0];
+  assert.ok(C && C.complete, 'set-up: coverage is complete');
+  const body = { op: 'spread-stop', spread: C.id, owed: C.items.filter(i => i.owed).map(i => ({ uid: i.uid, attempt: i.attempt })), reason: 'Covered by the platform review' };
+  const P = T.prepare(r, { body, by: { tool: 'release-helper', version: '1.0', key: 'ye-' + hex(6) }, records: W.d.todos, unread: W.d.todosUnread, people: W.people, loops: covIn.loops, runs: W.d.runs, at: new Date().toISOString(), app: '4.0.0' });
+  assert.ok(!P.why, P.why);
+  await app.fs.write('proposals/' + P.name, T.text(P.file));
+  return P;
+}
+const pinnedPub = (app, key) => { const k = JSON.parse(app.fs.files[kidOf(app, key)].t); return 'publications/' + k.process + '/' + k.folder + '/publication.json'; };
+for (const [which, nth] of [['the decision', 1], ['the application', 2]]) rule('Round 20 (YE): a spread stop, a story\'s pinned version removed while ' + which + '\'s existence read waits, writes nothing more', async () => {
+  const app = await setup();
+  await landedSpread(app);
+  const P = await askStop(app);
+  await refresh(app, 300);
+  const fs0 = app.fs, read = fs0.read, write = fs0.write, hold = gate(), had = new Set(app.files('proposals/'));
+  /* The first read of the nth new record (its existence read; the decision is the first, the application the second). */
+  let hit = null; const late = [], paths = [];
+  fs0.read = function (q) { const a = arguments; if (!hit && /^proposals\/[^/]+\.json$/.test(q) && !had.has(q) && !fs0.files[q] && paths.indexOf(q) < 0) { paths.push(q); if (paths.length === nth) { hit = q; return hold.p.then(() => read.apply(fs0, a)); } } return read.apply(fs0, a); };
+  fs0.write = function (q) { if (hit) late.push(q); if (/^proposals\//.test(q)) had.add(q); return write.apply(fs0, arguments); };
+  app.click('td-inbox', ''); await app.tick(20);
+  const b = new RegExp('data-act="td-accept" data-id="(' + P.file.id + ')" data-run="([^"]+)" data-fp="([^"]+)"').exec(ov(app)) || /data-act="td-accept" data-id="([^"]+)" data-run="([^"]+)" data-fp="([^"]+)"/.exec(ov(app));
+  assert.ok(b, 'set-up: the stop is offered: ' + txt(ov(app)).slice(0, 300));
+  app.click('td-accept', b[1], { run: b[2], fp: b[3] });
+  for (let t = 0; t < 60 && !hit; t++) { await app.tick(50); if (t % 10 === 9) app.click('refresh'); }
+  assert.ok(hit, 'set-up: ' + which + ' reached its existence read');
+  const parent = fs0.files[parentPath(app)].t, pub = pinnedPub(app, 'ABC-102');
+  assert.ok(fs0.files[pub], 'set-up: ABC-102\'s pinned version is there');
+  delete fs0.files[pub];
+  hold.open();
+  for (let i = 0; i < 12; i++) await app.tick(50);
+  fs0.read = read; fs0.write = write;
+  /* A request the recorder couldn't carry out may be answered (op 'refused'): that is its outcome, not a write. */
+  const real = late.filter(q => !/^runs\/[^/]+\/[^/]+\/history-/.test(q)).filter(q => !(/^proposals\//.test(q) && (() => { try { return JSON.parse(fs0.files[q].t).op === 'refused'; } catch (e) { return false; } })()));
+  assert.deepStrictEqual(real.map(q => q + ' ' + ((() => { try { return JSON.parse(fs0.files[q].t).op; } catch (e) { return ''; } })())), [], 'nothing written after the change');
+  assert.strictEqual(fs0.files[parentPath(app)].t, parent, 'the run is as it was');
 });
 run();
