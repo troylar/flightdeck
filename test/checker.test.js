@@ -982,6 +982,40 @@ rule('The checker reads a key of thousands of digits, and keys at the array-inde
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+rule('The checker reads a number of thousands of digits in a team file as JSON, as the app does: never "isn\'t valid JSON", and the same verdict for a publication and team-values.json', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-longnums-'));
+  try {
+    const d = new DiskFS(root), T = PF.teamValues, off = [];
+    await d.write('people.json', JSON.stringify(people));
+    const md = '---\nprocess: x\ntitle: X\n---\n## P {#p}\n- [ ] {confirm} Look {#a}\n\n## Gate: Ready {#ready}\n';
+    const v = await repo.publish(d, md, { people, ...EX, by: 'person-avery', changes: 'x', existing: [], now: NOW, app: '4.0.0' });
+    assert.ok(!v.blockers, String(v.blockers));
+    const pubPath = path.join(root, 'publications', 'x', v.folder, 'publication.json'), pub0 = fs.readFileSync(pubPath, 'utf8');
+    const F = '"format":"' + T.FORMAT + '"';
+    for (const N of ['9'.repeat(4300), '9'.repeat(4301), '-' + '9'.repeat(4301), '1' + '0'.repeat(309)]) {
+      const label = N.length + ' characters';
+      fs.writeFileSync(pubPath, pub0.replace(/"version":\s*1\b/, '"version": ' + N));
+      fs.writeFileSync(path.join(root, T.FILE), '{' + F + ',"values":{"a":{"value":"x"}},"zz":' + N + '}');
+      await d.write('jira/workflows.json', '{"a":{"statuses":["Open"],"zz":' + N + '}}');
+      await d.write('step-types/team.n.json', '{"id":"team.n","label":"N","fields":{},"record":[],"zz":' + N + '}');
+      const whole = cp.spawnSync(py, ['-I', CHECKER, root], { encoding: 'utf8', maxBuffer: 64 << 20 });
+      let out = null;
+      try { out = JSON.parse(whole.stdout); } catch (e) { off.push(label + ': the folder checker printed no JSON: ' + String(whole.stderr).trim().split('\n').pop()); }
+      if (!out) continue;
+      const app = await repo.loadAll(d, { deep: true }), theirs = app.processes.find(p => p.process === 'x').pubs.find(p => p.folder === v.folder);
+      const mine = out.publications.x.versions.find(p => p.folder === v.folder);
+      const words = (t) => String(t).toLowerCase().replace(/\.$/, '');
+      if (!mine || words(mine.why) !== words(theirs.why)) off.push(label + ', publication.json: Python ' + JSON.stringify(mine && [mine.status, mine.why]) + ', the app ' + JSON.stringify([theirs.ok, theirs.why]));
+      const tv = T.parse(fs.readFileSync(path.join(root, T.FILE), 'utf8'));
+      if (out.teamValues.why !== tv.why || out.teamValues.readOnly !== tv.readOnly) off.push(label + ', team-values.json: Python ' + JSON.stringify([out.teamValues.state, out.teamValues.why]) + ', the app ' + JSON.stringify([tv.why, tv.readOnly]));
+      for (const p of out.teamFiles.problems) if (/isn't valid JSON/.test(p.problem)) off.push(label + ', ' + p.file + ': Python says ' + p.problem);
+    }
+    assert.deepStrictEqual(off, []);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 rule('The checker reads team-values.json (2.9) like the app: the same state and reason for each file, too large is unreadable, and steps passing a value it lacks are named', async () => {
   const py = python();
   if (!py) { console.log('  (skipped: no Python on this computer)'); return; }

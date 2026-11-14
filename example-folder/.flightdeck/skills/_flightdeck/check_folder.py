@@ -3723,7 +3723,7 @@ def check_publication(folder, name, read=read_text, rbytes=None):
     if files["publication.json"] is None:
         return "syncing", "publication.json hasn't arrived", None
     try:
-        info = json.loads(files["publication.json"], parse_constant=_no_constant)
+        info = json.loads(files["publication.json"], parse_int=_jsint, parse_constant=_no_constant)
     except ValueError:
         return "damaged", "publication.json is unreadable", None
     if not isinstance(info, dict):
@@ -3753,7 +3753,7 @@ def check_publication(folder, name, read=read_text, rbytes=None):
     if info.get("folder") != name or not m or int(m.group(1)) != info.get("version"):
         return "damaged", "folder name doesn't match the publication record", info
     try:
-        types = json.loads(files["types.json"], parse_constant=_no_constant)
+        types = json.loads(files["types.json"], parse_int=_jsint, parse_constant=_no_constant)
     except ValueError:
         return "damaged", "types.json is unreadable", info
     if not isinstance(types, dict):
@@ -3970,7 +3970,7 @@ def _read_json(path):
     except OSError:
         return None, "couldn't be read", True, b""
     try:
-        return json.loads(data.decode("utf-8"), parse_constant=_no_constant), None, False, data
+        return json.loads(data.decode("utf-8"), parse_int=_jsint, parse_constant=_no_constant), None, False, data
     except (UnicodeDecodeError, ValueError):
         return None, "isn't valid JSON", False, data
 
@@ -4135,7 +4135,7 @@ def team_values(root):
     def bad(why):
         return {"state": "malformed", "why": why, "names": []}
     try:
-        o = json.loads(text, parse_constant=_no_constant)
+        o = json.loads(text, parse_int=_jsint, parse_constant=_no_constant)
     except ValueError:
         return bad(TEAM_FILE + " isn't valid JSON.")
     j = judge("flightdeck-team-values", o)
@@ -4213,7 +4213,7 @@ def team_files(root):
             continue
         try:
             with open(os.path.join(sdir, name), encoding="utf-8") as f:
-                d = json.load(f, parse_constant=_no_constant)
+                d = json.load(f, parse_int=_jsint, parse_constant=_no_constant)
         except (OSError, ValueError):
             problems.append({"file": "step-types/" + name, "problem": "isn't valid JSON"})
             continue
@@ -4231,7 +4231,7 @@ def team_files(root):
     if os.path.isfile(wf):
         try:
             with open(wf, encoding="utf-8") as f:
-                w = json.load(f, parse_constant=_no_constant)
+                w = json.load(f, parse_int=_jsint, parse_constant=_no_constant)
             workflows = sorted(w) if isinstance(w, dict) else []
             for t, v in ([(k, w[k]) for k in js_keys(w)] if isinstance(w, dict) else []):
                 if not isinstance(v, dict) or not isinstance(v.get("statuses"), list) or not v["statuses"]:

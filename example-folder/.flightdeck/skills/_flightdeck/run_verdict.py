@@ -2297,7 +2297,7 @@ def strip(r):
 
 def same_run(text):
     try:
-        o = json.loads(text)
+        o = json.loads(text, parse_int=CF._jsint)
     except ValueError:
         return "\u0000" + text
     if not is_obj(o):
@@ -2359,7 +2359,7 @@ def check_stage(folder, name, read=None, rbytes=None):
     if files["publication.json"] is None:
         return "syncing", "publication.json hasn't arrived", None
     try:
-        info = json.loads(utf8_text(files["publication.json"]) if isinstance(files["publication.json"], bytes) else files["publication.json"], parse_constant=CF._no_constant)
+        info = json.loads(utf8_text(files["publication.json"]) if isinstance(files["publication.json"], bytes) else files["publication.json"], parse_int=CF._jsint, parse_constant=CF._no_constant)
     except ValueError:
         return "damaged", "publication.json is unreadable", None
     if not isinstance(info, dict):
@@ -2385,7 +2385,7 @@ def check_stage(folder, name, read=None, rbytes=None):
     if sp:
         return "unusable", sp, info
     try:
-        types = json.loads(utf8_text(files["types.json"]) if isinstance(files["types.json"], bytes) else files["types.json"], parse_constant=CF._no_constant)
+        types = json.loads(utf8_text(files["types.json"]) if isinstance(files["types.json"], bytes) else files["types.json"], parse_int=CF._jsint, parse_constant=CF._no_constant)
     except ValueError:
         return "damaged", "types.json is unreadable", info
     if not isinstance(types, dict):

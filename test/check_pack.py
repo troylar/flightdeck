@@ -823,7 +823,7 @@ def strict_json(text, doubles=True):
     if CF.json_too_deep(text):
         raise ValueError(CF.DEEP_WHY)
     try:
-        return json.loads(text, parse_int=float if doubles else int, parse_constant=CF._no_constant)
+        return json.loads(text, parse_int=float if doubles else CF._jsint, parse_constant=CF._no_constant)
     except RecursionError:
         raise ValueError(CF.DEEP_WHY)
 

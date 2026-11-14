@@ -97,6 +97,14 @@
         "before": "When a file held several fields Flightdeck doesn't know, named with numbers, check_folder.py could name a different one first than Flightdeck did.",
         "now": "It names the same field first, in the same words.",
         "where": "check_folder.py"
+      },
+      {
+        "kind": "fixed",
+        "area": "Checks",
+        "title": "check_folder.py reads a file with a very long number",
+        "before": "In 3.0, a number of thousands of digits made check_folder.py call a file Flightdeck reads not valid JSON.",
+        "now": "It reads the number as Flightdeck does and judges the file the same way.",
+        "where": "check_folder.py"
       }
     ]
   },
