@@ -3385,11 +3385,13 @@ async function todoMain(argv) {
     PF.detours.planProblems(r, V.todos, ev).forEach((q) => { also.push(q.path); if (!problems().some((x) => x.path === q.path && x.kind === q.kind)) extra.push(q); });
     const runEvidenceOf = (x) => (x && x.evidence ? { plan: x.evidence.plan, run: x.evidence.run, answer: x.evidence.answer, result: x.evidence.result, words: PF.detours.evidenceWords(x.evidence) } : null);
     const evidenceOf = (x) => { if (!x || !x.support) return null; const s = x.support; return { fact: s.fact, domain: s.domain, source: s.source, words: PF.facts.TITLE[s.domain] + ' from ' + [s.source.feed, s.source.site, s.source.account].filter(Boolean).join(' · ') + ' (' + s.fact + ')' }; };
+    /* VB: inside it the source run is read first and then every other input the request rests on (deps: the version it
+       pins, the evidence run and its plans), so one changed after it was first read is what the request is made again from. */
     /* LA: the one final check every request this command files asks last, after every other read it rests on (deps):
        proposals/ listed, read and listed again (PF.repo.proposalsFinal); its unread records are this command's problems,
        and a file that arrived or went during the read holds it. The caller builds its request again from what it gives. */
     const finalRead = async (deps) => {
-      const F2 = await repo.proposalsFinal(L.fs, { bad: [], two: true, deps: async (fs) => { const d = deps ? await deps(fs) : null; return { d, src: isCk ? await repo.readRunOnly(fs, proc, runId) : null }; } }), got2 = F2.got, unread2 = (got2.todosUnread || []).filter(mineRun);
+      const F2 = await repo.proposalsFinal(L.fs, { bad: [], two: true, deps: async (fs) => { const src = isCk ? await repo.readRunOnly(fs, proc, runId) : null; const d = deps ? await deps(fs) : null; return { d, src }; } }), got2 = F2.got, unread2 = (got2.todosUnread || []).filter(mineRun);
       unread2.forEach((u) => { const p = 'proposals/' + u.file; if (!extra.some((e) => e.path === p)) extra.push({ path: p, kind: u.kind === 'newer' ? 'newer' : 'malformed', why: u.kind === 'newer' ? u.why : fileWhy(u.why) }); });
       if (F2.moved) extra.push({ path: 'proposals', kind: 'still-syncing', why: 'A file in proposals/ arrived or went while it was being read, so what this request rests on isn\'t known.' });
       if (one.peopleWhy || pw) unread2.push({ file: 'people.json', why: 'people.json couldn\'t be read, so no one\'s authority over to-dos can be checked.', run: null });
@@ -3500,7 +3502,6 @@ async function todoMain(argv) {
         authority: { needs, why: pv.why || null, requester: body.requester || null, approvesNothing: true },
         consequence: { reopens: pv.consequence.reopens, releases: pv.consequence.releases }, recorder: pv.recorder || null, queue: T.WORDS[pv.status] || pv.status,
         preview: title + (status === 'would-request' ? ' — preview only; no files written.' : ' — requested.') + '\n\n' + pv.words + ' Evidence: ' + E.words + ' Applying it checks that run again.' + (body.requester ? ' Asked for ' + body.requester + '; that is not their approval.' : ''), appliedBy: 'the recorder' });
-      if (dryRun) { const rc = await recheck(); if (rc) return rc; return done(data('would-request')); }
       /* LA: the evidence is read again (proposals/, then the runs its plans name), then proposals/ last; the plans the
          evidence was judged on must be what that last read finds, and the request is made again from it. */
       const Z = await finalRead(async (fs) => { const gA = await repo.readPlans(fs, [], null, true); const evA = await evidenceRead(PF, fs, gA, T.recordsFor(gA.todos || [], r), [{ process: ER[1], id: ER[2] }]); return { got: gA, ev: evA }; });
@@ -3523,6 +3524,8 @@ async function todoMain(argv) {
       const PZ = T.prepare(r, { body, by: { tool: tool.name, version: tool.version }, records: Z.records, unread: Z.unread, people, deps: depsZ, now: NOW, at: AT0, app: eng.version });
       if (PZ.why) return failOut('invalid', PZ.why + nothing, problems());
       if (T.text(PZ.file) !== T.text(P.file)) return failOut('failed', 'What this request rests on changed while it was being read, so it isn\'t the one checked.' + nothing + ' Run it again.', problems());
+      /* VB: a preview makes the same final reads and judgments as a request that is filed. */
+      if (dryRun) return done(data('would-request'));
       let res;
       try { res = writeOnce(dir, ['proposals'], P.name, T.text(P.file)); } catch (e) { return failOut('failed', UNCERTAIN + ' (' + (e && e.message || String(e)) + ')', problems()); }
       if (res !== 'written') {
@@ -3538,6 +3541,7 @@ async function todoMain(argv) {
     const id = T.idFor(tool.name, val['--key']), file = 'proposals/' + id + '.json';
     if (unread.some((u) => u.file === id + '.json')) return done({ run: { process: proc, id: runId }, status: 'held', request: { id, file }, preview: 'A request under this key is in the folder but can\'t be read yet. Nothing written. Check folder availability, then retry with the same key.' });
     const body = { op: sub };
+    let pinAgain = null;
     if (sub === 'add') {
       body.text = val['--text'];
       if (val['--phase'] != null) body.target = { phase: val['--phase'] };
@@ -3560,6 +3564,7 @@ async function todoMain(argv) {
         const Q = PF.detours.pinFor(procOfFrom(dd)(cp), cp, cf, accepts);
         if (Q.why) return failOut('invalid', Q.why + nothing, problems());
         body.checklist = Q.checklist;
+        pinAgain = { cp, cf, accepts };
       }
     } else body.todo = val['--todo'];
     if (val['--reason'] != null) body.reason = val['--reason'];
@@ -3584,13 +3589,22 @@ async function todoMain(argv) {
       authority: { needs, why: pv.why || null, requester: body.requester || null, approvesNothing: true },
       consequence: { reopens: pv.consequence.reopens, releases: pv.consequence.releases }, recorder: pv.recorder || null, queue: T.WORDS[pv.status] || pv.status,
       preview: title + (status === 'would-request' ? ' — preview only; no files written.' : ' — requested.') + '\n\n' + pv.words + (body.requester ? ' Asked for ' + body.requester + '; that is not their approval.' : ''), appliedBy: 'the recorder' });
-    if (dryRun) { const rc = await recheck(); if (rc) return rc; return done(data('would-request')); }
+    if (dryRun && !pinAgain) { const rc = await recheck(); if (rc) return rc; return done(data('would-request')); }
     /* LA: proposals/ is read last (after the run, its evidence and the version it pins), and the request is made again from
        that read: one under this key filed meanwhile, a copy of it that differs or can't be read, or a file that arrived or
-       went during the read, files nothing. */
-    const Z = await finalRead();
+       went during the read, files nothing. VB: with --checklist the version it pins is read and judged again there, after
+       the source, and the pin made again from that read (a preview too). */
+    const Z = await finalRead(pinAgain ? (fs) => repo.loadAll(dependsOn(fs, ['publications/' + pinAgain.cp]), { readOnly: true, explain: true, deep: true }) : null);
     if (Z.src === 'held') return ckHeld();
     if (Z.src === 'changed') return failOut('failed', SRC_CHANGED, problems());
+    if (pinAgain) {
+      const { cp, cf, accepts } = pinAgain, dd2 = Z.deps, e2 = (dd2.processes || []).filter((y) => y.process === cp)[0], bad2 = e2 ? (e2.pubs || []).filter((y) => y && !y.ok && y.folder === cf)[0] : null;
+      if (bad2 && !extra.some((q) => q.path === 'publications/' + cp + '/' + cf + '/')) extra.push({ path: 'publications/' + cp + '/' + cf + '/', kind: 'malformed', why: cf + ' can\'t be used: ' + String(bad2.why || 'it doesn\'t pass its check') });
+      const Q2 = PF.detours.pinFor(procOfFrom(dd2)(cp), cp, cf, accepts);
+      if (!problems().length && Q2.why) extra.push({ path: 'publications/' + cp + '/' + cf + '/', kind: Q2.held ? 'unusable' : 'nofile', why: Q2.why });
+      if (problems().length) return done({ run: { process: proc, id: runId }, status: 'held', request: { id, file }, preview: 'The checklist it pins (' + val['--checklist'] + ') changed or can\'t be read whole now, so nothing was written. Check folder availability, then retry with the same key.' }, EXIT.partial);
+      if (JSON.stringify(Q2.checklist) !== JSON.stringify(body.checklist)) return failOut('failed', 'The checklist it pins changed while this request was being read, so it isn\'t the one checked.' + nothing + ' Retry with the same key.', problems());
+    }
     if (problems().length) return done({ run: { process: proc, id: runId }, status: 'held', request: { id, file }, preview: LATE + ' Nothing was written. Check folder availability, then retry with the same key.' }, EXIT.partial);
     const priorZ = (Z.got.todos || []).filter((x) => x.id === id);
     if (priorZ.some((x) => T.askDiffers(x, r, body).length)) return failOut('key-taken', 'This key already names a different request (' + file + '). Read it (flightdeck todo list) before choosing a new key. Nothing was written.', problems());
@@ -3599,6 +3613,7 @@ async function todoMain(argv) {
     const PZ = T.prepare(r, { body, by: { tool: tool.name, version: tool.version, key: val['--key'] }, records: Z.records, unread: Z.unread, people, deps: depsZ, now: NOW, at: AT0, app: eng.version });
     if (PZ.why) return failOut('invalid', PZ.why + ' Nothing was written.', problems());
     if (T.text(PZ.file) !== T.text(P.file)) return failOut('failed', 'What this request rests on changed while it was being read, so it isn\'t the one checked. Nothing was written. Retry with the same key.', problems());
+    if (dryRun) return done(data('would-request'));
     let res;
     try { res = writeOnce(dir, ['proposals'], P.name, T.text(P.file)); } catch (e) { return failOut('failed', UNCERTAIN + ' (' + (e && e.message || String(e)) + ')', problems()); }
     if (res !== 'written') {

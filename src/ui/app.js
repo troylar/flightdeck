@@ -3559,14 +3559,32 @@
        and to the person. Moved on, the plan stays saved and is said, never opened over what is on screen now. */
     var me0 = state.me, pmark = pageMark(navSeq), here = function () { return state.me === me0 && !pmark(); };
     var saved = function () { say('Its plan was saved. Run this checklist on the to-do again to open it.', 'good'); render(); };
+    /* VB: inside the final check everything the plan rests on is read again from the folder, never this window's copy: the run
+       it is on (judged as runs judges it), the to-do records (its own among them), and the exact version it pins; the plan is
+       made again from those reads and must be this one. Then proposals/, then people.json. */
+    var late = '';
+    var depsAgain = function (fx) {
+      late = '';
+      return repo.readRunOnly(fx, r.process, r.id).then(function (one) {
+        var jp = one.found && one.run ? PF.appjson.judgeRun(one.run, one.pub).concat((one.bad || []).filter(function (b) { return b && typeof b.path === 'string' && b.path.indexOf('runs/' + rk + '/') === 0; })) : null;
+        if (!jp || one.nofile) { late = 'the run it is on isn\'t in the folder now.'; return; }
+        if (jp.length) { late = 'the run it is on can\'t be trusted as it is now (' + String(jp[0].path) + ': ' + String(jp[0].why || jp[0].kind).replace(/\.$/, '') + ').'; return; }
+        return repo.readTodos(fx, { evidence: true }).then(function (sn) {
+          var V2 = null; try { V2 = PF.todos.view(one.run, { records: sn.records, unread: sn.unread, people: sn.people, now: tdNow(), evidence: sn.evidence }); } catch (e) { V2 = null; }
+          var x2 = V2 && V2.byTodo[todoId], F2 = x2 && x2.checklist ? PF.detours.planFor(one.run, x2, detourPub(x2.checklist), {}) : null;
+          if (!F2 || F2.why || F2.plan.id !== id) { late = 'the to-do it is for isn\'t in the folder as it was, or isn\'t linked to that checklist now.'; return; }
+          return detourPinWhy(fx, F.plan, detourPub(x.checklist)).then(function (w) { if (w) late = w; });
+        });
+      }, function (e) { late = 'the run it is on couldn\'t be read again right before its plan was written (' + (e && e.message || e) + ').'; });
+    };
     var pg = writeGuard({ still: function () {
       if (!guardOk(cx)) return false;
-      var r2 = findRun(rk), V2 = r2 ? todoView(r2) : null, x2 = V2 && V2.byTodo[todoId], F2 = x2 ? PF.detours.planFor(r2, x2, detourPub(x2.checklist), {}) : null;
-      return !!F2 && !F2.why && F2.plan.id === id;
-    } });
+      return !late;
+    }, late: function () { return late; } });
     /* PA: proposals/ read last before people.json: no different or unreadable copy of this plan beside it. */
-    repo.savePlan(cx.fs, F.plan, { fresh: function (fx) { return repo.planFinal(fx, F.plan, { create: true }).then(function () { return pg.fresh(fx); }); }, still: pg.still }).then(function (res) {
+    repo.savePlan(cx.fs, F.plan, { fresh: function (fx) { return depsAgain(fx).then(function () { return repo.planFinal(fx, F.plan, { create: true }); }).then(function () { return pg.fresh(fx); }); }, still: pg.still }).then(function (res) {
       endBusy(); if (sg !== gen) return;
+      if (res && res.dropped && late) { say('Nothing was written: ' + late + ' Run this checklist again once that\'s fixed.', 'warn'); render(); return; }
       if (res && res.dropped) { say('Nothing was written: the folder, the person or the run changed before its plan was. Run this checklist again if it still needs doing.', 'warn'); render(); return; }
       /* Already there (made from another window or computer): the same plan by its name, which is opened. */
       if (!here()) { saved(); return load(true); }

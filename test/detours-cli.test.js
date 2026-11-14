@@ -455,4 +455,34 @@ rule('todo add --checklist and suggest-done --evidence-run hold, named, on a sou
   }
 });
 
+/* VB: every input a checklist request rests on is read and judged again inside the final dependency read, dry and applied
+   alike: the pinned version (add --checklist) or the evidence run (suggest-done --evidence-run) torn or damaged once it was
+   first read, at the source's last read, holds (exit 4, named), and nothing is filed. */
+const armed = (args, env) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-vb-hook-')), hook = path.join(dir, 'hook.js');
+  fs.writeFileSync(hook, "const fs = require('fs'), path = require('path'); let armed = false, done = false; const hit = (p) => { p = String(p); if (done) return; if (p.indexOf(process.env.VB_ARM) >= 0) { armed = true; return; } if (!armed || p.indexOf(process.env.VB_AT) < 0) return; done = true; const f = JSON.parse(process.env.VB_FILES); Object.keys(f).forEach((k) => fs.writeFileSync(path.join(process.env.VB_ROOT, k), f[k])); };" +
+    " for (const k of ['openSync', 'readFileSync', 'readdirSync']) { const o = fs[k]; fs[k] = function (p) { hit(p); return o.apply(this, arguments); }; } const pr = fs.promises; for (const k of ['open', 'readFile', 'readdir']) { const o = pr[k]; pr[k] = function (p) { hit(p); return o.apply(this, arguments); }; }");
+  let code = 0, out = '';
+  try { out = execFileSync(process.execPath, ['-r', hook, BIN, ...args], { encoding: 'utf8', stdio: 'pipe', env: Object.assign({}, process.env, env) }); } catch (e) { code = e.status; out = String(e.stdout); }
+  return Object.assign(JSON.parse(out), { code });
+};
+rule('todo add --checklist and suggest-done --evidence-run hold when what they pin or rest on is damaged after it was first read', async () => {
+  const cases = { 'pub-map': 'add', 'pub-json': 'add', 'ev-torn': 'suggest', 'ev-changed': 'suggest' };
+  for (const how of Object.keys(cases).filter((h) => !process.env.VB_CASE || process.env.VB_CASE.split(',').indexOf(h) >= 0)) {
+    for (const k of [cases[how] + '-dry', cases[how]]) {
+      const F = await folder(), L = await linked(F, 'pass'); await started(F, L, 'k1', 'pass');
+      const pubDir = 'publications/smoke-test/' + F.pin.split('@')[1] + '/', evf = 'runs/smoke-test/k1/run.json';
+      let files;
+      if (how === 'pub-map') files = { [pubDir + 'map.md']: fs.readFileSync(path.join(F.root, pubDir + 'map.md'), 'utf8').replace('Run the smoke suite', 'Skip the smoke suite') };
+      else if (how === 'pub-json') files = { [pubDir + 'publication.json']: '{ "format": ' };
+      else if (how === 'ev-torn') files = { [evf]: '{ "format": ' };
+      else { const o = JSON.parse(fs.readFileSync(path.join(F.root, evf), 'utf8')); o.details = []; files = { [evf]: JSON.stringify(o, null, 2) }; }
+      const before = ls(F.root);
+      const x = armed(ckCalls(F, L)[k], { VB_ARM: cases[how] === 'add' ? '/' + pubDir : '/' + evf, VB_AT: '/runs/' + PR + '/run.json', VB_ROOT: F.root, VB_FILES: JSON.stringify(files) });
+      heldOut(x, how + ' ' + k);
+      assert.deepStrictEqual(ls(F.root), before, how + ' ' + k + ': nothing filed');
+    }
+  }
+});
+
 run();

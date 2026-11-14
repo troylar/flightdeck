@@ -762,6 +762,20 @@ rule('A detour start whose decision write answered an error and whose read-back 
   }
 });
 
+/* VB: Run this checklist reads and judges, inside its final check, everything its plan rests on: the pinned version, the run
+   it is on and the to-do's own record. One damaged or gone since the screen was drawn (no refresh) writes no plan. */
+rule('Run this checklist writes no plan when its pinned version, its run or its to-do\'s record changed since the screen was drawn', async () => {
+  for (const how of ['vb-pub', 'vb-run', 'vb-todo'].filter((h) => !process.env.VB_CASE || process.env.VB_CASE.split(',').indexOf(h) >= 0)) {
+    const { app, kp, todo } = await setup(['pass']), F = app.fs.files;
+    assert.strictEqual(plans(app).length, 0, how + ': set-up: no plan yet');
+    if (how === 'vb-pub') { const m = 'publications/smoke-test/' + kp.folder + '/map.md'; F[m] = { t: F[m].t.replace('Run the smoke suite', 'Skip the smoke suite'), m: Date.now() }; }
+    else if (how === 'vb-run') { const o = parentRun(app); o.details = []; F[parentPath(app)] = { t: JSON.stringify(o, null, 2), m: Date.now() }; }
+    else { const adds = app.files('proposals/req-').filter(p => { try { const o = JSON.parse(F[p].t); return o.op === 'add' && o.checklist; } catch (e) { return false; } }); assert.strictEqual(adds.length, 1, how + ': set-up: its record'); delete F[adds[0]]; }
+    app.click('td-detour', todo); await app.tick(300);
+    assert.strictEqual(plans(app).length, 0, how + ': no plan written: ' + app.live());
+  }
+});
+
 /* UE: a to-do's plan starts on the exact version its to-do pins: no Start on vN instead or Use the latest, and a switch
    asked anyway writes nothing. */
 rule('A to-do\'s plan never offers or records a switch to a newer version', async () => {
