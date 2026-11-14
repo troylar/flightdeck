@@ -220,6 +220,24 @@ rule('A keep names every problem of its source run with exit 4, and judges the s
   }
 });
 
+/* VG: a preview makes the same checked reads as a keep that writes: the source run damaged while proposals/ is read holds
+   --dry-run (todo keep and spread keep) with exit 4, never would-keep. */
+rule('A keep preview judges its source again after reading proposals/: damaged meanwhile, it holds rather than previewing', async () => {
+  for (const args of [(F) => ['todo', 'keep', F.root, PR, '--todo', F.phaseTodo], (F) => ['spread', 'keep', F.root, PR, '--spread', F.spread]]) {
+    const F = await folder(), rf = path.join(F.root, 'runs', 'release-readiness', 'r-41', 'run.json'), o = JSON.parse(fs.readFileSync(rf, 'utf8')); o.details = [];
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-keep-hook-')), hook = path.join(dir, 'hook.js');
+    fs.writeFileSync(hook, "const fs = require('fs'), open = fs.openSync, rd = fs.readdirSync; let done = false; const hit = (p) => { if (done || String(p).indexOf('/proposals') < 0) return; done = true; fs.writeFileSync(process.env.KEEP_RUN, process.env.KEEP_TEXT); };" +
+      " fs.openSync = function (p) { hit(p); return open.apply(this, arguments); }; fs.readdirSync = function (p) { hit(p); return rd.apply(this, arguments); }; const pr = fs.promises, prd = pr.readdir, pop = pr.open, prf = pr.readFile; pr.readdir = function (p) { hit(p); return prd.apply(this, arguments); }; pr.open = function (p) { hit(p); return pop.apply(this, arguments); }; pr.readFile = function (p) { hit(p); return prf.apply(this, arguments); };");
+    const before = fs.readdirSync(path.join(F.root, 'proposals')).length, a = args(F);
+    let code = 0, text = '';
+    try { text = execFileSync(process.execPath, ['-r', hook, BIN, ...a, '--dry-run', '--json', ...TOOL], { encoding: 'utf8', stdio: 'pipe', env: Object.assign({}, process.env, { KEEP_RUN: rf, KEEP_TEXT: JSON.stringify(o, null, 2) }) }); } catch (e) { code = e.status; text = String(e.stdout); }
+    const x = JSON.parse(text);
+    assert.deepStrictEqual([a[0], code, x.complete, fs.readdirSync(path.join(F.root, 'proposals')).length], [a[0], 4, false, before], 'held: ' + JSON.stringify([x.data && x.data.status, x.problems]));
+    assert.ok(!x.data || x.data.status === 'held', a[0] + ': never a preview: ' + (x.data && x.data.status));
+    assert.ok((x.problems || []).some(q => q.path.indexOf('runs/release-readiness/r-41/') === 0), a[0] + ': named: ' + JSON.stringify(x.problems));
+  }
+});
+
 /* QC: a spread keep's final check reads the checklist its items run again: broken after the first check (when the source run
    is read the second time, at the final check), nothing is written, with the path named and exit 4. */
 rule('A spread keep reads the items\' checklist again at its final check: one made unreadable or deleted meanwhile writes nothing', async () => {

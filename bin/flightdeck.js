@@ -3211,11 +3211,10 @@ async function keepMain(argv, noun) {
     const data = (status) => Object.assign(run0, { status, keep: { id: K.id, file }, source: K.record.source, placed: pv.placed, template: pv.template, anchor: pv.anchor, where: pv.where, needs: pv.needs,
       text: K.record.change.text, reason: K.record.reason || null, changesRun: false,
       preview: status === 'already' ? 'Already kept for next time. Nothing written.\n\n' + pv.words : title + (status === 'would-keep' ? ' — preview only; no files written.' : ' — kept for next time.') + '\n\n' + pv.words });
-    if (K.status === 'already') return done(data('already'));
-    if (dryRun) return done(data('would-keep'));
-    /* Right before the write the source run and its version are read and judged again, and the keep is made again from that
-       read: a source broken, replaced or unreadable since the first read writes nothing, and a keep that would now differ is
-       refused, never written from the earlier copy. */
+    /* Right before the write (and before any preview or already, VG: --dry-run makes the same checked reads) the source run
+       and its version are read and judged again, and the keep is made again from that read: a source broken, replaced or
+       unreadable since the first read writes nothing, and a keep that would now differ is refused, never written from the
+       earlier copy. */
     const ra2 = readAdapter(dir, { maxBytes: READ_MAX }), LG2 = repo.ledger(repo.readOnly(ra2, 'Reading what to keep')), now1 = await repo.readRunOnly(LG2.fs, proc, runId);
     const late = now1.found ? sourceOf(now1) : [{ path: 'runs/' + proc + '/' + runId + '/run.json', kind: 'nofile', why: 'The run this keeps from isn\'t in the team folder now.' }];
     /* The checklist the items run is read and judged again too, and the keep is made again from that read, never the first. */
@@ -3243,6 +3242,7 @@ async function keepMain(argv, noun) {
     if (K2.why) return failOut('invalid', K2.why + nothing, problems());
     if (K2.status === 'already' && K2.id === K.id) return done(data('already'));
     if (K2.status !== K.status || K2.id !== K.id || T.text(K2.file) !== T.text(K.file)) return failOut('failed', 'The run this keeps from changed while it was being read, so this keep isn\'t the one checked.' + nothing + ' Run it again.', problems());
+    if (dryRun) return done(data('would-keep'));
     let res;
     try { res = writeOnce(dir, ['proposals'], K.name, T.text(K.file)); } catch (e) { return failOut('failed', 'Could not confirm whether the keep was saved. Try again: the same keep is never filed twice. (' + (e && e.message || String(e)) + ')', problems()); }
     if (res !== 'written') {

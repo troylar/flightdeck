@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "ce17157570f030ae35a6fbc620a26f905ab00c009f1acc8f962671a2328db816",
-      "reviewed": "UB: the source run of todo checklist requests judged first and again before a preview and inside the final dependency read; checked for direct writes and unconditional deletes"
+      "sha256": "ea8c73b68384817d83fdff42cd4b2cd6fe79f6399a2600fb6b1f32e4ef9dbdd7",
+      "reviewed": "VG: keep previews make the same checked dependency reads and reconstruction as a keep that writes; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "e641a0f9f4655b4634b9d2661fe4e4b97222f23ece79f5917e6c99f174218087",
