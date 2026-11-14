@@ -550,4 +550,24 @@ rule('A detour Start, Decline or plan creation writes nothing when its plan is t
   }
 });
 
+const r15 = (h) => !process.env.SR_CASE || process.env.SR_CASE.split(',').indexOf(h) >= 0;
+
+/* SB: making a to-do's plan is refused by a start or decline on its ID that arrived meanwhile. */
+rule('Run this checklist writes no plan beside a decision on its plan\'s ID that arrived while it was read', async () => {
+  /* SB: a decision on the plan's ID arrives after its name is first read, before it is written. */
+  for (const st of ['accepted', 'declined'].filter(x => r15('sb-' + x))) {
+    const { app, todo } = await setup(['pass']);
+    const fs = app.fs, read = fs.read.bind(fs);
+    let done = false;
+    fs.read = (p, ...a) => {
+      const m = /^proposals\/(plan-ev-[0-9a-f]{24})\.json$/.exec(p);
+      if (!done && m && !fs.files[p]) { done = true; fs.files['proposals/' + m[1] + '.status-other-d.json'] = { t: JSON.stringify({ format: 'flightdeck-plan-status/2', app: '4.0.0', proposal: m[1], proposalHash: 'x', status: st, run: st === 'accepted' ? 'r-other1' : null, by: 'person-blake', at: AT() }, null, 2), m: Date.now() }; }
+      return read(p, ...a);
+    };
+    app.click('td-detour', todo); await app.tick(400); fs.read = read;
+    assert.ok(done, 'sb-' + st + ': set-up: a decision arrived');
+    assert.deepStrictEqual(plans(app), [], 'sb-' + st + ': no plan written beside a decision on its ID');
+  }
+});
+
 run();

@@ -25026,17 +25026,19 @@ PF.repo = (function () {
         if (!about) return;
         if (v.kind === 'plan') copies.push(o2); else decisions.push(o2);
       });
-      /* A plan about to be written (o.create): no copy yet, or only copies the same as it; never beside one that differs. */
-      if (o.create) { if (!copies.every(function (c) { return PF.requests.same(c, plan); })) throw new Error('A different copy of this plan is in the folder. Delete the wrong one first.' + said); return; }
+      /* A start or decline on this plan's ID holds it whatever version of the plan it was made on (2.1.1): one made before
+         an edit, or on a copy since deleted, still counts. A switch counts only for the exact plan, as it isn't a decision. */
+      var made = decisions.filter(function (d) { return d.status !== 'retargeted' && !(o.mine && o.mine(d)); }), done = made.filter(function (d) { return d.status === 'accepted'; })[0] || made[0];
+      var decided = function () { if (done) throw new Error((done.status === 'accepted' ? 'This plan was already started' + (typeof done.run === 'string' ? ' (' + done.run + ')' : '') + '. Find its run on Runs.' : 'This plan was already ' + (done.status === 'declined' ? 'declined' : 'decided on') + '.') + ' To run it again, make a new plan.' + said); };
+      /* A plan about to be written (o.create): no copy yet, or only copies the same as it; never beside one that differs, and
+         never beside a start or decline on its ID, which the new plan would show as made on an earlier version. */
+      if (o.create) { decided(); if (!copies.every(function (c) { return PF.requests.same(c, plan); })) throw new Error('A different copy of this plan is in the folder. Delete the wrong one first.' + said); return; }
       if (!copies.length) throw new Error('This plan isn\'t in the folder now.' + said);
       var texts = copies.map(function (c) { return JSON.stringify(stripMeta(c)); });
       if (!copies.every(function (c) { return PF.requests.same(c, copies[0]); })) throw new Error('Two different copies of this plan are in the folder. Delete the wrong one first.' + said);
       if (!(o.mine && o.sha == null) && texts.map(function (t) { return PF.sha256.hex(t); }).indexOf(o.sha) < 0) throw new Error('This plan changed since the form showed it. Open it again to see the new plan.' + said);
       var hashes = texts.map(function (t) { return U.hash(t); });
-      /* A start or decline on this plan's ID holds it whatever version of the plan it was made on (2.1.1): one made before
-         an edit, or on a copy since deleted, still counts. A switch counts only for the exact plan, as it isn't a decision. */
-      var made = decisions.filter(function (d) { return d.status !== 'retargeted' && !(o.mine && o.mine(d)); }), done = made.filter(function (d) { return d.status === 'accepted'; })[0] || made[0];
-      if (done) throw new Error((done.status === 'accepted' ? 'This plan was already started' + (typeof done.run === 'string' ? ' (' + done.run + ')' : '') + '. Find its run on Runs.' : 'This plan was already ' + (done.status === 'declined' ? 'declined' : 'decided on') + '.') + ' To run it again, make a new plan.' + said);
+      decided();
       var moves = decisions.filter(function (d) { return d.status === 'retargeted' && hashes.indexOf(d.proposalHash) >= 0; });
       if (moves.length && o.action === 'retargeted') throw new Error('This plan was already switched to another version. Open it again to see where it starts.' + said);
       if (o.action === 'start' && moves.some(function (d) { return !d.to || d.to.folder !== o.folder; })) throw new Error('This plan was switched to another version in another window. Open it again to see where it starts.' + said);

@@ -25,8 +25,8 @@
       "reviewed": "PF: name the real processes and process --contract 2 forms instead of read and versions; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "af08bd09c8991e36f6581bf5deb74b840de193b99a7dbf799dfbc6228a08b752",
-      "reviewed": "PA: to-do plan creation, Start, Try again and Decline read proposals/ last through planFinal (the plan gate inside proposalsFinal); no new write paths; checked for direct writes and unconditional deletes"
+      "sha256": "f1aeaa39e9cb7c3e00fb1ccee46050fb6526ea5f8f691ddf548e6be1f27141e2",
+      "reviewed": "SB: to-do plan creation also refuses a start or decline on its ID found by the final read; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -417,8 +417,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "01074a0f1171f6454022847df4f265b114b8c6c7bb577f0f47c5d6a449caadde",
-      "reviewed": "PA: to-do plan creation, Start, Try again and Decline read proposals/ last through planFinal (the plan gate inside proposalsFinal); no new write paths; checked for direct writes and unconditional deletes"
+      "sha256": "d11a8e733f61fc92ed1e2e300d0e7704e6e2c1e8b586eb064ac619ae9f807b05",
+      "reviewed": "SB: to-do plan creation also refuses a start or decline on its ID found by the final read; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "2502ac5b520190abee1242ef0f5c7d61b80d52d40497fdf829488fcce8f83240",
