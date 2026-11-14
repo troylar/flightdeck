@@ -365,4 +365,32 @@ rule('todo add --checklist with a torn or differing copy of its request landing 
   }
 });
 
+/* SF: the run a to-do is added to or asked done on is judged as runs and run judge it, with the keep command's diagnostics:
+   one whose details are damaged, or whose version's publication.json can't be read, holds (exit 4, named) before any
+   preview or filing. */
+rule('todo add --checklist and suggest-done --evidence-run hold on a source run that run would not trust: nothing previewed or filed', async () => {
+  for (const how of ['details', 'pubjson'].filter((h) => !process.env.SF_CASE || process.env.SF_CASE.split(',').indexOf(h) >= 0)) {
+    const F = await folder(), L = await linked(F, 'pass'); await started(F, L, 'k1', 'pass');
+    if (how === 'details') { const f = runFile(F.root, PR), o = JSON.parse(fs.readFileSync(f, 'utf8')); o.details = []; fs.writeFileSync(f, JSON.stringify(o, null, 2)); }
+    else fs.writeFileSync(path.join(F.root, 'publications', 'release-readiness', F.pp.info.folder, 'publication.json'), '{ "format": ');
+    const rr = json('run', F.root, PR, '--json');
+    assert.strictEqual(rr.code, 4, how + ': set-up: run holds it: ' + JSON.stringify([rr.code, rr.problems]));
+    const before = ls(F.root);
+    const calls = {
+      'add-dry': ['todo', 'add', F.root, PR, '--key', 't-2', '--text', 'Smoke again', '--phase', 'ship', '--checklist', F.pin, '--dry-run', '--json', ...TOOL],
+      'add': ['todo', 'add', F.root, PR, '--key', 't-2', '--text', 'Smoke again', '--phase', 'ship', '--checklist', F.pin, '--json', ...TOOL],
+      'suggest-dry': ['todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--dry-run', '--json', ...TOOL],
+      'suggest': ['todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--json', ...TOOL]
+    };
+    for (const k of Object.keys(calls)) {
+      const x = json(...calls[k]);
+      assert.strictEqual(x.code, 4, how + ' ' + k + ': holds: ' + JSON.stringify([x.code, x.complete, x.data && x.data.status, x.problems]));
+      assert.strictEqual(x.complete, false, how + ' ' + k + ': not complete');
+      assert.ok((x.problems || []).length, how + ' ' + k + ': names what it rests on');
+      assert.ok(!x.data || x.data.status === 'held', how + ' ' + k + ': held, no preview: ' + (x.data && x.data.status));
+    }
+    assert.deepStrictEqual(ls(F.root), before, how + ': nothing filed');
+  }
+});
+
 run();

@@ -770,6 +770,21 @@ function fileWhy(w) { return 'This file ' + String(w || 'couldn\'t be read') + '
 const newerRun = (PF, r) => PF.appjson.newerRun(r);
 const runProblems = (PF, r) => PF.appjson.runProblems(r);
 const judgeRun = (PF, r, pub) => PF.appjson.judgeRun(r, pub);
+/* A source run's checked read and its version, judged as runs judges them (one verdict): every problem by path and kind, from
+   the read's own diagnostics (a run.json missing, malformed, with an unknown field, from a newer Flightdeck, or with a
+   damaged snapshot) to a version that couldn't be read at all. [] when it can be trusted. what: how the caller names it
+   ("The run this keeps from"), used: what can't be done ("nothing can be kept from it"). */
+function sourceProblems(PF, one, proc, runId, what, used) {
+  const out = [], add = (q) => { if (!out.some((x) => x.path === q.path && x.kind === q.kind)) out.push(q); }, runFile = 'runs/' + proc + '/' + runId + '/run.json';
+  (one.bad || []).filter((b) => b && typeof b.path === 'string' && b.path.indexOf('runs/' + proc + '/' + runId + '/') === 0).forEach((b) => add({ path: b.path, kind: b.kind || 'unreadable', why: String(b.why || 'It couldn\'t be read.') }));
+  if (one.nofile) add({ path: runFile, kind: 'nofile', why: what + ' has no run.json in the team folder, so ' + used + '.' });
+  const r = one.run;
+  if (!r) { if (!out.length) add({ path: runFile, kind: 'unreadable', why: what + ' couldn\'t be read, so ' + used + '.' }); return out; }
+  if (newerRun(PF, r)) add({ path: runFile, kind: 'newer', why: 'This run was made with a newer Flightdeck: ' + r._unrunnable });
+  judgeRun(PF, r, one.pub).forEach(add);
+  if (one.pub && one.pub._readFailed) add({ path: PF.run.pubDir(r), kind: 'unreadable', why: 'The version this run was made from couldn\'t be read (' + String(one.pub.why || 'it couldn\'t be read') + '), so what rests on it can\'t be checked.' });
+  return out;
+}
 /* A follow-up decision whose file says something cleanDecision doesn't keep as written (_drift, reading for other apps). */
 function decisionDrift(d) {
   return d && d._drift && d._drift.length ? { path: 'followups/' + d.process + '/' + d._file, kind: 'malformed', why: 'This decision isn\'t read as written: ' + d._drift.slice(0, 20).join(', ') + '.' } : null;
@@ -3156,26 +3171,13 @@ async function keepMain(argv, noun) {
   const run0 = { run: { process: proc, id: runId } };
   const held = (why) => done(Object.assign(run0, { status: 'held', preview: why + ' Nothing was written. Check folder availability, then try again.' }), EXIT.partial);
   const nothing = ' Nothing was written.';
-  /* The source run's checked read and its version, judged as runs judges them (PF.appjson.judgeRun, one verdict): every
-     problem by path and kind, from the read's own diagnostics (a run.json missing, malformed, with an unknown field, from a
-     newer Flightdeck, or with a damaged snapshot) to a version that couldn't be read at all. [] when it can be kept from. */
-  const runFile = 'runs/' + proc + '/' + runId + '/run.json';
-  const sourceProblems = (one) => {
-    const out = [], add = (q) => { if (!out.some((x) => x.path === q.path && x.kind === q.kind)) out.push(q); };
-    (one.bad || []).filter((b) => b && typeof b.path === 'string' && b.path.indexOf('runs/' + proc + '/' + runId + '/') === 0).forEach((b) => add({ path: b.path, kind: b.kind || 'unreadable', why: String(b.why || 'It couldn\'t be read.') }));
-    if (one.nofile) add({ path: runFile, kind: 'nofile', why: 'The run this keeps from has no run.json in the team folder, so nothing can be kept from it.' });
-    const r = one.run;
-    if (!r) { if (!out.length) add({ path: runFile, kind: 'unreadable', why: 'The run this keeps from couldn\'t be read, so nothing can be kept from it.' }); return out; }
-    if (newerRun(PF, r)) add({ path: runFile, kind: 'newer', why: 'This run was made with a newer Flightdeck: ' + r._unrunnable });
-    judgeRun(PF, r, one.pub).forEach(add);
-    if (one.pub && one.pub._readFailed) add({ path: R.pubDir(r), kind: 'unreadable', why: 'The version this run was made from couldn\'t be read (' + String(one.pub.why || 'it couldn\'t be read') + '), so what it would keep can\'t be checked.' });
-    return out;
-  };
+  /* The source run, judged with the shared verdict (sourceProblems). */
+  const sourceOf = (one) => sourceProblems(PF, one, proc, runId, 'The run this keeps from', 'nothing can be kept from it');
   try {
     const one = await repo.readRunOnly(LG.fs, proc, runId);
     if (!one.found) return failOut('not-found', 'There\'s no run ' + proc + '/' + runId + ' in the team folder.' + nothing, problems());
     const r = one.run;
-    sourceProblems(one).forEach((q) => extra.push(q));
+    sourceOf(one).forEach((q) => extra.push(q));
     if (extra.length) return held('The run this keeps from, or its version, can\'t be trusted as it is.');
     let map; try { map = R.mapOf(r); } catch (e) { return failOut('failed', 'The run\'s checklist can\'t be read here.' + nothing, problems()); }
     if (one.peopleWhy) LG.note('people.json', one.peopleKind || 'unreadable', fileWhy(one.peopleWhy));
@@ -3215,7 +3217,7 @@ async function keepMain(argv, noun) {
        read: a source broken, replaced or unreadable since the first read writes nothing, and a keep that would now differ is
        refused, never written from the earlier copy. */
     const ra2 = readAdapter(dir, { maxBytes: READ_MAX }), LG2 = repo.ledger(repo.readOnly(ra2, 'Reading what to keep')), now1 = await repo.readRunOnly(LG2.fs, proc, runId);
-    const late = now1.found ? sourceProblems(now1) : [{ path: runFile, kind: 'nofile', why: 'The run this keeps from isn\'t in the team folder now.' }];
+    const late = now1.found ? sourceOf(now1) : [{ path: 'runs/' + proc + '/' + runId + '/run.json', kind: 'nofile', why: 'The run this keeps from isn\'t in the team folder now.' }];
     /* The checklist the items run is read and judged again too, and the keep is made again from that read, never the first. */
     const d2 = kid ? await repo.loadAll(dependsOn(LG2.fs, ['publications/' + kid]), { readOnly: true, explain: true, deep: true }) : { processes: [] };
     if (kid) {
@@ -3335,6 +3337,13 @@ async function todoMain(argv) {
     const r = one.run;
     if (!r) return failOut('failed', 'The run ' + proc + '/' + runId + ' couldn\'t be read, so its to-dos can\'t be.' + nothing, problems());
     if (newerRun(PF, r)) return failOut('failed', 'The run ' + proc + '/' + runId + ' was made with a newer Flightdeck: ' + r._unrunnable + nothing, problems());
+    /* SF: a checklist-linked request (add --checklist, suggest-done --evidence-run) rests on this run as runs and run judge it,
+       its version included (relevant): one they wouldn't trust holds, named, before any preview or filing. */
+    if (val['--checklist'] != null || val['--evidence-run'] != null) {
+      also.push(R.pubDir(r));
+      const sp = sourceProblems(PF, one, proc, runId, 'The run this to-do is on', 'nothing can rest on it');
+      if (sp.length) { sp.forEach((q) => extra.push(q)); return done({ run: { process: proc, id: runId }, status: 'held', preview: 'The run this to-do is on, or its version, can\'t be trusted as it is.' + nothing + ' Check folder availability, then try again.' }, EXIT.partial); }
+    }
     let map; try { map = R.mapOf(r); } catch (e) { return failOut('failed', 'The run\'s checklist can\'t be read here.' + nothing, problems()); }
     if (one.peopleWhy) L.note('people.json', one.peopleKind || 'unreadable', fileWhy(one.peopleWhy));
     const pw = peopleWhy(one.people);
