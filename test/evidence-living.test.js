@@ -1853,6 +1853,31 @@ rule('Files of a keep\'s process read at once never read past the shared context
   assert.ok(cl && !cl.verified, 'the keep isn\'t confirmed ' + JSON.stringify(mr.claims));
   if (PY) assert.ok(!checkPack(await repacked(W.PF, zip, (e, man) => forced(man))).ok, 'Python refuses a complete claim');
 });
+/* QD: a dependency called confirmed is established from the packed references whatever the pack says of itself, before
+   anything else may stop reading: it must be found from the root, in that role, and check out in full; a root no reader
+   reads can't establish one. */
+rule('Python refuses a confirmed dependency a partial pack can\'t establish: another role, a run nothing names, or an unread root', async () => {
+  if (!PY) return;
+  const worlds = await roleWorlds(), ROLES = ['child', 'evidence', 'fulfills'];
+  const misses = [];
+  for (const w of worlds) {
+    const honest = await pack(w.PF, new BytesFS(w.files), w.key);
+    const depOf = (man) => man.runs[0].living.deps.filter((d) => d.key === w.depKey)[0];
+    const myRole = depOf(manifestOf(honest.zip)).role;
+    const partial = (edit) => repacked(w.PF, honest.zip, (e, man, g) => { if (w.force) forced(man); man.status = 'partial'; man.runs[0].living.complete = false; man.runs[0].living.missing = ['Something else is missing.']; edit(e, man, g, depOf(man)); });
+    const ctl = checkPack(await partial(() => {}));
+    if (!ctl.ok) { misses.push(w.role + ': the control: ' + ctl.out); continue; }
+    const cases = ROLES.filter((x) => x !== myRole).map((other) => ['its role relabeled ' + other, partial((e, man, g, d) => { d.role = other; })]);
+    cases.push(['a run nothing names added as confirmed', partial((e, man, g, d) => {
+      const f = g(w.path), key = w.depKey.split('/')[0] + '/stray-1', path = 'runs/' + key + '/run.json', o = JSON.parse(e[f.pack]); o.id = 'stray-1';
+      const nf = Object.assign({}, f, { path, pack: 'originals/' + path }); e[nf.pack] = Buffer.from(JSON.stringify(o, null, 2)); man.files.push(nf);
+      man.runs[0].living.deps.push(Object.assign({}, d, { key }));
+    })]);
+    cases.push(['the root null and the dependency {}', partial((e, man, g) => { e[g('runs/' + w.key + '/run.json').pack] = Buffer.from('null'); e[g(w.path).pack] = Buffer.from('{}'); })]);
+    for (const [what, p] of cases) { const c = checkPack(await p); if (c.ok) misses.push(w.role + ', ' + what + ': ' + c.out); }
+  }
+  assert.deepStrictEqual(misses, []);
+});
 /* ND: each run the work depends on is named as the export names it: exactly its key, role, head, chain, receipt and
    confirmed, typed; the receipt it names is the packed run's own (none when it has none); and a complete pack confirms
    every one. In every role. */

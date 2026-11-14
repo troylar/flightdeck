@@ -597,6 +597,24 @@ def check_living(z, man):
                     add((cp or "?") + "/" + ch["run"], "child")
         return out
 
+    def reach(root_key: str, root_run) -> dict:
+        """Every run the root's work depends on, found from the packed references alone (depends_on, run by run, through
+        packed runs every reader could read as an object), each with the roles those references give it; bounded (5000)."""
+        roles: dict = {}
+        todo, seen_k = [(root_key, root_run)], set()
+        while todo and len(seen_k) <= 5000:
+            k, o = todo.pop(0)
+            if k in seen_k or not isinstance(o, dict):
+                continue
+            seen_k.add(k)
+            for fk, fr in depends_on(o).items():
+                if fk == root_key:
+                    continue
+                roles.setdefault(fk, set()).update(fr)
+                if fk not in seen_k:
+                    todo.append((fk, packed("runs/" + fk + "/run.json") if ("runs/" + fk + "/run.json") in by_path else None))
+        return roles
+
     def dep_check(k: str, d: dict) -> str:
         """Why a run the work depends on isn't confirmed as the export confirms it, or "": its run.json as every reader reads
         it, then the version it ran, as packed (repo.depVerdict), its end and living record, and its chain, head, closure
@@ -724,6 +742,22 @@ def check_living(z, man):
                 sys.exit("living: " + r["key"] + " has work its packed originals name (a work head, a receipt or a to-do record), but the manifest has no living section for it")
             continue
         n += 1
+        # Every dependency named confirmed is established from the packed references, whatever the pack says of itself and
+        # before anything else may stop reading (QD): found from the root, in that role, and checked in full. A root no reader
+        # reads can't establish one.
+        conf = [d for d in lv.get("deps") or [] if d.get("confirmed") is True]
+        if conf:
+            if ru:
+                sys.exit("living: " + r["key"] + " says " + conf[0]["key"] + ", a run its work depends on, is confirmed, but its own run.json isn't one every reader reads (" + ru[0] + "), so that can't be established")
+            found = reach(r["key"], packed("runs/" + r["key"] + "/run.json"))
+            for d in conf:
+                if d["key"] not in found:
+                    sys.exit("living: " + r["key"] + " says " + d["key"] + " is a confirmed run its work depends on, but nothing in the pack makes it one")
+                if d["role"] not in found[d["key"]]:
+                    sys.exit("living: " + r["key"] + " names " + d["key"] + " as a confirmed run its work depends on in the role " + d["role"] + ", but what refers to it gives it another (" + ", ".join(sorted(found[d["key"]])) + ")")
+                why = dep_check(d["key"], d)
+                if why:
+                    sys.exit("living: " + r["key"] + " says " + d["key"] + ", a run its work depends on, is confirmed, but " + why)
         # A root no reader reads (root_unread: missing, not JSON, no run, or refused by the readers' verdict) is in a partial
         # pack only, and nothing more is read of it: its fields aren't a run's.
         if ru:
@@ -763,11 +797,6 @@ def check_living(z, man):
                     sys.exit("living: " + r["key"] + " names another receipt for " + d["key"] + ", a run its work depends on, than its run.json")
             elif d["confirmed"]:
                 sys.exit("living: " + r["key"] + " says " + d["key"] + ", a run its work depends on, is confirmed, but its run.json isn't in the pack as a run")
-            # One called confirmed is checked in full, whatever the pack says of itself (OD).
-            if d["confirmed"]:
-                why = dep_check(d["key"], d)
-                if why:
-                    sys.exit("living: " + r["key"] + " says " + d["key"] + ", a run its work depends on, is confirmed, but " + why)
             if man["status"] == "complete" and not d["confirmed"]:
                 sys.exit("living: " + r["key"] + " says " + d["key"] + ", a run its work depends on, isn't confirmed, but the pack says it's complete")
         if rc is not None and rc["state"] == "confirmed" and not own_ok[0]:

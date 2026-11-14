@@ -25,12 +25,12 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "6068cbca959bd49016ed91892d196eea0a1f525c2ed9f0d557f108ea2b5da5bd",
-      "reviewed": "QA: every fact edge checked before skipping a walked fact; checked for direct writes and unconditional deletes"
+      "sha256": "9b8df0b961ef2ae46dd72275c617924db23774478bbd45c5f8154a9464f7abbe",
+      "reviewed": "QD: confirmed deps established from packed references before the unread-root exit; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
-      "sha256": "84b862fbed9de2e871ce0983d4e80370bc0c54c2045736128544973456bb16cd",
-      "reviewed": "QC: each context slice reserves its room from the shared budget before it is read; checked for direct writes and unconditional deletes"
+      "sha256": "ae1d16335133ce5ffe1cf0d166b125924fb593259f93cbbee8a2d2bdac87bc66",
+      "reviewed": "QD: confirmed deps established from packed references before the unread-root exit; checked for direct writes and unconditional deletes"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
