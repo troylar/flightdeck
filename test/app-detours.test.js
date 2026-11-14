@@ -605,6 +605,29 @@ rule('Run this checklist writes no plan beside a decision on its plan\'s ID that
   }
 });
 
+/* SC: a detour Decline reads people.json after the plan's final read and asks the decliner's authority right before the write. */
+rule('A detour Decline writes nothing when the decliner is marked inactive or people.json can\'t be read during its reads', async () => {
+  /* SC: the decliner marked inactive, or people.json unreadable, during the plan's final read. */
+  for (const how of ['sc-inactive', 'sc-unreadable'].filter(r15)) {
+    const { app, todo } = await setup(['pass']);
+    app.click('td-detour', todo); await app.tick(250);
+    const fs = app.fs, list = fs.list.bind(fs), F = fs.files;
+    let done = false;
+    fs.list = (d, ...a) => list(d, ...a).then((x) => {
+      if (d === 'proposals' && !done) {
+        done = true;
+        if (how === 'sc-unreadable') F['people.json'] = { t: '{ "format": ', m: Date.now() };
+        else { const o = JSON.parse(F['people.json'].t); (o.people || o).forEach(p => { if (p.id === 'person-avery') p.inactive = true; }); F['people.json'] = { t: JSON.stringify(o, null, 2), m: Date.now() }; }
+      }
+      return x;
+    });
+    app.click('decline-plan', idOf(app, 'decline-plan')); await app.tick(400); fs.list = list;
+    assert.ok(done, how + ': set-up: changed during the plan\'s read');
+    assert.deepStrictEqual(mineDec(app), [], how + ': no decline written');
+    assert.ok(!/Plan declined/.test(txt(app.html()) + ' ' + app.live()), how + ': never said it was declined');
+  }
+});
+
 /* SD: Try again verifies the exact pinned version again, as Start does, before its final read. */
 rule('A detour Try again saves nothing on a pinned version damaged or gone since the start was interrupted', async () => {
   /* SD: the pinned version damaged or gone after the start was interrupted, with no refresh. */
