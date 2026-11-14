@@ -4,10 +4,10 @@
   var U = PF.util, R = PF.run, M = PF.map, T = PF.types, V = PF.views, repo = PF.repo;
   /* Round 10: keeping a conflict copy of a loop's parent or child first writes a backup of the version it replaces; that
      backup asks the guard captured at the click (state.recoverCx) too, so nothing is written for another folder or person. */
-  repo = Object.assign(Object.create(PF.repo), { keepDisplaced: function (fs, run, session) {
+  repo = Object.assign(Object.create(PF.repo), { keepDisplaced: function (fs, run, session, check) {
     var rc = state.recoverCx;
     if (rc && rc.key === run.process + '/' + run.id && !guardOk(rc.cx)) return Promise.reject(Object.assign(new Error('the folder, the person or the run changed, so nothing was kept'), { dropped: true }));
-    return PF.repo.keepDisplaced(fs, run, session);
+    return PF.repo.keepDisplaced(fs, run, session, check);
   } });
   var EXAMPLES = /*@EXAMPLES@*/{};
   /* src/releases.json, checked and embedded by build.py, newest first. The app's version is the newest release; "dev" means
@@ -3381,6 +3381,8 @@
     var ok = false;
     if (w.kind === 'run') ok = has(key) && g.runs[key] === w.rev && w.path.indexOf(dir) === 0 && (w.path === dir + 'run.json' ? !!g.disk && w.expect === g.disk[key] : w.expect === 'absent');
     else if (w.kind === 'create') ok = !!key && g.create === key && g.absent === true && w.expect === 'absent' && w.path.indexOf(dir) === 0;
+    /* Round 21 (ZD): a recovery's backup, beside the run, never over a file. */
+    else if (w.kind === 'backup') ok = has(key) && g.runs[key] === w.rev && w.expect === 'absent' && w.path.indexOf(dir + 'replaced-') === 0 && w.path.slice(dir.length).indexOf('/') < 0 && /\.json$/.test(w.path);
     else if (w.kind === 'scope') ok = w.expect === 'absent' && /^proposals\/[^/]+$/.test(w.path) && (!key || has(key));
     return ok ? writeToken(w, g.folder) : false;
   }
@@ -9929,7 +9931,8 @@
       if (src0 && src0.file) rcx.pin = src0.file;
       if (src0 && src0.local) rcx.localPin = src0.local;
       var held = function () { say('The copy wasn\'t kept: a run of a loop it approves, or its version, can\'t be read here now, or holds its stage. The copy is still there; choose Refresh, then try again.', 'warn'); return false; };
-      return approvalSnapshot(rcx, fs).then(function (ok) { return ok ? repo.keepDisplaced(fs, cur, WRITER) : null; }).then(function (where) {
+      /* Round 21 (ZD): the backup is written only with the snapshot's token for exactly that write, asked right before it. */
+      return repo.keepDisplaced(fs, cur, WRITER, function (f, phase, w) { return approvalSnapshot(rcx, f, null, w); }).then(function (where) {
         if (where === null) return held();
         if (g !== gen) return false;
         var ed = loopEdit(rcx, key, function (run, map, me, now) {

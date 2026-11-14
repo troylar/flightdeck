@@ -1442,11 +1442,21 @@ PF.repo = (function () {
     return fs.read(path).then(function (f) { if (out) { out.path = path; out.text = f ? f.text : null; } return f ? R.cleanCopy(json(f.text), run) : null; });
   }
   /* Before a conflict copy replaces the current version, the current one is saved beside it. The name doesn't start with "run",
-     so it's kept as a record without showing up as another conflict. */
-  function keepDisplaced(fs, run, session) {
+     so it's kept as a record without showing up as another conflict. Round 21 (ZD): with a gate, the backup is written only
+     with the token its guard (check(fs, 'backup', w)) hands over for exactly this write: the folder, the path, nothing there
+     yet, the run's revision and the bytes. The guard answering false writes nothing and resolves null. */
+  function keepDisplaced(fs, run, session, check) {
+    var key = run.process + '/' + run.id;
+    if (GATE && typeof check !== 'function') { GATE(null, { kind: 'backup', key: key, unguarded: true }); return Promise.reject(unguarded()); }
     forgetRun(fs, run);
-    var path = 'runs/' + run.process + '/' + run.id + '/replaced-' + session + '-' + Date.now() + '.json';
-    return fs.write(path, JSON.stringify(stripMeta(run), null, 2)).then(function () { return path; });
+    var path = 'runs/' + key + '/replaced-' + session + '-' + Date.now() + '.json', text = JSON.stringify(stripMeta(run), null, 2);
+    if (typeof check !== 'function') return fs.write(path, text).then(function () { return path; });
+    var w = writeAs({ kind: 'backup', path: path, expect: 'absent', key: key, rev: run.rev || 0 }, text);
+    return Promise.resolve().then(function () { return check(fs, 'backup', w); }).then(function (tok) {
+      if (tok === false) return null;
+      if (GATE && (tok == null || typeof tok !== 'object')) { GATE(null, w); throw notAdmitted(); }
+      return gatedWrite(fs, w, text, tok).then(function () { return path; });
+    });
   }
   /* Removing a copy also removes any lost-save candidate with exactly the same contents, so one decision covers one version. */
   /* check() (round 14, HA): asked after the copy's read and right before it is removed; false removes nothing (resolves false). */
