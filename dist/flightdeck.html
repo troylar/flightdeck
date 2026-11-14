@@ -25009,10 +25009,10 @@ PF.repo = (function () {
       var names = items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) { return i.name; });
       return Promise.all(names.map(function (n) {
         var path = 'proposals/' + n;
-        return fs.read(path).then(function (f) { return { name: n, path: path, o: f ? json(f.text) : undefined, gone: !f }; }, function (e) { return { name: n, path: path, o: undefined, err: why(e) }; });
+        return fs.read(path).then(function (f) { return { name: n, path: path, o: f ? json(f.text) : undefined, text: f ? f.text : null, gone: !f }; }, function (e) { return { name: n, path: path, o: undefined, err: why(e) }; });
       }));
     }).then(function (files) {
-      var copies = [], decisions = [];
+      var copies = [], decisions = [], own = null;
       files.forEach(function (x) {
         var o2 = x.o, ours = mine(x.name);
         if (o2 === undefined || o2 === null || typeof o2 !== 'object' || Array.isArray(o2)) {
@@ -25024,11 +25024,14 @@ PF.repo = (function () {
         var v = PF.plans.clean(o2, x.name, false);
         if (!v.ok || v.why) throw new Error(x.path + ' can\'t be used here: it ' + (v.why || 'isn\'t a file this copy can read here').replace(/\.$/, '') + '. Until it can, this plan can\'t be started, declined or switched.' + said);
         if (!about) return;
-        if (v.kind === 'plan') copies.push(o2); else decisions.push(o2);
+        if (v.kind === 'plan') copies.push(o2); else { decisions.push(o2); if (o.own && x.path === o.own.path && x.text === o.own.text) own = o2; }
       });
+      /* Try again (o.own): this window's start decision, exactly as it wrote it, is what reserves the plan for its run; gone
+         or changed, the run is never saved on it. */
+      if (o.own && !own) throw new Error('Your start decision on this plan isn\'t in the folder as this window wrote it, so it isn\'t known that the plan is still yours to start.' + said);
       /* A start or decline on this plan's ID holds it whatever version of the plan it was made on (2.1.1): one made before
          an edit, or on a copy since deleted, still counts. A switch counts only for the exact plan, as it isn't a decision. */
-      var made = decisions.filter(function (d) { return d.status !== 'retargeted' && !(o.mine && o.mine(d)); }), done = made.filter(function (d) { return d.status === 'accepted'; })[0] || made[0];
+      var made = decisions.filter(function (d) { return d.status !== 'retargeted' && d !== own; }), done = made.filter(function (d) { return d.status === 'accepted'; })[0] || made[0];
       var decided = function () { if (done) throw new Error((done.status === 'accepted' ? 'This plan was already started' + (typeof done.run === 'string' ? ' (' + done.run + ')' : '') + '. Find its run on Runs.' : 'This plan was already ' + (done.status === 'declined' ? 'declined' : 'decided on') + '.') + ' To run it again, make a new plan.' + said); };
       /* A plan about to be written (o.create): no copy yet, or only copies the same as it; never beside one that differs, and
          never beside a start or decline on its ID, which the new plan would show as made on an earlier version. */
@@ -25036,7 +25039,7 @@ PF.repo = (function () {
       if (!copies.length) throw new Error('This plan isn\'t in the folder now.' + said);
       var texts = copies.map(function (c) { return JSON.stringify(stripMeta(c)); });
       if (!copies.every(function (c) { return PF.requests.same(c, copies[0]); })) throw new Error('Two different copies of this plan are in the folder. Delete the wrong one first.' + said);
-      if (!(o.mine && o.sha == null) && texts.map(function (t) { return PF.sha256.hex(t); }).indexOf(o.sha) < 0) throw new Error('This plan changed since the form showed it. Open it again to see the new plan.' + said);
+      if (texts.map(function (t) { return PF.sha256.hex(t); }).indexOf(o.sha) < 0) throw new Error('This plan changed since the form showed it. Open it again to see the new plan.' + said);
       var hashes = texts.map(function (t) { return U.hash(t); });
       decided();
       var moves = decisions.filter(function (d) { return d.status === 'retargeted' && hashes.indexOf(d.proposalHash) >= 0; });
@@ -25046,7 +25049,8 @@ PF.repo = (function () {
   }
   /* The plan gate as the last read of proposals/ (PF.repo.proposalsFinal): listed, every file read and judged from a listing
      of its own, listed again. A file that arrived or went meanwhile is a move: nothing is written. o as planGate takes it,
-     with o.create (the plan about to be written) and o.mine (a decision of this window's own that doesn't count). */
+     with o.create (the plan about to be written) and o.own ({ path, text }: this window's own start decision, which must be
+     there exactly as written and is then the one decision that doesn't count against it). */
   function planFinal(fs, plan, o) {
     return proposalsFinal(fs, { read: function (rf) { return planGate(rf, plan, o); } }).then(function (F) {
       if (F.moved) throw new Error('A file in proposals/ arrived or went while this plan was read, so it isn\'t known whether it was decided. Nothing was written.');
@@ -25054,9 +25058,11 @@ PF.repo = (function () {
   }
   /* A start or decline goes to <plan>.status-<session>-d.json and a switch to <plan>.status-<session>.json (2.1.1), so a start
      never replaces the switch this window made before it. Resolves to the path written. */
-  function recordPlanStatus(fs, plan, session, status, runId, by, to, app) {
-    var rec = PF.plans.decision(plan, status, runId, by, new Date().toISOString(), to, app), path = 'proposals/' + plan.id + '.status-' + session + (status === 'retargeted' ? '' : '-d') + '.json';
-    return fs.write(path, JSON.stringify(rec, null, 2)).then(function () { return path; });
+  function recordPlanStatus(fs, plan, session, status, runId, by, to, app, out) {
+    var rec = PF.plans.decision(plan, status, runId, by, new Date().toISOString(), to, app), path = 'proposals/' + plan.id + '.status-' + session + (status === 'retargeted' ? '' : '-d') + '.json', text = JSON.stringify(rec, null, 2);
+    /* out.text: the exact bytes written, which Try again's final read asks for again. */
+    if (out) out.text = text;
+    return fs.write(path, text).then(function () { return path; });
   }
   /* Try again (2.1.1): the run a planned start reserved, written from the exact bytes this window kept when its first save
      failed (k: { process, id, path, text, cand, dec }), never made again. Under the plan's lock and then the run's, on a fresh
@@ -42962,7 +42968,7 @@ PF.examples = (function () {
       var still = function () { return g === gen && state.pendingStarts[k.plan] === k && state.fs === k.fs && fsKey() === k.key && state.me === k.me; };
       queued(function () {
         if (!still()) return { dropped: true };
-        return repo.resumeStart(k.fs, k.plan, k, { me: k.me, lock: LOCKS ? lock : null, still: still, final: dt ? function () { return repo.planFinal(k.fs, { id: k.plan }, { action: 'start', mine: function (d) { return d.status === 'accepted' && d.run === k.id && d.by === k.me; } }); } : null, writing: function () { k.certain = false; if (state.msg && state.msg.pendingStart) state.msg = null; render(); } });
+        return repo.resumeStart(k.fs, k.plan, k, { me: k.me, lock: LOCKS ? lock : null, still: still, final: dt ? function () { return repo.planFinal(k.fs, { id: k.plan }, { action: 'start', sha: k.sha, folder: k.folder, own: { path: k.dec, text: k.decText } }); } : null, writing: function () { k.certain = false; if (state.msg && state.msg.pendingStart) state.msg = null; render(); } });
       }).then(function (res) {
         state.resuming = false;
         if (res && res.dropped) { releaseNav(held); say('The run wasn\'t saved. ' + nothingWritten(g, k.fs, k.key, k.me), 'warn'); render(); return null; }
@@ -44579,7 +44585,7 @@ PF.examples = (function () {
        plan's lock, whatever this page last read. Its decision, naming the run, is written first and the run then (2.1.1):
        the decision reserves the plan for this one run, so a run that doesn't save can only be saved again, never started
        twice. The exact bytes it tried are kept in this window, by plan (state.pendingStarts), for Try again (repo.resumeStart). */
-    var formSha = e.target.dataset.planHash, startFolder = pub.info.folder, dec = null, pinLate = '', detour = !!(plan && plan.pin && /^plan-ev-[0-9a-f]{24}$/.test(String(plan.id)));
+    var formSha = e.target.dataset.planHash, startFolder = pub.info.folder, dec = null, decOut = {}, pinLate = '', detour = !!(plan && plan.pin && /^plan-ev-[0-9a-f]{24}$/.test(String(plan.id)));
     var sg2 = detour ? writeGuard({}) : null;
     /* YC: a detour's start lands only on the form it was submitted from: anything done since (another form opened, a name
        typed, a layer opened) keeps it saved and says so, and nothing on screen is reset or navigated away from. */
@@ -44598,7 +44604,7 @@ PF.examples = (function () {
       if (!still()) return { dropped: true };
       var decide = function () {
         return repo.decidePlan(sfs, plan, { action: 'start', sha: formSha, folder: startFolder, final: detour, lock: LOCKS ? lock : null, still: still, write: function () {
-          var mark = function () { return repo.recordPlanStatus(sfs, plan, WRITER, 'accepted', r.id, who, null, APP_VERSION).then(function (path) { dec = path; return save(true); }); };
+          var mark = function () { return repo.recordPlanStatus(sfs, plan, WRITER, 'accepted', r.id, who, null, APP_VERSION, decOut).then(function (path) { dec = path; return save(true); }); };
           if (!detour) return mark();
           /* Run this checklist: after the pin's read, people.json is read again and the whole guard asked right before the
              decision is written; only a decision actually written has its run saved (and only that is recovered). */
@@ -44626,7 +44632,7 @@ PF.examples = (function () {
       function (err) {
         endBusy(); releaseNav(held);
         if (dec && err && err.pending && still()) {
-          state.pendingStarts[plan.id] = { plan: plan.id, title: plan.title || plan.id, fs: sfs, key: skey, me: who, process: r.process, id: r.id, path: err.pending.path, text: err.pending.text, certain: err.pending.certain, cand: err.pending.cand, dec: dec };
+          state.pendingStarts[plan.id] = { plan: plan.id, title: plan.title || plan.id, fs: sfs, key: skey, me: who, process: r.process, id: r.id, path: err.pending.path, text: err.pending.text, certain: err.pending.certain, cand: err.pending.cand, dec: dec, decText: decOut.text, sha: formSha, folder: startFolder, pinPlan: plan, pub: pub };
           say('The plan is marked started, but ' + PF.vk.unsavedWords(err.pending) + ' (' + err.message + '). Try again.', 'bad'); state.msg.pendingStart = true; render(); return;
         }
         if (dec && err && err.pending) { say(aboutWhat(still, sg, sfs, skey, who) + 'The plan is marked started, but ' + PF.vk.unsavedWords(err.pending) + ' (' + err.message + '). The person using this window changed while it was saving, so Try again isn\'t offered here.', 'warn'); render(); return; }

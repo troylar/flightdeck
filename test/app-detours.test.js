@@ -550,7 +550,42 @@ rule('A detour Start, Decline or plan creation writes nothing when its plan is t
   }
 });
 
+/* Round 15: a start whose first run save failed: its decision is written and Try again is on offer. */
+const mineDec = (app) => app.files('proposals/plan-ev-').filter(p => /\.status-.*-d\.json$/.test(p) && !/status-other-d/.test(p));
+const idOf = (app, act) => (new RegExp('data-act="' + act + '"[^>]*data-id="([^"]+)"').exec(app.html()) || new RegExp('data-id="([^"]+)"[^>]*data-act="' + act + '"').exec(app.html()))[1];
 const r15 = (h) => !process.env.SR_CASE || process.env.SR_CASE.split(',').indexOf(h) >= 0;
+async function interrupted() {
+  const S = await setup(['pass']), app = S.app;
+  app.click('td-detour', S.todo); await app.tick(250);
+  const w = app.fs.write.bind(app.fs); let failed = false;
+  app.fs.write = (p, ...a) => (!failed && /^runs\/smoke-test\//.test(p)) ? (failed = true, Promise.reject(new Error('disk full'))) : w(p, ...a);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(300);
+  app.fs.write = w;
+  assert.ok(/data-act="plan-resume"/.test(app.html()) && mineDec(app).length === 1, 'set-up: Try again offered, its decision written');
+  return Object.assign(S, { planPath: plans(app)[0], decPath: mineDec(app)[0] });
+}
+
+/* SA: Try again's final read keeps the reservation it rests on: this window's exact start decision and the plan as the form
+   showed it, both unchanged, or nothing is saved. */
+rule('A detour Try again saves nothing once its own start decision or the plan it reviewed changed during its reads', async () => {
+  /* SA: during Try again's reads, before its final one. */
+  for (const how of ['sa-delete', 'sa-title', 'sa-maphash'].filter(r15)) {
+    const S = await interrupted(), app = S.app, F = app.fs.files, before = kidPaths(app).length, fs = app.fs, read = fs.read.bind(fs);
+    let done = false;
+    fs.read = (p, ...a) => {
+      if (!done && /^runs\/smoke-test\/[^/]+\/run\.json$/.test(p)) {
+        done = true;
+        if (how === 'sa-delete') delete F[S.decPath];
+        else { const o = JSON.parse(F[S.planPath].t); if (how === 'sa-title') o.title = 'Another title'; else o.pin = Object.assign({}, o.pin, { mapHash: 'f'.repeat(String(o.pin.mapHash).length) }); F[S.planPath] = { t: JSON.stringify(o, null, 2) + '\n', m: Date.now() }; }
+      }
+      return read(p, ...a);
+    };
+    app.click('plan-resume', idOf(app, 'plan-resume')); await app.tick(400); fs.read = read;
+    assert.ok(done, how + ': set-up: changed during Try again\'s reads');
+    assert.strictEqual(kidPaths(app).length, before, how + ': no run saved');
+    assert.ok(!/Run started/.test(txt(app.html()) + ' ' + app.live()), how + ': never said it started');
+  }
+});
 
 /* SB: making a to-do's plan is refused by a start or decline on its ID that arrived meanwhile. */
 rule('Run this checklist writes no plan beside a decision on its plan\'s ID that arrived while it was read', async () => {

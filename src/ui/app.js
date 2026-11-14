@@ -8639,7 +8639,7 @@
       var still = function () { return g === gen && state.pendingStarts[k.plan] === k && state.fs === k.fs && fsKey() === k.key && state.me === k.me; };
       queued(function () {
         if (!still()) return { dropped: true };
-        return repo.resumeStart(k.fs, k.plan, k, { me: k.me, lock: LOCKS ? lock : null, still: still, final: dt ? function () { return repo.planFinal(k.fs, { id: k.plan }, { action: 'start', mine: function (d) { return d.status === 'accepted' && d.run === k.id && d.by === k.me; } }); } : null, writing: function () { k.certain = false; if (state.msg && state.msg.pendingStart) state.msg = null; render(); } });
+        return repo.resumeStart(k.fs, k.plan, k, { me: k.me, lock: LOCKS ? lock : null, still: still, final: dt ? function () { return repo.planFinal(k.fs, { id: k.plan }, { action: 'start', sha: k.sha, folder: k.folder, own: { path: k.dec, text: k.decText } }); } : null, writing: function () { k.certain = false; if (state.msg && state.msg.pendingStart) state.msg = null; render(); } });
       }).then(function (res) {
         state.resuming = false;
         if (res && res.dropped) { releaseNav(held); say('The run wasn\'t saved. ' + nothingWritten(g, k.fs, k.key, k.me), 'warn'); render(); return null; }
@@ -10256,7 +10256,7 @@
        plan's lock, whatever this page last read. Its decision, naming the run, is written first and the run then (2.1.1):
        the decision reserves the plan for this one run, so a run that doesn't save can only be saved again, never started
        twice. The exact bytes it tried are kept in this window, by plan (state.pendingStarts), for Try again (repo.resumeStart). */
-    var formSha = e.target.dataset.planHash, startFolder = pub.info.folder, dec = null, pinLate = '', detour = !!(plan && plan.pin && /^plan-ev-[0-9a-f]{24}$/.test(String(plan.id)));
+    var formSha = e.target.dataset.planHash, startFolder = pub.info.folder, dec = null, decOut = {}, pinLate = '', detour = !!(plan && plan.pin && /^plan-ev-[0-9a-f]{24}$/.test(String(plan.id)));
     var sg2 = detour ? writeGuard({}) : null;
     /* YC: a detour's start lands only on the form it was submitted from: anything done since (another form opened, a name
        typed, a layer opened) keeps it saved and says so, and nothing on screen is reset or navigated away from. */
@@ -10275,7 +10275,7 @@
       if (!still()) return { dropped: true };
       var decide = function () {
         return repo.decidePlan(sfs, plan, { action: 'start', sha: formSha, folder: startFolder, final: detour, lock: LOCKS ? lock : null, still: still, write: function () {
-          var mark = function () { return repo.recordPlanStatus(sfs, plan, WRITER, 'accepted', r.id, who, null, APP_VERSION).then(function (path) { dec = path; return save(true); }); };
+          var mark = function () { return repo.recordPlanStatus(sfs, plan, WRITER, 'accepted', r.id, who, null, APP_VERSION, decOut).then(function (path) { dec = path; return save(true); }); };
           if (!detour) return mark();
           /* Run this checklist: after the pin's read, people.json is read again and the whole guard asked right before the
              decision is written; only a decision actually written has its run saved (and only that is recovered). */
@@ -10303,7 +10303,7 @@
       function (err) {
         endBusy(); releaseNav(held);
         if (dec && err && err.pending && still()) {
-          state.pendingStarts[plan.id] = { plan: plan.id, title: plan.title || plan.id, fs: sfs, key: skey, me: who, process: r.process, id: r.id, path: err.pending.path, text: err.pending.text, certain: err.pending.certain, cand: err.pending.cand, dec: dec };
+          state.pendingStarts[plan.id] = { plan: plan.id, title: plan.title || plan.id, fs: sfs, key: skey, me: who, process: r.process, id: r.id, path: err.pending.path, text: err.pending.text, certain: err.pending.certain, cand: err.pending.cand, dec: dec, decText: decOut.text, sha: formSha, folder: startFolder, pinPlan: plan, pub: pub };
           say('The plan is marked started, but ' + PF.vk.unsavedWords(err.pending) + ' (' + err.message + '). Try again.', 'bad'); state.msg.pendingStart = true; render(); return;
         }
         if (dec && err && err.pending) { say(aboutWhat(still, sg, sfs, skey, who) + 'The plan is marked started, but ' + PF.vk.unsavedWords(err.pending) + ' (' + err.message + '). The person using this window changed while it was saving, so Try again isn\'t offered here.', 'warn'); render(); return; }

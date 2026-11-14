@@ -25,8 +25,8 @@
       "reviewed": "PF: name the real processes and process --contract 2 forms instead of read and versions; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "f1aeaa39e9cb7c3e00fb1ccee46050fb6526ea5f8f691ddf548e6be1f27141e2",
-      "reviewed": "SB: to-do plan creation also refuses a start or decline on its ID found by the final read; checked for direct writes and unconditional deletes"
+      "sha256": "4774503059a4eee2926cfac25d1e34fe658118aff7da15e963fbe73052746cf2",
+      "reviewed": "SA: Try again's final read requires this window's exact start decision and the plan's fingerprint; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -417,12 +417,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "d11a8e733f61fc92ed1e2e300d0e7704e6e2c1e8b586eb064ac619ae9f807b05",
-      "reviewed": "SB: to-do plan creation also refuses a start or decline on its ID found by the final read; checked for direct writes and unconditional deletes"
+      "sha256": "73c3bc567215fd201854e5e72337006586302c251330099e4d5cd3190634c5d9",
+      "reviewed": "SA: Try again's final read requires this window's exact start decision and the plan's fingerprint; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "2502ac5b520190abee1242ef0f5c7d61b80d52d40497fdf829488fcce8f83240",
-      "reviewed": "PA: to-do plan creation, Start, Try again and Decline read proposals/ last through planFinal (the plan gate inside proposalsFinal); no new write paths; checked for direct writes and unconditional deletes"
+      "sha256": "804ff3c29c1206af0d7e09a8814206e688dfcc3a5d07b739020a392e6f4acad6",
+      "reviewed": "SA: Try again's final read requires this window's exact start decision and the plan's fingerprint; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
@@ -521,8 +521,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. A maintainer tool, not shipped. Not read line by line."
     },
     "tools/readers.js": {
-      "sha256": "758d153a7d373a68f54c4e88648b3a24936824a1d9be50e8f3c3a69a5a8941b3",
-      "reviewed": "deep files refused in Folder health; readers list updated; checked for direct writes and unconditional deletes"
+      "sha256": "2cb2475ea0d33ca2cde9799b3717e9c652ce3a9a44082329811136ee6186052d",
+      "reviewed": "SA: the plan gate's raw read now also keeps the file's text, for Try again's exact decision; checked for direct writes and unconditional deletes"
     },
     "tools/scale-limits.js": {
       "sha256": "23e06ee46d6b4ff44216f92c530578f714aa05bcecd7a2b0458515287d554ec1",

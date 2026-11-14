@@ -2175,10 +2175,10 @@ PF.repo = (function () {
       var names = items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) { return i.name; });
       return Promise.all(names.map(function (n) {
         var path = 'proposals/' + n;
-        return fs.read(path).then(function (f) { return { name: n, path: path, o: f ? json(f.text) : undefined, gone: !f }; }, function (e) { return { name: n, path: path, o: undefined, err: why(e) }; });
+        return fs.read(path).then(function (f) { return { name: n, path: path, o: f ? json(f.text) : undefined, text: f ? f.text : null, gone: !f }; }, function (e) { return { name: n, path: path, o: undefined, err: why(e) }; });
       }));
     }).then(function (files) {
-      var copies = [], decisions = [];
+      var copies = [], decisions = [], own = null;
       files.forEach(function (x) {
         var o2 = x.o, ours = mine(x.name);
         if (o2 === undefined || o2 === null || typeof o2 !== 'object' || Array.isArray(o2)) {
@@ -2190,11 +2190,14 @@ PF.repo = (function () {
         var v = PF.plans.clean(o2, x.name, false);
         if (!v.ok || v.why) throw new Error(x.path + ' can\'t be used here: it ' + (v.why || 'isn\'t a file this copy can read here').replace(/\.$/, '') + '. Until it can, this plan can\'t be started, declined or switched.' + said);
         if (!about) return;
-        if (v.kind === 'plan') copies.push(o2); else decisions.push(o2);
+        if (v.kind === 'plan') copies.push(o2); else { decisions.push(o2); if (o.own && x.path === o.own.path && x.text === o.own.text) own = o2; }
       });
+      /* Try again (o.own): this window's start decision, exactly as it wrote it, is what reserves the plan for its run; gone
+         or changed, the run is never saved on it. */
+      if (o.own && !own) throw new Error('Your start decision on this plan isn\'t in the folder as this window wrote it, so it isn\'t known that the plan is still yours to start.' + said);
       /* A start or decline on this plan's ID holds it whatever version of the plan it was made on (2.1.1): one made before
          an edit, or on a copy since deleted, still counts. A switch counts only for the exact plan, as it isn't a decision. */
-      var made = decisions.filter(function (d) { return d.status !== 'retargeted' && !(o.mine && o.mine(d)); }), done = made.filter(function (d) { return d.status === 'accepted'; })[0] || made[0];
+      var made = decisions.filter(function (d) { return d.status !== 'retargeted' && d !== own; }), done = made.filter(function (d) { return d.status === 'accepted'; })[0] || made[0];
       var decided = function () { if (done) throw new Error((done.status === 'accepted' ? 'This plan was already started' + (typeof done.run === 'string' ? ' (' + done.run + ')' : '') + '. Find its run on Runs.' : 'This plan was already ' + (done.status === 'declined' ? 'declined' : 'decided on') + '.') + ' To run it again, make a new plan.' + said); };
       /* A plan about to be written (o.create): no copy yet, or only copies the same as it; never beside one that differs, and
          never beside a start or decline on its ID, which the new plan would show as made on an earlier version. */
@@ -2202,7 +2205,7 @@ PF.repo = (function () {
       if (!copies.length) throw new Error('This plan isn\'t in the folder now.' + said);
       var texts = copies.map(function (c) { return JSON.stringify(stripMeta(c)); });
       if (!copies.every(function (c) { return PF.requests.same(c, copies[0]); })) throw new Error('Two different copies of this plan are in the folder. Delete the wrong one first.' + said);
-      if (!(o.mine && o.sha == null) && texts.map(function (t) { return PF.sha256.hex(t); }).indexOf(o.sha) < 0) throw new Error('This plan changed since the form showed it. Open it again to see the new plan.' + said);
+      if (texts.map(function (t) { return PF.sha256.hex(t); }).indexOf(o.sha) < 0) throw new Error('This plan changed since the form showed it. Open it again to see the new plan.' + said);
       var hashes = texts.map(function (t) { return U.hash(t); });
       decided();
       var moves = decisions.filter(function (d) { return d.status === 'retargeted' && hashes.indexOf(d.proposalHash) >= 0; });
@@ -2212,7 +2215,8 @@ PF.repo = (function () {
   }
   /* The plan gate as the last read of proposals/ (PF.repo.proposalsFinal): listed, every file read and judged from a listing
      of its own, listed again. A file that arrived or went meanwhile is a move: nothing is written. o as planGate takes it,
-     with o.create (the plan about to be written) and o.mine (a decision of this window's own that doesn't count). */
+     with o.create (the plan about to be written) and o.own ({ path, text }: this window's own start decision, which must be
+     there exactly as written and is then the one decision that doesn't count against it). */
   function planFinal(fs, plan, o) {
     return proposalsFinal(fs, { read: function (rf) { return planGate(rf, plan, o); } }).then(function (F) {
       if (F.moved) throw new Error('A file in proposals/ arrived or went while this plan was read, so it isn\'t known whether it was decided. Nothing was written.');
@@ -2220,9 +2224,11 @@ PF.repo = (function () {
   }
   /* A start or decline goes to <plan>.status-<session>-d.json and a switch to <plan>.status-<session>.json (2.1.1), so a start
      never replaces the switch this window made before it. Resolves to the path written. */
-  function recordPlanStatus(fs, plan, session, status, runId, by, to, app) {
-    var rec = PF.plans.decision(plan, status, runId, by, new Date().toISOString(), to, app), path = 'proposals/' + plan.id + '.status-' + session + (status === 'retargeted' ? '' : '-d') + '.json';
-    return fs.write(path, JSON.stringify(rec, null, 2)).then(function () { return path; });
+  function recordPlanStatus(fs, plan, session, status, runId, by, to, app, out) {
+    var rec = PF.plans.decision(plan, status, runId, by, new Date().toISOString(), to, app), path = 'proposals/' + plan.id + '.status-' + session + (status === 'retargeted' ? '' : '-d') + '.json', text = JSON.stringify(rec, null, 2);
+    /* out.text: the exact bytes written, which Try again's final read asks for again. */
+    if (out) out.text = text;
+    return fs.write(path, text).then(function () { return path; });
   }
   /* Try again (2.1.1): the run a planned start reserved, written from the exact bytes this window kept when its first save
      failed (k: { process, id, path, text, cand, dec }), never made again. Under the plan's lock and then the run's, on a fresh
