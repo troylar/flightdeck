@@ -25,8 +25,8 @@
       "reviewed": "UB: the source run of todo checklist requests judged first and again before a preview and inside the final dependency read; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "f3c6627fcf0db89306e729cdabb363cf06b120b06f549b65f50959cd93a0e8da",
-      "reviewed": "UA: a to-do's Try again runs under the write guard: people.json after the final read, the starter asked right before the run write, the reservation kept on refusal; checked for direct writes and unconditional deletes"
+      "sha256": "b2d571e3d70c18be86699d7f13c549bed45fcea43f33b43b656c61c79e908307",
+      "reviewed": "UC: a listed notes file read as gone is a named vanished part of the run, so Accept never takes it as evidence; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -417,8 +417,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "32b7d2a6aef0f8296ff9f05e85a14a1981bc9039310297ce4e7b5b0320a49807",
-      "reviewed": "SE: a run whose read names a file of its own that can't be read is unread evidence, never accepted; checked for direct writes and unconditional deletes"
+      "sha256": "dbeba28c9de6f95efd87dd370448cc9ae9b8c8f387531050cae20a9fc524f8e0",
+      "reviewed": "UC: a listed notes file read as gone is a named vanished part of the run, so Accept never takes it as evidence; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "38412dd7db4cd1960ef315f19df421895e71fc965bc3c9eee8020990063df5e0",

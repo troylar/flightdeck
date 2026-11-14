@@ -23352,7 +23352,8 @@ PF.repo = (function () {
       }
       function noteOrSay(n) {
         if (!o.explain) return readNotes(n);
-        return readNotes(n).then(null, function (e) { full = false; stamps[n] = null; if (bad) bad.push({ path: base + n, key: proc + '/' + id, kind: errKind(e), why: why(e) }); return null; });
+        /* UC: a notes file listed and then read as gone is named (vanished), as a ledger names it, never read as no notes. */
+        return readNotes(n).then(function (f) { if (!f) { full = false; stamps[n] = null; if (bad) bad.push({ path: base + n, key: proc + '/' + id, kind: 'vanished', why: 'was listed, then gone before it could be read' }); } return f; }, function (e) { full = false; stamps[n] = null; if (bad) bad.push({ path: base + n, key: proc + '/' + id, kind: errKind(e), why: why(e) }); return null; });
       }
       return Promise.all([fs.read(base + 'run.json')].concat(noteFiles.map(noteOrSay))).then(withPublication).then(function (res) {
         var run = res[0] && R.sanitize(json(res[0].text));

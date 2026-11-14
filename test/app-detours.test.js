@@ -511,6 +511,22 @@ rule('Accept writes nothing when the evidence run has a file that can\'t be read
   assert.strictEqual(evRecs(app).length, 0, 'nothing written');
 });
 
+/* UC: a notes file that was listed and then read as gone (null) is a vanished part of the evidence run: Accept writes nothing. */
+rule('Accept writes nothing when a listed file of the evidence run is gone when it is read', async () => {
+  const { app, todo } = await setup();
+  const key = await runIt(app, todo);
+  finish(app, key, 'pass');
+  const np = 'runs/' + key + '/notes-w9.jsonl';
+  app.fs.files[np] = { t: JSON.stringify({ id: 'n1', at: AT(), by: 'person-avery', text: 'Ran it' }) + '\n', m: Date.now() };
+  await toParent(app); await refresh(app, 300);
+  assert.ok(/data-act="td-evidence"/.test(app.html()), 'set-up: Accept offered');
+  const fs = app.fs, read = fs.read.bind(fs);
+  fs.read = (p, ...a) => p === np ? Promise.resolve(null) : read(p, ...a);
+  app.click('td-evidence', todo, { run: key.split('/')[1] }); await app.tick(250);
+  fs.read = read;
+  assert.strictEqual(evRecs(app).length, 0, 'nothing written');
+});
+
 /* PA: Start, Decline and the plan's creation read proposals/ last but for people.json, through the final check
    (PF.repo.planFinal): the exact plan, its copies and its decisions as that read finds them. A plan torn, gone, copied
    differently or decided while the pinned version is read, or a copy that arrives while the plan is read, writes nothing. */
