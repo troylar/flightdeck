@@ -1652,6 +1652,8 @@ FAMILIES = {
     "flightdeck-plan-status": {"majors": {1: [], 2: [], 3: ["loops"], 4: ["living-runs"]}, "future": {}, "unmarked": False, "kinds": ["status"]},
     "flightdeck-skill": {"majors": {1: [], 2: []}, "future": {2: "2.0"}, "unmarked": True},
     "flightdeck-team-values": {"majors": {1: []}, "future": {1: "2.9"}, "unmarked": False},
+    # A decision on corrections: its major in "dv" when it has one, else 0 (PF.envelope's legacy field and legacyMajor).
+    "flightdeck-correction-decision": {"majors": {0: [], 1: [], 2: []}, "future": {}, "unmarked": False, "kinds": ["correction-decision"], "field": "dv", "legacy_major": 0},
 }
 # Every family's name, so a file of another known family is malformed here, never "newer".
 FAMILY_NAMES = ["flightdeck-checklist", "preflight-publication", "preflight-run", "flightdeck-run-archive", "flightdeck-step-type", "flightdeck-types", "flightdeck-plan",
@@ -1714,6 +1716,14 @@ def judge(family, o):
         if o.get("kind") not in fam["kinds"]:
             return bad("isn't a " + family + " file")
         major = 1
+        fld = fam.get("field")
+        if fld and o.get(fld) is not None:
+            v = o[fld]
+            if not _num(v) or not math.isfinite(v) or v < 0 or math.floor(v) != v or v > 9999:
+                return bad("has a \"" + fld + "\" that isn't a version number")
+            major = int(v)
+        elif fld:
+            major = fam["legacy_major"]
     elif fam["unmarked"]:
         major = 1
     else:

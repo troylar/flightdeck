@@ -232,6 +232,42 @@ rule('Python refuses a "Published in v2" claim confirmed without that version\'s
   assert.deepStrictEqual(misses, []);
 });
 
+/* SB: a decision proves a correction is in a version only as the app reads decisions: a correction decision its reader
+   keeps (envelope, attribution, the version its folder names), and the group's current one by the app's order (the highest
+   rev; two at the same rev are unresolved). */
+rule('Python takes a decision as proof of "Published in v2" only when the app would read it and it is the group\'s current decision', async () => {
+  if (!PY) return console.log('  (skipped: no Python)');
+  const LW = require('./living-worlds'), PF = load();
+  const { zip } = await pack(await folder(), { run: 'release/run1' });
+  const v2 = 'publications/release/' + fixture.v2 + '/', NOW = '2026-10-17T12:00:00.000Z', own = 'corrections/release/' + fixture.groupId + '.w4.1.json';
+  const unlisted = (e, g) => { const y = g(v2 + 'publication.json'), o = JSON.parse(e[y.pack]); o.corrections = []; e[y.pack] = Buffer.from(JSON.stringify(o, null, 2)); };
+  const put = (e, man, g, name, o) => { const y = g(own), path = 'corrections/release/' + name; e['originals/' + path] = Buffer.from(JSON.stringify(o, null, 2) + '\n'); man.files.push(Object.assign({}, y, { path, pack: 'originals/' + path })); };
+  const inc = (e, g, more) => Object.assign({ kind: 'correction-decision', process: 'release', group: fixture.groupId, members: JSON.parse(e[g(own).pack]).members, status: 'included', reason: '', by: 'person-avery', at: NOW, rev: 2, seen: fixture.groupId + '.w4.1.json', act: '', dv: 2, version: 2, folder: fixture.v2 }, more);
+  const withInc = (more, after) => (e, man, g) => { unlisted(e, g); const o = inc(e, g, more); Object.keys(o).forEach((k) => { if (o[k] === undefined) delete o[k]; }); put(e, man, g, fixture.groupId + '.w6.2.json', o); if (after) after(e, man, g); };
+  const ctl = LW.checkPack(await LW.repacked(PF, zip, withInc({})));
+  assert.ok(ctl.ok, 'the control, a valid "It\'s in v2" decision: ' + ctl.out);
+  const cases = [
+    ['a bare {group, status, folder}', (e, man, g) => { unlisted(e, g); put(e, man, g, fixture.groupId + '.w6.2.json', { group: fixture.groupId, status: 'included', folder: fixture.v2 }); }],
+    ['dv 99', withInc({ dv: 99 })],
+    ['version 3 with v2\'s folder', withInc({ version: 3 })],
+    ['no attribution', withInc({ by: undefined })],
+    ['a later declined decision', withInc({}, (e, man, g) => { put(e, man, g, fixture.groupId + '.w7.3.json', inc(e, g, { status: 'declined', reason: 'Not now', rev: 3, seen: fixture.groupId + '.w6.2.json', version: undefined, folder: undefined })); })],
+    ['another decision at the same rev', withInc({}, (e, man, g) => { put(e, man, g, fixture.groupId + '.w7.2.json', inc(e, g, { status: 'declined', reason: 'Not now', version: undefined, folder: undefined })); })]
+  ];
+  const misses = [];
+  for (const [what, edit] of cases) { const c = LW.checkPack(await LW.repacked(PF, zip, edit)); if (c.ok) misses.push(what + ': ' + c.out); }
+  /* The reader itself, held to PF.corrections.cleanDecision on each place of a decision. */
+  const base = { kind: 'correction-decision', process: 'release', group: 'g1', members: [], status: 'included', reason: '', by: 'person-avery', at: NOW, rev: 2, seen: null, act: '', dv: 2, version: 2, folder: 'v2-abc' };
+  const vars = [{}, { dv: 99 }, { dv: -1 }, { dv: 2.5 }, { dv: '2' }, { dv: null }, { dv: 0 }, { format: 'flightdeck-correction-decision/2' }, { format: 'flightdeck-correction-decision/3' }, { features: ['zzz'] },
+    { by: 42 }, { at: null }, { group: 'bad id!' }, { group: 'g'.repeat(41) }, { status: 'nope' }, { status: 'applied' }, { version: 3 }, { version: '2' }, { version: 2.0 }, { folder: 'v2' }, { folder: 'v2-ABC' },
+    { folder: 'v2-abc\n' }, { rev: -1 }, { rev: 'x' }, { rev: 2.7 }, { kind: 'fix-decision' }].map((v) => Object.assign({}, base, v));
+  vars.push((() => { const o = Object.assign({}, base); delete o.by; return o; })(), (() => { const o = Object.assign({}, base); delete o.dv; return o; })());
+  const C = PF.corrections, js = vars.map((o) => { const d = C.cleanDecision(JSON.parse(JSON.stringify(o)), 'release'); return d && d.kind === 'correction-decision' ? { group: d.group, status: d.status, rev: d.rev, folder: d.folder || null } : null; });
+  const py = JSON.parse(require('child_process').execFileSync(PY, ['-I', '-c', 'import sys, json; sys.path.insert(0, sys.argv[1]); import check_pack as P; print(json.dumps([P.decision_of(o) for o in json.load(sys.stdin)]))', __dirname], { input: JSON.stringify(vars), encoding: 'utf8' }));
+  vars.forEach((o, i) => { if (JSON.stringify(py[i]) !== JSON.stringify(js[i])) misses.push('the reader on ' + JSON.stringify(o) + ': ' + JSON.stringify(py[i]) + ' against ' + JSON.stringify(js[i])); });
+  assert.deepStrictEqual(misses, []);
+});
+
 rule('A /2 v2 proves "Published in v2" by its exact bytes: a byte-order mark added to its map.md (which the app refuses) leaves the claim unconfirmed', async () => {
   const fx = await build(load(), { v2note: true }), v2 = 'publications/release/' + fx.v2 + '/';
   assert.strictEqual(JSON.parse(fx.files[v2 + 'publication.json'].toString('utf8')).format, 'preflight-publication/2', 'v2 is a /2 version');

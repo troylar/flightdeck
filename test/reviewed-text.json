@@ -25,12 +25,12 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "202565348fa5de118bd6029dc433a71034647539df7ddd58c5b420d9c787765f",
-      "reviewed": "SA: a confirmed dependency walks every run its work requires, through walk_runs shared with the complete path; checked for direct writes and unconditional deletes"
+      "sha256": "b3afd912648837dbb94e9f7fa390a419a0b4b39799a52eba5b760613249f30bf",
+      "reviewed": "SB: inclusion decisions read as cleanDecision reads them, only the group's current one; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
-      "sha256": "ddc99fbe066479753874800cea37d6a99c7210fb03047d09732998e457e38623",
-      "reviewed": "SA: a confirmed dependency walks every run its work requires, through walk_runs shared with the complete path; checked for direct writes and unconditional deletes"
+      "sha256": "49ac68adf1c24c25500b22ea40dacd4584a8ae0e6982f5c2cb963a538cc92efa",
+      "reviewed": "SB: inclusion decisions read as cleanDecision reads them, only the group's current one; checked for direct writes and unconditional deletes"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
@@ -53,8 +53,8 @@
       "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "080a72586ceb17bfd519bc2beb7be2b201d1ab40e5659bc865ea25867ef290ae",
-      "reviewed": "QE: dependency versions checked from packed bytes in memory, no temp files; checked for direct writes and unconditional deletes"
+      "sha256": "80b726f91a373c7f15a967f817d493baf29a486c59f393cd23202c2a99033274",
+      "reviewed": "SB: inclusion decisions read as cleanDecision reads them, only the group's current one; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
       "sha256": "197779e5fb047d6137527db0211659a2db320470f3086d61b5126d6e868b0cf8",
@@ -201,8 +201,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "fa856543096c3c9f5c574b29739abf171a71d3c96895592c80ad00081d4a823e",
-      "reviewed": "QE: dependency versions checked from packed bytes in memory, no temp files; checked for direct writes and unconditional deletes"
+      "sha256": "7b396af91fb2136cc8cd8e673fb5708a7cc9cae940bd0c09e549e96f95935192",
+      "reviewed": "SB: inclusion decisions read as cleanDecision reads them, only the group's current one; checked for direct writes and unconditional deletes"
     },
     "src/core/appjson.js": {
       "sha256": "98019ea60f70df332d6774d2ac26d0bbd028e95f1f76f543cbe54c89cb8cd4fe",

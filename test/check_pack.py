@@ -3,7 +3,7 @@ manifest.json's SHA-256 for every payload file and SHA256SUMS for payload plus m
 application chain from the packed run.json's living.head through each application's previous, and checks the receipt the run
 names says the run's work head and outcome: a pack that calls a run's work complete must hold all of it, and a pack missing
 any of it must say it is partial. Run with python3 -I."""
-import datetime, hashlib, json, os, re, sys, zipfile, zoneinfo
+import datetime, hashlib, json, math, os, re, sys, zipfile, zoneinfo
 
 # The shipped checker's own record reader (Python, independent of the app): a packed receipt is read by its rules.
 # Like the shipped checker, it writes no bytecode cache beside the files it loads.
@@ -97,17 +97,54 @@ def check_claims(z, man):
                 sys.exit(who + vdir + " is v" + str(info.get("version")) + ", not v" + m.group(1))
             group = c.get("group")
             listed = isinstance(group, str) and group and any(isinstance(x, dict) and x.get("id") == group for x in (info.get("corrections") if isinstance(info.get("corrections"), list) else []))
-            included = False
-            for q in by_path:
-                if listed or included or not q.startswith("corrections/" + proc + "/"):
+            # Where the group stands is its current decision, as the app reads decisions (SB): only files its reader keeps,
+            # the highest rev, and two at that rev unresolved. It lands only applied (or "It's in vN"); a decision proves the
+            # version only as the current one, naming that folder. A withdrawal counts here whoever made it: the pack doesn't
+            # hold every correction in the group to tell its authors, so this is stricter than the app, never looser.
+            cur, tie = None, False
+            for q in sorted(by_path):
+                if not q.startswith("corrections/" + proc + "/") or "/" in q[len("corrections/" + proc + "/"):]:
                     continue
                 try:
-                    d = json.loads(rtext(q) or "")
+                    d = decision_of(decode(z.read(by_path[q])))
                 except ValueError:
+                    d = None
+                if d is None or d["group"] != group:
                     continue
-                included = isinstance(d, dict) and d.get("group") == group and d.get("status") == "included" and d.get("folder") == folder
-            if not (listed or included):
-                sys.exit(who + "the correction isn't in " + vdir + ": the version doesn't list it, and no packed decision includes it there")
+                if cur is None or d["rev"] > cur["rev"]:
+                    cur, tie = d, False
+                elif d["rev"] == cur["rev"]:
+                    tie = True
+            if cur is None or tie or cur["status"] not in ("applied", "included"):
+                sys.exit(who + "the correction's current decision in the pack " + ("is two made at once" if tie else "doesn't apply it" if cur else "isn't there"))
+            if not (listed or (cur["status"] == "included" and cur["folder"] == folder)):
+                sys.exit(who + "the correction isn't in " + vdir + ": the version doesn't list it, and its current decision doesn't include it there")
+
+
+DECIDE = ("open", "applied", "declined", "withdrawn", "included")
+DEC_ID = re.compile(r"^[A-Za-z0-9_-]{1,40}\Z")
+DEC_FOLDER = re.compile(r"^v([0-9]{1,9})-[a-z0-9]{1,40}\Z")
+
+
+def decision_of(o):
+    """A correction decision as PF.corrections.cleanDecision keeps it ({group, status, rev, folder}), or None: the envelope's
+    verdict first, then who decided and when, its group and status, and for "It's in vN" a folder naming that version."""
+    if not isinstance(o, dict) or o.get("kind") != "correction-decision" or not CF.judge("flightdeck-correction-decision", o)["ok"]:
+        return None
+    if not isinstance(o.get("at"), str) or not isinstance(o.get("by"), str):
+        return None
+    if not isinstance(o.get("group"), str) or not DEC_ID.match(o["group"]) or o.get("status") not in DECIDE:
+        return None
+    rv = o.get("rev")
+    rev = math.floor(rv) if isinstance(rv, (int, float)) and not isinstance(rv, bool) and math.isfinite(rv) and rv >= 0 else 0
+    folder = None
+    if o["status"] == "included":
+        m = DEC_FOLDER.match(o["folder"]) if isinstance(o.get("folder"), str) else None
+        ver = o.get("version")
+        if not m or isinstance(ver, bool) or not isinstance(ver, (int, float)) or int(m.group(1)) != ver:
+            return None
+        folder = o["folder"]
+    return {"group": o["group"], "status": o["status"], "rev": rev, "folder": folder}
 
 
 KEY = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}/[a-z0-9-]{1,40}\Z", re.I | re.A)
