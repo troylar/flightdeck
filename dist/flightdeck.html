@@ -37940,7 +37940,7 @@ PF.examples = (function () {
     var r = ctx.run(); if (!r || !state.me) return;
     var V = todoViewFor(r), x = V && V.byTodo[todoId];
     if (!x || !x.checklist) return;
-    var rk = r.process + '/' + r.id, F = PF.detours.planFor(r, x, detourPub(x.checklist), { by: state.me, at: new Date().toISOString(), app: APP_VERSION });
+    var rk = r.process + '/' + r.id, made = { by: state.me, at: new Date().toISOString(), app: APP_VERSION }, F = PF.detours.planFor(r, x, detourPub(x.checklist), made);
     if (F.why) { say(F.why + ' Nothing was written.', 'warn'); render(); return; }
     var id = F.plan.id, open = function () { loopMem().detour = { runKey: rk, todo: x.id, plan: id }; ACTIONS['review-plan'](id); };
     if ((data.plans || []).some(function (p) { return p.id === id; })) { open(); return; }
@@ -37960,8 +37960,10 @@ PF.examples = (function () {
         if (one.why) { late = one.why; return; }
         return repo.readTodos(fx, { evidence: true }).then(function (sn) {
           var V2 = null; try { V2 = PF.todos.view(one.run, { records: sn.records, unread: sn.unread, people: sn.people, now: tdNow(), evidence: sn.evidence }); } catch (e) { V2 = null; }
-          var x2 = V2 && V2.byTodo[todoId], F2 = x2 && x2.checklist ? PF.detours.planFor(one.run, x2, detourPub(x2.checklist), {}) : null;
-          if (!F2 || F2.why || F2.plan.id !== id) { late = 'the to-do it is for isn\'t in the folder as it was, or isn\'t linked to that checklist now.'; return; }
+          /* WE: made again with the same attribution and time, and compared whole (its pin, title and source), never by its
+             id alone: the id doesn't change when the to-do's pin does. */
+          var x2 = V2 && V2.byTodo[todoId], F2 = x2 && x2.checklist ? PF.detours.planFor(one.run, x2, detourPub(x2.checklist), made) : null;
+          if (!F2 || F2.why || F2.plan.id !== id || JSON.stringify(F2.plan) !== JSON.stringify(F.plan)) { late = 'the to-do it is for isn\'t in the folder as it was, or isn\'t linked to that checklist and version now.'; return; }
           return detourPinWhy(fx, F.plan, detourPub(x.checklist)).then(function (w) { if (w) late = w; });
         });
       });

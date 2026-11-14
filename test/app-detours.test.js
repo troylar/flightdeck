@@ -807,4 +807,27 @@ rule('Run this checklist writes no plan when the version of the run it is on can
   assert.strictEqual(plans(app).length, 0, 'no plan written: ' + app.live());
 });
 
+/* WE: the plan made again inside the final check is compared whole (its pin, title and attribution), never by its id alone:
+   the to-do's record replaced by one with the same id that pins another version writes no plan on the old pin. */
+rule('Run this checklist writes no plan when its to-do now pins another version under the same plan id', async () => {
+  const { app, kp, todo } = await setup(['pass']), F = app.fs.files;
+  const k2 = publish(app, SMOKE.replace('Run the smoke suite', 'Run the whole smoke suite'), 'sm000002', [kp.info]);
+  await refresh(app, 300); await toParent(app); await refresh(app, 300);
+  const adds = app.files('proposals/req-').filter(p => { try { const o = JSON.parse(F[p].t); return o.op === 'add' && o.checklist; } catch (e) { return false; } });
+  assert.strictEqual(adds.length, 1, 'set-up: its record');
+  /* Every place the record names its pin moves to v2, and the application's fingerprint is made again: a valid record. */
+  const old = JSON.parse(F[adds[0]].t), pin1 = JSON.stringify(old.checklist);
+  const repin = (v) => Array.isArray(v) ? v.map(repin) : v && typeof v === 'object' ? (JSON.stringify(v) === pin1 ? Object.assign({}, v, { folder: k2.folder, version: k2.info.version, mapHash: k2.info.mapHash, typesHash: k2.info.typesHash }) : Object.fromEntries(Object.entries(v).map(([k, y]) => [k, repin(y)]))) : v;
+  const canon = (v) => Array.isArray(v) ? v.map(canon) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon(v[k])])) : v;
+  const o = repin(old);
+  if (o.application) o.application.fingerprint = app.PF.sha256.hex(JSON.stringify(canon(o.application.effect))).slice(0, 16);
+  F[adds[0]] = { t: JSON.stringify(o, null, 2) + '\n', m: Date.now() };
+  const PF = app.PF, d = await PF.repo.loadAll(app.fs, {}), people = JSON.parse(F['people.json'].t);
+  const V = PF.todos.view(PF.run.sanitize(parentRun(app)), { records: d.todos, people }), x = V.byTodo[todo];
+  assert.ok(x && x.checklist && x.checklist.folder === k2.folder, 'set-up: the folder now reads the to-do pinned to v2 under the same id: ' + JSON.stringify(d.todosUnread));
+  app.click('td-detour', todo); await app.tick(300);
+  const made = plans(app).map(p => JSON.parse(F[p].t));
+  assert.ok(!made.some(p => p.pin && p.pin.folder === kp.folder), 'no plan on the old pin: ' + app.live());
+});
+
 run();
