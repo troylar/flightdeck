@@ -25,12 +25,12 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "522fa91aee083d25be6531dadd691323f55925bef3cdf7ab34e3610181dc6354",
-      "reviewed": "ending holds every parent's observed children across guards, at any depth; checked for direct writes and unconditional deletes"
+      "sha256": "4eb4b0e56bfaa2d455cd6b34964eb15f8f15721ac0b892b4158fa7fb1a04b64c",
+      "reviewed": "OA: fact predecessors walked depth first, each a unique fact of the same run, a circle named; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
-      "sha256": "2ee3ed25bea263531fd9119749601c9f4cbf41521742b3b2d2482bb8c912f01b",
-      "reviewed": "check_pack checks each dependency's exact fields, receipt and confirmed against the packed run; checked for direct writes and unconditional deletes"
+      "sha256": "fb745d0c66182b3e8e19e4c411b4404a411c9dfe6658d9bc017e61c54f81b1b9",
+      "reviewed": "OA: fact predecessors walked depth first, each a unique fact of the same run, a circle named; checked for direct writes and unconditional deletes"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
@@ -313,8 +313,8 @@
       "reviewed": "loops: items: item kind, feed binding, completeness fix, nouns, unknown-kind refusal in loop.js/map.js/publish.js/types.js and check_folder.py parity; pure checks only, checked for direct writes and unconditional deletes"
     },
     "src/core/receipts.js": {
-      "sha256": "d099657d1bca69a2da535be1b87945d1876207ec67fab4acf98a788868914113",
-      "reviewed": "a fact the work rests on is followed through the records it saw, in the export and check_pack; checked for direct writes and unconditional deletes"
+      "sha256": "e057abf0c86ba8e6471003d2428e12b19dbbb485641f43c8863b71a76c7f0fc1",
+      "reviewed": "OA: fact predecessors walked depth first, each a unique fact of the same run, a circle named; checked for direct writes and unconditional deletes"
     },
     "src/core/refs.js": {
       "sha256": "24b7d2b52fcd99673fcc427db286a7224af83342da19efcd561ac850d6baa441",

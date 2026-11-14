@@ -366,12 +366,37 @@ PF.receipts = (function () {
     };
     var sawQ = [], sawSeen = Object.create(null);
     var saw = function (x) { (Array.isArray(x && x.seen) ? x.seen : []).forEach(function (id) { if (typeof id === 'string' && !sawSeen[id]) { sawSeen[id] = true; sawQ.push(id); } }); };
+    /* A fact's predecessors, depth first (4.0, OA): each one a single fact of the same run, every one counted against the
+       cap; one met again while it is still being followed is a circle, named at the fact that saw it. */
+    var fState = Object.create(null), fCount = 0, fOver = false;
+    var sameRun = function (a, b) { return !!a.run && !!b.run && a.run.process === b.run.process && a.run.id === b.run.id; };
+    var factWalk = function (root) {
+      if (fState[root.id]) return;
+      fState[root.id] = 1;
+      var stack = [{ x: root, i: 0 }];
+      while (stack.length) {
+        var top = stack[stack.length - 1], ss = Array.isArray(top.x.seen) ? top.x.seen : [];
+        if (top.i >= ss.length) { fState[top.x.id] = 2; stack.pop(); continue; }
+        var id = ss[top.i++];
+        if (typeof id !== 'string') continue;
+        var path = 'proposals/' + id + '.json';
+        if (fState[id] === 1) { missing.push(path + ': fact ' + top.x.id + ' saw it, but it saw that fact in turn: the facts a to-do rests on go round in a circle at ' + id + '.'); continue; }
+        if (fState[id]) continue;
+        fState[id] = 2;
+        if (++fCount > cap) { if (!fOver) missing.push('The facts a to-do rests on go past ' + cap + ', so they weren\'t all checked.'); fOver = true; return; }
+        var y = unique(byId[id] || [], path, 'fact ' + top.x.id + ' saw it');
+        if (!y) continue;
+        if (y.kind !== 'fact' || !sameRun(y, top.x)) { file(y); missing.push(path + ': fact ' + top.x.id + ' saw it, but it isn\'t a fact of the same run.'); continue; }
+        file(y, 'A fact used as evidence');
+        fState[id] = 1; stack.push({ x: y, i: 0 });
+      }
+    };
     var chain = [], rs = null, spreads = Object.create(null), allKids = Object.create(null);
     var look = function (b) {
       if (!b) return;
       /* A fact used as evidence is a witness too: one record under its id, the same in every copy, and a fact; the facts it
-         saw are followed in turn, as every record's seen is (4.0, NB). */
-      if (b.support && b.support.fact) { var fp = 'proposals/' + b.support.fact + '.json', fx = unique(byId[b.support.fact] || [], fp, 'a to-do rests on this fact'); if (fx && fx.kind !== 'fact') missing.push(fp + ': a to-do rests on this fact, but it isn\'t that record.'); else if (fx) { file(fx, 'A fact used as evidence'); saw(fx); } }
+         saw are followed in turn (factWalk). */
+      if (b.support && b.support.fact) { var fp = 'proposals/' + b.support.fact + '.json', fx = unique(byId[b.support.fact] || [], fp, 'a to-do rests on this fact'); if (fx && fx.kind !== 'fact') missing.push(fp + ': a to-do rests on this fact, but it isn\'t that record.'); else if (fx) { file(fx, 'A fact used as evidence'); factWalk(fx); } }
       if (b.evidence && b.evidence.run) { run(b.evidence.run.process, b.evidence.run.id, 'evidence'); if (plans.indexOf(b.evidence.plan) < 0) plans.push(b.evidence.plan); }
     };
     /* One run's own closure: its records, its living chain (every link a witness), each application's request, authority and

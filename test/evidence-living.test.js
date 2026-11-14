@@ -1651,6 +1651,39 @@ rule('A fact the work rests on is followed through the facts it saw: one gone le
   const bad = checkPack(await repacked(PF, full.zip, (e, man, g) => { const y = g(f1p); delete e[y.pack]; man.files = man.files.filter((z) => z.path !== f1p); forced(man); }));
   assert.ok(!bad.ok && bad.out.indexOf(f1.id) >= 0, 'Python refuses it: ' + bad.out);
 });
+/* OA: a fact's predecessors are walked depth first: each one a single fact of the same run, and one met again while still
+   being followed is a circle, named. The export is partial, the closure ending reads names it, and Python refuses a complete
+   claim. */
+rule('A fact whose predecessors go round in a circle or aren\'t facts of its run leaves the work unconfirmed, named', async () => {
+  const W = await loopMade(), PF = W.PF, T = PF.todos, F = PF.facts, P = PF.run.sanitize(JSON.parse(JSON.stringify(W.run)));
+  const got = await PF.repo.readTodos(new BytesFS(W.files)), V = T.view(P, { records: got.records, people: JSON.parse(W.files['people.json']) });
+  const x = Object.keys(V.byTodo).map((k) => V.byTodo[k])[0], item = PF.loop.view(P, 'each', { records: got.scopes, runs: [P], procOf: () => null }).rollup.items[0];
+  const at = new Date().toISOString(), BB = { feed: 'bitbucket', site: 'git.example.com' };
+  const fact = (key, seen, n, run) => F.build({ run: run || P, producer: { name: 'git-bot', version: '1.0' }, key, seen, at, app: '4.0.0', loopStep: 'each', uid: item.uid, attempt: 1, source: BB, domain: 'prs', observedAt: at, maxAgeSeconds: 86400, complete: true, reported: n, fetched: n, errors: [], entries: [{ id: '1', text: 'Change 1', state: 'merged' }].concat(n > 1 ? [{ id: '2', text: 'Change 2', state: 'merged' }] : []) });
+  const id2 = F.idFor('git-bot', 'prs-2');
+  const other = { process: P.process, id: 'otherrun0001' };
+  const worlds = {
+    'a circle': () => [fact('prs-1', [id2], 1)],
+    'a predecessor that is a request': () => [T.buildProposal({ run: { process: P.process, id: P.id }, producer: { name: 'notes-bot', version: '1.0' }, key: 'k-oa', seen: [], at, body: { op: 'done', todo: x.id } })],
+    'a predecessor that is another run\'s fact': () => [fact('prs-1', [], 1, other)]
+  };
+  const misses = [];
+  for (const what of Object.keys(worlds)) {
+    const pre = worlds[what]();
+    const f2 = fact('prs-2', [pre[0].id], 2), fr = T.cleanFile(JSON.parse(T.text(f2)), f2.id + '.json').record;
+    const q = T.buildProposal({ run: { process: P.process, id: P.id }, producer: { name: 'git-bot', version: '1.0' }, seen: [], at, body: { op: 'done', todo: x.id, support: { fact: f2.id, content: fr.content, incarnation: x.added, source: BB, domain: 'prs' } } });
+    const files = Object.assign({}, W.files, { ['proposals/' + f2.id + '.json']: T.text(f2), ['proposals/' + q.id + '.json']: T.text(q) });
+    pre.forEach((y) => { files['proposals/' + y.id + '.json'] = T.text(y); });
+    const read = await PF.repo.readTodos(new BytesFS(files));
+    const D = PF.receipts.deps(P, { records: read.records, unread: read.unread, scopes: read.scopes, scopesUnread: read.scopesUnread, runs: {}, kids: {}, runBad: [] });
+    const why = what === 'a circle' ? /circle/ : /isn't a fact of the same run/;
+    if (!D.missing.some((m) => m.indexOf(pre[0].id) >= 0 && why.test(m))) misses.push(what + ': the closure ending reads doesn\'t name it: ' + JSON.stringify(D.missing));
+    const { res, zip } = await pack(PF, new BytesFS(files), W.key);
+    if (!(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(pre[0].id) >= 0 && why.test(u)))) misses.push(what + ': the export: ' + res.status + ' ' + JSON.stringify(res.col.unresolved));
+    if (PY) { const c = checkPack(await repacked(PF, zip, (e, man) => forced(man))); if (c.ok || c.out.indexOf(pre[0].id) < 0 || !why.test(c.out)) misses.push(what + ': Python: ' + c.out); }
+  }
+  assert.deepStrictEqual(misses, []);
+});
 /* NC: where a keep stands is worked out from its process's other runs; one of them whose run.json or notes can't be read
    (the read fails, finds nothing, or the file is gone when sized) leaves the pack partial, named by its path, and Python
    refuses a complete claim that carries it. */

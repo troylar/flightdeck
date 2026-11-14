@@ -791,6 +791,7 @@ def check_living(z, man):
             sys.exit("living: " + r["key"] + " rests on more records and runs than a pack holds at most (5000)")
         # Each fact a to-do record rests on (support.fact), by that reference: one witness under its id (every packed copy the
         # same), a fact carrying that id.
+        fstate: dict = {}
         for fid in sorted(facts_wanted):
             if not packed_ids(fid):
                 sys.exit("living: " + r["key"] + " says its work is complete, but proposals/" + fid + ".json, a fact the work rests on, isn't in the pack")
@@ -799,22 +800,41 @@ def check_living(z, man):
                 sys.exit("living: " + r["key"] + " says its work is complete, but the pack holds two different copies of proposals/" + fid + ".json, a fact the work rests on")
             if not isinstance(rec, dict) or rec.get("kind") != "fact" or rec.get("id") != fid:
                 sys.exit("living: " + r["key"] + " says its work is complete, but proposals/" + fid + ".json, a fact the work rests on, isn't that fact")
-            # What the fact saw, in turn, each one witness under its id, within the one bound (PF.receipts.deps, NB).
-            ask, asked = [x for x in arr(rec.get("seen")) if isinstance(x, str)], set()
-            while ask:
-                sid = ask.pop(0)
-                if sid in asked:
+            # What the fact saw, depth first (PF.receipts.deps, OA): each one witness under its id and a fact of the same run,
+            # within the one bound; one met again while it is still being followed is a circle.
+            if fstate.get(fid):
+                continue
+            fstate[fid] = 1
+            stack = [[rec, 0]]
+            while stack:
+                top = stack[-1]
+                tseen = arr(top[0].get("seen"))
+                if top[1] >= len(tseen):
+                    fstate[top[0].get("id")] = 2
+                    stack.pop()
                     continue
-                asked.add(sid)
+                sid = tseen[top[1]]
+                top[1] += 1
+                if not isinstance(sid, str):
+                    continue
+                tid = top[0].get("id")
+                if fstate.get(sid) == 1:
+                    sys.exit("living: " + r["key"] + " says its work is complete, but the facts it rests on go round in a circle: fact " + str(tid) + " saw proposals/" + sid + ".json, which saw it in turn")
+                if fstate.get(sid):
+                    continue
+                fstate[sid] = 2
                 if not packed_ids(sid):
-                    sys.exit("living: " + r["key"] + " says its work is complete, but proposals/" + sid + ".json, a record the fact " + fid + " saw, isn't in the pack")
+                    sys.exit("living: " + r["key"] + " says its work is complete, but proposals/" + sid + ".json, a record the fact " + str(tid) + " saw, isn't in the pack")
                 srec, samb = witness(sid)
                 if samb:
-                    sys.exit("living: " + r["key"] + " says its work is complete, but the pack holds two different copies of proposals/" + sid + ".json, a record the fact " + fid + " saw")
+                    sys.exit("living: " + r["key"] + " says its work is complete, but the pack holds two different copies of proposals/" + sid + ".json, a record the fact " + str(tid) + " saw")
                 reached.update(packed_ids(sid))
                 if len(reached) > 5000:
                     sys.exit("living: " + r["key"] + " rests on more records and runs than a pack holds at most (5000)")
-                ask.extend(x for x in arr(obj(srec).get("seen")) if isinstance(x, str))
+                if not isinstance(srec, dict) or srec.get("kind") != "fact" or srec.get("id") != sid or not isinstance(srec.get("run"), dict) or srec.get("run") != top[0].get("run"):
+                    sys.exit("living: " + r["key"] + " says its work is complete, but proposals/" + sid + ".json, a record the fact " + str(tid) + " saw, isn't a fact of the same run")
+                fstate[sid] = 1
+                stack.append([srec, 0])
         # Every original reached is one the app reads, by its own family's reader.
         for path in sorted(reached):
             why = family_why(path)
