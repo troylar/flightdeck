@@ -351,6 +351,15 @@ rule('check_pack.py reads a version\'s checklist and decides whether it makes a 
   assert.deepStrictEqual(misses.slice(0, 10), []);
 });
 
+/* VC: only notes-<window>.jsonl directly in the run folder are notes the app reads: the notes renamed so the app ignores them,
+   and Python refuses a claim resting on them. */
+rule('Python reads a "Published in v2" claim\'s correction only from notes files the app reads', async () => {
+  if (!PY) return console.log('  (skipped: no Python)');
+  const LW = require('./living-worlds'), PF = load();
+  const { zip } = await pack(await folder(), { run: 'release/run1' });
+  const c = LW.checkPack(await LW.repacked(PF, zip, (e, man, g) => { const y = g(fixture.notesPath); y.path = y.path.replace(/notes-w2\.jsonl$/, 'notes-w2.ignored.jsonl'); const old = y.pack; y.pack = y.pack.replace(/notes-w2\.jsonl$/, 'notes-w2.ignored.jsonl'); e[y.pack] = e[old]; delete e[old]; }));
+  assert.ok(!c.ok, 'the notes renamed notes-w2.ignored.jsonl: ' + c.out);
+});
 rule('A /2 v2 proves "Published in v2" by its exact bytes: a byte-order mark added to its map.md (which the app refuses) leaves the claim unconfirmed', async () => {
   const fx = await build(load(), { v2note: true }), v2 = 'publications/release/' + fx.v2 + '/';
   assert.strictEqual(JSON.parse(fx.files[v2 + 'publication.json'].toString('utf8')).format, 'preflight-publication/2', 'v2 is a /2 version');

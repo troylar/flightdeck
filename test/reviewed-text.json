@@ -29,8 +29,8 @@
       "reviewed": "TE: version files gone after sizing are named at capture; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
-      "sha256": "1f0ac7fbd6618eec57f4e13be9bb68418d5a57f7215c0d1ffdc1accd35816f7f",
-      "reviewed": "TE: version files gone after sizing are named at capture; checked for direct writes and unconditional deletes"
+      "sha256": "3861cebb3744835bcacaf546ee5b9cffd67460cabc911199c798b7bfc5ceefc9",
+      "reviewed": "VC: notes files by the readers' name rule; checked for direct writes and unconditional deletes"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",

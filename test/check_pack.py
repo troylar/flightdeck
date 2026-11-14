@@ -499,7 +499,8 @@ def claimed_member(z, by_path, run_key, run, cid):
         return m
     notes = []
     for q in sorted(by_path):
-        if q.startswith("runs/" + run_key + "/notes-") and q.endswith(".jsonl"):
+        # The app's notes files: notes-<window>.jsonl directly in the run folder, by the readers' own name rule (VC).
+        if q.startswith("runs/" + run_key + "/") and re.match(r"^notes-[A-Za-z0-9_-]+\.jsonl\Z", q[len("runs/" + run_key + "/"):]):
             try:
                 t = RV.utf8_text(z.read(by_path[q]))
             except ValueError:
