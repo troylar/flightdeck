@@ -1897,6 +1897,39 @@ rule('check_pack.py writes nothing while it verifies a pack, its dependencies\' 
   }
   assert.deepStrictEqual(misses, []);
 });
+/* RA: a dependency the manifest calls confirmed gets the whole closure check, the same one a complete pack gets, even when
+   the root's work isn't complete: the child's compound with text 42 or an extra key, or a request on the child resting on a
+   fact or a plan the pack doesn't hold, and Python refuses the claim that the child is confirmed. */
+rule('Python refuses a confirmed dependency whose own closure isn\'t whole, even in a partial pack', async () => {
+  if (!PY) return;
+  const W = await loopMade(), PF = W.PF, T = PF.todos, F = PF.facts, K = PF.run.sanitize(JSON.parse(W.files[W.kidPath]));
+  const at = new Date().toISOString(), KR = { process: K.process, id: K.id }, td = 'td-' + 'a'.repeat(24), BB = { feed: 'bitbucket', site: 'git.example.com' };
+  const item = PF.loop.view(W.run, 'each', { records: (await PF.repo.readTodos(new BytesFS(W.files))).scopes, runs: [W.run], procOf: () => null }).rollup.items[0];
+  const f = F.build({ run: KR, producer: { name: 'git-bot', version: '1.0' }, key: 'ra-missing', seen: [], at, app: '4.0.0', loopStep: 'each', uid: item.uid, attempt: 1, source: BB, domain: 'prs', observedAt: at, maxAgeSeconds: 86400, complete: true, reported: 1, fetched: 1, errors: [], entries: [{ id: '1', text: 'Change 1', state: 'merged' }] });
+  const fr = T.cleanFile(JSON.parse(T.text(f)), f.id + '.json').record, ev = { plan: 'plan-ev-' + 'b'.repeat(24), run: KR, answer: 'Yes', result: '' };
+  const onFact = T.buildProposal({ run: KR, producer: { name: 'git-bot', version: '1.0' }, seen: [], at, body: { op: 'done', todo: td, support: { fact: f.id, content: fr.content, incarnation: at, source: BB, domain: 'prs' } } });
+  const onPlan = T.buildProposal({ run: KR, id: PF.detours.requestId(td, ev), by: 'person-avery', seen: [], at, body: { op: 'done', todo: td, evidence: ev }, app: '4.0.0' });
+  const { zip } = await pack(PF, new BytesFS(W.files), W.key);
+  const partial = (edit) => repacked(PF, zip, (e, man, g) => {
+    man.status = 'partial'; const lv = man.runs[0].living; lv.complete = false; lv.missing = ['Something else is missing.'];
+    const d = lv.deps.filter((x) => x.key === W.kidKey)[0]; d.confirmed = true; edit(e, man, g, d);
+  });
+  const recEdit = (fn) => (e, man, g, d) => { const y = g('proposals/' + d.head + '.json'), o = JSON.parse(e[y.pack]); assert.strictEqual(o.kind, 'compound', 'set-up: the child\'s head is a compound'); fn(o); e[y.pack] = Buffer.from(JSON.stringify(o, null, 2)); };
+  const addRec = (q) => (e, man, g, d) => { const y = g('proposals/' + d.head + '.json'), path = 'proposals/' + q.id + '.json', nf = Object.assign({}, y, { path, pack: 'originals/' + path }); e[nf.pack] = Buffer.from(T.text(q)); man.files.push(nf); };
+  const misses = [];
+  const ctl = checkPack(await partial(() => {}));
+  if (!ctl.ok) misses.push('the control: ' + ctl.out);
+  for (const [what, edit] of [
+    ['the child\'s compound with text 42', recEdit((o) => { o.text = 42; })],
+    ['the child\'s compound with an extra key', recEdit((o) => { o.extra = 'unread'; })],
+    ['a request on the child resting on a fact the pack doesn\'t hold', addRec(onFact)],
+    ['a request on the child done on a plan the pack doesn\'t hold', addRec(onPlan)]
+  ]) {
+    const c = checkPack(await partial(edit));
+    if (c.ok) misses.push(what + ': Python accepts the child as confirmed: ' + c.out);
+  }
+  assert.deepStrictEqual(misses, []);
+});
 /* ND: each run the work depends on is named as the export names it: exactly its key, role, head, chain, receipt and
    confirmed, typed; the receipt it names is the packed run's own (none when it has none); and a complete pack confirms
    every one. In every role. */

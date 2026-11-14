@@ -615,6 +615,73 @@ def check_living(z, man):
                     todo.append((fk, packed("runs/" + fk + "/run.json") if ("runs/" + fk + "/run.json") in by_path else None))
         return roles
 
+    def closure_tail() -> str:
+        """What the closure gathered so far (facts_wanted, plans_wanted, reached) checked in full, as a complete pack checks
+        it: each fact and what it saw, every original by its own family's reader, each evidence plan. The clause after
+        "but" naming the first thing wrong, or "". The one path for the root's complete work and for each dependency
+        called confirmed (RA)."""
+        # Each fact a to-do record rests on (support.fact), by that reference: one witness under its id (every packed copy the
+        # same), a fact carrying that id.
+        fstate: dict = {}
+        for fid in sorted(facts_wanted):
+            if not packed_ids(fid):
+                return "proposals/" + fid + ".json, a fact the work rests on, isn't in the pack"
+            rec, amb = witness(fid)
+            if amb:
+                return "the pack holds two different copies of proposals/" + fid + ".json, a fact the work rests on"
+            if not isinstance(rec, dict) or rec.get("kind") != "fact" or rec.get("id") != fid:
+                return "proposals/" + fid + ".json, a fact the work rests on, isn't that fact"
+            # What the fact saw, depth first (PF.receipts.deps, OA): each one witness under its id and a fact of the same run,
+            # within the one bound; one met again while it is still being followed is a circle.
+            if fstate.get(fid):
+                continue
+            fstate[fid] = 1
+            stack = [[rec, 0]]
+            while stack:
+                top = stack[-1]
+                tseen = arr(top[0].get("seen"))
+                if top[1] >= len(tseen):
+                    fstate[top[0].get("id")] = 2
+                    stack.pop()
+                    continue
+                sid = tseen[top[1]]
+                top[1] += 1
+                if not isinstance(sid, str):
+                    continue
+                tid = top[0].get("id")
+                # Every edge is checked before a fact already walked is skipped (QA): its witness, kind and run against the
+                # fact that saw it, whichever fact was walked first.
+                if not packed_ids(sid):
+                    return "proposals/" + sid + ".json, a record the fact " + str(tid) + " saw, isn't in the pack"
+                srec, samb = witness(sid)
+                if samb:
+                    return "the pack holds two different copies of proposals/" + sid + ".json, a record the fact " + str(tid) + " saw"
+                reached.update(packed_ids(sid))
+                if len(reached) > 5000:
+                    return "it rests on more records and runs than a pack holds at most (5000)"
+                if not isinstance(srec, dict) or srec.get("kind") != "fact" or srec.get("id") != sid or not isinstance(srec.get("run"), dict) or srec.get("run") != top[0].get("run"):
+                    return "proposals/" + sid + ".json, a record the fact " + str(tid) + " saw, isn't a fact of the same run"
+                if fstate.get(sid) == 1:
+                    return "the facts it rests on go round in a circle: fact " + str(tid) + " saw proposals/" + sid + ".json, which saw it in turn"
+                if fstate.get(sid):
+                    continue
+                fstate[sid] = 1
+                stack.append([srec, 0])
+        # Every original reached is one the app reads, by its own family's reader.
+        for path in sorted(reached):
+            why = family_why(path)
+            if why:
+                return "" + path + ", a record its work rests on, isn't one the app reads: " + why
+        for pid in sorted(plans_wanted):
+            # The plan by its id, under its own name or a synced copy's: every copy packed a plan the app reads, and all of them
+            # saying the same thing (PF.requests.same, the shipped checker's same_plan).
+            ps = [packed(p) for p in sorted(packed_ids(pid))]
+            if not ps or any(not isinstance(o, dict) or o.get("id") != pid or CF.plan_why(o) for o in ps):
+                return "proposals/" + pid + ".json, an evidence plan the work names, isn't in the pack as a plan the app reads"
+            if any(not CF.same_plan(o, ps[0]) for o in ps):
+                return "the pack holds two different copies of proposals/" + pid + ".json, an evidence plan the work names"
+        return ""
+
     def dep_check(k: str, d: dict) -> str:
         """Why a run the work depends on isn't confirmed as the export confirms it, or "": its run.json as every reader reads
         it, then the version it ran, as packed (repo.depVerdict), its end and living record, and its chain, head, closure
@@ -755,9 +822,17 @@ def check_living(z, man):
                     sys.exit("living: " + r["key"] + " says " + d["key"] + " is a confirmed run its work depends on, but nothing in the pack makes it one")
                 if d["role"] not in found[d["key"]]:
                     sys.exit("living: " + r["key"] + " names " + d["key"] + " as a confirmed run its work depends on in the role " + d["role"] + ", but what refers to it gives it another (" + ", ".join(sorted(found[d["key"]])) + ")")
-                why = dep_check(d["key"], d)
+                # Its whole closure, the same check a complete pack's work gets (RA): what dep_check's walk of it gathered,
+                # each fact, every original by its family's reader and each evidence plan.
+                reached.clear()
+                plans_wanted.clear()
+                facts_wanted.clear()
+                why = dep_check(d["key"], d) or closure_tail()
                 if why:
                     sys.exit("living: " + r["key"] + " says " + d["key"] + ", a run its work depends on, is confirmed, but " + why)
+            reached.clear()
+            plans_wanted.clear()
+            facts_wanted.clear()
         # A root no reader reads (root_unread: missing, not JSON, no run, or refused by the readers' verdict) is in a partial
         # pack only, and nothing more is read of it: its fields aren't a run's.
         if ru:
@@ -849,66 +924,9 @@ def check_living(z, man):
                 sys.exit("living: " + r["key"] + " names " + k + " as a run its work depends on in the role " + named[k]["role"] + ", but what refers to it gives it another (" + ", ".join(sorted(roles.get(k, set()))) + ")")
         if len(reached) + len(done) - 1 > 5000:
             sys.exit("living: " + r["key"] + " rests on more records and runs than a pack holds at most (5000)")
-        # Each fact a to-do record rests on (support.fact), by that reference: one witness under its id (every packed copy the
-        # same), a fact carrying that id.
-        fstate: dict = {}
-        for fid in sorted(facts_wanted):
-            if not packed_ids(fid):
-                sys.exit("living: " + r["key"] + " says its work is complete, but proposals/" + fid + ".json, a fact the work rests on, isn't in the pack")
-            rec, amb = witness(fid)
-            if amb:
-                sys.exit("living: " + r["key"] + " says its work is complete, but the pack holds two different copies of proposals/" + fid + ".json, a fact the work rests on")
-            if not isinstance(rec, dict) or rec.get("kind") != "fact" or rec.get("id") != fid:
-                sys.exit("living: " + r["key"] + " says its work is complete, but proposals/" + fid + ".json, a fact the work rests on, isn't that fact")
-            # What the fact saw, depth first (PF.receipts.deps, OA): each one witness under its id and a fact of the same run,
-            # within the one bound; one met again while it is still being followed is a circle.
-            if fstate.get(fid):
-                continue
-            fstate[fid] = 1
-            stack = [[rec, 0]]
-            while stack:
-                top = stack[-1]
-                tseen = arr(top[0].get("seen"))
-                if top[1] >= len(tseen):
-                    fstate[top[0].get("id")] = 2
-                    stack.pop()
-                    continue
-                sid = tseen[top[1]]
-                top[1] += 1
-                if not isinstance(sid, str):
-                    continue
-                tid = top[0].get("id")
-                # Every edge is checked before a fact already walked is skipped (QA): its witness, kind and run against the
-                # fact that saw it, whichever fact was walked first.
-                if not packed_ids(sid):
-                    sys.exit("living: " + r["key"] + " says its work is complete, but proposals/" + sid + ".json, a record the fact " + str(tid) + " saw, isn't in the pack")
-                srec, samb = witness(sid)
-                if samb:
-                    sys.exit("living: " + r["key"] + " says its work is complete, but the pack holds two different copies of proposals/" + sid + ".json, a record the fact " + str(tid) + " saw")
-                reached.update(packed_ids(sid))
-                if len(reached) > 5000:
-                    sys.exit("living: " + r["key"] + " rests on more records and runs than a pack holds at most (5000)")
-                if not isinstance(srec, dict) or srec.get("kind") != "fact" or srec.get("id") != sid or not isinstance(srec.get("run"), dict) or srec.get("run") != top[0].get("run"):
-                    sys.exit("living: " + r["key"] + " says its work is complete, but proposals/" + sid + ".json, a record the fact " + str(tid) + " saw, isn't a fact of the same run")
-                if fstate.get(sid) == 1:
-                    sys.exit("living: " + r["key"] + " says its work is complete, but the facts it rests on go round in a circle: fact " + str(tid) + " saw proposals/" + sid + ".json, which saw it in turn")
-                if fstate.get(sid):
-                    continue
-                fstate[sid] = 1
-                stack.append([srec, 0])
-        # Every original reached is one the app reads, by its own family's reader.
-        for path in sorted(reached):
-            why = family_why(path)
-            if why:
-                sys.exit("living: " + r["key"] + " says its work is complete, but " + path + ", a record its work rests on, isn't one the app reads: " + why)
-        for pid in sorted(plans_wanted):
-            # The plan by its id, under its own name or a synced copy's: every copy packed a plan the app reads, and all of them
-            # saying the same thing (PF.requests.same, the shipped checker's same_plan).
-            ps = [packed(p) for p in sorted(packed_ids(pid))]
-            if not ps or any(not isinstance(o, dict) or o.get("id") != pid or CF.plan_why(o) for o in ps):
-                sys.exit("living: " + r["key"] + " says its work is complete, but proposals/" + pid + ".json, an evidence plan the work names, isn't in the pack as a plan the app reads")
-            if any(not CF.same_plan(o, ps[0]) for o in ps):
-                sys.exit("living: " + r["key"] + " says its work is complete, but the pack holds two different copies of proposals/" + pid + ".json, an evidence plan the work names")
+        why = closure_tail()
+        if why:
+            sys.exit("living: " + r["key"] + " says its work is complete, but " + why)
         for k in named:
             if k not in done:
                 sys.exit("living: " + r["key"] + " names " + k + " as a run it depends on, but nothing in the pack depends on it")
