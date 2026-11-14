@@ -2972,18 +2972,28 @@ PF.repo = (function () {
        room, is too big ({ over }), never read past either. The bytes read are confirmed against a fresh stat (RD) and by
        reading the file again and comparing SHA-256 (SC), as discovery confirms packed files: a file that grew, shrank or
        changed at the same size while it was read is read again within the export's tries, then named ({ changed }). */
+    /* What a stat or an open says of a file besides its size: when it was last changed and, where the folder gives it, which
+       file it is. A value the folder doesn't give is never compared (TD). */
+    function stampOf(x) { return x ? { mtime: x.mtime != null ? x.mtime : x.lastModified != null ? x.lastModified : null, id: x.id != null ? x.id : null } : { mtime: null, id: null }; }
+    function sameStamps(list) {
+      return ['mtime', 'id'].every(function (k) { var seen = list.map(function (x) { return x[k]; }).filter(function (v) { return v != null; }); return seen.every(function (v) { return v === seen[0]; }); });
+    }
     function sizedText(path, limit, budget, attempt) {
       attempt = attempt || 1;
+      var stamps = [];
       var again = function (r) {
         if (!r.changed) return r;
         if (budget && r.held) budget.left += r.held;
         return attempt < EV_TRIES ? sizedText(path, limit, budget, attempt + 1) : { changed: true };
       };
-      return statOf(path).then(function (size) {
+      return ro.stat(path).then(function (st0) {
+        var size = st0 ? st0.size : null;
         if (size == null) return { missing: true };
         if (size > limit || (budget && size > budget.left)) return { over: size };
+        stamps.push(stampOf(st0));
         return ro.blob(path).then(function (b) {
           if (!b) return { missing: true, gone: true };
+          stamps.push(stampOf(b));
           var parts = [], off = 0, h = S.create();
           var done = function (r) { if (b.close) b.close(); return r; };
           function step() {
@@ -3005,12 +3015,17 @@ PF.repo = (function () {
           function confirm(sha) {
             return ro.blob(path).then(function (b2) {
               if (!b2) return { changed: true, held: off };
+              stamps.push(stampOf(b2));
               var at = 0, h2 = S.create(), shut = function (r) { if (b2.close) b2.close(); return r; };
               function next() {
                 if (at >= b2.size) {
                   shut(null);
                   if (at !== off || h2.digest() !== sha) return { changed: true, held: off };
-                  return statOf(path).then(function (now) { return now === off ? { text: decoded(E.text(E.join(parts))) } : { changed: true, held: off }; });
+                  return ro.stat(path).then(function (st1) {
+                    /* The same size, and the same time and file at every open and at the end (TD): a rewrite at the same size
+                       during either read moves the time. A folder that gives no time can't show one. */
+                    return st1 && st1.size === off && sameStamps(stamps.concat([stampOf(st1)])) ? { text: decoded(E.text(E.join(parts))) } : { changed: true, held: off };
+                  });
                 }
                 var want = Math.min(b2.size - at, EV_CHUNK);
                 if (budget && want > budget.left) return shut({ over: Math.max(b2.size, 1), held: off });

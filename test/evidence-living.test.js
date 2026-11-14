@@ -2196,4 +2196,24 @@ rule('Python holds a "Published in vN" claim to the correction it names and the 
   }
   assert.deepStrictEqual(misses, []);
 });
+/* TD: a file of another run changed at the same size during the SECOND read (its already-hashed first slice rewritten, so both
+   hashes agree and only the size is the same): the modification time each open and the final stat give is compared too, so
+   the change is read again within the export's tries and the file judged as it settles: named, the keep unconfirmed. */
+rule('A keep whose process has a file rewritten at the same size during its second read is judged as it settles, named', async () => {
+  const W = await made({ todos: 1, keep: 'placed' }), proc = W.key.split('/')[0], base = 'runs/' + proc + '/ctxrun0001/';
+  const L = 1048576 + 4096, pad = (t) => t + ' '.repeat(L - Buffer.byteLength(t)), path = base + 'run.json', next = Buffer.from(pad('{}'));
+  const fsx = new BytesFS(Object.assign({}, W.files, { [path]: pad(otherRoot(W, 'ctxrun0001')) })), blob = fsx.blob.bind(fsx);
+  let opens = 0, swapped = false;
+  fsx.blob = (p) => { if (p !== path) return blob(p); const n = ++opens; let k = 0; return Promise.resolve({ size: fsx.files.get(p).length, slice: (a, z) => ({ arrayBuffer: () => {
+    const ab = Uint8Array.from(fsx.files.get(p).subarray(a, z)).buffer;
+    /* Once the second open has hashed its first slice, that slice is rewritten: the rest is the same bytes. */
+    if (n === 2 && ++k === 1 && !swapped) { swapped = true; fsx.files.set(p, next); fsx.mtimes.set(p, fsx.mtimes.get(p) + 2000); }
+    return Promise.resolve(ab);
+  } }) }); };
+  const { res, zip } = await pack(W.PF, fsx, W.key);
+  assert.ok(swapped, 'set-up: rewritten during the second read');
+  assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(path) >= 0), res.status + ' ' + JSON.stringify(res.col.unresolved));
+  const cl = manifestOf(zip).runs[0].claims.filter((c) => c.correction === W.keepId)[0];
+  assert.ok(cl && !cl.verified, 'the keep isn\'t confirmed');
+});
 run();

@@ -13,8 +13,8 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "b6542f59b3097736f8731132c6ddf77128de3c004c91e22600524157cb0bb7f6",
-      "reviewed": "runs names each run's unread to-do records by their own paths as run, next and todo list do; todo list no longer names one path and kind twice; checked for direct writes and unconditional deletes"
+      "sha256": "cf2ae195c1813feb7871af389698c05e9646de2b41d268a8535c7fb54eacc2b8",
+      "reviewed": "TD: modification time and identity compared across both reads and the final stat; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "4930aee232c7766241927d231c2eb0729443450de507161a3f0e85b7e7f5fb8e",
@@ -25,12 +25,12 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "5ab2356a7e5eb3cf0d9d4e3302a06383c0f29b633e1bfccace725b04978eaa84",
-      "reviewed": "TC: decisions only from .json files, as the app lists them; checked for direct writes and unconditional deletes"
+      "sha256": "81dda9d17243a307d2c0b256f97176a67793d830df318af7f191e5d4c5f5f5f9",
+      "reviewed": "TD: modification time and identity compared across both reads and the final stat; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
-      "sha256": "e4e5221d76e703f7209d61ef2e21e418d7c8cc05dd253fb9fa2718458c8adb6d",
-      "reviewed": "TC: decisions only from .json files, as the app lists them; checked for direct writes and unconditional deletes"
+      "sha256": "7bddb83f4b28eff6dfde69d78edbea62a37c5529c29f6dc519e3e58b14d348a2",
+      "reviewed": "TD: modification time and identity compared across both reads and the final stat; checked for direct writes and unconditional deletes"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
@@ -425,8 +425,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "826bb4121010d2a6b1a53e46e81dd01d18cfc1ccdd33bdf7fea035059ee504f1",
-      "reviewed": "SD: a version that can't be read is named in where a keep stands; checked for direct writes and unconditional deletes"
+      "sha256": "6a84fba42c825079221511a6fbef137e1ec4b1a24fc2d4fce9f1e1fe20635bd7",
+      "reviewed": "TD: modification time and identity compared across both reads and the final stat; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "dd6a2a70f212cb0512ef142198a2ff83bd5fef55429e56fab44cd64a83edaeb6",

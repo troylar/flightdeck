@@ -637,7 +637,7 @@ function readAdapter(root, opts) {
     stat: (p) => new Promise((res) => {
       let f = null;
       try { f = fileAt(p); } catch (e) { if (!e.link) throw e; }
-      res(f ? { size: f.st.size, mtime: f.st.mtimeMs } : null);
+      res(f ? { size: f.st.size, mtime: f.st.mtimeMs, id: f.st.dev + ':' + f.st.ino } : null);
     }),
     read: (p, ro) => new Promise((res) => {
       const o = open(p);
@@ -657,6 +657,9 @@ function readAdapter(root, opts) {
       const close = () => { if (!closed) { closed = true; fs.closeSync(o.fd); } };
       res({
         size: o.st.size,
+        /* When it was last changed and which file it is, as it was opened: a reader compares them with a later stat. */
+        mtime: o.st.mtimeMs,
+        id: o.st.dev + ':' + o.st.ino,
         /* The whole file (screenshots are checked this way), counted against the cap as it's read; then closed. */
         arrayBuffer: () => new Promise((ok) => {
           if (closed) throw new Error(p + ' was already closed');
