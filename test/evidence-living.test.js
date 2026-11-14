@@ -1837,6 +1837,22 @@ rule('A keep whose process holds a link, a listing that fails or a run.json that
   }
   assert.deepStrictEqual(misses, []);
 });
+/* QC: reads made at once share the context budget: each slice takes its room before it is read, so ten notes files grown
+   after sizing never read past the budget together, and what can't get room is too big, named. */
+rule('Files of a keep\'s process read at once never read past the shared context budget together', async () => {
+  const W = await made({ todos: 1, keep: 'placed' }), proc = W.key.split('/')[0], MiB = 1048576, CTX = 8 * MiB;
+  const other = 'runs/' + proc + '/ctxrun0001/', files = Object.assign({}, W.files, { [other + 'run.json']: otherRoot(W, 'ctxrun0001') });
+  for (let i = 0; i < 10; i++) files[other + 'notes-w' + i + '.jsonl'] = '\n'.repeat(MiB - 4096);
+  const fsx = new BytesFS(files), stat = fsx.stat.bind(fsx), blob = fsx.blob.bind(fsx), read = { bytes: 0 };
+  fsx.stat = (p) => p.indexOf(other + 'notes-') === 0 ? stat(p).then((s) => s && Object.assign({}, s, { size: 10 })) : stat(p);
+  fsx.blob = (p) => blob(p).then((b) => !b || p.indexOf(other + 'notes-') !== 0 ? b : { size: b.size, slice: (a, z) => ({ arrayBuffer: () => b.slice(a, z).arrayBuffer().then((ab) => { read.bytes += ab.byteLength; return ab; }) }) });
+  const { res, zip } = await pack(W.PF, fsx, W.key, { cap: 4 * CTX, maxFile: MiB, pool: false });
+  assert.ok(read.bytes <= CTX, 'read ' + read.bytes + ' bytes of notes against a budget of ' + CTX);
+  assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(other + 'notes-w') >= 0 && /too big/.test(u)), res.status + ' ' + JSON.stringify(res.col.unresolved));
+  const mr = manifestOf(zip).runs[0], cl = mr.claims.filter((c) => c.correction === W.keepId)[0];
+  assert.ok(cl && !cl.verified, 'the keep isn\'t confirmed ' + JSON.stringify(mr.claims));
+  if (PY) assert.ok(!checkPack(await repacked(W.PF, zip, (e, man) => forced(man))).ok, 'Python refuses a complete claim');
+});
 /* ND: each run the work depends on is named as the export names it: exactly its key, role, head, chain, receipt and
    confirmed, typed; the receipt it names is the packed run's own (none when it has none); and a complete pack confirms
    every one. In every role. */

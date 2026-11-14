@@ -2965,23 +2965,27 @@ PF.repo = (function () {
     /* One decoder for every record, as a browser reads files: UTF-8, a byte-order mark dropped. */
     function decoded(t) { return t == null ? null : String(t).replace(/^﻿/, ''); }
     /* Text of a file that's never packed (another run's records, people.json): sized first, then read in bounded slices,
-       counting the bytes actually read (4.0, OC). A file that grew since its stat is never read past the limit, nor past
-       what is left of budget ({ left }, when given): past either it is too big ({ over }). */
+       counting the bytes actually read (4.0, OC). Each slice takes its room from budget ({ left }, shared by reads made at
+       once) before it is read, and gives back what it didn't use (QC); a file past the limit, or a slice that can't get its
+       room, is too big ({ over }), never read past either. */
     function sizedText(path, limit, budget) {
       return statOf(path).then(function (size) {
         if (size == null) return { missing: true };
         if (size > limit || (budget && size > budget.left)) return { over: size };
         return ro.blob(path).then(function (b) {
           if (!b) return { missing: true, gone: true };
-          var parts = [], off = 0, room = budget ? Math.min(limit, budget.left) : limit;
+          var parts = [], off = 0;
           var done = function (r) { if (b.close) b.close(); return r; };
           function step() {
-            if (off > room) return done({ over: Math.max(off, size, 1) });
             if (off >= b.size) return done({ text: decoded(E.text(E.join(parts))) });
-            return b.slice(off, Math.min(b.size, off + EV_CHUNK, room + 1)).arrayBuffer().then(function (ab) {
+            var want = Math.min(b.size - off, EV_CHUNK);
+            if (off + want > limit || (budget && want > budget.left)) return done({ over: Math.max(b.size, 1) });
+            if (budget) budget.left -= want;
+            return b.slice(off, off + want).arrayBuffer().then(function (ab) {
               var u = new Uint8Array(ab);
+              if (budget) budget.left += want - Math.min(want, u.length);
               if (!u.length) throw new Error('A file ended early while it was read.');
-              parts.push(u); off += u.length; if (budget) budget.left -= u.length;
+              parts.push(u); off += u.length;
               return step();
             });
           }
