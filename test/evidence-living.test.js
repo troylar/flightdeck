@@ -2139,4 +2139,20 @@ rule('A keep whose process has a version that can\'t be read leaves the pack par
   }
   assert.deepStrictEqual(misses, []);
 });
+/* TA: a dependency called confirmed whose own work reaches back to the run itself (a request on it fulfills a spread the run
+   holds): the walk from it checks the run's own chain and closure there, once, though the run is never its own dependency.
+   With the run's work head gone from a partial pack, Python refuses the dependency as confirmed. */
+rule('Python refuses a confirmed dependency whose work reaches back to a run whose own chain isn\'t in the pack', async () => {
+  if (!PY) return;
+  const w = (await roleWorlds()).filter((x) => x.role === 'reverse')[0];
+  const { zip } = await pack(w.PF, new BytesFS(w.files), w.key), head = manifestOf(zip).runs[0].living.head;
+  const partial = (edit) => repacked(w.PF, zip, (e, man, g) => {
+    man.status = 'partial'; const lv = man.runs[0].living; lv.complete = false; lv.missing = ['Something else is missing.'];
+    lv.deps.forEach((d) => { d.confirmed = d.key === w.depKey; }); edit(e, man, g);
+  });
+  const ctl = checkPack(await partial(() => {}));
+  assert.ok(ctl.ok, 'the control: ' + ctl.out);
+  const gone = checkPack(await partial((e, man, g) => { const y = g('proposals/' + head + '.json'); delete e[y.pack]; man.files = man.files.filter((f) => f !== y); }));
+  assert.ok(!gone.ok && /depends on in turn/.test(gone.out), 'the run\'s work head gone: ' + gone.out);
+});
 run();

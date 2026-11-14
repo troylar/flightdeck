@@ -25,12 +25,12 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "64a112df351d3ffcad90bcc14c3c043c3e7fc0c3fcc1a37d7c93b80d04a62beb",
-      "reviewed": "SD: a version that can't be read is named in where a keep stands; checked for direct writes and unconditional deletes"
+      "sha256": "3ed3e237202150bcfc1495db3e660339137e0595623a7dafedca716747c2076e",
+      "reviewed": "TA: a confirmed dependency's walk checks the root where it reaches back to it; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
-      "sha256": "334f2edeb4cfe29caafdb79b84fd8ebdd497d18be9fbf01a6ecef4b2953c996c",
-      "reviewed": "SD: a version that can't be read is named in where a keep stands; checked for direct writes and unconditional deletes"
+      "sha256": "e81ba1732db218337cddfa5c844b9ff2f951552789015b4aac268fb45138c1ae",
+      "reviewed": "TA: a confirmed dependency's walk checks the root where it reaches back to it; checked for direct writes and unconditional deletes"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",

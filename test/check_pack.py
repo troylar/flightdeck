@@ -801,12 +801,15 @@ def check_living(z, man):
 
     BOUND = "it rests on more records and runs than a pack holds at most (5000)"
 
-    def walk_runs(root_key: str, start: str, named: dict):
+    def walk_runs(root_key: str, start: str, named: dict, root_meta=None):
         """Every run the work from start depends on, walked from the packed references (depends_on), each but the root packed,
         named in the manifest and confirmed by dep_check, within the one shared bound (every original reached and every run,
         together; PF.receipts.deps). The one path for a complete root's work and for each dependency called confirmed (SA),
-        whatever the manifest says of the runs it reaches. Returns (why, done, roles): why is the clause after "but", or ""."""
+        whatever the manifest says of the runs it reaches. Returns (why, done, roles): why is the clause after "but", or "".
+        From a dependency (root_meta: the root's own chain and head), a walk that reaches back to the root checks the root's
+        chain and closure there once, in the same bound (TA); the root is never named among its dependencies."""
         todo, done, roles = [start], ({root_key} if start != root_key else set()), {}
+        root_checked = start == root_key or root_meta is None
         while todo:
             k = todo.pop(0)
             if k in done:
@@ -826,6 +829,13 @@ def check_living(z, man):
             found = depends_on(dep_run)
             for fk, fr in found.items():
                 roles.setdefault(fk, set()).update(fr)
+            if root_key in found and not root_checked:
+                root_checked = True
+                why = dep_check(root_key, root_meta)
+                if why:
+                    return why + " (the run itself, which " + k + " depends on in turn)", done, roles
+                if len(reached) + len(done) - 1 > 5000:
+                    return BOUND, done, roles
             todo.extend(sorted(set(found) - done))
         if len(reached) + len(done) - 1 > 5000:
             return BOUND, done, roles
@@ -952,7 +962,7 @@ def check_living(z, man):
                 plans_wanted.clear()
                 facts_wanted.clear()
                 named = {x["key"]: x for x in lv.get("deps") or []}
-                why = walk_runs(r["key"], d["key"], named)[0] or closure_tail()
+                why = walk_runs(r["key"], d["key"], named, {"chain": lv.get("chain"), "head": lv.get("head", "")})[0] or closure_tail()
                 if why:
                     sys.exit("living: " + r["key"] + " says " + d["key"] + ", a run its work depends on, is confirmed, but " + why)
             reached.clear()
