@@ -29,8 +29,8 @@
       "reviewed": "OA: fact predecessors walked depth first, each a unique fact of the same run, a circle named; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
-      "sha256": "fb745d0c66182b3e8e19e4c411b4404a411c9dfe6658d9bc017e61c54f81b1b9",
-      "reviewed": "OA: fact predecessors walked depth first, each a unique fact of the same run, a circle named; checked for direct writes and unconditional deletes"
+      "sha256": "7e46be2369c2eb3e13dd4d28b0e8398568de43188543809feffa4686a120b158",
+      "reviewed": "OB: a listed context run with no run.json (gone or a link) named as vanished; checked for direct writes and unconditional deletes"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
@@ -425,8 +425,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "e14e009916465304157cdb7811a733dd0fb4aa7ec650f31be6ebe8282ee743cc",
-      "reviewed": "export: a keep's process context run whose files are gone or can't be read is named and leaves the pack partial; checked for direct writes and unconditional deletes"
+      "sha256": "3707177d86684af22bc5bb0f935b847a25b1c03472650da4c0bbe02da39807c4",
+      "reviewed": "OB: a listed context run with no run.json (gone or a link) named as vanished; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "e3d1fe4c741a802fd59bd9e799b3c745d21a42635867d770540d8692df2dcefd",

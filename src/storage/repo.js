@@ -3132,8 +3132,11 @@ PF.repo = (function () {
         return limited(items.filter(function (i) { return i.kind === 'dir'; }).map(function (i) { return i.name; }).sort(), 8, function (id) {
           var base = 'runs/' + proc + '/' + id + '/';
           return ro.list(base.slice(0, -1)).then(function (files) {
-            var want = files.some(function (i) { return i.name === 'run.json' && i.kind === 'file'; }) ? ['run.json'].concat(files.filter(function (i) { return i.kind === 'file' && /^notes-[\w-]+\.jsonl$/.test(i.name); }).map(function (i) { return i.name; }).sort()) : [];
-            return Promise.all(want.map(function (n) { return statOf(base + n); })).then(function (sizes) { return { key: proc + '/' + id, base: base, want: want, sizes: sizes }; });
+            var has = files.some(function (i) { return i.name === 'run.json' && i.kind === 'file'; });
+            var want = has ? ['run.json'].concat(files.filter(function (i) { return i.kind === 'file' && /^notes-[\w-]+\.jsonl$/.test(i.name); }).map(function (i) { return i.name; }).sort()) : [];
+            /* A run the process folder listed whose own folder gives no run.json (gone, or a link Flightdeck never reads
+               through) is vanished, named before anything is filtered (4.0, OB). */
+            return Promise.all(want.map(function (n) { return statOf(base + n); })).then(function (sizes) { return { key: proc + '/' + id, base: base, want: want, sizes: sizes, noRun: !has }; });
           });
         });
       });
@@ -3150,7 +3153,7 @@ PF.repo = (function () {
         /* Every other run's file that was listed but gone when sized, or couldn't be read, is named by its path and kind: where
            corrections stand can't be worked out without it (4.0, NC). A run in the pack answers for its own files. */
         var fails = [];
-        r[1].forEach(function (m) { if (!selected[m.key]) m.want.forEach(function (n, i) { if (m.sizes[i] == null) fails.push(m.base + n + ' (vanished)'); }); });
+        r[1].forEach(function (m) { if (selected[m.key]) return; if (m.noRun) fails.push(m.base + 'run.json (vanished)'); m.want.forEach(function (n, i) { if (m.sizes[i] == null) fails.push(m.base + n + ' (vanished)'); }); });
         var runs = limited(r[1].filter(function (m) { return m.want.length; }), 8, function (m) {
           /* A run in the pack is read from its snapshot; any other only as text. */
           var read = function (n, i) {

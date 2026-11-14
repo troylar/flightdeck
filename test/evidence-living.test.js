@@ -1710,6 +1710,24 @@ rule('A keep whose process has a run that can\'t be read leaves the pack partial
     }
   }
 });
+/* OB: a run the process folder lists must give its run.json when its own folder is listed: gone by then (its notes still
+   there), or a link there, it is named as vanished, the pack is partial, and Python refuses a complete claim. */
+rule('A keep whose process lists a run whose run.json is gone, or a link, by its own listing leaves the pack partial, named', async () => {
+  const W = await made({ todos: 1, keep: 'placed' }), proc = W.key.split('/')[0];
+  const other = 'runs/' + proc + '/ctxrun0001/', files = Object.assign({}, W.files, { [other + 'run.json']: otherRoot(W, 'ctxrun0001'), [other + 'notes-w1.jsonl']: '' });
+  const listing = (how) => {
+    const fsx = new BytesFS(files), list = fsx.list.bind(fsx);
+    fsx.list = (p) => list(p).then((items) => p === other.slice(0, -1) ? (how === 'gone' ? items.filter((i) => i.name !== 'run.json') : items.map((i) => i.name === 'run.json' ? Object.assign({}, i, { kind: 'link' }) : i)) : items);
+    return fsx;
+  };
+  for (const how of ['gone', 'link']) {
+    const { res, zip } = await pack(W.PF, listing(how), W.key);
+    assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(other + 'run.json') >= 0), how + ': ' + res.status + ' ' + JSON.stringify(res.col.unresolved));
+    const mr = manifestOf(zip).runs[0], cl = mr.claims.filter((c) => c.correction === W.keepId)[0];
+    assert.ok(cl && !cl.verified && mr.living && !mr.living.complete, how + ': the keep isn\'t confirmed ' + JSON.stringify(mr.claims));
+    if (PY) assert.ok(!checkPack(await repacked(W.PF, zip, (e, man) => forced(man))).ok, how + ': Python refuses a complete claim');
+  }
+});
 /* ND: each run the work depends on is named as the export names it: exactly its key, role, head, chain, receipt and
    confirmed, typed; the receipt it names is the packed run's own (none when it has none); and a complete pack confirms
    every one. In every role. */
