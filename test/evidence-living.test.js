@@ -2216,4 +2216,25 @@ rule('A keep whose process has a file rewritten at the same size during its seco
   const cl = manifestOf(zip).runs[0].claims.filter((c) => c.correction === W.keepId)[0];
   assert.ok(cl && !cl.verified, 'the keep isn\'t confirmed');
 });
+/* TE: a keep published in v2, where one of v2's files goes after it was sized (at its next stat, or as it's opened to be
+   captured): the version can't be read, so it's named, the keep isn't confirmed, the pack is partial, and Python refuses a
+   complete claim. */
+rule('A keep whose process has a version file gone after it was sized leaves the pack partial, named', async () => {
+  const K = await keptInV2(), PF = K.PF, W = K.W, misses = [];
+  for (const n of ['map.md', 'types.json', 'publication.json']) {
+    for (const when of ['stat', 'blob']) {
+      const fsx = new BytesFS(K.files), path = K.v2 + '/' + n, stat = fsx.stat.bind(fsx), blob = fsx.blob.bind(fsx);
+      let k = 0;
+      if (when === 'stat') fsx.stat = (p) => { if (p === path && ++k === 2) fsx.files.delete(p); return stat(p); };
+      else fsx.blob = (p) => { if (p === path) fsx.files.delete(p); return blob(p); };
+      const { res, zip } = await pack(PF, fsx, W.key), what = n + ' gone at its ' + (when === 'stat' ? 'second stat' : 'capture');
+      if (fsx.files.has(path)) { misses.push(what + ': set-up: never gone'); continue; }
+      if (!(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(path) >= 0 || u.indexOf(K.v2 + ' ') >= 0))) { misses.push(what + ': ' + res.status + ' ' + JSON.stringify(res.col.unresolved)); continue; }
+      const cl = manifestOf(zip).runs[0].claims.filter((c) => c.correction === W.keepId)[0];
+      if (!(cl && !cl.verified)) misses.push(what + ': the keep is confirmed ' + JSON.stringify(cl));
+      if (PY && checkPack(await repacked(PF, zip, (e, man) => forced(man))).ok) misses.push(what + ': Python accepts a complete claim');
+    }
+  }
+  assert.deepStrictEqual(misses, []);
+});
 run();

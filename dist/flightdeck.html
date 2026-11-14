@@ -26476,6 +26476,9 @@ PF.repo = (function () {
         var pubs = limited(r[2], 8, function (m) {
           return Promise.all(m.want.map(function (n) { return record(m.base + n); })).then(function (rs) {
             var files = {}, exact = {}; m.want.forEach(function (n, i) { files[n] = rs[i].text == null ? null : rs[i].text; });
+            /* A file that was there when sized but can't be captured now (gone, skipped or too big) is named by its path and
+               kind (TE): one already named missing at sizing isn't named twice. */
+            m.want.forEach(function (n, i) { if (rs[i].text == null && m.sizes[i] != null) fails.push(m.base + n + ' (' + (rs[i].missing ? 'missing' : rs[i].skipped ? 'skipped' : 'too big') + ')'); });
             /* A /2 version by the SHA-256 of the exact bytes snapshotted for the pack, never its text. */
             ['map.md', 'types.json'].forEach(function (n) { var x = done[m.base + n]; if (x && !x.gone && x.sha256) exact[n] = x.sha256; });
             return { folder: m.folder, files: files, v: P.verify(m.folder, files, exact) };
