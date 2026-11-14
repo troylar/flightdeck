@@ -214,6 +214,24 @@ rule('"Published in v2" comes with v2\'s checklist, types and record; without th
   assert.ok(html.includes('Can&#39;t be confirmed from this pack'));
 });
 
+rule('Python refuses a "Published in v2" claim confirmed without that version\'s files, a version that reads, its number or the correction in it', async () => {
+  if (!PY) return console.log('  (skipped: no Python)');
+  const LW = require('./living-worlds'), PF = load();
+  const { zip } = await pack(await folder(), { run: 'release/run1' });
+  const v2 = 'publications/release/' + fixture.v2 + '/', proofs = ['map.md', 'types.json', 'publication.json'].map((n) => v2 + n);
+  assert.ok(LW.checkPack(zip).ok, 'the control: ' + LW.checkPack(zip).out);
+  const claimOf = (man) => man.runs[0].claims.filter((c) => c.group === fixture.groupId)[0];
+  const cases = [
+    ['its version\'s files removed', (e, man) => { man.files.filter((f) => proofs.indexOf(f.path) >= 0).forEach((f) => { delete e[f.pack]; }); man.files = man.files.filter((f) => proofs.indexOf(f.path) < 0); }],
+    ['its proof list emptied', (e, man) => { claimOf(man).proof = []; }],
+    ['the version not listing the correction', (e, man, g) => { const y = g(v2 + 'publication.json'), o = JSON.parse(e[y.pack]); o.corrections = []; e[y.pack] = Buffer.from(JSON.stringify(o, null, 2)); }],
+    ['the claim naming another version', (e, man) => { const c = claimOf(man); c.text = c.status = 'Published in v3'; }]
+  ];
+  const misses = [];
+  for (const [what, edit] of cases) { const c = LW.checkPack(await LW.repacked(PF, zip, edit)); if (c.ok) misses.push(what + ': ' + c.out); }
+  assert.deepStrictEqual(misses, []);
+});
+
 rule('A /2 v2 proves "Published in v2" by its exact bytes: a byte-order mark added to its map.md (which the app refuses) leaves the claim unconfirmed', async () => {
   const fx = await build(load(), { v2note: true }), v2 = 'publications/release/' + fx.v2 + '/';
   assert.strictEqual(JSON.parse(fx.files[v2 + 'publication.json'].toString('utf8')).format, 'preflight-publication/2', 'v2 is a /2 version');

@@ -29,8 +29,8 @@
       "reviewed": "RC: linked child folders named unread in readLoopChildren and the export's child scan; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
-      "sha256": "34a6e79c9055e51337a09de32fdf11481fad60877b3a653ab2a1cfa50f9b7595",
-      "reviewed": "RD: context reads confirmed against a fresh stat, a change named; checked for direct writes and unconditional deletes"
+      "sha256": "bd2cf375bc08e49c56892ab7f8e1bca03b4ab8edbe59240944b406d214fd4e73",
+      "reviewed": "RE: check_pack.py holds verified Published-in claims to their own packed proof; checked for direct writes and unconditional deletes"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",

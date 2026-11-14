@@ -53,7 +53,61 @@ def main(path):
             if digest[name] != h:
                 sys.exit("SHA256SUMS differs: " + name)
         living = check_living(z, man)
+        check_claims(z, man)
         print("ok %d entries, living %d" % (len(names), living))
+
+
+PUBLISHED = re.compile(r"^Published in v([1-9][0-9]{0,8})\Z", re.A)
+PROOF = re.compile(r"^publications/([a-z0-9][a-z0-9-]{0,59})/(v[1-9][0-9]*-[a-z0-9]+)/(map\.md|types\.json|publication\.json)\Z", re.A)
+
+
+def check_claims(z, man):
+    """A verified "Published in vN" claim is held to its own proof, from the pack alone (RE): that version's map.md,
+    types.json and publication.json all packed, read as a version by the shipped checker's publication rules from the
+    packed bytes in memory, numbered N, and the correction in it (listed by the version, or a packed decision that
+    includes it there)."""
+    by_path = {f["path"]: f["pack"] for f in man["files"]}
+
+    def rbytes(q):
+        return z.read(by_path[q]) if q in by_path else None
+
+    def rtext(q):
+        b = rbytes(q)
+        return None if b is None else RV.utf8_text(b)
+
+    for r in man["runs"]:
+        for c in r.get("claims", []):
+            m = PUBLISHED.match(c["text"])
+            if not c["verified"] or not m:
+                continue
+            who = "claims: " + r["key"] + " says \"" + c["text"] + "\" of " + str(c.get("correction")) + " is confirmed, but "
+            proof = c.get("proof")
+            ms = [PROOF.match(x) if isinstance(x, str) else None for x in proof] if isinstance(proof, list) else []
+            if len(ms) != 3 or not all(ms) or len({(x.group(1), x.group(2)) for x in ms}) != 1 or sorted(x.group(3) for x in ms) != ["map.md", "publication.json", "types.json"]:
+                sys.exit(who + "it doesn't name that version's map.md, types.json and publication.json as its proof")
+            proc, folder = ms[0].group(1), ms[0].group(2)
+            for q in proof:
+                if q not in by_path:
+                    sys.exit(who + q + ", its proof, isn't in the pack")
+            vdir = "publications/" + proc + "/" + folder
+            state, why, info = CF.check_publication(vdir, folder, rtext, rbytes)
+            if not (state == "complete" or (state == "syncing" and why.startswith("screenshot "))):
+                sys.exit(who + vdir + " doesn't read as a version (" + str(why) + ")")
+            if info.get("version") != int(m.group(1)):
+                sys.exit(who + vdir + " is v" + str(info.get("version")) + ", not v" + m.group(1))
+            group = c.get("group")
+            listed = isinstance(group, str) and group and any(isinstance(x, dict) and x.get("id") == group for x in (info.get("corrections") if isinstance(info.get("corrections"), list) else []))
+            included = False
+            for q in by_path:
+                if listed or included or not q.startswith("corrections/" + proc + "/"):
+                    continue
+                try:
+                    d = json.loads(rtext(q) or "")
+                except ValueError:
+                    continue
+                included = isinstance(d, dict) and d.get("group") == group and d.get("status") == "included" and d.get("folder") == folder
+            if not (listed or included):
+                sys.exit(who + "the correction isn't in " + vdir + ": the version doesn't list it, and no packed decision includes it there")
 
 
 KEY = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}/[a-z0-9-]{1,40}\Z", re.I | re.A)
