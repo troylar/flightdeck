@@ -440,4 +440,19 @@ rule('todo add --checklist and suggest-done --evidence-run hold when the source 
   }
 });
 
+/* VE: a run whose own checklist can't be run here (a step type this copy doesn't have) is named at its path, as the source
+   or as the evidence: held, exit 4, never complete with no problems or a failure with no diagnostics. */
+rule('todo add --checklist and suggest-done --evidence-run hold, named, on a source or evidence run whose checklist this copy can\'t run', async () => {
+  for (const which of ['evidence', 'source'].filter((h) => !process.env.VE_CASE || process.env.VE_CASE.split(',').indexOf(h) >= 0)) {
+    const F = await folder(), L = await linked(F, 'pass'); await started(F, L, 'k1', 'pass');
+    const key = which === 'source' ? PR : 'smoke-test/k1', f = runFile(F.root, key), o = JSON.parse(fs.readFileSync(f, 'utf8'));
+    o.snapshot = o.snapshot.replace(which === 'source' ? '{confirm} Ship it' : '{confirm} Run the smoke suite', '{future.type} ' + (which === 'source' ? 'Ship it' : 'Run the smoke suite'));
+    assert.ok(/\{future\.type\}/.test(o.snapshot), which + ': set-up: the snapshot changed');
+    fs.writeFileSync(f, JSON.stringify(o, null, 2));
+    const before = ls(F.root), calls = ckCalls(F, L);
+    for (const k of Object.keys(calls).filter((k) => which === 'source' || /^suggest/.test(k))) heldOut(json(...calls[k]), which + ' ' + k);
+    assert.deepStrictEqual(ls(F.root), before, which + ': nothing filed');
+  }
+});
+
 run();

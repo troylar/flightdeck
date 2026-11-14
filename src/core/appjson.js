@@ -281,6 +281,10 @@ PF.appjson = (function () {
     var other = isNewer ? [] : (r._drift || []).filter(function (p) { return !explained(p, named); });
     if (other.length) parts.push('Other places this copy reads differently from the file: ' + other.slice(0, 20).join(', ') + (other.length > 20 ? ', and ' + (other.length - 20) + ' more' : '') + '.');
     if (parts.length) out.push({ path: dir + 'run.json', kind: 'malformed', why: parts.join(' ') + ' The run is shown as the app shows it, without them.' });
+    /* VE: its own checklist can't be run by this copy (a step type it doesn't have, for one) and nothing above says so: named at
+       the run, so a reader holds rather than reporting nothing. */
+    var snapWhy = isNewer || !r._unrunnable ? '' : P.unrunnable(r.snapshot, r.types);
+    if (snapWhy) out.push({ path: dir + 'run.json', kind: 'unusable', why: '"' + r.title + '" (' + key + '): its checklist can\'t be run by this copy: ' + snapWhy });
     if (r._conflicts && r._conflicts.length) out.push({ path: dir, kind: 'conflict', why: 'Conflict copies or lost saves beside this run: ' + r._conflicts.join(', ') + '. A person resolves them in the app.' });
     return out;
   }

@@ -21,12 +21,12 @@
       "reviewed": "4.0 slice 5 commit 6, checklist-linked to-dos: PF.detours (pins, the evidence plan, evidence, provenance), the checklist and evidence fields in to-do records, repo.readEvidence, the app's Run this checklist, Accept and the way back, the living-run skill and command guide sections, the 4.0.0 release entry; checked for direct writes and unconditional deletes: the plan is written create-once through repo.savePlan under the run guard, a done on a run through saveScope with a fresh read before the write, nothing deleted"
     },
     "docs/apps.md": {
-      "sha256": "aa89238afe2efd2335c2ead00a925d07239e0feaf11126310023ce372b0764c9",
-      "reviewed": "UB: the source run of todo checklist requests judged first and again before a preview and inside the final dependency read; checked for direct writes and unconditional deletes"
+      "sha256": "c50e1fbc8f75909e390a7df08f1ac6b5d325b53a9172f0fdb9aa1d2ec01bc47b",
+      "reviewed": "VE: a run whose own checklist this copy can't run is named unusable at its run.json in the shared run verdict; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "5cd1b3c00649e7bf757f456ed312e03f8e32dacf9e8ab8f305b324abe1f80789",
-      "reviewed": "VC: a completed run whose completion doesn't stand as read (R.childCheck) is never evidence, and provenance says so; checked for direct writes and unconditional deletes"
+      "sha256": "b66196e12c53436a2eabf085395d233cfcd6456d99b3a5415456d22919eff509",
+      "reviewed": "VE: a run whose own checklist this copy can't run is named unusable at its run.json in the shared run verdict; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -201,8 +201,8 @@
       "reviewed": "PF: name the real processes and process --contract 2 forms instead of read and versions; checked for direct writes and unconditional deletes"
     },
     "src/core/appjson.js": {
-      "sha256": "a8c8f5ed439d30899c1f9c72e7852e06cfaa4c0ee665a599704db0e8682fc960",
-      "reviewed": "DF: an absent evidence run or plan and an unpublished keep child are nofile, the existing kind; missing dropped from KINDS; checked for direct writes and unconditional deletes"
+      "sha256": "351f9a2e2bb8738c1d8a6bafbd7ec0e2f5cb05ecf0044c828f96c1dbc24c9483",
+      "reviewed": "VE: a run whose own checklist this copy can't run is named unusable at its run.json in the shared run verdict; checked for direct writes and unconditional deletes"
     },
     "src/core/attach.js": {
       "sha256": "0e75bc0c0d748fe10aaf5657662e4ce8679c27f9d10d85c1e34891b1c9d58df0",
