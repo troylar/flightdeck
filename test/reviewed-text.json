@@ -25,12 +25,12 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "54677fc11e2787ef9a8b09394ad97fd807e1ab71aa81f126ccc02d5a551b5afc",
-      "reviewed": "TB: a Published claim is bound to its correction from packed originals and the version's text by the app's landing rules; checked for direct writes and unconditional deletes"
+      "sha256": "5ab2356a7e5eb3cf0d9d4e3302a06383c0f29b633e1bfccace725b04978eaa84",
+      "reviewed": "TC: decisions only from .json files, as the app lists them; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
-      "sha256": "6f05c9d792aef36cacc28bde48de224e32f56787d222cee812212ec30d580403",
-      "reviewed": "TB: a Published claim is bound to its correction from packed originals and the version's text by the app's landing rules; checked for direct writes and unconditional deletes"
+      "sha256": "e4e5221d76e703f7209d61ef2e21e418d7c8cc05dd253fb9fa2718458c8adb6d",
+      "reviewed": "TC: decisions only from .json files, as the app lists them; checked for direct writes and unconditional deletes"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",

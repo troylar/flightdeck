@@ -246,13 +246,17 @@ rule('Python takes a decision as proof of "Published in v2" only when the app wo
   const withInc = (more, after) => (e, man, g) => { unlisted(e, g); const o = inc(e, g, more); Object.keys(o).forEach((k) => { if (o[k] === undefined) delete o[k]; }); put(e, man, g, fixture.groupId + '.w6.2.json', o); if (after) after(e, man, g); };
   const ctl = LW.checkPack(await LW.repacked(PF, zip, withInc({})));
   assert.ok(ctl.ok, 'the control, a valid "It\'s in v2" decision: ' + ctl.out);
+  const upper = LW.checkPack(await LW.repacked(PF, zip, (e, man, g) => { unlisted(e, g); put(e, man, g, fixture.groupId + '.w6.2.JSON', inc(e, g, {})); }));
+  assert.ok(upper.ok, 'the control, named .JSON: ' + upper.out);
   const cases = [
     ['a bare {group, status, folder}', (e, man, g) => { unlisted(e, g); put(e, man, g, fixture.groupId + '.w6.2.json', { group: fixture.groupId, status: 'included', folder: fixture.v2 }); }],
     ['dv 99', withInc({ dv: 99 })],
     ['version 3 with v2\'s folder', withInc({ version: 3 })],
     ['no attribution', withInc({ by: undefined })],
     ['a later declined decision', withInc({}, (e, man, g) => { put(e, man, g, fixture.groupId + '.w7.3.json', inc(e, g, { status: 'declined', reason: 'Not now', rev: 3, seen: fixture.groupId + '.w6.2.json', version: undefined, folder: undefined })); })],
-    ['another decision at the same rev', withInc({}, (e, man, g) => { put(e, man, g, fixture.groupId + '.w7.2.json', inc(e, g, { status: 'declined', reason: 'Not now', version: undefined, folder: undefined })); })]
+    ['another decision at the same rev', withInc({}, (e, man, g) => { put(e, man, g, fixture.groupId + '.w7.2.json', inc(e, g, { status: 'declined', reason: 'Not now', version: undefined, folder: undefined })); })],
+    /* TC: only files the app reads as decisions (a .json name, any case) count. */
+    ...['ignored.txt', fixture.groupId + '.w6.2.json.bak', fixture.groupId + '.w6.2'].map((name) => ['an "It\'s in v2" decision named ' + name, (e, man, g) => { unlisted(e, g); put(e, man, g, name, inc(e, g, {})); }])
   ];
   const misses = [];
   for (const [what, edit] of cases) { const c = LW.checkPack(await LW.repacked(PF, zip, edit)); if (c.ok) misses.push(what + ': ' + c.out); }

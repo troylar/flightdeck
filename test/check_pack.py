@@ -103,7 +103,9 @@ def check_claims(z, man):
             # hold every correction in the group to tell its authors, so this is stricter than the app, never looser.
             cur, tie = None, False
             for q in sorted(by_path):
-                if not q.startswith("corrections/" + proc + "/") or "/" in q[len("corrections/" + proc + "/"):]:
+                # Only what the app reads there as a decision: a file directly in the folder named .json, in any case (TC).
+                nm = q[len("corrections/" + proc + "/"):]
+                if not q.startswith("corrections/" + proc + "/") or "/" in nm or not re.search(r"\.json\Z", nm, re.I):
                     continue
                 try:
                     d = decision_of(decode(z.read(by_path[q])))
