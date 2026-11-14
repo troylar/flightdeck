@@ -2457,4 +2457,56 @@ rule('Work whose records can\'t be read in causal order is held: a circle or a p
   await check('the parent\'s head saw another run\'s record', L.PF, resee(L.files, ph[0], [kh[1].id]), L.key);
   assert.deepStrictEqual(misses, []);
 });
+/* YC: a pending spread creation may leave out its derived "spread" (omitted or null); a request on another run fulfilling
+   that derived spread still makes that run part of the work, on the run itself and on a run its work depends on. The honest
+   pack is complete and Python accepts it; with that run taken out of the pack, Python refuses a complete claim. */
+rule('A request fulfilling a spread whose pending creation leaves out its derived id makes its run part of the work, in the export and Python alike', async () => {
+  const W = await spreadMade(), PF = W.PF, T = PF.todos, base = JSON.parse(W.files[W.runPath]), at = new Date().toISOString();
+  const add = JSON.parse(W.files[W.spreadPath]), r = PF.run.sanitize(base), pair = { uid: 'jira.issue:key:ABC-7', attempt: 1 };
+  const clone = (files, id) => { const o = Object.assign({}, base, { id }); delete o.living; delete o.ended; delete o.parent; o.state = 'running'; if (Array.isArray(o.features)) o.features = o.features.filter(f => f !== 'living-runs'); files['runs/' + base.process + '/' + id + '/run.json'] = JSON.stringify(o, null, 2); };
+  const write = (files, f, spread) => { const o = JSON.parse(T.text(f)); if (spread === undefined) delete o.spread; else if (spread !== 'written') o.spread = spread; files['proposals/' + f.id + '.json'] = JSON.stringify(o, null, 2) + '\n'; };
+  /* A pending spread creation on run `on` (its derived spread written as given), and a request on run `by` fulfilling it. */
+  const pending = (files, on, by, key, spread) => {
+    const q = T.buildProposal({ run: { process: base.process, id: on }, id: T.idFor('flightdeck', key), by: 'person-avery', seen: [], at, body: { op: 'spread-add', loopStep: add.loopStep, text: 'Late sign-off', child: add.child, scope: add.scope } });
+    assert.ok(q.spread, 'set-up: the app derives the spread');
+    write(files, q, spread);
+    assert.ok(T.cleanFile(JSON.parse(files['proposals/' + q.id + '.json']), q.id + '.json').ok, 'set-up: the app reads the creation without its derived id');
+    const ful = T.buildProposal({ run: { process: base.process, id: by }, producer: { name: 'notes-bot', version: '1.0' }, key: PF.spreads.obligationId(q.spread, pair.uid, 1), seen: [], at,
+      body: { op: 'add', text: 'Covered', target: { phase: 'ship' }, placement: T.placementFor(PF.run.mapOf(r), { phase: 'ship' }), fulfills: { run: { process: base.process, id: on }, spread: q.spread, uid: pair.uid, attempt: 1 } } });
+    files['proposals/' + ful.id + '.json'] = T.text(ful);
+  };
+  const misses = [];
+  for (const [how, spread] of [['written in full (the control)', 'written'], ['omitted', undefined], ['null', null]]) {
+    for (const where of ['the run', 'a dependency run']) {
+      const files = Object.assign({}, W.files);
+      let depKey;
+      if (where === 'the run') { clone(files, 'yc-1'); pending(files, base.id, 'yc-1', 'yc-root', spread); depKey = base.process + '/yc-1'; }
+      else {
+        /* yc-1 fulfills the spread the run holds (named in full); yc-1's own pending creation leaves its id out, and yc-2 fulfills it. */
+        clone(files, 'yc-1'); clone(files, 'yc-2');
+        const ful = T.buildProposal({ run: { process: base.process, id: 'yc-1' }, producer: { name: 'notes-bot', version: '1.0' }, key: PF.spreads.obligationId(add.spread, pair.uid, 1), seen: [], at,
+          body: { op: 'add', text: 'Covered', target: { phase: 'ship' }, placement: T.placementFor(PF.run.mapOf(r), { phase: 'ship' }), fulfills: { run: { process: base.process, id: base.id }, spread: add.spread, uid: pair.uid, attempt: 1 } } });
+        files['proposals/' + ful.id + '.json'] = T.text(ful);
+        pending(files, 'yc-1', 'yc-2', 'yc-dep', spread);
+        depKey = base.process + '/yc-2';
+      }
+      const what = how + ', on ' + where;
+      const ok = await pack(PF, new BytesFS(files), W.key);
+      if (ok.res.status !== 'complete') { misses.push(what + ': the export: ' + JSON.stringify(ok.res.col.unresolved).slice(0, 300)); continue; }
+      if (!manifestOf(ok.zip).files.some((f) => f.path === 'runs/' + depKey + '/run.json')) misses.push(what + ': the export packs ' + depKey);
+      if (!PY) continue;
+      const c = checkPack(ok.zip);
+      if (!c.ok) misses.push(what + ': Python refuses the honest pack: ' + c.out);
+      const gone = checkPack(await repacked(PF, ok.zip, (e, man) => {
+        man.files.filter((f) => f.path.indexOf('runs/' + depKey + '/') === 0).forEach((f) => { delete e[f.pack]; });
+        man.files = man.files.filter((f) => f.path.indexOf('runs/' + depKey + '/') !== 0);
+        man.runs = man.runs.filter((x) => x.key !== depKey);
+        man.runs.forEach((x) => { if (x.living) x.living.deps = (x.living.deps || []).filter((d) => d.key !== depKey); });
+        forced(man);
+      }));
+      if (gone.ok || gone.out.indexOf(depKey) < 0) misses.push(what + ': Python, ' + depKey + ' left out: ' + gone.out);
+    }
+  }
+  assert.deepStrictEqual(misses, []);
+});
 run();

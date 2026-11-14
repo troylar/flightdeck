@@ -1298,6 +1298,15 @@ def check_living(z, man):
     # PF.receipts.stateOf calls confirmed), apart from what the receipt saw.
     own_ok = [False]
 
+    def checked(path, o):
+        """A packed to-do record as the app reads it (YC): a request or compound with the body the shipped checker checked laid
+        over it, so an id readers derive (an addition's to-do, a spread creation's spread) is there when the file leaves it
+        out, as PF.todos.cleanFile fills it in; any other record as it is."""
+        bl: list = []
+        if isinstance(o, dict) and o.get("kind") in ("proposal", "compound") and not CF.todo_why(o, (record_name(path) or path[len("proposals/"):-5]) + ".json", body=bl) and bl:
+            return dict(o, **bl[0])
+        return o
+
     def depends_on(run):
         """The runs a run's work depends on, found in the pack on their own: packed runs naming it as their loop's parent, and
         the runs its packed records were done on (evidence) or fulfill a spread of. Each with the roles its references give it,
@@ -1317,7 +1326,7 @@ def check_living(z, man):
             # GB: every checked to-do record naming the run, its decisions and applications (status files) and their effects
             # included, by the one dispatch and the run as runOf reads it, as PF.receipts.deps finds them.
             elif path.startswith("proposals/") and CF.json_name(path):
-                o = packed(path) if dispatch(path)["fam"] == "todo" and not dispatch(path)["bad"] else None
+                o = checked(path, packed(path)) if dispatch(path)["fam"] == "todo" and not dispatch(path)["bad"] else None
                 if not isinstance(o, dict) or run_of(o) != me:
                     continue
                 for b in (o, obj(o.get("effect")), obj(obj(o.get("application")).get("effect"))):
@@ -1339,7 +1348,7 @@ def check_living(z, man):
             if path.startswith("proposals/") and CF.json_name(path):
                 d = dispatch(path)
                 if d["fam"] == "todo" and not d["bad"] and isinstance(packed(path), dict):
-                    todos.append((path, packed(path)))
+                    todos.append((path, checked(path, packed(path))))
         held = set()
         for path, o in todos:
             if run_of(o) == me:
