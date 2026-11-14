@@ -1253,6 +1253,12 @@ def check_living(z, man):
                     return why + " (the run itself, which " + k + " depends on in turn)", done, roles
                 if len(reached) + len(done) - 1 > 5000:
                     return BOUND, done, roles
+                # The run's own dependencies are part of this walk too (VA), walked in the same bound; being walked never
+                # makes the run one of its own dependencies.
+                rfound = depends_on(packed("runs/" + root_key + "/run.json"))
+                for fk, fr in rfound.items():
+                    roles.setdefault(fk, set()).update(fr)
+                todo.extend(sorted(set(rfound) - done))
             todo.extend(sorted(set(found) - done))
         if len(reached) + len(done) - 1 > 5000:
             return BOUND, done, roles

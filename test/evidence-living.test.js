@@ -2237,4 +2237,30 @@ rule('A keep whose process has a version file gone after it was sized leaves the
   }
   assert.deepStrictEqual(misses, []);
 });
+/* VA: the run reaches back to itself through a confirmed dependency (rev-1 fulfills a spread it holds), and also depends on
+   an evidence run nobody calls confirmed. Walking from rev-1 back to the run expands the run's own dependencies too, so the
+   evidence run is walked and checked: missing, title 42 or format /4, and Python refuses rev-1 as confirmed. */
+rule('Python walks the run\'s other dependencies when a confirmed dependency\'s walk reaches back to it', async () => {
+  if (!PY) return;
+  const ws = await roleWorlds(), rev = ws.filter((x) => x.role === 'reverse')[0], ev = ws.filter((x) => x.role === 'evidence')[0];
+  /* Both worlds are the same run with their own additions: the reverse world's files win where both have one. */
+  const files = Object.assign({}, ev.files, rev.files), PF = rev.PF;
+  const { zip } = await pack(PF, new BytesFS(files), rev.key), man0 = manifestOf(zip);
+  assert.ok([rev.depKey, ev.depKey].every((k) => man0.runs[0].living.deps.some((d) => d.key === k)), 'set-up: both dependencies ' + JSON.stringify(man0.runs[0].living.deps.map((d) => d.key)));
+  const evp = 'runs/' + ev.depKey + '/run.json';
+  const partial = (edit) => repacked(PF, zip, (e, man, g) => {
+    man.status = 'partial'; const lv = man.runs[0].living; lv.complete = false; lv.missing = ['Something else is missing.'];
+    lv.deps.forEach((d) => { d.confirmed = d.key === rev.depKey; }); edit(e, man, g);
+  });
+  const runEdit = (fn) => (e, man, g) => { const y = g(evp), o = JSON.parse(e[y.pack]); fn(o); e[y.pack] = Buffer.from(JSON.stringify(o, null, 2)); };
+  const ctl = checkPack(await partial(() => {}));
+  assert.ok(ctl.ok, 'the control: ' + ctl.out);
+  const misses = [];
+  for (const [what, edit] of [
+    ['the evidence run missing', (e, man, g) => { const y = g(evp); delete e[y.pack]; man.files = man.files.filter((f) => f !== y); }],
+    ['the evidence run with title 42', runEdit((o) => { o.title = 42; })],
+    ['the evidence run in format preflight-run/4', runEdit((o) => { o.format = 'preflight-run/4'; })]
+  ]) { if (checkPack(await partial(edit)).ok) misses.push(what + ': Python accepts rev-1 as confirmed'); }
+  assert.deepStrictEqual(misses, []);
+});
 run();
