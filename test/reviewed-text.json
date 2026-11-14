@@ -529,8 +529,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. A maintainer tool, not shipped. Not read line by line."
     },
     "tools/readers.js": {
-      "sha256": "b4a771f9c0268f51162b1ec947fd1f33caa9734c1d180b8693f66d7f0e723f4d",
-      "reviewed": "GA: check_folder.py registers itself for run_verdict only when it is in sys.modules (loaded by a path alone, run_verdict imports its own copy); checked for direct writes and unconditional deletes: none"
+      "sha256": "53f175cd1184e1cc76c3badc3ec60c84d84bbb1f41f7197b2b18db8c795eb24d",
+      "reviewed": "QB follow-up: stale reader-lint entry removed; checked for direct writes and unconditional deletes"
     },
     "tools/scale-limits.js": {
       "sha256": "23e06ee46d6b4ff44216f92c530578f714aa05bcecd7a2b0458515287d554ec1",
