@@ -2104,4 +2104,39 @@ rule('A keep whose process has a file replaced at the same size while it is read
   }
   assert.deepStrictEqual(misses, []);
 });
+/* SD: a keep published in v2, where v2 can't be read: its folder listed as a link, its map.md missing, its record from a
+   newer Flightdeck, or its record's hash not matching. Where the keep stands can't be worked out without it: the export
+   names the version, the keep isn't confirmed, the pack is partial, and Python refuses a complete claim. */
+rule('A keep whose process has a version that can\'t be read leaves the pack partial, named', async () => {
+  const W = await made({ todos: 1, keep: 'placed' }), PF = W.PF, C = PF.corrections, proc = W.key.split('/')[0];
+  const d = await PF.repo.loadAll(new BytesFS(W.files), {}), runs = d.runs.filter((r) => r.process === proc), members = PF.learn.members(d.todos, runs, proc);
+  const v1 = Object.keys(W.files).filter((p) => p.indexOf('publications/' + proc + '/') === 0)[0].split('/')[2], v1base = 'publications/' + proc + '/' + v1 + '/';
+  const g = C.forProcess(runs, proc, [], null, members).filter((x) => x.keep)[0], rv = C.review(g, String(W.files[v1base + 'map.md']));
+  const dec = C.decision(g, 'person-avery', 'applied', '', new Date().toISOString(), { act: 'a1', result: C.outcome(g, rv.text, rv.added) });
+  const gs = C.forProcess(runs, proc, [Object.assign(C.cleanDecision(dec, proc), { _file: g.id + '.w4.1.json' })], null, members);
+  const b = PF.publish.build(rv.text, { people: JSON.parse(W.files['people.json']), ...require('./harness').exampleSetup(PF), by: 'person-avery', changes: 'Kept step', existing: [JSON.parse(String(W.files[v1base + 'publication.json']))], now: Date.now(), rand: 'rn000002', app: '4.0.0', corrections: C.forPublish(rv.text, gs).list });
+  assert.ok(!b.blockers, JSON.stringify(b.blockers));
+  const v2 = 'publications/' + proc + '/' + b.folder, files = Object.assign({}, W.files, { ['corrections/' + proc + '/' + g.id + '.w4.1.json']: JSON.stringify(dec, null, 2) + '\n' });
+  Object.keys(b.files).forEach((k) => { files[v2 + '/' + k] = b.files[k]; });
+  const ctl = await pack(PF, new BytesFS(files), W.key), claimOf = (zip) => manifestOf(zip).runs[0].claims.filter((c) => c.correction === W.keepId)[0];
+  assert.ok(ctl.res.status === 'complete' && claimOf(ctl.zip).verified && claimOf(ctl.zip).text === 'Published in v2', 'the control: ' + JSON.stringify(manifestOf(ctl.zip).runs[0].claims));
+  const record = (fn) => { const o = JSON.parse(files[v2 + '/publication.json']); fn(o); return Object.assign({}, files, { [v2 + '/publication.json']: JSON.stringify(o, null, 2) }); };
+  const linked = (fsx) => { const list = fsx.list.bind(fsx); fsx.list = (p) => list(p).then((items) => p === 'publications/' + proc ? items.map((i) => i.name === b.folder ? Object.assign({}, i, { kind: 'link' }) : i) : items); };
+  const cases = [
+    ['its folder listed as a link', files, linked, v2],
+    ['its map.md missing', (() => { const f = Object.assign({}, files); delete f[v2 + '/map.md']; return f; })(), null, v2 + '/map.md'],
+    ['its record from a newer Flightdeck', record((o) => { o.format = 'preflight-publication/9'; }), null, v2],
+    ['its record\'s hash damaged', record((o) => { o.mapHash = 'deadbeef'; }), null, v2]
+  ];
+  const misses = [];
+  for (const [what, fl, hook, at] of cases) {
+    const fsx = new BytesFS(fl); if (hook) hook(fsx);
+    const { res, zip } = await pack(PF, fsx, W.key);
+    if (!(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(at) >= 0))) { misses.push(what + ': ' + res.status + ' ' + JSON.stringify(res.col.unresolved)); continue; }
+    const cl = claimOf(zip);
+    if (!(cl && !cl.verified)) misses.push(what + ': the keep is confirmed ' + JSON.stringify(cl));
+    if (PY && checkPack(await repacked(PF, zip, (e, man) => forced(man))).ok) misses.push(what + ': Python accepts a complete claim');
+  }
+  assert.deepStrictEqual(misses, []);
+});
 run();

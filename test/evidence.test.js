@@ -502,7 +502,8 @@ rule('One snapshot per file for the whole pack: a version file that changes mid-
     const texts = {}; ['map.md', 'types.json', 'publication.json'].forEach(n2 => { texts[n2] = z['originals/publications/release/' + fixture.v1 + '/' + n2].data.toString('utf8'); });
     same(rc.checks, E.checks(rc.raw, texts), rc.key + ': its checks are of the bytes in the pack');
   });
-  assert.ok(res.status === 'complete' ? packed === f.files.get(map).toString('utf8') : res.col.unresolved.some(u => /map\.md/.test(u)), 'either collected again (and consistent with the folder) or said so');
+  /* Said so: by map.md, or by its version, which no longer matches its record once changed (SD names such a version). */
+  assert.ok(res.status === 'complete' ? packed === f.files.get(map).toString('utf8') : res.col.unresolved.some(u => /map\.md/.test(u) || u.indexOf('publications/release/' + fixture.v1 + ' ') >= 0), 'either collected again (and consistent with the folder) or said so ' + res.status + JSON.stringify(res.col.unresolved));
 });
 
 rule('Attachments in folders under files/ are attachments too: left out with the others', async () => {

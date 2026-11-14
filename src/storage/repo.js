@@ -3204,7 +3204,11 @@ PF.repo = (function () {
           }, function () { return { key: key, base: base, want: [], sizes: [], listFailed: true, links: [] }; });
         });
       }, function () { listFails.push({ key: '', why: 'runs/' + proc + ' (unreadable)' }); return []; });
+      /* A version folder listed as a link is named (SD): Flightdeck never reads through it, and where something kept for next
+         time stands can't be worked out without the versions. */
+      var pubLinks = [];
       var pubMetas = ro.list('publications/' + proc).then(function (items) {
+        items.forEach(function (i) { if (i.kind === 'link' && P.versionOf(i.name)) pubLinks.push('publications/' + proc + '/' + i.name + ' (link)'); });
         return limited(items.filter(function (i) { return i.kind === 'dir' && P.versionOf(i.name); }).map(function (i) { return i.name; }).sort(), 8, function (folder) {
           var b = 'publications/' + proc + '/' + folder + '/', want = ['map.md', 'types.json', 'publication.json'];
           return Promise.all(want.map(function (n) { return statOf(b + n); })).then(function (sizes) { return { folder: folder, base: b, want: want, sizes: sizes }; });
@@ -3219,6 +3223,8 @@ PF.repo = (function () {
         var fails = [], budget = { left: CTX_MAX };
         listFails.forEach(function (f) { if (!selected[f.key]) fails.push(f.why); });
         decLinks.forEach(function (x) { fails.push(x); });
+        pubLinks.forEach(function (x) { fails.push(x); });
+        r[2].forEach(function (m) { m.want.forEach(function (n, i) { if (m.sizes[i] == null) fails.push(m.base + n + ' (missing)'); }); });
         r[1].forEach(function (m) {
           if (selected[m.key]) return;
           if (m.listFailed) { fails.push(m.base.slice(0, -1) + ' (unreadable)'); return; }
@@ -3268,6 +3274,9 @@ PF.repo = (function () {
           });
         });
         return Promise.all([runs, pubs]).then(function (x) {
+          /* A version whose files are all there but that doesn't verify (from a newer Flightdeck, or files that don't match its
+             record) is named by its folder (SD): it can't say what it has, so where something stands can't be worked out. */
+          x[1].forEach(function (p) { if (!p.v.ok && Object.keys(p.files).every(function (n) { return p.files[n] != null; })) fails.push('publications/' + proc + '/' + p.folder + ' (' + (p.v.newer ? 'newer' : 'refused') + ')'); });
           var pubList = x[1], verified = pubList.filter(function (p) { return p.v.ok; }).map(function (p) { return p.v; });
           var runsRead = x[0].filter(Boolean), index = P.index(verified);
           fails.sort();
