@@ -77,8 +77,8 @@
       "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
     },
     "example-folder/.flightdeck/skills/_flightdeck/run_verdict.py": {
-      "sha256": "c354a988cb4e7d7e99cd8ae9b46daaa05b3174025869e5a1972133ddf1f9110b",
-      "reviewed": "YE: js_index bounds array-index keys before int(); checked for direct writes and unconditional deletes"
+      "sha256": "5e0ac53ccc114fc14f3cc49b007655ee83f826f7254f6f438f8b8a932f1a47cc",
+      "reviewed": "parse_int reads digits as a double via CF._jsint; checked for direct writes and unconditional deletes: none"
     },
     "example-folder/.flightdeck/skills/flightdeck-edit-checklist/SKILL.md": {
       "sha256": "6a46e0d61b6d12c316ae81a62d0b01667adefa8df80a30de49a39d4fe3854284",
@@ -201,8 +201,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "1c91fcf37117ab2d62c08f923f49c03f8f3ad9a377321c6f24e676dd5c5c2612",
-      "reviewed": "YE: js_index bounds array-index keys before int(); checked for direct writes and unconditional deletes"
+      "sha256": "2b81a1d63df2e64a4fe4298bb88f2c0c76fb653a886f66057ba8b33bfaacd102",
+      "reviewed": "parse_int reads digits as a double via CF._jsint; checked for direct writes and unconditional deletes: none"
     },
     "src/core/appjson.js": {
       "sha256": "98019ea60f70df332d6774d2ac26d0bbd028e95f1f76f543cbe54c89cb8cd4fe",

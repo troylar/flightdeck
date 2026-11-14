@@ -141,11 +141,11 @@ def s(v, n):
 
 
 def parse_int(v):
-    """parseInt(v, 10), or None for NaN."""
+    """parseInt(v, 10), or None for NaN: a double like the app's, so thousands of digits read as infinity, never Python's unbounded int."""
     if v is MISSING or (isinstance(v, float) and (math.isinf(v) or math.isnan(v))):
         return None  # String(Infinity) is "Infinity": no digits
     m = re.match("^[" + re.escape(CF.JS_WS) + "]*([+-]?[0-9]+)", CF.js_String(v), re.A)
-    return int(m.group(1)) if m else None
+    return CF._jsint(m.group(1)) if m else None
 
 
 def whole_num(v):

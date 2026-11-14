@@ -194,6 +194,65 @@ rule('Every run file of the corpus is refused by the export, the pack reader and
   assert.strictEqual(off.length, 0, off.length + ' of ' + mine.length + ' differ:\n  ' + (process.env.CORPUS_ALL ? off : off.slice(0, 40)).join('\n  '));
 });
 
+/* YF: a counted field (version, rev, the hand-off's rev) is parseInt to the app, a double: past the double range it is
+   Infinity, never a Python ValueError. Written as text and as a JSON number, at Python's digit limit, at the double's
+   overflow, at 2^53 and with a sign, the readers, the pack reader, the checker and the folder checker agree. */
+rule('A counted field of thousands of digits, past the double range or at 2^53, is read as the app\'s parseInt reads it, by the pack reader and the folder checker alike', async () => {
+  if (!PY) { console.log('    (skipped: no Python)'); return; }
+  const { cases, worlds } = await corpus(), full = cases.filter((c) => c.role === 'full')[0], X = full.R.X, off = [], mine = [];
+  const [proc, id] = X.depKey.split('/'), rp = 'runs/' + X.depKey + '/run.json';
+  const digits = ['9'.repeat(4300), '9'.repeat(4301), '1' + '0'.repeat(308), '1' + '0'.repeat(309), '9'.repeat(308), '9'.repeat(309), '9007199254740991', '9007199254740992', '9007199254740993', '2', '0'];
+  const raws = [];
+  digits.forEach((d) => { raws.push(JSON.stringify(d), JSON.stringify('+' + d), JSON.stringify('-' + d), d, '-' + d); });
+  raws.push(JSON.stringify(' 3x'), JSON.stringify('+'), JSON.stringify('-0'));
+  const base = JSON.parse(full.text);
+  assert.ok(base.recorder.handoff && !base.recorder.session, 'set-up: the base run is waiting on a hand-off');
+  for (const field of ['version', 'rev', 'recorder.handoff.rev']) {
+    const o = JSON.parse(full.text), at = field.split('.'), last = at.pop();
+    at.reduce((v, k) => v[k], o)[last] = '@@';
+    const shape = JSON.stringify(o, null, 2);
+    raws.forEach((raw, i) => mine.push({ id: field + '#' + i, name: field + ' ' + (raw.length > 24 ? raw.slice(0, 6) + '…(' + raw.length + ' characters)' : raw), text: shape.replace('"@@"', raw) }));
+  }
+  for (const m of mine) {
+    const one = await X.PF.repo.readRunOnly(new BytesFS(Object.assign({}, X.files, { [X.path]: m.text })), proc, id);
+    const bad = (one.bad || []).filter((b) => b.path === rp)[0];
+    m.readers = bad ? { kind: bad.kind || 'malformed', why: bad.why } : one.run ? X.PF.appjson.judgeRun(one.run, one.pub).filter((q) => q.path === rp && q.kind !== 'unusable').map((q) => ({ kind: q.kind, why: q.why }))[0] || null : null;
+    m.js = await C.jsVerdict(X.PF, Object.assign({}, X.files, { [X.path]: m.text }), X.depKey);
+  }
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fd-counted-')), file = path.join(dir, 'cases.jsonl');
+  try {
+    fs.writeFileSync(file, mine.map((m) => JSON.stringify({ id: m.id, key: X.depKey, text: m.text })).join('\n') + '\n');
+    const res = cp.spawnSync(PY, ['-I', path.join(__dirname, 'check_pack.py'), '--readers', file], { encoding: 'utf8', maxBuffer: 1 << 28 }), by = {};
+    if (res.status !== 0) off.push('the pack reader stopped: ' + String(res.stderr).trim().split('\n').pop());
+    String(res.stdout).split('\n').filter(Boolean).forEach((l) => { const x = JSON.parse(l); by[x.id] = x; });
+    let py = {};
+    try { py = pyVerdicts(worlds.filter((w) => w.world === 'full'), mine.map((m) => ({ id: m.id, role: 'full', key: X.depKey, text: m.text }))); } catch (e) { off.push('the pack reader\'s verdicts stopped: ' + String(e.stderr || e.message).trim().split('\n').pop()); }
+    mine.forEach((m) => {
+      const p = by[m.id] || {}, want = m.readers || { kind: null, why: '' };
+      /* The first reason: the same kind, naming the same places (the readers' words and the pack reader's own differ). */
+      const places = (w, re) => { const x = re.exec(w || ''); return x ? x[1].replace(/ \([^)]*\)/g, '') : ''; };
+      if (p.kind !== want.kind || places(want.why, /: (.*?)\. The run /) !== places(p.why, /\(([^()]*)\)$/)) off.push(m.name + ': the readers ' + JSON.stringify(want).slice(0, 200) + ', Python ' + JSON.stringify([p.kind, p.why]).slice(0, 200));
+      if (p.checker !== want.kind) off.push(m.name + ': the readers ' + (want.kind || 'accept') + ', the checker ' + (p.checker || 'accepts'));
+      if (p.judged && p.entry !== want.kind) off.push(m.name + ': the readers ' + (want.kind || 'accept') + ', the checker\'s receipt verdict ' + (p.entry || 'names nothing'));
+      const v = py[m.id], jp = m.js ? m.js.path : null;
+      if (!v || v.path !== jp) off.push(m.name + ': the app\'s verdict ' + (jp || 'holds') + ', Python ' + (v ? v.path || 'holds' : 'nothing') + (v && v.why ? ' (' + String(v.why).slice(0, 160) + ')' : ''));
+    });
+    /* The folder checker on a folder holding the run, for every case: it prints its JSON report. */
+    const CHECKER = path.join(__dirname, '..', 'example-folder', '.flightdeck', 'skills', '_flightdeck', 'check_folder.py');
+    const w = worlds.filter((x) => x.world === 'full')[0];
+    for (const m of mine) {
+      const root = path.join(dir, 'f');
+      fs.rmSync(root, { recursive: true, force: true });
+      Object.keys(w.files).concat([rp]).forEach((p) => { fs.mkdirSync(path.dirname(path.join(root, p)), { recursive: true }); fs.writeFileSync(path.join(root, p), p === rp ? m.text : w.files[p]); });
+      const r = cp.spawnSync(PY, ['-I', CHECKER, root], { encoding: 'utf8', maxBuffer: 1 << 28 });
+      try { JSON.parse(r.stdout); } catch (e) { off.push(m.name + ': the folder checker printed no JSON: ' + String(r.stderr).trim().split('\n').pop()); }
+    }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  const refused = mine.filter((m) => m.readers).length;
+  console.log('    ' + mine.length + ' counted fields (' + refused + ' refused at run.json by the readers)');
+  assert.strictEqual(off.length, 0, off.length + ' of ' + mine.length + ' differ:\n  ' + off.slice(0, 40).join('\n  '));
+});
+
 /* The export and the pack reader on a sample: the first accepted and the first refused case of every top-level field in each role, every drop and fill-in,
    and every case refused anywhere but the run file. The export names the run (or its version) exactly when the app refuses
    it, and a pack made to claim the work complete is refused by Python exactly then. Conflict copies beside a run aren't
