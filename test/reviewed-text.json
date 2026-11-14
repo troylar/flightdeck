@@ -25,8 +25,8 @@
       "reviewed": "round 17 VD: only add and bind can be delegated"
     },
     "docs/design.md": {
-      "sha256": "1bb1502964797648b919f6a97f69fad8a0263662fb96dbf9f83cdee33ab87a59",
-      "reviewed": "ZB: to-do writes on a loop's parent list story runs fresh; checked for direct writes and unconditional deletes"
+      "sha256": "b0dde693abc40abeaf7354cd60f603364dd2c052c885da592dd67974b99f20e2",
+      "reviewed": "Round 21 (ZC): a refused request's outcome is written only when the run read now names this person and window as recorder, the person is active in people.json, and the request on disk is exactly the pending one held. Checked for direct writes and unconditional deletes."
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -409,8 +409,8 @@
       "reviewed": "Round 21 (ZA): a write token is kept with the folder its guard read and admitted only for a write to that folder, the one this window has open. Checked for direct writes and unconditional deletes."
     },
     "src/ui/app.js": {
-      "sha256": "c08a91555c0a9e1b50384f19ce88313871548271ac6f8192a6f229eb6fd87562",
-      "reviewed": "ZB: to-do writes on a loop's parent list story runs fresh; checked for direct writes and unconditional deletes"
+      "sha256": "9272c00836715d9bc46fa849114371f1da505e075f04f7d580e85d63b6813da0",
+      "reviewed": "Round 21 (ZC): a refused request's outcome is written only when the run read now names this person and window as recorder, the person is active in people.json, and the request on disk is exactly the pending one held. Checked for direct writes and unconditional deletes."
     },
     "src/ui/examples.js": {
       "sha256": "7db943140369906843961189dc3f34c8ec9430164cca3cb0f3a9f5bdd6ab946f",

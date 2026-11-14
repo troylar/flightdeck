@@ -3257,7 +3257,7 @@
   function freshOnce(cx, fs, keys, judge, o) {
     o = o || {};
     var raw = fs || cx.fs, rec = recordingView(raw), src = rec.fs, people = null, no = function () { return false; };
-    var ks = keys || [], revs = Object.create(null), disk = Object.create(null), absent = false;
+    var ks = keys || [], revs = Object.create(null), disk = Object.create(null), reads = Object.create(null), absent = false;
     if (!ks.length && !o.create) return Promise.resolve(false);
     /* Round 20: what this guard checked, and the token for exactly the write it was asked about (o.w), or true for a guard
        asked outside a write. */
@@ -3321,7 +3321,7 @@
            never writes over one), so only the person is asked here. A restore writes a run that is gone: only gone, as read. */
         if (gone) disk[ks[i]] = 'absent';
         /* A refused request's outcome reports that nothing was written: the run is read, not judged, and the person is. */
-        if (o.report) { if (!gone) disk[ks[i]] = one.run ? one.run._fileHash : 'broken'; return (one && one.people && !one.peopleWhy ? Promise.resolve(one.people) : PF.repo.readPeopleOnly(src)).then(function (p) { people = p; return next(i); }, no); }
+        if (o.report) { if (!gone) disk[ks[i]] = one.run ? one.run._fileHash : 'broken'; if (!gone && one.run) reads[ks[i]] = one.run; return (one && one.people && !one.peopleWhy ? Promise.resolve(one.people) : PF.repo.readPeopleOnly(src)).then(function (p) { people = p; return next(i); }, no); }
         if ((gone && o.restore) || ((gone || broken) && o.lenient && o.phase !== 'final')) return PF.repo.readPeopleOnly(src).then(function (p) { people = p; return next(i); }, no);
         if (gone || broken) return false;
         disk[ks[i]] = one.run._fileHash;
@@ -3349,8 +3349,9 @@
     };
     var plans = function () {
       return PF.repo.readPlans(src, null, null).then(function (res) {
-        if (!res || (res.torn || []).some(function (t) { return !t.parsed; })) return false;
-        var d = Object.assign({}, data, { people: people, scopes: res.scopes || [], scopesUnread: res.scopesUnread || [], todos: res.todos || [], todosUnread: res.todosUnread || [] });
+        /* A refusal's report (o.report) doesn't need the other records whole: its judge refuses only on its own request's. */
+        if (!res || (!o.report && (res.torn || []).some(function (t) { return !t.parsed; }))) return false;
+        var d = Object.assign({}, data, { people: people, scopes: res.scopes || [], scopesUnread: res.scopesUnread || [], todos: res.todos || [], todosUnread: res.todosUnread || [], torn: res.torn || [], freshRuns: reads });
         var fine = function () { return guardOk(cx, d) && !memberWhy(people, cx.me) && judge(d) === true; };
         if (!fine()) return false;
         return stillSame(raw, rec.seen, null).then(function (same) { return same && fine() ? token() : false; }, no);
@@ -4214,12 +4215,14 @@
        ("Carried out before"). A resolve request's outcome follows the resolution it just wrote (a new scope record, judged by
        its own guard), so for it the stories are read and the person asked, but not the records. An approval's outcome then takes its token from the approval snapshot of that loop, which
        lists and reads every story's run and to-do as the approval did, so a run or record that arrived meanwhile refuses too. Refused (nothing was
-       written): the loop's run is read but not judged and proposals/ isn't read, since a run, version or record that can't
-       be read is often why it was refused; only the person is asked. */
+       written): the loop's run is read but not judged as held, since a run, version or record that can't be read is often
+       why it was refused. Round 21 (ZC): the run read now must still name this person and this window as its recorder,
+       the person must be in people.json and active, and the request on disk must be exactly the pending one held, with
+       no outcome this window doesn't hold. Anything that can't be checked leaves the request pending. */
     else opts.recheck = function (fs, phase, w) {
       var lk = V.loop.process + '/' + V.loop.run, pr = findRun(lk), j = outcomeJudge(lk, V.loop.step, q.id, cx.me, op === 'applied' && q.ops[0] !== 'resolve');
       if (!pr) return Promise.resolve(false);
-      if (op !== 'applied') return freshGuard(cx, fs, [lk], j, { w: w, report: true, light: true });
+      if (op !== 'applied') return freshGuard(cx, fs, [lk], refusedJudge(lk, q.id, cx.me), { w: w, report: true });
       /* A start's outcome follows the story runs it just started, which this window doesn't hold yet: it reports them, so the
          stories it holds are read but not listed fresh (that listing is for writes judged on coverage). */
       if (q.ops[0] !== 'approve') return freshGuard(cx, fs, covKeys(pr), j, { w: w, kids: q.ops[0] === 'start' ? '' : lk });
@@ -4242,6 +4245,18 @@
       if (!t || !h || JSON.stringify(t) !== JSON.stringify(h)) return false;
       if (t.status !== 'pending' || files(d) !== files(data)) return false;
       return JSON.stringify(PF.loop.seenFor(V.ledger, [], [qid]).seen) === JSON.stringify(PF.loop.seenFor(H.ledger, [], [qid]).seen);
+    };
+  }
+  /* Round 21 (ZC): a refusal's judge, on what its guard read now: the run (d.freshRuns), people, proposals/. */
+  function refusedJudge(key, qid, me) {
+    var ours = function (x) { var f = String(x && (x._file || x.file || x.path) || '').replace(/^proposals\//, ''); return f === qid + '.json' || f.indexOf(qid + '.status-') === 0; };
+    var canon = function (list) { return JSON.stringify(list.filter(ours).map(function (x) { return [String(x._file), x]; }).sort(function (a, b) { return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0; })); };
+    return function (d) {
+      var r = d.freshRuns && d.freshRuns[key];
+      if (!r || !r.recorder || r.recorder.person !== me || r.recorder.session !== SESSION || actorWhy(r, d.people, me)) return false;
+      if ((d.torn || []).some(ours) || (d.scopesUnread || []).some(ours)) return false;
+      if (!(d.scopes || []).some(function (x) { return x && x._file === qid + '.json'; })) return false;
+      return canon(d.scopes || []) === canon(data.scopes || []);
     };
   }
   function resolveJudge(res, q, op, seen, me) {
