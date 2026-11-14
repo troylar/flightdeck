@@ -10285,7 +10285,7 @@
       r.recorder.session = SESSION;
       /* A run of a checklist with a loop is guarded like every loop write (round 10). A planned start's run is saved once its
          decision is written, whatever happens next (a plan marked started without its run can't be recovered). */
-      var save = function (keep) { return repo.saveRun(sfs, r, SESSION, Object.assign({ writer: WRITER, lock: LOCKS ? lock : null, keep: keep }, !plan && loopy(r) ? { still: still } : {})); };
+      var save = function (keep, hold) { return repo.saveRun(sfs, r, SESSION, Object.assign({ writer: WRITER, lock: LOCKS ? lock : null, keep: keep }, hold ? { hold: hold } : {}, !plan && loopy(r) ? { still: still } : {})); };
       if (!plan) return save(false);
       /* Asked when its turn comes, once the plan's lock is held and right before the decision is written: a start whose folder
          or person changed meanwhile, even changed back, writes nothing. Once the decision is written, its run is saved as
@@ -10294,6 +10294,18 @@
       var decide = function () {
         return repo.decidePlan(sfs, plan, { action: 'start', sha: formSha, folder: startFolder, final: detour, lock: LOCKS ? lock : null, still: still, write: function () {
           var mark = function () { return repo.recordPlanStatus(sfs, plan, WRITER, 'accepted', r.id, who, null, APP_VERSION, decOut).then(function (path) { dec = path; return save(true); }); };
+          /* UD: a to-do plan's decision write that answered an error may have landed: read back, found exactly as written, the
+             plan is reserved for this run, so its run is kept for Try again (written then, under its guard), never stranded. */
+          if (detour) mark = function () {
+            return repo.recordPlanStatus(sfs, plan, WRITER, 'accepted', r.id, who, null, APP_VERSION, decOut).then(function (path) { dec = path; return save(true); }, function (e) {
+              if (!decOut.path) throw e;
+              return sfs.read(decOut.path).then(null, function () { throw e; }).then(function (f) {
+                if (!f || f.text !== decOut.text) throw e;
+                dec = decOut.path;
+                return save(true, 'its decision was written, though writing it answered an error: ' + String(e && e.message || e));
+              });
+            });
+          };
           if (!detour) return mark();
           /* Run this checklist: after the pin's read, people.json is read again and the whole guard asked right before the
              decision is written; only a decision actually written has its run saved (and only that is recovered). */

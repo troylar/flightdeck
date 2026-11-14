@@ -699,6 +699,24 @@ rule('A detour Try again saves no run when its starter is inactive or people.jso
   }
 });
 
+/* UD: a reservation write whose answer is an error but which landed is read back: found exactly as written, the plan is
+   marked started for that run and Try again is on offer (and saves it); not found, nothing is offered as started. */
+rule('A detour start whose decision write landed but answered an error offers Try again, which saves the run', async () => {
+  const S = await setup(['pass']), app = S.app;
+  app.click('td-detour', S.todo); await app.tick(250);
+  const w = app.fs.write.bind(app.fs), before = kidPaths(app).length; let failed = false;
+  app.fs.write = (p, ...a) => (!failed && /^proposals\/plan-ev-.*\.status-.*-d\.json$/.test(p)) ? (failed = true, w(p, ...a).then(() => { throw new Error('The network went away'); })) : w(p, ...a);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(300);
+  app.fs.write = w;
+  assert.ok(failed, 'set-up: the decision write answered an error');
+  assert.strictEqual(mineDec(app).length, 1, 'the decision landed');
+  assert.strictEqual(kidPaths(app).length, before, 'no run yet');
+  assert.ok(/data-act="plan-resume"/.test(app.html()), 'Try again offered');
+  app.click('plan-resume', idOf(app, 'plan-resume')); await app.tick(400);
+  assert.strictEqual(kidPaths(app).length, before + 1, 'Try again saved the run');
+  assert.strictEqual(mineDec(app).length, 1, 'still one decision');
+});
+
 /* UE: a to-do's plan starts on the exact version its to-do pins: no Start on vN instead or Use the latest, and a switch
    asked anyway writes nothing. */
 rule('A to-do\'s plan never offers or records a switch to a newer version', async () => {

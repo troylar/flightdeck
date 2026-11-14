@@ -1257,6 +1257,8 @@ PF.repo = (function () {
     /* Any save that got as far as writing may have landed whatever the write answered (2.3.1): its error says so. */
     var marked = function (e) { if (wrote && e && typeof e === 'object') e.maybeWritten = true; throw e; };
     if (run._unrunnable) return made ? Promise.reject(readOnly(run._unrunnable)).then(null, kept) : Promise.reject(readOnly(run._unrunnable));
+    /* opts.hold (UD): the exact text is made and handed back for Try again, and nothing is written now. */
+    if (made && opts.hold) return Promise.reject(new Error(String(opts.hold))).then(null, kept);
     /* The check and the write happen together: with opts.lock (the browser's Web Locks), windows on this computer save a run one
        at a time, so a second window always sees the first one's save and keeps its own change as a conflict copy. */
     var go = opts.lock ? opts.lock('preflight:run:' + run.process + '/' + run.id, function () { return checkAndWrite(); }) : checkAndWrite();
@@ -2228,7 +2230,7 @@ PF.repo = (function () {
   function recordPlanStatus(fs, plan, session, status, runId, by, to, app, out) {
     var rec = PF.plans.decision(plan, status, runId, by, new Date().toISOString(), to, app), path = 'proposals/' + plan.id + '.status-' + session + (status === 'retargeted' ? '' : '-d') + '.json', text = JSON.stringify(rec, null, 2);
     /* out.text: the exact bytes written, which Try again's final read asks for again. */
-    if (out) out.text = text;
+    if (out) { out.text = text; out.path = path; }
     return fs.write(path, text).then(function () { return path; });
   }
   /* Try again (2.1.1): the run a planned start reserved, written from the exact bytes this window kept when its first save

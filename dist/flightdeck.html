@@ -24091,6 +24091,8 @@ PF.repo = (function () {
     /* Any save that got as far as writing may have landed whatever the write answered (2.3.1): its error says so. */
     var marked = function (e) { if (wrote && e && typeof e === 'object') e.maybeWritten = true; throw e; };
     if (run._unrunnable) return made ? Promise.reject(readOnly(run._unrunnable)).then(null, kept) : Promise.reject(readOnly(run._unrunnable));
+    /* opts.hold (UD): the exact text is made and handed back for Try again, and nothing is written now. */
+    if (made && opts.hold) return Promise.reject(new Error(String(opts.hold))).then(null, kept);
     /* The check and the write happen together: with opts.lock (the browser's Web Locks), windows on this computer save a run one
        at a time, so a second window always sees the first one's save and keeps its own change as a conflict copy. */
     var go = opts.lock ? opts.lock('preflight:run:' + run.process + '/' + run.id, function () { return checkAndWrite(); }) : checkAndWrite();
@@ -25062,7 +25064,7 @@ PF.repo = (function () {
   function recordPlanStatus(fs, plan, session, status, runId, by, to, app, out) {
     var rec = PF.plans.decision(plan, status, runId, by, new Date().toISOString(), to, app), path = 'proposals/' + plan.id + '.status-' + session + (status === 'retargeted' ? '' : '-d') + '.json', text = JSON.stringify(rec, null, 2);
     /* out.text: the exact bytes written, which Try again's final read asks for again. */
-    if (out) out.text = text;
+    if (out) { out.text = text; out.path = path; }
     return fs.write(path, text).then(function () { return path; });
   }
   /* Try again (2.1.1): the run a planned start reserved, written from the exact bytes this window kept when its first save
@@ -44620,7 +44622,7 @@ PF.examples = (function () {
       r.recorder.session = SESSION;
       /* A run of a checklist with a loop is guarded like every loop write (round 10). A planned start's run is saved once its
          decision is written, whatever happens next (a plan marked started without its run can't be recovered). */
-      var save = function (keep) { return repo.saveRun(sfs, r, SESSION, Object.assign({ writer: WRITER, lock: LOCKS ? lock : null, keep: keep }, !plan && loopy(r) ? { still: still } : {})); };
+      var save = function (keep, hold) { return repo.saveRun(sfs, r, SESSION, Object.assign({ writer: WRITER, lock: LOCKS ? lock : null, keep: keep }, hold ? { hold: hold } : {}, !plan && loopy(r) ? { still: still } : {})); };
       if (!plan) return save(false);
       /* Asked when its turn comes, once the plan's lock is held and right before the decision is written: a start whose folder
          or person changed meanwhile, even changed back, writes nothing. Once the decision is written, its run is saved as
@@ -44629,6 +44631,18 @@ PF.examples = (function () {
       var decide = function () {
         return repo.decidePlan(sfs, plan, { action: 'start', sha: formSha, folder: startFolder, final: detour, lock: LOCKS ? lock : null, still: still, write: function () {
           var mark = function () { return repo.recordPlanStatus(sfs, plan, WRITER, 'accepted', r.id, who, null, APP_VERSION, decOut).then(function (path) { dec = path; return save(true); }); };
+          /* UD: a to-do plan's decision write that answered an error may have landed: read back, found exactly as written, the
+             plan is reserved for this run, so its run is kept for Try again (written then, under its guard), never stranded. */
+          if (detour) mark = function () {
+            return repo.recordPlanStatus(sfs, plan, WRITER, 'accepted', r.id, who, null, APP_VERSION, decOut).then(function (path) { dec = path; return save(true); }, function (e) {
+              if (!decOut.path) throw e;
+              return sfs.read(decOut.path).then(null, function () { throw e; }).then(function (f) {
+                if (!f || f.text !== decOut.text) throw e;
+                dec = decOut.path;
+                return save(true, 'its decision was written, though writing it answered an error: ' + String(e && e.message || e));
+              });
+            });
+          };
           if (!detour) return mark();
           /* Run this checklist: after the pin's read, people.json is read again and the whole guard asked right before the
              decision is written; only a decision actually written has its run saved (and only that is recovered). */
