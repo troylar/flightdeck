@@ -2052,6 +2052,7 @@
   var rendering = false, composing = false;
   document.addEventListener('compositionstart', function () { composing = true; });
   document.addEventListener('compositionend', function (e) { composing = false; var t = e.target; if (t && t.dispatchEvent && typeof Event === 'function') t.dispatchEvent(new Event('input', { bubbles: true })); });
+  var corrIds = 0, corrSeen = null;
   function render() {
     /* Nor while someone is composing text (an input method): the redraw waits until the composition ends. */
     if (rendering || composing) { scheduleRender(); return; }
@@ -2063,7 +2064,15 @@
     /* Revealed boxes belong to one checklist's editor: leaving it (another checklist, folder or screen) forgets them. */
     if (state.obShown && (state.view !== 'process' || state.ptab !== 'edit' || state.obShown.key.indexOf(fsKey() + '\n' + state.processId + '\n') !== 0)) state.obShown = null;
     var fill = fillShown(), had = moreHas();
+    /* PD: the composer's boxes are drawn from its state (data-bound), so what they hold now is read in before any redraw,
+       even one a late completion starts: only boxes drawn from this form (their data-corr-id), never another step's or
+       run's left on screen, and only a box whose value changed since this window drew it. */
+    var cf = state.corrForm;
+    if (cf && cf._id && corrSeen && corrSeen.id === cf._id && state.view === 'run' && cf.key === state.runKey) readCorrForm(cf, corrSeen.v);
+    if (state.corrForm && !state.corrForm._id) state.corrForm._id = ++corrIds;
     try { harvest(); searchBoundAll(); renderNow(); } finally { rendering = false; }
+    cf = state.corrForm; corrSeen = null;
+    if (cf && cf._id && state.view === 'run') { var seen = {}; readCorrForm(seen, null, cf._id); corrSeen = { id: cf._id, v: seen }; }
     moreSync(had);
     fillAfter(fill);
     dbxAfter();
@@ -9546,10 +9555,17 @@
     }).then(function () { render(); }, function (e) { endBusy(); f.sending = false; if (ng !== gen) return; say('Couldn\'t save. Try again. ' + e.message, 'bad'); render(); });
   }
   /* The composer's boxes are read into its state as they change, so a redraw (or the live redline) never loses them. */
-  function readCorrForm(f) {
-    var g = function (id) { var el = document.getElementById(id); return el ? el.value : null; };
-    ['to', 'text', 'why', 'happened'].forEach(function (k) { var v = g('corr-' + k); if (v != null) f[k] = v; });
-    var mv = g('corr-move'); if (mv != null) f.moveTo = mv;
+  /* With seen (what render last found drawn), only boxes drawn from f that changed since; with own, only boxes drawn from that
+     form id. */
+  function readCorrForm(f, seen, own) {
+    var id0 = seen ? f._id : own;
+    var g = function (id, k) {
+      var el = document.getElementById(id);
+      if (!el || (id0 != null && !(el.getAttribute && el.getAttribute('data-corr-id') === String(id0)))) return null;
+      return seen && el.value === seen[k] ? null : el.value;
+    };
+    ['to', 'text', 'why', 'happened'].forEach(function (k) { var v = g('corr-' + k, k); if (v != null) f[k] = v; });
+    var mv = g('corr-move', 'moveTo'); if (mv != null) f.moveTo = mv;
   }
   /* Anyone on the team decides on a group of corrections; the decision is a new file written once, following the decision
      this window shows. */

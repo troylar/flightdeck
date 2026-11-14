@@ -727,12 +727,14 @@
     var fe = function (id) { return err && err.field === id ? '<p class="ferr" id="ferr-corr" role="alert">' + esc(err.msg) + '</p>' : ''; };
     var bad = function (id) { return err && err.field === id ? ' aria-invalid="true" aria-describedby="ferr-corr"' : ''; };
     var answer = f.mode === 'differently', fix = !answer || f.scope === 'fix', files = ctx.attachments(runKey(r), 'corr:' + s.id);
+    /* Each box names the form it was drawn from, so the app reads a box into its own form only (PD). */
+    var dbd = ' data-bound data-corr-id="' + esc(String(f._id || '')) + '"';
     var shown = { 'corr-happened': answer, 'corr-to': fix && f.op === 'wording', 'corr-text': fix && f.op === 'add', 'corr-move': fix && f.op === 'move', 'corr-roles': fix && f.op === 'roles', 'corr-why': fix };
     var h = '<div class="compose corrform" data-scope="corr:' + esc(s.id) + '" data-drop="corr" role="group" aria-labelledby="corr-h"><h4 class="corr-h" id="corr-h">' + (answer ? 'Done differently' : 'Correct this step') + '</h4>' +
       (err && !shown[err.field] ? '<p class="ferr" id="ferr-corr" role="alert">' + esc(err.msg) + '</p>' : '') +
       '<p class="small corr-says"><b>Checklist says</b> (v' + esc(r.version) + '): ' + K.stepHtml(s, K.refValue(r, map)) + '</p>';
     if (answer) {
-      h += '<label class="small" for="corr-happened"><b>What happened</b> (required)</label><textarea id="corr-happened" rows="2" maxlength="500" data-bound' + bad('corr-happened') + '>' + esc(f.happened) + '</textarea>' + fe('corr-happened');
+      h += '<label class="small" for="corr-happened"><b>What happened</b> (required)</label><textarea id="corr-happened" rows="2" maxlength="500"' + dbd + bad('corr-happened') + '>' + esc(f.happened) + '</textarea>' + fe('corr-happened');
       h += '<span class="small" id="corr-scope-l">Should the checklist change?</span><div class="seg" role="group" aria-labelledby="corr-scope-l">' + [['just', 'Just this run'], ['fix', 'Fix the checklist too']].map(function (o) { return '<button type="button" data-act="corr-scope" data-id="' + o[0] + '" aria-pressed="' + (f.scope === o[0]) + '">' + o[1] + '</button>'; }).join('') + '</div>';
     }
     var same = false;
@@ -744,10 +746,10 @@
         (f.menu ? '<span class="corr-menu-list" id="corr-menu" role="group" aria-label="Change something else">' + others.map(function (o) { return '<button type="button" class="mini" data-act="corr-op" data-id="' + o[0] + '">' + esc(o[1]) + '</button>'; }).join('') + '</span>' : '') + '</span></div>';
       if (f.op === 'wording') {
         same = String(f.to).replace(/\s+/g, ' ').trim() === s.text.replace(/\s+/g, ' ').trim();
-        h += '<label class="sr" for="corr-to">Suggested wording</label><textarea id="corr-to" rows="3" maxlength="2000" data-bound' + (same ? ' aria-describedby="corr-same"' : bad('corr-to')) + '>' + esc(f.to) + '</textarea>' + fe('corr-to') +
+        h += '<label class="sr" for="corr-to">Suggested wording</label><textarea id="corr-to" rows="3" maxlength="2000"' + dbd + (same ? ' aria-describedby="corr-same"' : bad('corr-to')) + '>' + esc(f.to) + '</textarea>' + fe('corr-to') +
           (same ? '<p class="small corr-same" id="corr-same">No wording changed.</p>' : '<div class="corr-prev"><span class="small"><b>Before / After</b></span>' + redline(s.text, String(f.to).replace(/\s+/g, ' ').trim()) + '</div>');
       } else if (f.op === 'add') {
-        h += '<label class="sr" for="corr-text">The missing step</label><textarea id="corr-text" rows="2" maxlength="2000" placeholder="What the missing step says" data-bound' + bad('corr-text') + '>' + esc(f.text) + '</textarea>' + fe('corr-text') +
+        h += '<label class="sr" for="corr-text">The missing step</label><textarea id="corr-text" rows="2" maxlength="2000" placeholder="What the missing step says"' + dbd + bad('corr-text') + '>' + esc(f.text) + '</textarea>' + fe('corr-text') +
           '<fieldset class="corr-where"><legend class="small">Where it goes</legend>' + [['after', 'After this step'], ['end', 'At the end of ' + x.phase.title]].map(function (w) { return '<label class="check-label small"><input type="radio" name="corr-where" id="corr-where-' + w[0] + '" data-bound' + (f.where === w[0] ? ' checked' : '') + '> ' + esc(w[1]) + '</label>'; }).join('') + '</fieldset>';
       } else if (f.op === 'move') {
         /* Every place in checklist order, the 50 nearest this step first, with Find past 50 (K.select). Places whose step reads the
@@ -760,7 +762,7 @@
             places.push({ v: 'after:' + y.id, t: 'After "' + K.stepPlain(y, rv).slice(0, 80) + '"', place: 'Phase ' + (pi + 1) + ', step ' + (si + 1), g: p.title });
           });
         });
-        var mv = K.select(st, 'corr-move', places, f.moveTo || '', { attrs: ' data-bound' + bad('corr-move'), lead: '<option value="">Choose…</option>', around: near, noun: 'place', group: function (it) { return it.g; } });
+        var mv = K.select(st, 'corr-move', places, f.moveTo || '', { attrs: dbd + bad('corr-move'), lead: '<option value="">Choose…</option>', around: near, noun: 'place', group: function (it) { return it.g; } });
         h += mv.box + '<label class="small" for="corr-move">Move it to</label>' + mv.select + mv.more + fe('corr-move');
       } else if (f.op === 'roles') {
         /* 20 roles at a time in checklist order, with Find past 20 (2.11); a role ticked is always drawn, so it's never lost. */
@@ -777,7 +779,7 @@
         h += '<p class="small">Replacing <b>' + esc(shot ? shot.caption : '') + '</b>. Attach the right one, or say what\'s wrong with it.</p>';
       } else if (f.op === 'remove') h += '<p class="small corr-warn"><b>Remove this step from future versions?</b> Runs already started keep it.</p>';
       var whyLabel = f.op === 'describe' ? 'What\'s wrong' : f.op === 'remove' ? 'Why remove it? (required)' : 'Why? (optional)';
-      h += '<label class="small" for="corr-why">' + whyLabel + '</label><textarea id="corr-why" rows="2" maxlength="2000" data-bound' + bad('corr-why') + '>' + esc(f.why) + '</textarea>' + fe('corr-why');
+      h += '<label class="small" for="corr-why">' + whyLabel + '</label><textarea id="corr-why" rows="2" maxlength="2000"' + dbd + bad('corr-why') + '>' + esc(f.why) + '</textarea>' + fe('corr-why');
       h += '<div class="row"><label class="btn" for="corr-file">' + I('clip') + (f.op === 'screenshot' ? 'Attach the right one' : 'Attach') + '</label><input type="file" id="corr-file" accept="' + esc(A.ACCEPT) + '" multiple class="sr"><span class="small">or drop or paste files here</span></div>' + pendingList(ctx, files, 'corr:' + s.id);
     }
     var conseq = answer ? (fix ? 'Marks this step done differently and proposes a checklist correction.' : 'Marks this step done differently.') : 'Saves a proposal for the checklist. It doesn\'t answer the step.';

@@ -301,6 +301,8 @@ rule('A late detour Start, Try again, Decline or plan read-back keeps what was s
   release(); await app.tick(300); fs.read = read;
   assert.ok(/id="corr-text"|id="corr-to"/.test(app.html()) && !/data-plan-hash/.test(app.html()), 'read-back: the composer stays, the plan isn\'t opened over it');
   assert.strictEqual(app.draft(box), 'My correction', 'read-back: what was typed stays');
+  /* PD: a browser replaces a data-bound box with what is drawn, so the redraw itself must carry it, not only the old node. */
+  assert.ok(new RegExp('id="' + box + '"[^>]*>My correction</textarea>').test(app.html()), 'read-back: the redraw draws what was typed: ' + (app.html().match(new RegExp('id="' + box + '"[^>]*>[^<]*')) || [])[0]);
   assert.ok(/plan was saved/i.test(txt(app.html())), 'read-back: said it was saved');
 });
 
