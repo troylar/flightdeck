@@ -8,7 +8,7 @@ const assert = require('assert');
 const crypto = require('crypto');
 const { rule, run } = require('./harness');
 const { BytesFS } = require('./evidence-fixture');
-const { made, pack, datePack, SHOT, loopMade, factMade, roleWorlds, PY, sha, unzip, rezip, checkPack, manifestOf, repacked, forced } = require('./living-worlds');
+const { made, pack, datePack, SHOT, loopMade, factMade, evidenceMade, rereceipt, roleWorlds, PY, sha, unzip, rezip, checkPack, manifestOf, repacked, forced } = require('./living-worlds');
 
 rule('A living run\'s pack holds its whole application chain and its receipt, says so, and writes nothing to the folder', async () => {
   const W = await made({ todos: 2 }), fsx = new BytesFS(W.files);
@@ -2287,6 +2287,55 @@ rule('A fact a landed done rests on that no longer says what it said, or names a
     const lv = manifestOf(zip).runs[0].living;
     if (!lv || lv.receipt.state !== 'confirmed') misses.push(what + ': the receipt stays confirmed: ' + JSON.stringify(lv && lv.receipt));
     if (PY) { const c = checkPack(await repacked(PF, zip, (e, man) => forced(man))); if (c.ok || c.out.indexOf(W.factId) < 0) misses.push(what + ': Python: ' + c.out); }
+  }
+  assert.deepStrictEqual(misses, []);
+});
+/* WA: each evidence entry of the receipt is bound to the landed work: its to-do, replayed through the chain, was checked off
+   on exactly that evidence, in its current opening. A receipt made again (its id the one its content gives, run.json naming
+   it) whose entry names a to-do the work never added, a copy of the fact with the same content about another item, a fact
+   that isn't there, or a run and plan that aren't there leaves the pack partial, named; Python refuses a complete claim. */
+rule('A receipt\'s evidence that isn\'t the evidence its to-do was checked off on leaves the work unconfirmed, named', async () => {
+  const W = await factMade(), PF = W.PF, F = PF.facts, f = JSON.parse(W.files[W.factPath]);
+  const ctl = await pack(PF, new BytesFS(rereceipt(W, (ev) => ev)), W.key);
+  assert.strictEqual(ctl.res.status, 'complete', 'the control, the receipt made again as it was: ' + JSON.stringify(ctl.res.col.unresolved));
+  if (PY) assert.ok(checkPack(ctl.zip).ok, 'Python accepts the control: ' + checkPack(ctl.zip).out);
+  const dupId = F.idFor('git-bot', 'prs-dup'), dup = Object.assign({}, f, { id: dupId, key: 'prs-dup', uid: f.uid.replace('ABC-101', 'ABC-999') });
+  assert.ok(PF.todos.cleanFile(JSON.parse(JSON.stringify(dup)), dupId + '.json').ok, 'set-up: the copy is a fact the app reads');
+  const worlds = {
+    'a to-do the work never added': [(ev) => ev.map((e) => Object.assign({}, e, { todo: 'td-' + '0'.repeat(24) })), {}],
+    'a copy of the fact about another item': [(ev) => ev.map((e) => Object.assign({}, e, { fact: dupId })), { ['proposals/' + dupId + '.json']: JSON.stringify(dup, null, 2) + '\n' }],
+    'a fact that isn\'t there': [(ev) => ev.map((e) => Object.assign({}, e, { fact: 'req-git-bot-' + 'f'.repeat(24) })), {}],
+    'a run and plan that aren\'t there': [(ev) => ev.map((e) => ({ todo: e.todo, plan: 'plan-ev-' + 'b'.repeat(24), run: { process: 'smoke-test', id: 'ghost1' }, answer: '2026-01-01T00:00:00Z 2026-01-01T00:00:00Z', result: 'pass' })), {}]
+  };
+  const misses = [];
+  for (const what of Object.keys(worlds)) {
+    const [edit, more] = worlds[what], files = Object.assign(rereceipt(W, edit), more);
+    const { res, zip } = await pack(PF, new BytesFS(files), W.key);
+    if (!(res.status === 'partial' && res.col.unresolved.some((u) => /receipt/.test(u)))) misses.push(what + ': the export: ' + res.status + ' ' + JSON.stringify(res.col.unresolved));
+    if (PY) { const c = checkPack(await repacked(PF, zip, (e, man) => forced(man))); if (c.ok) misses.push(what + ': Python: ' + c.out); }
+  }
+  assert.deepStrictEqual(misses, []);
+});
+/* WA: a done that landed on a run's evidence is held to that run as packed: it still gives the answer and result the done
+   froze. The run ended again (another ended.at, so another answer) leaves the pack partial naming it, as the app says the
+   evidence changed; the receipt's entry naming another run and plan is named too; Python refuses a complete claim. */
+rule('A done on a run\'s evidence whose run now gives another answer, or a receipt naming another run, leaves the work unconfirmed, named', async () => {
+  const W = await evidenceMade(), PF = W.PF;
+  const ctl = await pack(PF, new BytesFS(W.files), W.key);
+  assert.strictEqual(ctl.res.status, 'complete', 'the control: ' + JSON.stringify(ctl.res.col.unresolved));
+  if (PY) assert.ok(checkPack(ctl.zip).ok, 'Python accepts the control: ' + checkPack(ctl.zip).out);
+  const ev = JSON.parse(W.files[W.evPath]);
+  ev.ended.at = new Date(Date.parse(ev.ended.at) + 60000).toISOString();
+  const worlds = {
+    'its run ended again': Object.assign({}, W.files, { [W.evPath]: JSON.stringify(ev, null, 2) }),
+    'the receipt naming another run and plan': rereceipt(W, (es) => es.map((e) => Object.assign({}, e, { plan: 'plan-ev-' + 'b'.repeat(24), run: { process: 'smoke-test', id: 'ghost1' } }))),
+    'the receipt naming another answer': rereceipt(W, (es) => es.map((e) => Object.assign({}, e, { answer: e.answer + 'x' })))
+  };
+  const misses = [];
+  for (const what of Object.keys(worlds)) {
+    const { res, zip } = await pack(PF, new BytesFS(worlds[what]), W.key);
+    if (!(res.status === 'partial' && res.col.unresolved.length)) misses.push(what + ': the export: ' + res.status + ' ' + JSON.stringify(res.col.unresolved));
+    if (PY) { const c = checkPack(await repacked(PF, zip, (e, man) => forced(man))); if (c.ok) misses.push(what + ': Python: ' + c.out); }
   }
   assert.deepStrictEqual(misses, []);
 });

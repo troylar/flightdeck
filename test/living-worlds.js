@@ -165,7 +165,69 @@ async function factMade() {
   const rc = JSON.parse(app.fs.files['proposals/' + r.living.receipt + '.json'].t);
   assert.ok((rc.evidence || []).some(e => e.fact === ob.id), 'set-up: the receipt names the fact: ' + JSON.stringify(rc.evidence));
   const files = {}; Object.keys(app.fs.files).forEach(p => { files[p] = app.fs.files[p].t; });
-  return { PF, files, key: r.process + '/' + r.id, run: r, factId: ob.id, factPath: 'proposals/' + ob.id + '.json', todo: x.id };
+  return { PF, files, key: r.process + '/' + r.id, run: r, runPath: pPath, factId: ob.id, factPath: 'proposals/' + ob.id + '.json', todo: x.id };
+}
+/* A release-notes run with a to-do linked to a smoke-test checklist: run, completed with pass, accepted in the app (a done on
+   that run's evidence, landed), the run then ended with its receipt, which names that evidence (4.0, WA). */
+const EVP = ['---', 'process: release-notes', 'title: Release notes', 'owner: person-avery', '---', '',
+  '## Draft · DO-CONFIRM {#draft}', '- [!] {confirm} Write the notes {#write}', ''].join('\n');
+const SMOKE = ['---', 'process: smoke-test', 'title: Smoke test', 'owner: person-avery', 'context: verdict:choice(pass|fail)', 'result: verdict', '---', '',
+  '## Test · DO-CONFIRM {#test}', '- [!] {confirm} Run the smoke suite {#suite}', '- [!] {decide} Record the result {#call}', '  options: pass, fail', '  sets: verdict=decision', ''].join('\n');
+async function evidenceMade() {
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true }); await app.tick(80); app.choose('person-avery'); await app.tick();
+  const PF = app.PF, T = PF.todos, people = JSON.parse(app.fs.files['people.json'].t), at = () => new Date().toISOString();
+  const refresh = async (ms) => { app.click('refresh'); await app.tick(ms || 250); };
+  const pubs = {};
+  for (const [md, rand] of [[EVP, 'rn000001'], [SMOKE, 'sm000001']]) {
+    const b = PF.publish.build(md, { people, ...require('./harness').exampleSetup(PF), by: 'person-avery', changes: 'First', existing: [], now: at(), rand, app: '4.0.0' });
+    assert.ok(!b.blockers, JSON.stringify(b.blockers));
+    const proc = PF.map.parse(md).meta.process;
+    Object.keys(b.files).forEach(k => { app.fs.files['publications/' + proc + '/' + b.folder + '/' + k] = { t: b.files[k], m: Date.now() }; });
+    const exact = PF.publish.exactOf({ 'map.md': new Uint8Array(Buffer.from(b.files['map.md'], 'utf8')), 'types.json': new Uint8Array(Buffer.from(b.files['types.json'], 'utf8')) });
+    pubs[proc] = PF.publish.verify(b.folder, b.files, exact); pubs[proc].folder = b.folder;
+  }
+  await refresh(80);
+  app.click('start', 'release-notes'); await app.settle();
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
+  const pPath = app.files('runs/release-notes/').find(p => /run\.json$/.test(p)), parent = () => JSON.parse(app.fs.files[pPath].t);
+  const toParent = async () => { const r = parent(); app.click('open-run', r.process + '/' + r.id); await app.tick(120); };
+  const kp = pubs['smoke-test'], Q = PF.detours.pinFor({ latest: kp, all: [kp], clashes: [], broken: [] }, 'smoke-test', kp.folder, ['pass']);
+  assert.ok(!Q.why, Q.why);
+  let d = await PF.repo.loadAll(app.fs, {});
+  const P = T.prepare(PF.run.sanitize(parent()), { body: { op: 'add', text: 'Smoke test the build', target: { phase: 'draft' }, checklist: Q.checklist }, by: { person: 'person-avery' }, key: 'ui-wa', records: d.todos, unread: d.todosUnread, people, at: at(), app: '4.0.0' });
+  assert.ok(!P.why, P.why);
+  app.fs.files['proposals/' + P.name] = { t: T.text(P.file), m: Date.now() };
+  await refresh(400); await toParent(); await refresh(300);
+  d = await PF.repo.loadAll(app.fs, {});
+  const x = T.view(PF.run.sanitize(parent()), { records: d.todos, people }).todos.filter(t => t.text === 'Smoke test the build')[0];
+  assert.ok(x && x.checklist, 'set-up: the linked to-do landed');
+  const kids = () => app.files('runs/smoke-test/').filter(p => /run\.json$/.test(p)).sort();
+  app.click('td-detour', x.id); await app.tick(250);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(200);
+  const kPath = kids()[0];
+  assert.ok(kPath, 'set-up: a run of smoke-test was started');
+  const c = JSON.parse(app.fs.files[kPath].t), m = PF.run.mapOf(c), t = at();
+  PF.run.done(c, m, 'suite', 'person-avery', t); PF.run.done(c, m, 'call', 'person-avery', t, { decision: 'pass' }); PF.run.pass(c, m, 0, 'person-avery', t); PF.run.end(c, m, 'Completed', 'person-avery', 'Avery', t);
+  app.fs.files[kPath] = { t: JSON.stringify(c, null, 2), m: Date.now() };
+  await toParent(); await refresh(300);
+  app.click('td-evidence', x.id, { run: c.id }); await app.tick(250);
+  await refresh(400); await refresh(300);
+  app.click('end', 'Cancelled'); await app.tick(300);
+  const r = parent();
+  assert.ok(r.ended && r.living && r.living.receipt, 'set-up: the run ended with a receipt');
+  const rc = JSON.parse(app.fs.files['proposals/' + r.living.receipt + '.json'].t);
+  assert.ok((rc.evidence || []).some(e => e.run && e.run.id === c.id), 'set-up: the receipt names the run: ' + JSON.stringify(rc.evidence));
+  const files = {}; Object.keys(app.fs.files).forEach(p => { files[p] = app.fs.files[p].t; });
+  return { PF, files, key: r.process + '/' + r.id, run: r, runPath: pPath, evPath: kPath, evKey: c.process + '/' + c.id, todo: x.id };
+}
+/* The run's receipt made again as Flightdeck writes one, its evidence edited (edit gets the list and returns the new one): a
+   valid receipt under the id its content gives, run.json naming it. Returns the files. */
+function rereceipt(W, edit) {
+  const files = Object.assign({}, W.files), r = JSON.parse(files[W.runPath]), old = 'proposals/' + r.living.receipt + '.json', rc = JSON.parse(files[old]);
+  const f = W.PF.receipts.build({ run: rc.run, by: rc.by, at: rc.at, app: rc.app, head: rc.head, outcome: rc.outcome, seen: rc.seen, counts: rc.counts, coverage: rc.coverage, evidence: edit(JSON.parse(JSON.stringify(rc.evidence))), keeps: rc.keeps });
+  delete files[old]; files['proposals/' + f.id + '.json'] = JSON.stringify(f, null, 2) + '\n';
+  r.living.receipt = f.id; files[W.runPath] = JSON.stringify(r, null, 2);
+  return files;
 }
 async function roleWorlds() {
   const out = [];
@@ -252,4 +314,4 @@ async function repacked(PF, zip, edit) {
 /* The manifest made to claim the run's work complete (an evidence run's plan isn't in these folders): only Python's own checks can then refuse it. */
 const forced = (man) => { man.status = 'complete'; man.runs.forEach((r) => { if (r.living) { r.living.complete = true; r.living.missing = []; (r.living.deps || []).forEach((d) => { d.confirmed = true; }); } }); };
 
-module.exports = { MD, made, pack, datePack, KID, PARENT, SHOT, loopMade, factMade, roleWorlds, PY, sha, unzip, rezip, checkPack, manifestOf, repacked, forced };
+module.exports = { MD, made, pack, datePack, KID, PARENT, SHOT, loopMade, factMade, evidenceMade, rereceipt, roleWorlds, PY, sha, unzip, rezip, checkPack, manifestOf, repacked, forced };

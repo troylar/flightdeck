@@ -479,6 +479,40 @@ def source_key(s):
     return [s.get("feed"), s.get("site") or "", s.get("account") or ""]
 
 
+def result_of(run):
+    """PF.run.resultOf: the run's result from its own checklist (its snapshot), the one decide step bound to it; None when it
+    has none. conflict when the decision and the detail disagree."""
+    try:
+        parsed = CF.parse_map(run.get("snapshot") if isinstance(run.get("snapshot"), str) else "")
+    except Exception:
+        return None
+    name = parsed.get("result")
+    d = parsed["detailTypes"].get(name) if isinstance(name, str) else None
+    if not isinstance(d, dict) or d.get("kind") != "choice" or name not in parsed["context"]:
+        return None
+    by = [s for s in parsed["steps"] if CF.bound_from(s, name) == "decision"]
+    if len(by) != 1:
+        return None
+    a = obj(obj(run.get("steps")).get(by[0]["id"]))
+    ok = a.get("s") == "done"
+    dv = obj(run.get("details")).get(name)
+    det = CF.js_String(dv) if js_truthy(dv) else ""
+    vals = a.get("values")
+    dec = CF.js_String(vals["decision"]) if ok and isinstance(vals, dict) and vals.get("decision") is not None else ""
+    at = a.get("at") if js_truthy(a.get("at")) else None
+    if ok and CF.js_trim(dec).lower() != CF.js_trim(det).lower():
+        return {"value": "", "at": at, "conflict": True}
+    return {"value": det if ok else "", "at": at if ok else None, "conflict": False}
+
+
+def answer_of(run):
+    """PF.run.answerOf: when the run's result was decided and when it ended."""
+    res = result_of(run)
+    ra = res["at"] if res and js_truthy(res["at"]) else ""
+    ea = obj(run.get("ended")).get("at")
+    return CF.js_String(ra) + " " + (CF.js_String(ea) if js_truthy(ea) else "")
+
+
 def item_of(run, x):
     """PF.facts.itemOfTodo: the loop item a to-do (as its add landed) is about, on the run that has the loop; else None."""
     if x is None:
@@ -836,6 +870,9 @@ def check_living(z, man):
     reached, plans_wanted, facts_wanted = set(), set(), set()
     # Each fact a landed done or a receipt rests on, with what it must say (VB): (reference, item, opening, what, content only).
     fact_refs: list = []
+    # Each done on a run's evidence (reference, to-do, the run it is on, what), and what the receipt names wrongly (WA).
+    run_refs: list = []
+    work_problems: list = []
     dispatched = {}
 
     def applies(d, me):
@@ -973,13 +1010,30 @@ def check_living(z, man):
             td = e.get("todo")
             if not isinstance(td, str):
                 continue
-            if e.get("op") == "add":
-                opened[td] = {"target": e.get("target"), "inc": at}
-            elif e.get("op") == "reopen" and td in opened:
-                opened[td]["inc"] = at
-            elif e.get("op") == "done" and isinstance(e.get("support"), dict):
-                x = opened.get(td)
-                fact_refs.append((e["support"], item_of(run, x), x["inc"] if x else None, "application " + at + " checks off " + td + " on it", False))
+            op, sup, evd = e.get("op"), e.get("support"), e.get("evidence")
+            sup, evd = (sup if isinstance(sup, dict) else None), (evd if isinstance(evd, dict) else None)
+            wf, wr = "application " + at + " checks off " + td + " on it", "application " + at + " checks off " + td + " on this run"
+            if op == "add":
+                opened[td] = {"id": td, "target": e.get("target"), "checklist": e.get("checklist"), "inc": at, "state": "open", "support": None, "evidence": None}
+                continue
+            x = opened.get(td)
+            if x is None:
+                if op == "done" and sup:
+                    fact_refs.append((sup, None, None, wf, False))
+                if op == "done" and evd:
+                    run_refs.append((evd, None, run, wr))
+                continue
+            if op == "reopen":
+                x.update({"inc": at, "state": "open", "support": None, "evidence": None})
+                continue
+            x["state"] = op
+            if op != "done":
+                continue
+            x["support"], x["evidence"] = sup, evd
+            if sup:
+                fact_refs.append((sup, item_of(run, x), x["inc"], wf, False))
+            if evd:
+                run_refs.append((evd, x, run, wr))
 
         def saw(rec):
             for x in arr(rec.get("seen")):
@@ -1057,10 +1111,32 @@ def check_living(z, man):
                 for x in arr(rec.get("seen")):
                     if wit(str(x)) is None:
                         good_receipt = False
-                # Every fact it names as evidence says what it said when the run ended (VB).
+                # Each evidence entry is exactly the evidence its to-do was checked off on, as the chain leaves it (WA), named
+                # once; every fact it names says what it said when the run ended (VB).
+                named = set()
                 for ev in arr(rec.get("evidence")):
-                    if isinstance(ev, dict) and isinstance(ev.get("fact"), str):
-                        fact_refs.append((ev, None, None, "the receipt names it as the evidence " + str(ev.get("todo")) + " was checked off on", True))
+                    ev = obj(ev)
+                    td = ev.get("todo")
+                    x = opened.get(td) if isinstance(td, str) else None
+                    where = str(me["process"]) + "/" + str(me["id"]) + "'s receipt names evidence for " + str(td)
+                    if td in named:
+                        work_problems.append(where + " twice")
+                        continue
+                    named.add(td)
+                    if x is None:
+                        work_problems.append(where + ", but the run's work never added that to-do")
+                        continue
+                    if x["state"] != "done" or not (x["support"] or x["evidence"]):
+                        work_problems.append(where + ", but that to-do wasn't checked off on evidence")
+                        continue
+                    s_, e_ = x["support"], x["evidence"]
+                    froze = ({"todo": td, "fact": s_.get("fact"), "content": s_.get("content")} if s_ else
+                            {"todo": td, "plan": e_.get("plan"), "run": obj(e_.get("run")), "answer": e_.get("answer"), "result": e_.get("result")})
+                    if froze != ev:
+                        work_problems.append(where + ", but it isn't the evidence that to-do was checked off on")
+                        continue
+                    if isinstance(ev.get("fact"), str):
+                        fact_refs.append((ev, None, None, "the receipt names it as the evidence " + str(td) + " was checked off on", True))
                 # Every keep it names is a keep on this run, one witness under its id.
                 for x in arr(rec.get("keeps")):
                     kx = wit(str(x))
@@ -1241,6 +1317,30 @@ def check_living(z, man):
                        else "the fact doesn't say what it said when the done landed" if fact_content(rec) != sup.get("content") else "")
             if why:
                 return "proposals/" + fid + ".json: " + what + ", but " + why
+        # Each done on a run's evidence, as PF.detours.provenance judges it (WA): this opening's plan, a run of the to-do's
+        # checklist, packed, still giving the answer and result the done froze.
+        for evd, x, root, what in run_refs:
+            er = obj(evd.get("run"))
+            path = "runs/" + str(er.get("process")) + "/" + str(er.get("id")) + "/run.json"
+            ck = obj(x.get("checklist")) if x else {}
+            why = ("its to-do isn't linked to a checklist" if not x or not js_truthy(x.get("checklist"))
+                   else "it names another opening of its to-do" if evd.get("plan") != "plan-ev-" + CF._thash(["evidence", root.get("process"), root.get("id"), x["id"], x["inc"] or ""], 24)
+                   else "it names a run of another checklist" if er.get("process") != ck.get("process") else "")
+            if not why:
+                dr = packed(path)
+                if not isinstance(dr, dict):
+                    why = "that run isn't in the pack"
+                elif not js_truthy(dr.get("ended")):
+                    why = "that run was reopened since"
+                else:
+                    res = result_of(dr)
+                    value = res["value"] if res and not res["conflict"] else ""
+                    if answer_of(dr) != evd.get("answer") or value != evd.get("result"):
+                        why = "that run doesn't give the answer and result it gave then"
+            if why:
+                return path + ": " + what + ", but " + why
+        if work_problems:
+            return work_problems[0]
         # Every original reached is one the app reads, by its own family's reader.
         for path in sorted(reached):
             why = family_why(path)
@@ -1451,6 +1551,8 @@ def check_living(z, man):
                 plans_wanted.clear()
                 facts_wanted.clear()
                 fact_refs.clear()
+                run_refs.clear()
+                work_problems.clear()
                 named = {x["key"]: x for x in lv.get("deps") or []}
                 why = walk_runs(r["key"], d["key"], named, {"chain": lv.get("chain"), "head": lv.get("head", "")})[0] or closure_tail()
                 if why:
@@ -1459,6 +1561,8 @@ def check_living(z, man):
             plans_wanted.clear()
             facts_wanted.clear()
             fact_refs.clear()
+            run_refs.clear()
+            work_problems.clear()
         # A root no reader reads (root_unread: missing, not JSON, no run, or refused by the readers' verdict) is in a partial
         # pack only, and nothing more is read of it: its fields aren't a run's.
         if ru:
@@ -1483,6 +1587,8 @@ def check_living(z, man):
         plans_wanted.clear()
         facts_wanted.clear()
         fact_refs.clear()
+        run_refs.clear()
+        work_problems.clear()
         if lv.get("head") != head:
             sys.exit("living: " + r["key"] + " names another work head than its run.json")
         own_receipt = obj(run.get("living")).get("receipt", "")

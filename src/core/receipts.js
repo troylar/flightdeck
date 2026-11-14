@@ -405,6 +405,18 @@ PF.receipts = (function () {
         fx.domain !== s.domain || F.sourceKey(fx.source) !== F.sourceKey(s.source) ? 'the fact is from another source or domain' : fx.content !== s.content ? 'the fact doesn\'t say what it said when the done landed' : '';
       if (why) missing.push(on + 'proposals/' + s.fact + '.json: ' + what + ', but ' + why + '.');
     };
+    /* A done on a run's evidence (WA), as provenance judges it: this opening's plan, a run of the to-do's checklist, and that
+       run, as read, still giving the answer and result the done froze. A run not read yet is asked for and judged then. */
+    var runProof = function (X, x, e, on, what) {
+      var k = e.run.process + '/' + e.run.id, dr = known[k], path = 'runs/' + k + '/run.json';
+      var why = !x || !x.checklist ? 'its to-do isn\'t linked to a checklist' : e.plan !== PF.detours.planOf(X, x) ? 'it names another opening of its to-do' : e.run.process !== x.checklist.process ? 'it names a run of another checklist' : '';
+      if (!why && dr && !bad[k]) {
+        var res = dr.ended ? PF.run.resultOf(dr) : null, value = res && !res.conflict ? res.value : '';
+        if (!dr.ended) why = 'that run was reopened since';
+        else if (PF.run.answerOf(dr) !== e.answer || value !== e.result) why = 'that run doesn\'t give the answer and result it gave then';
+      }
+      if (why) missing.push(on + path + ': ' + what + ', but ' + why + '.');
+    };
     var chain = [], rs = null, spreads = Object.create(null), allKids = Object.create(null);
     var look = function (b) {
       if (!b) return;
@@ -433,13 +445,19 @@ PF.receipts = (function () {
       else for (var ri = 0; ri < runs.length; ri++) if (keyOf(runs[ri]) === k) { runs[ri].chain = ch.slice(); runs[ri].head = X.living ? X.living.head : ''; if (X.living && X.living.receipt) runs[ri].receipt = X.living.receipt; }
       /* A done that landed on a fact's evidence is held to that fact as packed (VB): the content, source and domain the done
          named, and the run, item and attempt of the to-do it checks off, in the opening it was suggested for. */
+      /* Each to-do as the chain leaves it (WA): its opening, state and the evidence it was checked off on. */
       var opened = Object.create(null);
       ch.forEach(function (id) {
-        var a = (byId[id] || [])[0], ap = a && (a.kind === 'compound' ? a.application : a.kind === 'application' ? a : null), e = ap && ap.effect;
+        var a = (byId[id] || [])[0], ap = a && (a.kind === 'compound' ? a.application : a.kind === 'application' ? a : null), e = ap && ap.effect, x;
         if (!e || typeof e.todo !== 'string') return;
-        if (e.op === 'add') opened[e.todo] = { target: e.target, history: [{ op: 'add', application: id }] };
-        else if (e.op === 'reopen' && opened[e.todo]) opened[e.todo].history.push({ op: 'reopen', application: id });
-        else if (e.op === 'done' && e.support) factProof(X, opened[e.todo], e.support, on, 'application ' + id + ' checks off ' + e.todo + ' on this fact');
+        if (e.op === 'add') { opened[e.todo] = { id: e.todo, target: e.target, checklist: e.checklist || null, history: [{ op: 'add', application: id }], state: 'open', support: null, evidence: null }; return; }
+        if (!(x = opened[e.todo])) { if (e.op === 'done' && e.support) factProof(X, null, e.support, on, 'application ' + id + ' checks off ' + e.todo + ' on this fact'); if (e.op === 'done' && e.evidence) runProof(X, null, e.evidence, on, 'application ' + id + ' checks off ' + e.todo + ' on this run'); return; }
+        if (e.op === 'reopen') { x.history.push({ op: 'reopen', application: id }); x.state = 'open'; x.support = null; x.evidence = null; return; }
+        x.state = e.op === 'done' ? 'done' : e.op;
+        if (e.op !== 'done') return;
+        x.support = e.support || null; x.evidence = e.evidence || null;
+        if (e.support) factProof(X, x, e.support, on, 'application ' + id + ' checks off ' + e.todo + ' on this fact');
+        if (e.evidence) runProof(X, x, e.evidence, on, 'application ' + id + ' checks off ' + e.todo + ' on this run');
       });
       ch.forEach(function (id) {
         var a = (byId[id] || [])[0];
@@ -461,7 +479,23 @@ PF.receipts = (function () {
       /* Every request the receipt names as seen (pending ones included) is part of what it froze. */
       if (v && v.record) (v.record.seen || []).forEach(function (id) { var sx = witness(id, on + 'the receipt names this record as seen'); if (sx) saw(sx); });
       /* Every fact it names as evidence says what it said when the run ended (VB). */
-      if (v && v.record) (v.record.evidence || []).forEach(function (ev) { var fx = ev && ev.fact ? soleFact(ev.fact) : null; if (fx && fx.content !== ev.content) missing.push(on + 'proposals/' + ev.fact + '.json: the receipt names it as the evidence ' + ev.todo + ' was checked off on, but it doesn\'t say what it said then.'); });
+      /* Each evidence entry it names is exactly the evidence its to-do was checked off on, as the chain leaves it (WA): a to-do
+         the work added and checked off on evidence, named once; a fact entry the done's fact and content, and that fact one
+         packed fact still with that content; a run entry the done's plan, run, answer and result. */
+      if (v && v.record) {
+        var named = Object.create(null);
+        (v.record.evidence || []).forEach(function (ev) {
+          var x = opened[ev.todo], at = on + v.path + ': the receipt names evidence for ' + ev.todo, want;
+          if (named[ev.todo]) { missing.push(at + ' twice.'); return; }
+          named[ev.todo] = true;
+          if (!x) { missing.push(at + ', but the run\'s work never added that to-do.'); return; }
+          if (x.state !== 'done' || !(x.support || x.evidence)) { missing.push(at + ', but that to-do wasn\'t checked off on evidence.'); return; }
+          want = x.support ? { todo: x.id, fact: x.support.fact, content: x.support.content } : { todo: x.id, plan: x.evidence.plan, run: { process: x.evidence.run.process, id: x.evidence.run.id }, answer: x.evidence.answer, result: x.evidence.result };
+          if (PF.todos.fingerprint(want) !== PF.todos.fingerprint(ev)) { missing.push(at + ', but it isn\'t the evidence that to-do was checked off on.'); return; }
+          var fx = ev.fact ? soleFact(ev.fact) : null;
+          if (ev.fact && fx && fx.content !== ev.content) missing.push(on + 'proposals/' + ev.fact + '.json: the receipt names it as the evidence ' + ev.todo + ' was checked off on, but it doesn\'t say what it said then.');
+        });
+      }
       /* Every keep it names (what was kept for next time) is a checked keep on this run, one witness under its id. */
       if (v && v.record) (v.record.keeps || []).forEach(function (id) { var kx = witness(id, on + 'the receipt names this keep', function (x) { return x.kind === 'keep' && mineRun(x); }); if (kx) saw(kx); });
       /* Facts used as evidence, evidence runs and their plans, the spreads this run's work holds and the parents whose spread

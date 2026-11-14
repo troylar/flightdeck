@@ -25,12 +25,12 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "13c220cd01628e4e927ad370f5c39710dd37f2c3f41780d0e10c1d180aed0b5e",
-      "reviewed": "WB: check_pack.py's decision file name rule is ASCII-exact (CF.json_name); checked for direct writes and unconditional deletes"
+      "sha256": "688a53577993c02d530ab8a63e3f5e98af39e75f9114fcf14e9306a09e20883d",
+      "reviewed": "WA: each receipt evidence entry is bound to its to-do's landed done through the replayed chain, and a done on a run's evidence to that run's answer and result; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
-      "sha256": "f3ac2876ecb5473f042bc60fc04b3ad33feb5c774d1b0bbafc22b15706f195e4",
-      "reviewed": "WB: check_pack.py's decision file name rule is ASCII-exact (CF.json_name); checked for direct writes and unconditional deletes"
+      "sha256": "93b139620434dfcb77361b78ed8c05839f533634f046b9872e386198895488dc",
+      "reviewed": "WA: each receipt evidence entry is bound to its to-do's landed done through the replayed chain, and a done on a run's evidence to that run's answer and result; checked for direct writes and unconditional deletes"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
@@ -313,8 +313,8 @@
       "reviewed": "loops: items: item kind, feed binding, completeness fix, nouns, unknown-kind refusal in loop.js/map.js/publish.js/types.js and check_folder.py parity; pure checks only, checked for direct writes and unconditional deletes"
     },
     "src/core/receipts.js": {
-      "sha256": "f21c976f0449207e96b293eaddd897ca8133404a7e5ac6f555590b5386d6142a",
-      "reviewed": "VB: a fact a landed done or the receipt rests on is held to the done's content, source, domain and the to-do's run, item and attempt; checked for direct writes and unconditional deletes"
+      "sha256": "de841e3f006f6e0e2fe1a04013bc0cdc5f48b7fc256d80dc548d1b3bdb3d8bf6",
+      "reviewed": "WA: each receipt evidence entry is bound to its to-do's landed done through the replayed chain, and a done on a run's evidence to that run's answer and result; checked for direct writes and unconditional deletes"
     },
     "src/core/refs.js": {
       "sha256": "24b7d2b52fcd99673fcc427db286a7224af83342da19efcd561ac850d6baa441",
