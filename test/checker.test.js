@@ -892,6 +892,48 @@ rule('The checker reads pass: (2.8) and team: (2.9) like the app: the same error
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+/* YD: JavaScript lists an object's keys with array-index keys first, ascending, then the rest as written; Python keeps the
+   file's order. Each reader names the first key in JavaScript's order. The fixtures are raw texts with integer-like keys
+   written "2" before "1" (a JS object would reorder them): the end of a run, team-values.json (a value, a key in a value,
+   a top key), the places a run file says what the app doesn't keep, and jira/workflows.json. */
+rule('The checker names the first key a file holds in JavaScript\'s order, as the app does, for keys written "2" before "1"', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-keys-'));
+  try {
+    const d = new DiskFS(root), T = PF.teamValues, off = [];
+    await d.write('people.json', JSON.stringify(people));
+    const md = '---\nprocess: x\ntitle: X\n---\n## P {#p}\n- [ ] {confirm} Look {#a}\n\n## Gate: Ready {#ready}\n';
+    const v = await repo.publish(d, md, { people, ...EX, by: 'person-avery', changes: 'x', existing: [], now: NOW, app: '4.0.0' });
+    assert.ok(!v.blockers, String(v.blockers));
+    const pub = (await repo.loadAll(d)).processes.find(x => x.process === 'x').index.latest;
+    const run = JSON.stringify(PF.run.create(pub, { title: 'Keys', by: 'person-avery', session: 'w1', now: NOW, id: 'run-keys' }));
+    assert.ok(run.indexOf('"details":{}') > 0 && run.indexOf('"ended":null') > 0, 'set-up: a run file to edit');
+    const ended = run.replace('"ended":null', '"ended":{"outcome":"done","at":"' + NOW + '","by":"person-avery","2":"b","1":"a"}');
+    const drifted = run.replace(/"details":\{\}/, '"details":{"2":5,"1":6}');
+    const src = 'import json,sys\nsys.path.insert(0,sys.argv[1])\nimport check_folder as CF, run_verdict as RV\nd=json.load(sys.stdin)\n' +
+      'o=json.loads(d["ended"]);p=json.loads(d["drifted"])\nprint(json.dumps({"ended":CF.raw_problem(o),"drift":RV.drift(p,RV.strip(RV.sanitize(p)))}))';
+    const out = JSON.parse(cp.execFileSync(py, ['-I', '-c', src, path.dirname(CHECKER)], { input: JSON.stringify({ ended, drifted }), encoding: 'utf8' }));
+    const je = PF.run.rawProblem(JSON.parse(ended)), jd = PF.run.unexplained(JSON.parse(drifted));
+    if (!je || !out.ended || out.ended[1] !== je.why) off.push('the end: Python ' + JSON.stringify(out.ended) + ', the app ' + JSON.stringify(je));
+    if (!jd || !jd.length || JSON.stringify(out.drift) !== JSON.stringify(jd)) off.push('what the app doesn\'t keep: Python ' + JSON.stringify(out.drift) + ', the app ' + JSON.stringify(jd));
+    const check = () => JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
+    const F = '"format":"' + T.FORMAT + '"';
+    for (const [label, text] of [['two values that aren\'t entries', '{' + F + ',"values":{"2":"b","1":"a"}}'],
+      ['keys in a value', '{' + F + ',"values":{"a":{"value":"x","2":"b","1":"a"}}}'], ['top keys', '{' + F + ',"values":{"a":{"value":"x"}},"2":"b","1":"a"}']]) {
+      fs.writeFileSync(path.join(root, T.FILE), text);
+      const mine = check().teamValues, theirs = T.parse(text);
+      assert.ok(theirs.why || theirs.readOnly, label + ': set-up: the app names a key');
+      if (mine.why !== theirs.why || mine.readOnly !== theirs.readOnly) off.push('team-values.json, ' + label + ': Python ' + JSON.stringify([mine.why, mine.readOnly]) + ', the app ' + JSON.stringify([theirs.why, theirs.readOnly]));
+    }
+    fs.unlinkSync(path.join(root, T.FILE));
+    await d.write('jira/workflows.json', '{"2":{},"1":{}}');
+    const jp = check().teamFiles.problems.filter(p => p.file === 'jira/workflows.json').map(p => p.problem);
+    if (JSON.stringify(jp) !== JSON.stringify(['1: needs "statuses"', '2: needs "statuses"'])) off.push('jira/workflows.json: Python lists ' + JSON.stringify(jp));
+    assert.deepStrictEqual(off, []);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 rule('The checker reads team-values.json (2.9) like the app: the same state and reason for each file, too large is unreadable, and steps passing a value it lacks are named', async () => {
   const py = python();
   if (!py) { console.log('  (skipped: no Python on this computer)'); return; }

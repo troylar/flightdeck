@@ -565,12 +565,16 @@ def typed_def(r, mp, path):
 def invalid_values(r, mp):
     """R.invalidValues: every typed value (a run detail or a step's evidence) that isn't exactly canonical, by path."""
     out = []
-    for k, v in r["details"].items():
+    for k in keys(r["details"]):
+        v = r["details"][k]
         d = detail_value_def(mp, k)
         if d and v and not vvalid(d, v):
             out.append("details." + k)
-    for sid, a in r["steps"].items():
-        for n, v in (a.get("values") or {}).items():
+    for sid in keys(r["steps"]):
+        a = r["steps"][sid]
+        vs = a.get("values") or {}
+        for n in keys(vs):
+            v = vs[n]
             path = "steps." + sid + ".values." + n
             d = typed_def(r, mp, path) if v else None
             if d and not vvalid(d, v):
@@ -1192,7 +1196,8 @@ def team_record(tp):
     if not is_obj(tp) or len(tp) > 60:
         return None
     out = {}
-    for k, e in tp.items():
+    for k in keys(tp):
+        e = tp[k]
         if not WORD_KEY.match(k) or k == "__proto__" or not is_obj(e):
             return None
         ks = " ".join(sorted(e))
@@ -2182,7 +2187,7 @@ def drift(raw, clean):
                 walk(r[i] if i < len(r) else MISSING, c[i] if i < len(c) else MISSING, path + "[" + str(i) + "]")
             return
         if is_obj(r):
-            ks = list(r) + [k for k in c if not k.startswith("_") and k not in r]
+            ks = keys(r) + [k for k in keys(c) if not k.startswith("_") and k not in r]
             for k in ks:
                 walk(r.get(k, MISSING), c.get(k, MISSING), path + "." + k if path else k)
             return

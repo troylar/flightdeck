@@ -26,6 +26,7 @@ Living runs: to-dos a run takes on while it runs.
 ### Fixed
 
 - **A loop record that names itself no longer stops the loop from reading** (Loops). That record is held, with every record after it, and the rest of the loop reads as usual. *Where:* A run's loop
+- **check_folder.py names the same field Flightdeck names** (Checks). It names the same field first, in the same words. *Where:* check_folder.py
 
 ## 3.0.1 · Nov 9, 2026
 

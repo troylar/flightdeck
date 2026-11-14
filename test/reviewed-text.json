@@ -1,8 +1,8 @@
 {
   "texts": {
     "CHANGELOG.md": {
-      "sha256": "25f9bf9e38254c9ef15a63ef247f54fe2fc0917bb3bf43516347639e02887330",
-      "reviewed": "YA: PF.loop.causal holds a record that names itself; release entry; check_pack.py mirrors causal order; checked for direct writes and unconditional deletes"
+      "sha256": "b09bafab41e1334cbff14a6797e1646a32d15e59244c5ddbe13e47528d5dae9f",
+      "reviewed": "YD: check_folder.py and run_verdict.py name keys in JavaScript's order; release entry; checked for direct writes and unconditional deletes"
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
@@ -53,8 +53,8 @@
       "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "b8c2fd62219ca318d1a5d9a1dfc26a8b482aa1c5dcfc04334be7d25611aa3f80",
-      "reviewed": "YB: check_pack.py reads a request's effect from the body check_folder.py's todo_why checked (derived ids filled in); todo_why gains an optional body list; checked for direct writes and unconditional deletes"
+      "sha256": "1007cb9c59fe244583d15379280954df5e866bd8e95ddf03c144a94546c819ea",
+      "reviewed": "YD: check_folder.py and run_verdict.py name keys in JavaScript's order; release entry; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
       "sha256": "197779e5fb047d6137527db0211659a2db320470f3086d61b5126d6e868b0cf8",
@@ -77,8 +77,8 @@
       "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
     },
     "example-folder/.flightdeck/skills/_flightdeck/run_verdict.py": {
-      "sha256": "437f2cb72e6029ec98e4bbfb680fb22a48f77720b1fb300fd2528269788ec16e",
-      "reviewed": "QE: dependency versions checked from packed bytes in memory, no temp files; checked for direct writes and unconditional deletes"
+      "sha256": "a348d9dda59649de69d27c79904947f74bc90b053d5fe3b152bd21447dc7f9b8",
+      "reviewed": "YD: check_folder.py and run_verdict.py name keys in JavaScript's order; release entry; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/flightdeck-edit-checklist/SKILL.md": {
       "sha256": "6a46e0d61b6d12c316ae81a62d0b01667adefa8df80a30de49a39d4fe3854284",
@@ -201,8 +201,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "97a346a4c707667f7be68dfd6608478d594fbf5164c1827ddfe926bdbc88c58e",
-      "reviewed": "YB: check_pack.py reads a request's effect from the body check_folder.py's todo_why checked (derived ids filled in); todo_why gains an optional body list; checked for direct writes and unconditional deletes"
+      "sha256": "c6fcc609b1346a6f7af0e1f89ea06dd4b24c73f3835fff81864f774611dcd53b",
+      "reviewed": "YD: check_folder.py and run_verdict.py name keys in JavaScript's order; release entry; checked for direct writes and unconditional deletes"
     },
     "src/core/appjson.js": {
       "sha256": "98019ea60f70df332d6774d2ac26d0bbd028e95f1f76f543cbe54c89cb8cd4fe",
@@ -417,8 +417,8 @@
       "reviewed": "FD: every fact line reachable on the run screen (count left out, Show all), contrary lines first; checked for direct writes and unconditional deletes"
     },
     "src/releases.json": {
-      "sha256": "344cd7a51e19d608023feb3673aa50117e3a6f578a08b0efa64840f2fcac7489",
-      "reviewed": "YA: PF.loop.causal holds a record that names itself; release entry; check_pack.py mirrors causal order; checked for direct writes and unconditional deletes"
+      "sha256": "932029b4fa95924a87d3f8234bba43d43a5274245a8142336e6b2fc447055be3",
+      "reviewed": "YD: check_folder.py and run_verdict.py name keys in JavaScript's order; release entry; checked for direct writes and unconditional deletes"
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",

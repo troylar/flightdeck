@@ -89,6 +89,14 @@
         "before": "In 3.0, a loop record that listed itself among the records it saw made reading the loop fail.",
         "now": "That record is held, with every record after it, and the rest of the loop reads as usual.",
         "where": "A run's loop"
+      },
+      {
+        "kind": "fixed",
+        "area": "Checks",
+        "title": "check_folder.py names the same field Flightdeck names",
+        "before": "When a file held several fields Flightdeck doesn't know, named with numbers, check_folder.py could name a different one first than Flightdeck did.",
+        "now": "It names the same field first, in the same words.",
+        "where": "check_folder.py"
       }
     ]
   },

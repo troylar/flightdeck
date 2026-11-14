@@ -4148,14 +4148,15 @@ def team_values(root):
     if len(values) > TEAM_VALUES_MAX:
         return bad(TEAM_FILE + ": It can hold at most %d team values." % TEAM_VALUES_MAX)
     inner = ""
-    for n, e in values.items():
+    for n in js_keys(values):
+        e = values[n]
         if n in JS_PROTO:
             return bad(TEAM_FILE + ": \"%s\" is a name Flightdeck keeps for itself." % n)
         if not TEAM_NAME.match(n):
             return bad(TEAM_FILE + ": \"%s\" isn't a team value name (lowercase letters, digits and -, at most 40)." % n)
         if not isinstance(e, dict):
             return bad(TEAM_FILE + ": \"%s\" isn't a value with its text." % n)
-        extra = [k for k in e if k not in ("value", "about")]
+        extra = [k for k in js_keys(e) if k not in ("value", "about")]
         if extra and not inner:
             inner = "\"%s\" has \"%s\"" % (n, extra[0])
         pr = _team_value_problem(e.get("value"), "\"%s\"" % n)
@@ -4168,7 +4169,7 @@ def team_values(root):
             return bad(TEAM_FILE + ": What \"%s\" is for can be at most %d characters." % (n, TEAM_ABOUT_MAX))
     out = {"state": "ok", "why": "", "names": sorted(values)}
     # Keys this copy doesn't know, at the top or in a value: the values are used, but Settings can't change the file.
-    top = [k for k in o if k not in ("format", "features", "app", "values")]
+    top = [k for k in js_keys(o) if k not in ("format", "features", "app", "values")]
     if top:
         out["readOnly"] = TEAM_FILE + " has \"%s\", which this copy doesn't know, so it can't be changed here." % top[0]
     elif inner:
@@ -4222,7 +4223,7 @@ def team_files(root):
             with open(wf, encoding="utf-8") as f:
                 w = json.load(f, parse_constant=_no_constant)
             workflows = sorted(w) if isinstance(w, dict) else []
-            for t, v in (w.items() if isinstance(w, dict) else []):
+            for t, v in ([(k, w[k]) for k in js_keys(w)] if isinstance(w, dict) else []):
                 if not isinstance(v, dict) or not isinstance(v.get("statuses"), list) or not v["statuses"]:
                     problems.append({"file": "jira/workflows.json", "problem": t + ": needs \"statuses\""})
         except (OSError, ValueError):
@@ -4436,7 +4437,7 @@ def _end_newer(r):
     e = r.get("ended")
     if not isinstance(e, dict):
         return None
-    extra = next((k for k in e.keys() if k not in ENDED_FIELDS), None)
+    extra = next((k for k in js_keys(e) if k not in ENDED_FIELDS), None)
     if extra is not None:
         return "newer", RUN_NEWER + ' How it ended has "' + js_slice(str(extra), 40) + '".'
     if e.get("outcome") is not None and not (isinstance(e.get("outcome"), str) and e["outcome"] in R_OUTCOMES):
