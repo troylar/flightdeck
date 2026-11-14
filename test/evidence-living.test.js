@@ -2024,4 +2024,47 @@ rule('Python refuses a complete pack whose dependency metadata isn\'t the export
   }
   assert.deepStrictEqual(misses, []);
 });
+/* SA: a dependency called confirmed is confirmed only with every run its own work requires, walked the way a complete
+   pack's work is, whatever those runs' own manifest flags and however the root stands: the child's request done on an
+   evidence run that's missing, has title 42 or format /4, and the child's request fulfilling a spread of a run that isn't
+   there. Python refuses the child as confirmed. */
+rule('Python refuses a confirmed dependency whose own work requires a run that isn\'t whole in the pack', async () => {
+  if (!PY) return;
+  const W = await loopMade(), PF = W.PF, T = PF.todos, K = PF.run.sanitize(JSON.parse(W.files[W.kidPath]));
+  const at = new Date().toISOString(), KR = { process: K.process, id: K.id }, td = 'td-' + 'a'.repeat(24), evp = 'runs/' + K.process + '/evrun1/run.json';
+  const ev = { plan: 'plan-ev-' + 'b'.repeat(24), run: { process: K.process, id: 'evrun1' }, answer: 'Yes', result: '' };
+  const q = T.buildProposal({ run: KR, id: PF.detours.requestId(td, ev), by: 'person-avery', seen: [], at, body: { op: 'done', todo: td, evidence: ev }, app: '4.0.0' });
+  const er = JSON.parse(String(W.files[W.kidPath])); er.id = 'evrun1'; delete er.living; delete er.ended; delete er.parent; er.state = 'running';
+  if (Array.isArray(er.features)) er.features = er.features.filter((f) => f !== 'living-runs');
+  const one = await PF.repo.readRunOnly(new BytesFS(W.files), K.process, K.id);
+  const files = Object.assign({}, W.files, { ['proposals/' + q.id + '.json']: T.text(q), [evp]: JSON.stringify(er, null, 2),
+    ['proposals/' + ev.plan + '.json']: JSON.stringify(PF.plans.make(one.pub, { id: ev.plan, process: K.process, title: 'Evidence plan', from: W.kidKey, by: 'person-avery', created: at }, true, '4.0.0'), null, 2) + '\n' });
+  const { zip } = await pack(PF, new BytesFS(files), W.key);
+  assert.ok(manifestOf(zip).runs[0].living.deps.some((d) => d.key === K.process + '/evrun1' && d.role === 'evidence'), 'set-up: the evidence run is a dependency');
+  /* Only the child is called confirmed; the root's own work isn't complete. */
+  const partial = (z, edit) => repacked(PF, z, (e, man, g) => {
+    man.status = 'partial'; const lv = man.runs[0].living; lv.complete = false; lv.missing = ['Something else is missing.'];
+    lv.deps.forEach((d) => { d.confirmed = d.key === W.kidKey; }); edit(e, man, g);
+  });
+  const runEdit = (fn) => (e, man, g) => { const y = g(evp), o = JSON.parse(e[y.pack]); fn(o); e[y.pack] = Buffer.from(JSON.stringify(o, null, 2)); };
+  const misses = [];
+  const ctl = checkPack(await partial(zip, () => {}));
+  if (!ctl.ok) misses.push('the control: ' + ctl.out);
+  for (const [what, edit] of [
+    ['the evidence run missing', (e, man, g) => { const y = g(evp); delete e[y.pack]; man.files = man.files.filter((f) => f !== y); }],
+    ['the evidence run with title 42', runEdit((o) => { o.title = 42; })],
+    ['the evidence run in format preflight-run/4', runEdit((o) => { o.format = 'preflight-run/4'; })]
+  ]) {
+    const c = checkPack(await partial(zip, edit));
+    if (c.ok) misses.push(what + ': Python accepts the child as confirmed');
+  }
+  /* The child's request fulfills a spread of a run that isn't in the folder: the export is partial and names it. */
+  const m = PF.run.mapOf(K), ph = m.phases[0].id;
+  const fq = T.buildProposal({ run: KR, producer: { name: 'notes-bot', version: '1.0' }, key: 'k-sa1', seen: [], at,
+    body: { op: 'add', text: 'Covered', target: { phase: ph }, placement: T.placementFor(m, { phase: ph }), fulfills: { run: { process: K.process, id: 'gone-1' }, spread: 'sp-' + 'c'.repeat(24), uid: 'jira.issue:key:ABC-1', attempt: 1 } } });
+  const g2 = await pack(PF, new BytesFS(Object.assign({}, W.files, { ['proposals/' + fq.id + '.json']: T.text(fq) })), W.key);
+  assert.strictEqual(g2.res.status, 'partial', 'set-up: the spread\'s run is missing');
+  if (checkPack(await partial(g2.zip, () => {})).ok) misses.push('a request on the child fulfilling a spread of a missing run: Python accepts the child as confirmed');
+  assert.deepStrictEqual(misses, []);
+});
 run();

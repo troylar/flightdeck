@@ -762,6 +762,38 @@ def check_living(z, man):
             return "the receipt of " + k + " isn't in the pack, doesn't say what it ended with, or a record it saw isn't in the pack"
         return ""
 
+    BOUND = "it rests on more records and runs than a pack holds at most (5000)"
+
+    def walk_runs(root_key: str, start: str, named: dict):
+        """Every run the work from start depends on, walked from the packed references (depends_on), each but the root packed,
+        named in the manifest and confirmed by dep_check, within the one shared bound (every original reached and every run,
+        together; PF.receipts.deps). The one path for a complete root's work and for each dependency called confirmed (SA),
+        whatever the manifest says of the runs it reaches. Returns (why, done, roles): why is the clause after "but", or ""."""
+        todo, done, roles = [start], ({root_key} if start != root_key else set()), {}
+        while todo:
+            k = todo.pop(0)
+            if k in done:
+                continue
+            done.add(k)
+            if len(reached) + len(done) - 1 > 5000:
+                return BOUND, done, roles
+            dep_run = packed("runs/" + k + "/run.json")
+            if k != root_key:
+                if dep_run is None:
+                    return k + ", a run it depends on, isn't in the pack", done, roles
+                if k not in named:
+                    return "the manifest doesn't name " + k + ", a run it depends on", done, roles
+                why = dep_check(k, named[k])
+                if why:
+                    return why, done, roles
+            found = depends_on(dep_run)
+            for fk, fr in found.items():
+                roles.setdefault(fk, set()).update(fr)
+            todo.extend(sorted(set(found) - done))
+        if len(reached) + len(done) - 1 > 5000:
+            return BOUND, done, roles
+        return "", done, roles
+
     # Each evidence plan packed reads as a plan, by the shipped checker's rules (PF.plans.planWhy), under its own name.
     plans_bad = []
     for f in man["files"]:
@@ -876,12 +908,14 @@ def check_living(z, man):
                     sys.exit("living: " + r["key"] + " says " + d["key"] + " is a confirmed run its work depends on, but nothing in the pack makes it one")
                 if d["role"] not in found[d["key"]]:
                     sys.exit("living: " + r["key"] + " names " + d["key"] + " as a confirmed run its work depends on in the role " + d["role"] + ", but what refers to it gives it another (" + ", ".join(sorted(found[d["key"]])) + ")")
-                # Its whole closure, the same check a complete pack's work gets (RA): what dep_check's walk of it gathered,
-                # each fact, every original by its family's reader and each evidence plan.
+                # Its whole closure, the same check a complete pack's work gets (RA, SA): every run its work requires, walked
+                # from it and checked whatever the manifest says of each, then each fact, every original by its family's
+                # reader and each evidence plan the walk gathered.
                 reached.clear()
                 plans_wanted.clear()
                 facts_wanted.clear()
-                why = dep_check(d["key"], d) or closure_tail()
+                named = {x["key"]: x for x in lv.get("deps") or []}
+                why = walk_runs(r["key"], d["key"], named)[0] or closure_tail()
                 if why:
                     sys.exit("living: " + r["key"] + " says " + d["key"] + ", a run its work depends on, is confirmed, but " + why)
             reached.clear()
@@ -946,38 +980,17 @@ def check_living(z, man):
             sys.exit("living: " + r["key"] + " says its work is complete, but " + plans_bad[0] + ", an evidence plan it rests on, isn't a plan the app reads")
         # Every run its work depends on, the manifest's and the ones found here, walked the same way, bounded.
         named = {d["key"]: d for d in lv.get("deps") or []}
-        todo, done, roles = [r["key"]], set(), {}
-        while todo:
-            k = todo.pop(0)
-            if k in done:
-                continue
-            done.add(k)
-            # The one shared bound: every original reached and every dependency run, together (PF.receipts.deps).
-            if len(reached) + len(done) - 1 > 5000:
-                sys.exit("living: " + r["key"] + " rests on more records and runs than a pack holds at most (5000)")
-            if k == r["key"]:
-                dep_run = run
-            else:
-                dep_run = packed("runs/" + k + "/run.json")
-                if dep_run is None:
-                    sys.exit("living: " + r["key"] + " says its work is complete, but " + k + ", a run it depends on, isn't in the pack")
-                if k not in named:
-                    sys.exit("living: " + r["key"] + " says its work is complete, but the manifest doesn't name " + k + ", a run it depends on")
-                why = dep_check(k, named[k])
-                if why:
-                    sys.exit("living: " + r["key"] + " says its work is complete, but " + why)
-            found = depends_on(dep_run)
-            for fk, fr in found.items():
-                roles.setdefault(fk, set()).update(fr)
-            todo.extend(sorted(set(found) - done))
+        why, done, roles = walk_runs(r["key"], r["key"], named)
+        if why == BOUND:
+            sys.exit("living: " + r["key"] + " rests on more records and runs than a pack holds at most (5000)")
+        if why:
+            sys.exit("living: " + r["key"] + " says its work is complete, but " + why)
         # The runs named are exactly the runs found, the root never among them, each in a role its references give it (OD).
         for k in sorted(named):
             if k not in done or k == r["key"]:
                 sys.exit("living: " + r["key"] + " says its work is complete, but it names " + k + " as a run its work depends on, and nothing in the pack makes it one")
             if named[k]["role"] not in roles.get(k, set()):
                 sys.exit("living: " + r["key"] + " names " + k + " as a run its work depends on in the role " + named[k]["role"] + ", but what refers to it gives it another (" + ", ".join(sorted(roles.get(k, set()))) + ")")
-        if len(reached) + len(done) - 1 > 5000:
-            sys.exit("living: " + r["key"] + " rests on more records and runs than a pack holds at most (5000)")
         why = closure_tail()
         if why:
             sys.exit("living: " + r["key"] + " says its work is complete, but " + why)

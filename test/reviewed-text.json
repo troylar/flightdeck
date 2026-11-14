@@ -25,12 +25,12 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "af1487d8f720492a951e7aa3c09035f3a9cb330323ed3dd4950037caf973d23c",
-      "reviewed": "RC: linked child folders named unread in readLoopChildren and the export's child scan; checked for direct writes and unconditional deletes"
+      "sha256": "202565348fa5de118bd6029dc433a71034647539df7ddd58c5b420d9c787765f",
+      "reviewed": "SA: a confirmed dependency walks every run its work requires, through walk_runs shared with the complete path; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
-      "sha256": "bd2cf375bc08e49c56892ab7f8e1bca03b4ab8edbe59240944b406d214fd4e73",
-      "reviewed": "RE: check_pack.py holds verified Published-in claims to their own packed proof; checked for direct writes and unconditional deletes"
+      "sha256": "ddc99fbe066479753874800cea37d6a99c7210fb03047d09732998e457e38623",
+      "reviewed": "SA: a confirmed dependency walks every run its work requires, through walk_runs shared with the complete path; checked for direct writes and unconditional deletes"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
