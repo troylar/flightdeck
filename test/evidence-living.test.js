@@ -1762,7 +1762,8 @@ rule('A keep whose process lists a run whose run.json is gone, or a link, by its
 rule('A keep whose process has a run whose files grow past the file limit or the context budget after sizing leaves the pack partial, named', async () => {
   const W = await made({ todos: 1, keep: 'placed' }), proc = W.key.split('/')[0], MiB = 1048576, more = { cap: 32 * MiB, maxFile: MiB };
   const other = 'runs/' + proc + '/ctxrun0001/', base = Object.assign({}, W.files, { [other + 'run.json']: otherRoot(W, 'ctxrun0001') });
-  const lying = (files) => { const fsx = new BytesFS(files), stat = fsx.stat.bind(fsx); fsx.stat = (p) => p.indexOf(other + 'notes-') === 0 ? stat(p).then((s) => s && Object.assign({}, s, { size: 10 })) : stat(p); return fsx; };
+  /* Small when sized (the scan's stat and the read's own), as it really is after: the file grew between. */
+  const lying = (files) => { const fsx = new BytesFS(files), stat = fsx.stat.bind(fsx), n = new Map(); fsx.stat = (p) => { const k = (n.get(p) || 0) + 1; n.set(p, k); return p.indexOf(other + 'notes-') === 0 && k <= 2 ? stat(p).then((s) => s && Object.assign({}, s, { size: 10 })) : stat(p); }; return fsx; };
   const ctl = await pack(W.PF, lying(Object.assign({}, base, { [other + 'notes-w1.jsonl']: '' })), W.key, more);
   assert.strictEqual(ctl.res.status, 'complete', 'the control: ' + JSON.stringify(ctl.res.col.unresolved));
   const big = Object.assign({}, base, { [other + 'notes-w1.jsonl']: '\n'.repeat(3 * MiB) });
@@ -1844,7 +1845,8 @@ rule('Files of a keep\'s process read at once never read past the shared context
   const other = 'runs/' + proc + '/ctxrun0001/', files = Object.assign({}, W.files, { [other + 'run.json']: otherRoot(W, 'ctxrun0001') });
   for (let i = 0; i < 10; i++) files[other + 'notes-w' + i + '.jsonl'] = '\n'.repeat(MiB - 4096);
   const fsx = new BytesFS(files), stat = fsx.stat.bind(fsx), blob = fsx.blob.bind(fsx), read = { bytes: 0 };
-  fsx.stat = (p) => p.indexOf(other + 'notes-') === 0 ? stat(p).then((s) => s && Object.assign({}, s, { size: 10 })) : stat(p);
+  const n = new Map();
+  fsx.stat = (p) => { const k = (n.get(p) || 0) + 1; n.set(p, k); return p.indexOf(other + 'notes-') === 0 && k <= 2 ? stat(p).then((s) => s && Object.assign({}, s, { size: 10 })) : stat(p); };
   fsx.blob = (p) => blob(p).then((b) => !b || p.indexOf(other + 'notes-') !== 0 ? b : { size: b.size, slice: (a, z) => ({ arrayBuffer: () => b.slice(a, z).arrayBuffer().then((ab) => { read.bytes += ab.byteLength; return ab; }) }) });
   const { res, zip } = await pack(W.PF, fsx, W.key, { cap: 4 * CTX, maxFile: MiB, pool: false });
   assert.ok(read.bytes <= CTX, 'read ' + read.bytes + ' bytes of notes against a budget of ' + CTX);
@@ -1971,6 +1973,25 @@ rule('A loop child folder listed as a link is named by both child scanners, and 
   const { res, zip } = await pack(PF, linked(), W.key);
   assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(kid) >= 0), res.status + ' ' + JSON.stringify(res.col.unresolved));
   if (PY) assert.ok(checkPack(zip).ok, 'Python accepts the honest partial pack: ' + checkPack(zip).out);
+});
+/* RD: a file of another run that grows after it is opened (the command line's blob keeps its size from the open, while its
+   slices read the file as it is) is never taken as whole: the bytes read are confirmed against a fresh stat, and a change is
+   named, so the keep isn't confirmed and the pack is partial. */
+rule('A keep whose process has a notes file that grows after it is opened leaves the pack partial, named', async () => {
+  const W = await made({ todos: 1, keep: 'placed' }), proc = W.key.split('/')[0], notes = 'runs/' + proc + '/ctxrun0001/notes-w1.jsonl';
+  const files = Object.assign({}, W.files, { ['runs/' + proc + '/ctxrun0001/run.json']: otherRoot(W, 'ctxrun0001'), [notes]: '{"x":1234567890}' });
+  const fsx = new BytesFS(files), blob = fsx.blob.bind(fsx);
+  let grown = false;
+  fsx.blob = (p) => p !== notes ? blob(p) : Promise.resolve({
+    size: fsx.files.get(p).length,
+    slice: (a, z) => { if (!grown) { grown = true; fsx.files.set(p, Buffer.concat([fsx.files.get(p), Buffer.from('\n'.repeat(3 * 1048576))])); } return { arrayBuffer: () => Promise.resolve(Uint8Array.from(fsx.files.get(p).subarray(a, z)).buffer) }; }
+  });
+  const { res, zip } = await pack(W.PF, fsx, W.key);
+  assert.ok(grown, 'set-up: the notes grew after they were opened');
+  assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(notes) >= 0), res.status + ' ' + JSON.stringify(res.col.unresolved));
+  const mr = manifestOf(zip).runs[0], cl = mr.claims.filter((c) => c.correction === W.keepId)[0];
+  assert.ok(cl && !cl.verified, 'the keep isn\'t confirmed ' + JSON.stringify(mr.claims));
+  if (PY) assert.ok(!checkPack(await repacked(W.PF, zip, (e, man) => forced(man))).ok, 'Python refuses a complete claim');
 });
 /* ND: each run the work depends on is named as the export names it: exactly its key, role, head, chain, receipt and
    confirmed, typed; the receipt it names is the packed run's own (none when it has none); and a complete pack confirms

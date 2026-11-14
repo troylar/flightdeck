@@ -2979,7 +2979,9 @@ PF.repo = (function () {
           var parts = [], off = 0;
           var done = function (r) { if (b.close) b.close(); return r; };
           function step() {
-            if (off >= b.size) return done({ text: decoded(E.text(E.join(parts))) });
+            /* At the size the open gave, the bytes read are confirmed against a fresh stat (RD): a file that grew or shrank
+               meanwhile (a blob whose size was fixed at the open reads the file as it is) changed while read, named. */
+            if (off >= b.size) return statOf(path).then(function (now) { return done(now === off ? { text: decoded(E.text(E.join(parts))) } : { changed: true }); });
             var want = Math.min(b.size - off, EV_CHUNK);
             if (off + want > limit || (budget && want > budget.left)) return done({ over: Math.max(b.size, 1) });
             if (budget) budget.left -= want;
@@ -3196,7 +3198,7 @@ PF.repo = (function () {
             if (selected[m.key]) return record(m.base + n).then(function (x) { return x.text == null ? null : x.text; });
             if (m.sizes[i] == null) return Promise.resolve(null);
             return sizedText(m.base + n, recordMax, budget).then(function (x) {
-              if (x.text == null) fails.push(m.base + n + (x.over ? ' (too big)' : x.failed ? ' (unreadable)' : ' (vanished)'));
+              if (x.text == null) fails.push(m.base + n + (x.over ? ' (too big)' : x.changed ? ' (changed while read)' : x.failed ? ' (unreadable)' : ' (vanished)'));
               return x.text == null ? null : x.text;
             });
           };
@@ -3804,7 +3806,7 @@ PF.repo = (function () {
       return sizedText(PF.people.FILE, PEOPLE_MAX).then(function (r) {
         if (r.missing) return;
         if (r.text != null) PF.people.clean(json(r.text)).forEach(function (x) { col.people[x.id] = x.name; });
-        peopleOut = [{ path: PF.people.FILE, reason: 'The people directory and its email fields are left out.' + (r.text != null ? ' The page shows names and IDs from it.' : ' It was too big to read for names, so the page shows IDs.') }];
+        peopleOut = [{ path: PF.people.FILE, reason: 'The people directory and its email fields are left out.' + (r.text != null ? ' The page shows names and IDs from it.' : r.changed ? ' It changed while it was read, so the page shows IDs.' : ' It was too big to read for names, so the page shows IDs.') }];
       });
     }).then(function () {
       var list = fullEstimate();

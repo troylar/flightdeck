@@ -29,8 +29,8 @@
       "reviewed": "RC: linked child folders named unread in readLoopChildren and the export's child scan; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
-      "sha256": "b9cd30ce7363993502f20645f0a65659047846d7ae51e8eaa01ecc80118e43f2",
-      "reviewed": "RC: linked child folders named unread in readLoopChildren and the export's child scan; checked for direct writes and unconditional deletes"
+      "sha256": "34a6e79c9055e51337a09de32fdf11481fad60877b3a653ab2a1cfa50f9b7595",
+      "reviewed": "RD: context reads confirmed against a fresh stat, a change named; checked for direct writes and unconditional deletes"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
@@ -425,8 +425,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "6ef14712df7ba58a59ea68b5739de1106914b848182ab107d62a06623040e31d",
-      "reviewed": "RC: linked child folders named unread in readLoopChildren and the export's child scan; checked for direct writes and unconditional deletes"
+      "sha256": "90c4b2d590676f51c17fb1ce7e00db0183ef6e99d07a1d48e9763806eb1c9fe5",
+      "reviewed": "RD: context reads confirmed against a fresh stat, a change named; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "dd6a2a70f212cb0512ef142198a2ff83bd5fef55429e56fab44cd64a83edaeb6",
