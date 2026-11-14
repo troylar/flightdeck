@@ -191,6 +191,8 @@ def manifest_problem(man):
                 return "a run the work of " + r["key"] + " depends on isn't named as the export names it"
             if d["key"] in deps_seen:
                 return "the living section of " + r["key"] + " names " + d["key"] + ", a run its work depends on, twice"
+            if d["key"] == r["key"]:
+                return "the living section of " + r["key"] + " names the run itself as a run its work depends on"
             deps_seen.add(d["key"])
             named.add(d["key"])
     if "run" in sc:
@@ -518,16 +520,20 @@ def check_living(z, man):
 
     def depends_on(run):
         """The runs a run's work depends on, found in the pack on their own: packed runs naming it as their loop's parent, and
-        the runs its packed records were done on (evidence) or fulfill a spread of."""
+        the runs its packed records were done on (evidence) or fulfill a spread of. Each with the roles its references give it,
+        as PF.receipts.deps names them (OD)."""
         me = {"process": run.get("process"), "id": run.get("id")}
-        out = set()
+        out: dict = {}
+
+        def add(k: str, role: str) -> None:
+            out.setdefault(k, set()).add(role)
         for path in by_path:
             parts = path.split("/")
             if len(parts) == 4 and parts[0] == "runs" and parts[3] == "run.json":
                 o = packed(path)
                 par = obj(obj(o).get("parent"))
                 if isinstance(par, dict) and par.get("item") and par.get("process") == me["process"] and par.get("id") == me["id"]:
-                    out.add(parts[1] + "/" + parts[2])
+                    add(parts[1] + "/" + parts[2], "child")
             # GB: every checked to-do record naming the run, its decisions and applications (status files) and their effects
             # included, by the one dispatch and the run as runOf reads it, as PF.receipts.deps finds them.
             elif path.startswith("proposals/") and CF.json_name(path):
@@ -537,14 +543,14 @@ def check_living(z, man):
                 for b in (o, obj(o.get("effect")), obj(obj(o.get("application")).get("effect"))):
                     ev = obj(obj(b).get("evidence"))
                     if isinstance(ev, dict) and isinstance(ev.get("run"), dict):
-                        out.add(str(ev["run"].get("process")) + "/" + str(ev["run"].get("id")))
+                        add(str(ev["run"].get("process")) + "/" + str(ev["run"].get("id")), "evidence")
                 ff = o.get("fulfills") or {}
                 if isinstance(ff, dict) and isinstance(ff.get("run"), dict):
-                    out.add(str(ff["run"].get("process")) + "/" + str(ff["run"].get("id")))
+                    add(str(ff["run"].get("process")) + "/" + str(ff["run"].get("id")), "fulfills")
                 for b in (o, obj(o.get("effect")), obj(obj(o.get("application")).get("effect"))):
                     dv = obj(b).get("dest")
                     if isinstance(dv, dict) and isinstance(dv.get("process"), str):
-                        out.add(dv["process"] + "/" + str(dv.get("id")))
+                        add(dv["process"] + "/" + str(dv.get("id")), "child")
         # HB: the spreads this run's own records hold (asked, included, bound or stopped), and every checked to-do record, on any
         # run, fulfilling one of them: that record is part of the work, and its run is a run the work depends on (as
         # PF.receipts.deps finds them; the walk follows each in turn).
@@ -564,7 +570,7 @@ def check_living(z, man):
             ff, by = o.get("fulfills"), run_of(o)
             if isinstance(ff, dict) and isinstance(ff.get("spread"), str) and ff["spread"] in held and by:
                 reached.add(path)
-                out.add(by["process"] + "/" + by["id"])
+                add(by["process"] + "/" + by["id"], "child")
         # A loop item's choice names a child run by id, of the process its loop step starts (that step's process with Fill in's
         # changes, as PF.receipts.deps finds it): exactly that run, packed or not; a step that can't be told is never matched.
         def proc_of_step(step_id):
@@ -588,8 +594,34 @@ def check_living(z, man):
             for ch in arr(o.get("changes")):
                 if isinstance(ch, dict) and ch.get("op") == "choose" and isinstance(ch.get("run"), str) and ch["run"]:
                     cp = proc_of_step(lp.get("step"))
-                    out.add((cp or "?") + "/" + ch["run"])
+                    add((cp or "?") + "/" + ch["run"], "child")
         return out
+
+    def dep_check(k: str, d: dict) -> str:
+        """Why a run the work depends on isn't confirmed as the export confirms it, or "": its run.json as every reader reads
+        it, then the version it ran, as packed (repo.depVerdict), its end and living record, and its chain, head, closure
+        and receipt as the manifest names them. (Conflict copies beside a run aren't packed; the export names them.)"""
+        dep_run = packed("runs/" + k + "/run.json")
+        if not isinstance(dep_run, dict):
+            return k + ", a run it depends on, isn't in the pack as a run"
+        bad = RV.dep_verdict(k, z.read(by_path["runs/" + k + "/run.json"]), lambda p: z.read(by_path[p]) if p in by_path else None)
+        if bad:
+            return k + ", a run it depends on, isn't one every reader accepts (" + bad[0] + ": " + bad[1] + ")"
+        rp2 = CF.raw_problem(dep_run)
+        if rp2:
+            return k + ", a run it depends on, has an end or living record the readers refuse (" + rp2[0] + ": " + rp2[1] + ")"
+        keep = own_ok[0]  # check_run sets the run's own receipt verdict; this is another run's, so the root's is kept
+        w2, c2, cl2, rc2, cp2 = check_run(dep_run)
+        own_ok[0] = keep
+        if cp2:
+            return "the pack holds two different copies of proposals/" + cp2 + ".json, a record " + k + " rests on"
+        if not w2 or c2 != d.get("chain") or obj(dep_run.get("living")).get("head", "") != d.get("head", ""):
+            return "the application chain of " + k + " isn't all in the pack"
+        if not cl2:
+            return "a request, an authority or a record " + k + " saw isn't in the pack"
+        if not rc2:
+            return "the receipt of " + k + " isn't in the pack, doesn't say what it ended with, or a record it saw isn't in the pack"
+        return ""
 
     # Each evidence plan packed reads as a plan, by the shipped checker's rules (PF.plans.planWhy), under its own name.
     plans_bad = []
@@ -731,6 +763,11 @@ def check_living(z, man):
                     sys.exit("living: " + r["key"] + " names another receipt for " + d["key"] + ", a run its work depends on, than its run.json")
             elif d["confirmed"]:
                 sys.exit("living: " + r["key"] + " says " + d["key"] + ", a run its work depends on, is confirmed, but its run.json isn't in the pack as a run")
+            # One called confirmed is checked in full, whatever the pack says of itself (OD).
+            if d["confirmed"]:
+                why = dep_check(d["key"], d)
+                if why:
+                    sys.exit("living: " + r["key"] + " says " + d["key"] + ", a run its work depends on, is confirmed, but " + why)
             if man["status"] == "complete" and not d["confirmed"]:
                 sys.exit("living: " + r["key"] + " says " + d["key"] + ", a run its work depends on, isn't confirmed, but the pack says it's complete")
         if rc is not None and rc["state"] == "confirmed" and not own_ok[0]:
@@ -751,7 +788,7 @@ def check_living(z, man):
             sys.exit("living: " + r["key"] + " says its work is complete, but " + plans_bad[0] + ", an evidence plan it rests on, isn't a plan the app reads")
         # Every run its work depends on, the manifest's and the ones found here, walked the same way, bounded.
         named = {d["key"]: d for d in lv.get("deps") or []}
-        todo, done = [r["key"]], set()
+        todo, done, roles = [r["key"]], set(), {}
         while todo:
             k = todo.pop(0)
             if k in done:
@@ -768,25 +805,19 @@ def check_living(z, man):
                     sys.exit("living: " + r["key"] + " says its work is complete, but " + k + ", a run it depends on, isn't in the pack")
                 if k not in named:
                     sys.exit("living: " + r["key"] + " says its work is complete, but the manifest doesn't name " + k + ", a run it depends on")
-                # The verdict every reader gives a run (repo.depVerdict): its file as the app reads it, then the version it ran,
-                # as packed. (Conflict copies beside a run aren't packed; the export names them and stays partial.)
-                bad = RV.dep_verdict(k, z.read(by_path["runs/" + k + "/run.json"]), lambda p: z.read(by_path[p]) if p in by_path else None)
-                if bad:
-                    sys.exit("living: " + r["key"] + " says its work is complete, but " + k + ", a run it depends on, isn't one every reader accepts (" + bad[0] + ": " + bad[1] + ")")
-                rp2 = CF.raw_problem(dep_run)
-                if rp2:
-                    sys.exit("living: " + r["key"] + " says its work is complete, but " + k + ", a run it depends on, has an end or living record the readers refuse (" + rp2[0] + ": " + rp2[1] + ")")
-                w2, c2, cl2, rc2, cp2 = check_run(dep_run)
-                d = named[k]
-                if cp2:
-                    sys.exit("living: " + r["key"] + " says its work is complete, but the pack holds two different copies of proposals/" + cp2 + ".json, a record " + k + " rests on")
-                if not w2 or c2 != d.get("chain") or obj(dep_run.get("living")).get("head", "") != d.get("head", ""):
-                    sys.exit("living: " + r["key"] + " says its work is complete, but the application chain of " + k + " isn't all in the pack")
-                if not cl2:
-                    sys.exit("living: " + r["key"] + " says its work is complete, but a request, an authority or a record " + k + " saw isn't in the pack")
-                if not rc2:
-                    sys.exit("living: " + r["key"] + " says its work is complete, but the receipt of " + k + " isn't in the pack, doesn't say what it ended with, or a record it saw isn't in the pack")
-            todo.extend(sorted(depends_on(dep_run) - done))
+                why = dep_check(k, named[k])
+                if why:
+                    sys.exit("living: " + r["key"] + " says its work is complete, but " + why)
+            found = depends_on(dep_run)
+            for fk, fr in found.items():
+                roles.setdefault(fk, set()).update(fr)
+            todo.extend(sorted(set(found) - done))
+        # The runs named are exactly the runs found, the root never among them, each in a role its references give it (OD).
+        for k in sorted(named):
+            if k not in done or k == r["key"]:
+                sys.exit("living: " + r["key"] + " says its work is complete, but it names " + k + " as a run its work depends on, and nothing in the pack makes it one")
+            if named[k]["role"] not in roles.get(k, set()):
+                sys.exit("living: " + r["key"] + " names " + k + " as a run its work depends on in the role " + named[k]["role"] + ", but what refers to it gives it another (" + ", ".join(sorted(roles.get(k, set()))) + ")")
         if len(reached) + len(done) - 1 > 5000:
             sys.exit("living: " + r["key"] + " rests on more records and runs than a pack holds at most (5000)")
         # Each fact a to-do record rests on (support.fact), by that reference: one witness under its id (every packed copy the

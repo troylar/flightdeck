@@ -25,12 +25,12 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "4eb4b0e56bfaa2d455cd6b34964eb15f8f15721ac0b892b4158fa7fb1a04b64c",
-      "reviewed": "OA: fact predecessors walked depth first, each a unique fact of the same run, a circle named; checked for direct writes and unconditional deletes"
+      "sha256": "069854bec977440c29d7b74c21b42b28e8e33ee9fe501d59f12e91b8f7a8bb0d",
+      "reviewed": "OD: check_pack.py checks confirmed deps in full, named runs equal found, roles from references; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
-      "sha256": "1835af4ea5732baa3a3d79e205595f5a455ae37807f7cf47a89e4dfdce6b183a",
-      "reviewed": "OC: context files read in bounded slices against the file limit and the context budget; checked for direct writes and unconditional deletes"
+      "sha256": "c41dcc15ee7ca2125c29ed245680b375f51359b3a05dbf1baab744c2de5c14be",
+      "reviewed": "OD: check_pack.py checks confirmed deps in full, named runs equal found, roles from references; checked for direct writes and unconditional deletes"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",

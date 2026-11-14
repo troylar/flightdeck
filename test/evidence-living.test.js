@@ -1747,6 +1747,37 @@ rule('A keep whose process has a run whose files grow past the file limit or the
     if (PY) assert.ok(!checkPack(await repacked(W.PF, zip, (e, man) => forced(man))).ok, what + ': Python refuses a complete claim');
   }
 });
+/* OD: a run the work depends on that the manifest calls confirmed is checked in full whatever the pack says of itself (its
+   run.json as every reader reads it, its version, head, chain and receipt); the runs named are exactly the ones found, the
+   root never among them; and each one's role is one its references give it. */
+rule('Python checks every dependency called confirmed in full, even in a partial pack, and the named runs and roles are the ones found', async () => {
+  if (!PY) return;
+  const worlds = await roleWorlds(), ROLES = ['child', 'evidence', 'fulfills'], fake = 'req-notes-bot-' + 'f'.repeat(24);
+  const misses = [];
+  for (const w of worlds) {
+    const honest = await pack(w.PF, new BytesFS(w.files), w.key);
+    const lv0 = manifestOf(honest.zip).runs[0].living, myRole = lv0.deps.filter((d) => d.key === w.depKey)[0].role;
+    const base = (man) => { if (w.force) forced(man); };
+    const partial = (edit) => repacked(w.PF, honest.zip, (e, man, g) => { base(man); man.status = 'partial'; man.runs[0].living.complete = false; man.runs[0].living.missing = ['Something else is missing.']; edit(e, man, g, man.runs[0].living.deps.filter((d) => d.key === w.depKey)[0]); });
+    const complete = (edit) => repacked(w.PF, honest.zip, (e, man, g) => { base(man); edit(e, man, g, man.runs[0].living.deps.filter((d) => d.key === w.depKey)[0]); });
+    const runAt = (e, g, f) => { const y = g(w.path), o = JSON.parse(e[y.pack]); f(o); e[y.pack] = Buffer.from(JSON.stringify(o, null, 2)); };
+    const ctlP = checkPack(await partial(() => {}));
+    if (!ctlP.ok) { misses.push(w.role + ': the partial control: ' + ctlP.out); continue; }
+    if (!w.force) { const ctlC = checkPack(honest.zip); if (!ctlC.ok) { misses.push(w.role + ': the complete control: ' + ctlC.out); continue; } }
+    const cases = [
+      ['partial, its run.json {}', partial((e, man, g) => { e[g(w.path).pack] = Buffer.from('{}'); })],
+      ['partial, its state damaged', partial((e, man, g) => runAt(e, g, (o) => { o.state = 42; }))],
+      ['partial, its head faked', partial((e, man, g, d) => { d.head = fake; })],
+      ['partial, its chain faked', partial((e, man, g, d) => { d.chain = [fake]; })],
+      ['complete, the root named as its own dependency', complete((e, man) => { const r = man.runs[0]; r.living.deps.push({ key: r.key, role: 'child', head: r.living.head, chain: r.living.chain.slice(), receipt: r.living.receipt ? r.living.receipt.id : '', confirmed: true }); })],
+      ['partial, the root named as its own dependency', partial((e, man) => { const r = man.runs[0]; r.living.deps.push({ key: r.key, role: 'child', head: r.living.head, chain: r.living.chain.slice(), receipt: r.living.receipt ? r.living.receipt.id : '', confirmed: true }); })]
+    ];
+    if (w.role === 'child') cases.push(['partial, its version dropped', partial((e, man) => { const pubs = man.files.filter((f) => /^publications\/validate-story\//.test(f.path)); assert.ok(pubs.length, 'set-up: the child\'s version is packed'); pubs.forEach((f) => { delete e[f.pack]; }); man.files = man.files.filter((f) => pubs.indexOf(f) < 0); })]);
+    for (const other of ROLES.filter((x) => x !== myRole)) cases.push(['complete, its role relabeled ' + other, complete((e, man, g, d) => { d.role = other; })]);
+    for (const [what, p] of cases) { const c = checkPack(await p); if (c.ok) misses.push(w.role + ', ' + what + ': ' + c.out); }
+  }
+  assert.deepStrictEqual(misses, []);
+});
 /* ND: each run the work depends on is named as the export names it: exactly its key, role, head, chain, receipt and
    confirmed, typed; the receipt it names is the packed run's own (none when it has none); and a complete pack confirms
    every one. In every role. */
