@@ -1961,6 +1961,17 @@ rule('A keep whose process has a run the readers refuse, torn notes or a linked 
   }
   assert.deepStrictEqual(misses, []);
 });
+/* RC: a child folder listed as a link is a named unread dependency in both child scanners: readLoopChildren (what the ending
+   guard reads) and the export's, which is then partial, naming it. */
+rule('A loop child folder listed as a link is named by both child scanners, and the export is partial', async () => {
+  const W = await loopMade(), PF = W.PF, kid = W.kidPath.replace(/\/run\.json$/, ''), dir = kid.replace(/\/[^/]+$/, '');
+  const linked = () => { const fsx = new BytesFS(W.files), list = fsx.list.bind(fsx); fsx.list = (p) => list(p).then((items) => p === dir ? items.map((i) => dir + '/' + i.name === kid ? Object.assign({}, i, { kind: 'link' }) : i) : items); return fsx; };
+  const got = await PF.repo.readLoopChildren(linked(), W.run);
+  assert.ok(got.unread.some((u) => String(u.path).indexOf(kid) === 0), 'the ending guard\'s reader names it: ' + JSON.stringify(got));
+  const { res, zip } = await pack(PF, linked(), W.key);
+  assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(kid) >= 0), res.status + ' ' + JSON.stringify(res.col.unresolved));
+  if (PY) assert.ok(checkPack(zip).ok, 'Python accepts the honest partial pack: ' + checkPack(zip).out);
+});
 /* ND: each run the work depends on is named as the export names it: exactly its key, role, head, chain, receipt and
    confirmed, typed; the receipt it names is the packed run's own (none when it has none); and a complete pack confirms
    every one. In every role. */

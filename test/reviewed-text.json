@@ -25,12 +25,12 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "53e4404c40d08459d39039f505c9ede1e4654005043031c6cfa513dd59a6150f",
-      "reviewed": "RA: confirmed deps get closure_tail, the complete-pack closure check; checked for direct writes and unconditional deletes"
+      "sha256": "af1487d8f720492a951e7aa3c09035f3a9cb330323ed3dd4950037caf973d23c",
+      "reviewed": "RC: linked child folders named unread in readLoopChildren and the export's child scan; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
-      "sha256": "62a63f51c99ce32073d4baed085c9d594ded127c0d54bbf43cb72729e42e20d2",
-      "reviewed": "RB: context runs judged by judgeRunFile first, torn notes and decision links named; checked for direct writes and unconditional deletes"
+      "sha256": "b9cd30ce7363993502f20645f0a65659047846d7ae51e8eaa01ecc80118e43f2",
+      "reviewed": "RC: linked child folders named unread in readLoopChildren and the export's child scan; checked for direct writes and unconditional deletes"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
@@ -425,8 +425,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "b973973f4e8157c5c75a672cbef20ff602162622b5ba01e006a9835db19e05d7",
-      "reviewed": "RB: context runs judged by judgeRunFile first, torn notes and decision links named; checked for direct writes and unconditional deletes"
+      "sha256": "6ef14712df7ba58a59ea68b5739de1106914b848182ab107d62a06623040e31d",
+      "reviewed": "RC: linked child folders named unread in readLoopChildren and the export's child scan; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "dd6a2a70f212cb0512ef142198a2ff83bd5fef55429e56fab44cd64a83edaeb6",

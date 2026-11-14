@@ -25924,6 +25924,8 @@ PF.repo = (function () {
     return procs.reduce(function (q, cp) { return q.then(function () {
       return fs.list('runs/' + cp).then(null, function () { return null; }).then(function (items) {
         if (items === null) { out.unread.push({ key: cp, path: 'runs/' + cp + '/', kind: 'unreadable', why: 'runs/' + cp + ' couldn\'t be listed' }); return; }
+        /* A link where a run folder could be may be a child this run must count: named unread, never read through (RC). */
+        items.forEach(function (i) { if (i.kind === 'link' && /^[a-z0-9-]{1,40}$/i.test(i.name)) out.unread.push({ key: cp + '/' + i.name, path: 'runs/' + cp + '/' + i.name, kind: 'link', why: 'it is a link, and Flightdeck never reads through links' }); });
         return limited(items.filter(function (i) { return i.kind === 'dir' && /^[a-z0-9-]{1,40}$/i.test(i.name); }).map(function (i) { return i.name; }).sort(), 4, function (cid) {
           var key = cp + '/' + cid;
           return readRunOnly(fs, cp, cid).then(function (one) {
@@ -26691,6 +26693,8 @@ PF.repo = (function () {
       (map ? map.phases : []).forEach(function (ph) { ph.steps.forEach(function (st) { var cp = st.type === 'for.each' ? String(R.fieldsOf(self, st).process || '') : ''; if (cp && EV_PROC.test(cp) && procs.indexOf(cp) < 0) procs.push(cp); }); });
       return procs.reduce(function (q, cp) { return q.then(function () {
         return lro.list('runs/' + cp).then(function (items) {
+          /* A link where a run folder could be may be a child of this run: named for it, never read through (RC). */
+          items.forEach(function (i) { if (i.kind === 'link' && /^[a-z0-9-]{1,40}$/i.test(i.name)) out.bad.push({ key: '', path: 'runs/' + cp + '/' + i.name, kind: 'link', why: 'it is a link, and Flightdeck never reads through links' }); });
           return limited(items.filter(function (i) { return i.kind === 'dir' && /^[a-z0-9-]{1,40}$/i.test(i.name); }).map(function (i) { return i.name; }).sort(), 4, function (cid) {
             var k = cp + '/' + cid;
             return (got[k] ? Promise.resolve(got[k]) : depRun(cp, cid).then(function (x) { got[k] = x; return x; })).then(function (x) {

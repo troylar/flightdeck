@@ -198,6 +198,17 @@ rule('A loop parent with to-dos ends with its receipt when nothing changes meanw
   assert.ok(r.ended && r.living && r.living.receipt, JSON.stringify(r.living));
   assert.ok(app.fs.files['proposals/' + r.living.receipt + '.json'], 'its receipt is in the folder');
 });
+/* RC: a child folder listed as a link could be a child the receipt must count: the end refuses, named by its path. */
+rule('A loop child folder listed as a link ends nothing, named by its path', async () => {
+  const app = await loopSetup(), pp = pPath(app), runText = app.fs.files[pp].t, kid = kidPaths(app)[0].replace(/\/run\.json$/, '');
+  const list = app.fs.list.bind(app.fs);
+  app.fs.list = (p, o) => list(p, o).then((items) => p === 'runs/validate-story' ? items.map((i) => 'runs/validate-story/' + i.name === kid ? Object.assign({}, i, { kind: 'link' }) : i) : items);
+  app.click('end', 'Cancelled'); await app.tick(500);
+  app.fs.list = list;
+  assert.ok(!pRun(app).ended, 'not ended: ' + JSON.stringify(pRun(app).living));
+  assert.strictEqual(app.fs.files[pp].t, runText, 'the run is as it was');
+  assert.ok(txt(app.html()).indexOf(kid) >= 0, 'named by its path: ' + txt(app.html()).slice(0, 600));
+});
 
 rule('A scope item removed right after the receipt is written ends nothing: the receipt is asked again on the scope records read again', async () => {
   const app = await loopSetup(), sc = scopeFiles(app);
