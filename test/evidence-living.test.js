@@ -1930,6 +1930,37 @@ rule('Python refuses a confirmed dependency whose own closure isn\'t whole, even
   }
   assert.deepStrictEqual(misses, []);
 });
+/* RB: another run of a keep's process is judged by the readers' whole verdict before anything is taken from it, its notes'
+   torn lines are named, and a decision there listed as a link is named: each leaves the keep unconfirmed and the pack
+   partial, named by path, and Python refuses a complete claim. */
+rule('A keep whose process has a run the readers refuse, torn notes or a linked decision leaves the pack partial, named', async () => {
+  const W = await made({ todos: 1, keep: 'placed' }), proc = W.key.split('/')[0];
+  const other = 'runs/' + proc + '/ctxrun0001/', base = Object.assign({}, W.files, { [other + 'run.json']: otherRoot(W, 'ctxrun0001'), [other + 'notes-w1.jsonl']: '' });
+  const ctl = await pack(W.PF, new BytesFS(base), W.key);
+  assert.strictEqual(ctl.res.status, 'complete', 'the control: ' + JSON.stringify(ctl.res.col.unresolved));
+  const runAs = (fn) => { const o = JSON.parse(base[other + 'run.json']); fn(o); return Object.assign({}, base, { [other + 'run.json']: JSON.stringify(o, null, 2) }); };
+  const linkIn = (dir) => (fsx) => { const list = fsx.list.bind(fsx); fsx.list = (p) => list(p).then((items) => p === dir ? items.concat([{ name: 'cd-linked.json', kind: 'link' }]) : items); };
+  const cases = [
+    ['an unknown field', runAs((o) => { o.zzzUnknown = 1; }), null, other + 'run.json'],
+    ['title 42', runAs((o) => { o.title = 42; }), null, other + 'run.json'],
+    ['living that isn\'t a living record', runAs((o) => { o.living = { head: 42 }; }), null, other + 'run.json'],
+    ['format preflight-run/4', runAs((o) => { o.format = 'preflight-run/4'; }), null, other + 'run.json'],
+    ['notes "{"', Object.assign({}, base, { [other + 'notes-w1.jsonl']: '{\n' }), null, other + 'notes-w1.jsonl'],
+    ['notes "{ torn"', Object.assign({}, base, { [other + 'notes-w1.jsonl']: '{ torn\n' }), null, other + 'notes-w1.jsonl'],
+    ['a decision listed as a link in corrections', base, linkIn('corrections/' + proc), 'corrections/' + proc + '/cd-linked.json'],
+    ['a decision listed as a link in suggestions', base, linkIn('suggestions/' + proc), 'suggestions/' + proc + '/cd-linked.json']
+  ];
+  const misses = [];
+  for (const [what, fl, hook, at] of cases) {
+    const fsx = new BytesFS(fl); if (hook) hook(fsx);
+    const { res, zip } = await pack(W.PF, fsx, W.key);
+    if (!(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(at) >= 0))) { misses.push(what + ': ' + res.status + ' ' + JSON.stringify(res.col.unresolved)); continue; }
+    const mr = manifestOf(zip).runs[0], cl = mr.claims.filter((c) => c.correction === W.keepId)[0];
+    if (!(cl && !cl.verified)) misses.push(what + ': the keep is confirmed ' + JSON.stringify(mr.claims));
+    if (PY && checkPack(await repacked(W.PF, zip, (e, man) => forced(man))).ok) misses.push(what + ': Python accepts a complete claim');
+  }
+  assert.deepStrictEqual(misses, []);
+});
 /* ND: each run the work depends on is named as the export names it: exactly its key, role, head, chain, receipt and
    confirmed, typed; the receipt it names is the packed run's own (none when it has none); and a complete pack confirms
    every one. In every role. */
