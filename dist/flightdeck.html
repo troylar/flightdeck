@@ -38562,6 +38562,15 @@ PF.examples = (function () {
           /* Every parent the closure listed children of, at any depth (a story's parts too), is held the same way: each child
              an earlier listing in this ending attempt gave it must be in its listing now (4.0, NA). */
           var by = cx.kidsBy || (cx.kidsBy = Object.create(null)), lost = '';
+          /* The children this window already holds of every parent the closure listed, at every depth, count as seen too
+             (4.0, OE): one gone from every listing this ending makes is still named. */
+          (data.runs || []).forEach(function (c) {
+            var pa = c && c.parent;
+            if (!pa || !pa.item || typeof pa.process !== 'string' || typeof pa.id !== 'string') return;
+            var pk = pa.process + '/' + pa.id;
+            if (!Object.prototype.hasOwnProperty.call(cl.kidsBy, pk)) return;
+            (by[pk] || (by[pk] = Object.create(null)))[c.process + '/' + c.id] = true;
+          });
           Object.keys(by).sort().forEach(function (pk) {
             if (lost) return;
             var now = Object.create(null);

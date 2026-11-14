@@ -861,4 +861,35 @@ rule('Use copy with a grandchild gone between its guards ends nothing, names it,
   assert.ok(app.fs.files[copy], 'the copy stays');
   assert.ok(txt(app.html()).indexOf(st.task) >= 0, 'named by its path: ' + txt(app.html()).slice(0, 600));
 });
+/* OE: the children this window already holds are seeded into what the ending guards hold, at every depth: a grandchild
+   loaded before the end and gone from every listing the end makes ends nothing, named by its path, in an end and in Use
+   copy, and Use copy keeps the copy. */
+const dropTask = (app) => { const task = taskPaths(app)[0], dir = task.replace(/run\.json$/, ''); app.files(dir).forEach((f) => { delete app.fs.files[f]; }); return task; };
+rule('A grandchild this window loaded and gone before every ending guard\'s listing ends nothing, named by its path', async () => {
+  const app = await nestedSetup(), pp = pPath(app), runText = app.fs.files[pp].t;
+  const task = dropTask(app);
+  app.click('end', 'Cancelled'); await app.tick(600);
+  assert.ok(!pRun(app).ended, 'not ended: ' + JSON.stringify(pRun(app).living));
+  assert.strictEqual(app.fs.files[pp].t, runText, 'the run is as it was');
+  assert.ok(txt(app.html()).indexOf(task) >= 0, 'named by its path: ' + txt(app.html()).slice(0, 600));
+});
+rule('Use copy with a loaded grandchild gone before every guard\'s listing ends nothing, names it, and keeps the copy', async () => {
+  const app = await nestedSetup(), pp = pPath(app), before = app.fs.files[pp].t;
+  app.click('end', 'Cancelled'); await app.tick(500);
+  assert.ok(pRun(app).ended, 'set-up: the parent ended');
+  const ended = JSON.parse(app.fs.files[pp].t), copy = pp.replace('run.json', 'run-OTHER.json');
+  await app.fs.write(copy, JSON.stringify(ended, null, 2));
+  const r0 = JSON.parse(before); r0.rev = (ended.rev || 0) + 1;
+  await app.fs.write(pp, JSON.stringify(r0, null, 2));
+  await refresh(app, 300);
+  app.click('open-run', r0.process + '/' + r0.id); await app.tick(80);
+  assert.ok(!pRun(app).ended && /data-act="use-copy"/.test(app.html()), 'set-up: the ended copy is offered');
+  assert.ok(taskPaths(app).length === 1, 'set-up: the grandchild is loaded');
+  const runText = app.fs.files[pp].t, task = dropTask(app);
+  app.click('use-copy', 'run-OTHER.json'); await app.tick(600);
+  assert.ok(!pRun(app).ended, 'not ended: ' + JSON.stringify(pRun(app).living));
+  assert.strictEqual(app.fs.files[pp].t, runText, 'the run is as it was');
+  assert.ok(app.fs.files[copy], 'the copy stays');
+  assert.ok(txt(app.html()).indexOf(task) >= 0, 'named by its path: ' + txt(app.html()).slice(0, 600));
+});
 run();

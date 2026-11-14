@@ -25,8 +25,8 @@
       "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "069854bec977440c29d7b74c21b42b28e8e33ee9fe501d59f12e91b8f7a8bb0d",
-      "reviewed": "OD: check_pack.py checks confirmed deps in full, named runs equal found, roles from references; checked for direct writes and unconditional deletes"
+      "sha256": "a6a6e2cd6f2a0f66dec1e7545c44a3696485a2475542941f244f907a37e58878",
+      "reviewed": "OE: ending guards seed kidsBy from loaded children of every closure parent; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "c41dcc15ee7ca2125c29ed245680b375f51359b3a05dbf1baab744c2de5c14be",
@@ -429,8 +429,8 @@
       "reviewed": "OC: context files read in bounded slices against the file limit and the context budget; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "e3d1fe4c741a802fd59bd9e799b3c745d21a42635867d770540d8692df2dcefd",
-      "reviewed": "ending holds every parent's observed children across guards, at any depth; checked for direct writes and unconditional deletes"
+      "sha256": "dd6a2a70f212cb0512ef142198a2ff83bd5fef55429e56fab44cd64a83edaeb6",
+      "reviewed": "OE: ending guards seed kidsBy from loaded children of every closure parent; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
