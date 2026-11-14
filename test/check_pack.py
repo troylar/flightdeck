@@ -849,11 +849,8 @@ def check_living(z, man):
                 if not isinstance(sid, str):
                     continue
                 tid = top[0].get("id")
-                if fstate.get(sid) == 1:
-                    sys.exit("living: " + r["key"] + " says its work is complete, but the facts it rests on go round in a circle: fact " + str(tid) + " saw proposals/" + sid + ".json, which saw it in turn")
-                if fstate.get(sid):
-                    continue
-                fstate[sid] = 2
+                # Every edge is checked before a fact already walked is skipped (QA): its witness, kind and run against the
+                # fact that saw it, whichever fact was walked first.
                 if not packed_ids(sid):
                     sys.exit("living: " + r["key"] + " says its work is complete, but proposals/" + sid + ".json, a record the fact " + str(tid) + " saw, isn't in the pack")
                 srec, samb = witness(sid)
@@ -864,6 +861,10 @@ def check_living(z, man):
                     sys.exit("living: " + r["key"] + " rests on more records and runs than a pack holds at most (5000)")
                 if not isinstance(srec, dict) or srec.get("kind") != "fact" or srec.get("id") != sid or not isinstance(srec.get("run"), dict) or srec.get("run") != top[0].get("run"):
                     sys.exit("living: " + r["key"] + " says its work is complete, but proposals/" + sid + ".json, a record the fact " + str(tid) + " saw, isn't a fact of the same run")
+                if fstate.get(sid) == 1:
+                    sys.exit("living: " + r["key"] + " says its work is complete, but the facts it rests on go round in a circle: fact " + str(tid) + " saw proposals/" + sid + ".json, which saw it in turn")
+                if fstate.get(sid):
+                    continue
                 fstate[sid] = 1
                 stack.append([srec, 0])
         # Every original reached is one the app reads, by its own family's reader.

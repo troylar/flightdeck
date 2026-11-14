@@ -1684,6 +1684,34 @@ rule('A fact whose predecessors go round in a circle or aren\'t facts of its run
   }
   assert.deepStrictEqual(misses, []);
 });
+/* QA: every edge is checked, whatever was walked first: A (this run) and B (another run, which saw A) each rest a to-do
+   request, and B -> A is named whichever fact is visited first, by the closure ending reads, the export and Python. */
+rule('A fact seen by a fact of another run is named whichever of them is walked first', async () => {
+  const W = await loopMade(), PF = W.PF, T = PF.todos, F = PF.facts, P = PF.run.sanitize(JSON.parse(JSON.stringify(W.run)));
+  const got = await PF.repo.readTodos(new BytesFS(W.files)), V = T.view(P, { records: got.records, people: JSON.parse(W.files['people.json']) });
+  const x = Object.keys(V.byTodo).map((k) => V.byTodo[k])[0], item = PF.loop.view(P, 'each', { records: got.scopes, runs: [P], procOf: () => null }).rollup.items[0];
+  const at = new Date().toISOString(), BB = { feed: 'bitbucket', site: 'git.example.com' }, other = { process: P.process, id: 'otherrun0001' };
+  const fact = (key, seen, n, run) => F.build({ run, producer: { name: 'git-bot', version: '1.0' }, key, seen, at, app: '4.0.0', loopStep: 'each', uid: item.uid, attempt: 1, source: BB, domain: 'prs', observedAt: at, maxAgeSeconds: 86400, complete: true, reported: n, fetched: n, errors: [], entries: [{ id: '1', text: 'Change 1', state: 'merged' }].concat(n > 1 ? [{ id: '2', text: 'Change 2', state: 'merged' }] : []) });
+  const asks = (f) => { const fr = T.cleanFile(JSON.parse(T.text(f)), f.id + '.json').record; return T.buildProposal({ run: { process: P.process, id: P.id }, producer: { name: 'git-bot', version: '1.0' }, seen: [], at, body: { op: 'done', todo: x.id, support: { fact: f.id, content: fr.content, incarnation: x.added, source: BB, domain: 'prs' } } }); };
+  /* Keys chosen so A sorts before B in one world and after it in the other: the walk's order follows the ids. */
+  const pairOf = (aFirst) => { for (let i = 0; ; i++) { const ka = 'qa-a' + i, kb = 'qa-b' + i, ia = F.idFor('git-bot', ka), ib = F.idFor('git-bot', kb); if ((ia < ib) === aFirst) return [ka, kb]; } };
+  const misses = [];
+  for (const aFirst of [true, false]) {
+    const [ka, kb] = pairOf(aFirst), A = fact(ka, [], 1, P), B = fact(kb, [A.id], 2, other), qa = asks(A), qb = asks(B), what = aFirst ? 'A first' : 'B first';
+    const files = Object.assign({}, W.files);
+    [A, B, qa, qb].forEach((y) => { files['proposals/' + y.id + '.json'] = T.text(y); });
+    const named = (m) => m.indexOf(A.id) >= 0 && m.indexOf(B.id) >= 0 && /isn't a fact of the same run/.test(m);
+    const read = await PF.repo.readTodos(new BytesFS(files));
+    for (const order of [read.records, read.records.slice().reverse()]) {
+      const D = PF.receipts.deps(P, { records: order, unread: read.unread, scopes: read.scopes, scopesUnread: read.scopesUnread, runs: {}, kids: {}, runBad: [] });
+      if (!D.missing.some(named)) misses.push(what + ', records ' + (order === read.records ? 'in order' : 'reversed') + ': the closure: ' + JSON.stringify(D.missing));
+    }
+    const { res, zip } = await pack(PF, new BytesFS(files), W.key);
+    if (!(res.status === 'partial' && res.col.unresolved.some(named))) misses.push(what + ': the export: ' + res.status + ' ' + JSON.stringify(res.col.unresolved));
+    if (PY) { const c = checkPack(await repacked(PF, zip, (e, man) => forced(man))); if (c.ok || c.out.indexOf(B.id) < 0 || !/isn't a fact of the same run/.test(c.out)) misses.push(what + ': Python: ' + c.out); }
+  }
+  assert.deepStrictEqual(misses, []);
+});
 /* NC: where a keep stands is worked out from its process's other runs; one of them whose run.json or notes can't be read
    (the read fails, finds nothing, or the file is gone when sized) leaves the pack partial, named by its path, and Python
    refuses a complete claim that carries it. */

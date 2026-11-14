@@ -368,7 +368,7 @@ PF.receipts = (function () {
     var saw = function (x) { (Array.isArray(x && x.seen) ? x.seen : []).forEach(function (id) { if (typeof id === 'string' && !sawSeen[id]) { sawSeen[id] = true; sawQ.push(id); } }); };
     /* A fact's predecessors, depth first (4.0, OA): each one a single fact of the same run, every one counted against the
        cap; one met again while it is still being followed is a circle, named at the fact that saw it. */
-    var fState = Object.create(null), fCount = 0, fOver = false;
+    var fState = Object.create(null), fWit = Object.create(null), fCount = 0, fOver = false;
     var sameRun = function (a, b) { return !!a.run && !!b.run && a.run.process === b.run.process && a.run.id === b.run.id; };
     var factWalk = function (root) {
       if (fState[root.id]) return;
@@ -380,13 +380,17 @@ PF.receipts = (function () {
         var id = ss[top.i++];
         if (typeof id !== 'string') continue;
         var path = 'proposals/' + id + '.json';
-        if (fState[id] === 1) { missing.push(path + ': fact ' + top.x.id + ' saw it, but it saw that fact in turn: the facts a to-do rests on go round in a circle at ' + id + '.'); continue; }
-        if (fState[id]) continue;
-        fState[id] = 2;
-        if (++fCount > cap) { if (!fOver) missing.push('The facts a to-do rests on go past ' + cap + ', so they weren\'t all checked.'); fOver = true; return; }
-        var y = unique(byId[id] || [], path, 'fact ' + top.x.id + ' saw it');
+        /* Every edge is checked before a node already walked is skipped (QA): its witness once, then the kind and run against
+           the fact that saw it, whichever fact was walked first. */
+        if (!(id in fWit)) {
+          if (++fCount > cap) { if (!fOver) missing.push('The facts a to-do rests on go past ' + cap + ', so they weren\'t all checked.'); fOver = true; return; }
+          fWit[id] = unique(byId[id] || [], path, 'fact ' + top.x.id + ' saw it');
+        }
+        var y = fWit[id];
         if (!y) continue;
         if (y.kind !== 'fact' || !sameRun(y, top.x)) { file(y); missing.push(path + ': fact ' + top.x.id + ' saw it, but it isn\'t a fact of the same run.'); continue; }
+        if (fState[id] === 1) { missing.push(path + ': fact ' + top.x.id + ' saw it, but it saw that fact in turn: the facts a to-do rests on go round in a circle at ' + id + '.'); continue; }
+        if (fState[id]) continue;
         file(y, 'A fact used as evidence');
         fState[id] = 1; stack.push({ x: y, i: 0 });
       }
