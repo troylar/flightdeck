@@ -868,6 +868,10 @@ const D10_JOIN_OK = [
   { file: 'run.js', has: 'V.changes.slice(0, 50).map(esc).join', why: 'a loop\'s changes since its approval, at most 50 drawn, with how many more' },
   { file: 'run.js', has: 'V.review.slice(0, 50).map(esc).join', why: 'why a loop\'s approval needs review, at most 50 drawn, with how many more' },
   { file: 'app.js', has: 'c.errors.slice(0, 5).join', why: 'what is wrong with a loop change, at most 5' },
+  { file: 'app.js', has: 'cp.files.slice(0, 3).map(', why: 'the copies of one keep that differ, at most 3 named, with how many more' },
+  { file: 'app.js', has: 'left.slice(0, 3).map(function (f) { return \'proposals/\' + f; }).join', why: 'the copies of a keep that arrived while it was withdrawn, at most 3 named, with how many more' },
+  { file: 'app.js', has: 'fs.slice(0, 3).map(function (f) { return \'proposals/\' + f; }).join', why: 'the files of a keep partly withdrawn, at most 3 named each, with how many more' },
+  { file: 'run.js', has: 'esc(c.accepts.join(\' or \'))', why: 'the results a checklist-linked to-do accepts, at most 20 (PF.detours LIMITS.accepts), a record with more is refused when read' },
   { file: 'app.js', has: 'got.missing.join', why: 'the inputs a loop\'s pass: line can\'t fill, at most PF.loop.LIMITS.inputs (40)' },
   { file: 'builder.js', has: 'dt[n].options.join(\', \')', why: 'a choice detail\'s options, at most 20 (core/map.js OPTIONS_MAX), in a select of the checklist\'s choice details, at most 40' },
   { file: 'app.js', has: 'builderField(\'ob-fld-\' + field, cur.join(\', \'), focus)', why: 'a step field\'s value written to the checklist, never drawn' },
@@ -954,7 +958,9 @@ const D10_JOIN_OK = [
   { file: 'run.js', has: 'C.notices.slice(0, 10).map(esc).join', why: 'the first 10 and "And N more"' },
   { file: 'app.js', has: 'failed.slice(0, 5).map(function (f) { return f.why; }).join', why: 'the first 5 reasons; how many couldn\'t be saved is said in full' },
   { file: 'app.js', has: 'left.slice(0, 5).map(function (u) { return u.x.run', why: 'the first 5, with "and N more"' },
-  { file: 'app.js', has: 'alone.slice(0, 5).map(function (a) { return a.x.run', why: 'the first 5 left for their own decision, with "and N more"' }
+  { file: 'app.js', has: 'alone.slice(0, 5).map(function (a) { return a.x.run', why: 'the first 5 left for their own decision, with "and N more"' },
+  { file: 'app.js', has: 'var vers = function (p) { return (p.all || []).concat(p.broken || [])', why: NOT_TEXT + ': the version folders read, compared with a listing again inside the one keep guard order (keepReads)' },
+  { file: 'app.js', has: 'var now = (items || []).filter(function (v) { return v.kind === \'dir\' && PF.publish.versionOf(v.name); })', why: NOT_TEXT + ': the version folders listed again, compared inside the keep guard' }
 ];
 /* Every .join( in the views and app.js whose separator isn't '', with its line number and file. */
 function joins(src) {

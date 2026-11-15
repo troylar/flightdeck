@@ -342,6 +342,21 @@ rule('Keeping a living copy over a run/2 writes no backup once the person change
   app.choose('person-casey'); await app.tick(); hold.open(); await app.tick(300);
   assert.deepStrictEqual(app.files('runs/release-notes/').filter(x => /replaced-/.test(x)), [], 'no backup written for someone else');
 });
+rule('Keeping a living copy writes no backup once the person is made inactive or people.json can\'t be read while the copy is read', async () => {
+  for (const how of ['inactive', 'unreadable']) {
+    const app = await setup();
+    await conflictCopy(app, 'person-blake');
+    await blake(app, true); await refresh(app, 300);
+    const fs = app.fs, read = fs.read.bind(fs), hold = gate();
+    fs.read = (p, o) => /run-OTHER\.json$/.test(p) ? hold.p.then(() => read(p, o)) : read(p, o);
+    app.click('use-copy', 'run-OTHER.json'); await app.tick(60);
+    if (how === 'inactive') await setPeople(app, x => x.id === 'person-avery' ? Object.assign({}, x, { inactive: true }) : x);
+    else await app.fs.write('people.json', '{ not json');
+    hold.open(); await app.tick(400);
+    assert.deepStrictEqual(app.files('runs/release-notes/').filter(x => /replaced-/.test(x)), [], how + ': no backup written');
+    assert.ok(app.fs.files[runPath(app).replace('run.json', 'run-OTHER.json')], how + ': the copy is still there');
+  }
+});
 /* Holds the first read of run.json made once the replaced version's backup is written: the recovery save's read. */
 function holdRecovery(app) {
   const fs = app.fs, read = fs.read.bind(fs), hold = gate(); let n = 0;

@@ -91,10 +91,10 @@ An error object (exit 1 or 5) has `contract`, `app`, `error` and `problems`, and
 | Kind | Means |
 |---|---|
 | `unreadable` | A file or a part of the folder failed to read (a cloud placeholder that isn't downloaded yet, a permissions error). One version that can't be read is named on its own; the other versions are still listed. |
-| `nofile` | A run folder without `run.json` (it may still be arriving, or it was deleted) |
+| `nofile` | A run folder without `run.json` (it may still be arriving, or it was deleted). From 4.0, also any file another record depends on that isn't in the folder at all: the parent or fact a to-do rests on, the run a to-do's evidence names (`runs/<process>/<id>/run.json`), the evidence plan a done names (`proposals/<plan>.json`, also when the plan reads but no decision of it says it started that run), or the checklist a keep's items run (`publications/<process>`). What rests on it is held, never taken as settled. |
 | `malformed` | A run, plan, plan decision, follow-up decision or `people.json` that won't parse or isn't in the format. What's left out and what's still shown: [`malformed` in detail](#malformed-in-detail), below. |
 | `newer` | A run, version or file from a newer Flightdeck, including a run whose own copy of its checklist or step types uses features this copy can't read. A run like that is named here and left out of the data. More in [`newer` in detail](#newer-in-detail), below. |
-| `unusable` | A version this copy can't use, with why. At a run's `run.json`: the run doesn't match its version (its checklist or version number differs from the version's record), so the app opens it read-only; the version itself is fine. |
+| `unusable` | A version this copy can't use, with why. At a run's `run.json`: the run doesn't match its version (its checklist or version number differs from the version's record), so the app opens it read-only; the version itself is fine. Also at a run's `run.json` when its own checklist can't be run by this copy (a step type it doesn't have, for one) and nothing else names it. |
 | `conflict` | Conflict copies or lost saves beside a run, for a person to resolve in the app |
 | `still-syncing` | A version whose files haven't all arrived |
 | `link` | A link the command didn't follow |
@@ -779,6 +779,60 @@ The run is the one that has the loop. `--from` is a JSON file (or `-` for standa
 | The same key, another observation | `key-taken`; nothing was filed |
 | A record couldn't be written | `partial` (exit 4): the rest stand; run `sync` again |
 | Evidence that doesn't support it, or a to-do that isn't open | `invalid`, with why |
+| No such run | exit 5 |
+
+## Keep for next time
+
+A to-do or a spread on a living run can be kept as a suggestion for the checklist it came from (4.0, docs/design.md section 45.3): one record in `proposals/` that the checklist's owner reviews with its other corrections. Keeping changes nothing on the run: no work, no gate, no to-do. Never write one by hand.
+
+```
+flightdeck todo keep <team folder> <process>/<run> --todo <to-do id> --tool <name>@<version> [--text <the step, in other words>] [--reason <why>] [--phase <phase id> | --after <step id>] [--dry-run] [--json]
+flightdeck spread keep <team folder> <process>/<run> --spread <spread id> --tool <name>@<version> [--text ...] [--reason ...] [--phase ... | --after ...] [--dry-run] [--json]
+```
+
+Where it goes: a phase's to-do goes at the end of that phase of the run's own checklist, a step's to-do right after that step. A spread goes to the checklist the loop's items run, at the end of the phase that holds its gate. A to-do on one item goes to the checklist the items run too, but needs `--phase` (the end of that phase) or `--after` (after that step) to say where; without one it is kept as needing placement, which shows on the to-do and goes into no correction. `--text` keeps it in other words (no @roles, ^details or {#ids}; at most 2,000 characters, never cut).
+
+There is no `--key`: a keep is named by the run, what it keeps, the place and its wording (spacing aside). The same keep again (any tool, any person) is `already`; the same place in other words is another keep, an alternative in the same correction for the owner to choose between, and the same words with another reason are refused. Two to-dos kept for the same place join one correction, each wording kept as an alternative.
+
+Only the checklist's active owner (or its backup while the owner is inactive) reviews, applies and declines what was kept, in the app. The to-do then says where it stands: Suggested, Applied to draft, or Published in vN.
+
+### The result
+
+`status` (`would-keep`, `kept`, `already` or `held`), `keep` (`id`, `file`), `source` (`{ todo }` or `{ spread }`), `placed`, `template` (the checklist's `process`, `folder`, `version`, `mapHash`, `typesHash`, or null), `anchor` (`phase`, `after`), `where` (`after` or `end`), `needs` (why it needs placement, or null), `text`, `reason`, `changesRun: false` and `preview`, like "Suggest for next time in release-readiness v3: add \"Post the release notes\" at the end of phase ship. The checklist's owner reviews it; this run doesn't change."
+
+### Errors
+
+| Situation | What it says |
+|---|---|
+| A record, people.json or the items' checklist can't be read; the run kept from, or its version, isn't trusted as `runs` judges it (its version unreadable, a malformed run, its `run.json` missing, not JSON, with an unknown field, from a newer Flightdeck or with a damaged snapshot), in the preview and the write alike | `held` (exit 4), each named in `problems` by path and kind, as `run` names it: nothing was written |
+| The run kept from, its version, or (for item work and spreads) the checklist its items run, broke or became unreadable after the first read: right before the write each is read and judged again, then `proposals/` is read again, last (listed, read, listed again), and the keep is made again from those reads; `todo add`, `done`, `wont`, `move`, `reopen` and `suggest-done` make their request again from the same last read | `held` (exit 4) with the path named (a copy of this keep that can't be read included, a keep at its place from any run that can't be read, or `still-syncing` at `proposals` for a file that arrived or went during that read), `failed` (exit 1) when the keep it would make now differs, `key-taken` for a copy of it filed meanwhile that differs, `already` for one the same, or `invalid` when its place reached 500 keeps meanwhile: nothing was written |
+| The same place and words, kept with another reason | `key-taken` |
+| No such to-do or spread, a place not in that checklist, a step text a checklist can't hold; a place that already has 500 keeps (the most one correction holds: the owner reviews those first) | `invalid`, with why |
+| `--key`, both `--phase` and `--after` | `usage` |
+| No such run | exit 5 |
+
+## Checklist-linked to-dos
+
+A to-do can be settled by a whole run of another checklist (4.0, docs/design.md section 45.4): "run the smoke test". The to-do pins that checklist's exact version and the results of it that count; a run of it is an ordinary run, started from the to-do's own plan through the usual start. Nothing resolves on its own: a done on that run's result is a request like any other.
+
+```
+flightdeck todo add <team folder> <process>/<run> --text "..." --phase <phase id> --checklist <process>@<version folder> [--accepts <result>,<result>] --tool <name>@<version> --key <key> [--dry-run] [--json]
+flightdeck todo suggest-done <team folder> <process>/<run> --todo <to-do id> --evidence-run <process>/<run id> --tool <name>@<version> [--reason <why>] [--as <person>] [--dry-run] [--json]
+```
+
+`--checklist` names an exact version folder (each process's `versions` in `flightdeck processes <team folder> --contract 2 --json` lists them; `flightdeck process <team folder> <process> --folder <version folder> --contract 2 --json` reads one), never "the latest". Without `--accepts`, any run of it that completes counts. In Flightdeck, Run this checklist on the to-do makes its plan (one per to-do and opening: asking again opens the same plan) and opens the start; the plan's start names the run it started.
+
+`suggest-done --evidence-run` names one run that plan started, as `<process>/<run id>`; when more than one was started, it is the one you name, never a guess. There is no `--key`: the to-do and that run as it stands name the request, so asking again is `already`, even once it was applied and the to-do is done. It is checked again whenever it is read and before it is applied: a run reopened, corrected or ended again since is held, even if it ends with the same result; ask again on the run as it is then. A person decides it (or a delegation covers it), as any done.
+
+Once checked off, `todo list` shows the to-do's `checklist`, the run it rests on (`evidence`: `plan`, `run`, `answer`, `result`, `words`) and `provenance`: what became of that run since, or null. A change is said, never undone.
+
+### Errors
+
+| Situation | What it says |
+|---|---|
+| The pinned version, a run it rests on, a plan's decision or a record can't be read, or the run the to-do is on is one `run` wouldn't trust as it is (torn, newer, with a field this copy doesn't know, without its run.json, damaged, a part of it or its version unreadable), judged first and again right before any preview and in the final read before filing; one that changed meanwhile is `failed` (run it again) | `held` (exit 4), each named in `problems`: nothing was written |
+| No such checklist or version, a result it never returns, a run not started for the to-do, not completed, or a result it doesn't accept | `invalid`, with why |
+| `--key` with `suggest-done`, both `--fact` and `--evidence-run`, `--accepts` without `--checklist`, an empty `--accepts` or one with an empty entry (never read as "any result"), `--checklist` on anything but `add` | `usage` |
 | No such run | exit 5 |
 
 ## Writing step types (for AI assistants)

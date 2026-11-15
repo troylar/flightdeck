@@ -122,6 +122,10 @@ test/todos.test.js -
 test/todos-rules.test.js -
 test/spreads.test.js -
 test/facts.test.js -
+test/learn.test.js -
+test/learn-cli.test.js -
+test/detours.test.js -
+test/detours-cli.test.js -
 test/loop-cli.test.js -
 test/todo-cli.test.js -
 test/spread-cli.test.js -
@@ -164,6 +168,15 @@ test/app-spread-deps.test.js 1/4
 test/app-spread-deps.test.js 2/4
 test/app-spread-deps.test.js 3/4
 test/app-facts.test.js -
+test/app-learn.test.js 0/8
+test/app-learn.test.js 1/8
+test/app-learn.test.js 2/8
+test/app-learn.test.js 3/8
+test/app-learn.test.js 4/8
+test/app-learn.test.js 5/8
+test/app-learn.test.js 6/8
+test/app-learn.test.js 7/8
+test/app-detours.test.js -
 test/staging-app.test.js -
 test/test-runs-app.test.js -
 test/readiness-stage-app.test.js -

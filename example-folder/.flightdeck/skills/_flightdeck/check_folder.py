@@ -1830,7 +1830,7 @@ T_ISO = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(?::[0-9]{2}(?
 T_CONTROL = re.compile("[\u0000-\u001f\u007f  ]")
 T_RUNKEY = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}/[a-z0-9-]{1,40}\Z", re.I | re.A)
 T_COMMON = ["format", "features", "app", "kind", "id", "run", "seen", "producer", "key", "by", "at"]
-T_BODY = ["op", "todo", "target", "placement", "text", "owner", "reason", "origin", "to", "requester", "spread", "loopStep", "child", "scope", "item", "dest", "owed", "cut", "fulfills", "support"]
+T_BODY = ["op", "todo", "target", "placement", "text", "owner", "reason", "origin", "to", "requester", "spread", "loopStep", "child", "scope", "item", "dest", "owed", "cut", "fulfills", "support", "checklist", "evidence"]
 # Facts (4.0 slice 4, PF.facts): what a tool observed about a loop item, one record per item, source and domain.
 F_DOMAINS = {"prs": ("state", ["open", "draft", "merged", "closed"], 100), "commits": (None, None, 100),
              "status": ("category", ["todo", "doing", "done"], 1), "blockers": ("state", ["open", "resolved"], 100)}
@@ -1841,7 +1841,7 @@ F_ENTRY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:#/-]{0,119}\Z")
 F_MOMENT = re.compile(r"^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2})(?::([0-9]{2})(?:\.[0-9]{1,3})?)?(?:Z|[+-]([0-9]{2}):([0-9]{2}))\Z")
 F_FIELDS = ["loopStep", "uid", "attempt", "source", "domain", "observedAt", "maxAgeSeconds", "complete", "reported", "fetched", "errors", "entries"]
 F_COMMON = ["format", "features", "app", "kind", "id", "run", "seen", "producer", "key", "at"]
-T_EFIELDS = {"add": ["op", "todo", "text", "target", "placement", "owner", "reason", "origin", "fulfills"], "done": ["op", "todo", "reason", "support"],
+T_EFIELDS = {"add": ["op", "todo", "text", "target", "placement", "owner", "reason", "origin", "fulfills", "checklist"], "done": ["op", "todo", "reason", "support", "evidence"],
              "spread-add": ["op", "spread", "loopStep", "text", "child", "scope", "owner", "reason"], "spread-include": ["op", "spread", "item", "reason"],
              "spread-bind": ["op", "spread", "item", "dest", "reason"], "spread-stop": ["op", "spread", "reason", "owed", "cut"],
              "reopen": ["op", "todo", "reason"], "wont": ["op", "todo", "reason"], "move": ["op", "todo", "to", "reason"]}
@@ -1981,6 +1981,78 @@ def _suggest_hash(todo, inc, source, domain, content):
         return v if (v is not None and v is not False and v != "" and not (_tnum(v) and v == 0)) else ""
     src = [source.get("feed"), orv(source.get("site")), orv(source.get("account"))]
     return _thash(["suggest", todo, inc, src, domain, content], 24)
+
+
+D_PLAN = re.compile(r"^plan-ev-[0-9a-f]{24}\Z")
+D_LIMITS = {"accepts": 20, "accept": 60, "answer": 80, "result": 60}
+
+
+def detour_clean_checklist(v, err):
+    """PF.detours.cleanChecklist: an addition's pinned checklist, refused whole, never cut."""
+    if not isinstance(v, dict):
+        err("checklist")
+        return None
+    errs = []
+    for k in js_keys(v):
+        if k not in ("process", "folder", "version", "mapHash", "typesHash", "accepts"):
+            errs.append("checklist has " + k + ".")
+    if not _tstr(v.get("process")) or not T_PROC.match(v["process"]):
+        errs.append("checklist process")
+    m = K_FOLDER.match(v["folder"]) if _tstr(v.get("folder")) else None
+    if not m:
+        errs.append("checklist folder")
+    elif not _tnum(v.get("version")) or v["version"] != int(m.group(1)):
+        errs.append("checklist version")
+    if not _tstr(v.get("mapHash")) or not K_H8.match(v["mapHash"]) or not _tstr(v.get("typesHash")) or not K_H8.match(v["typesHash"]):
+        errs.append("checklist fingerprints")
+    acc = v.get("accepts")
+    if acc is not None:
+        if not isinstance(acc, list) or not acc or len(acc) > D_LIMITS["accepts"]:
+            errs.append("checklist accepts")
+        elif not all(_tstr(a) and js_trim(a) == a and 1 <= js_len(a) <= D_LIMITS["accept"] and not K_CONTROL.search(a) for a in acc):
+            errs.append("checklist accepts text")
+        elif len(set(acc)) != len(acc):
+            errs.append("checklist accepts twice")
+    for w in errs:
+        err(w)
+    if errs:
+        return None
+    out = {"process": v["process"], "folder": v["folder"], "version": v["version"], "mapHash": v["mapHash"], "typesHash": v["typesHash"]}
+    if acc is not None:
+        out["accepts"] = list(acc)
+    return out
+
+
+def detour_clean_evidence(v, err):
+    """PF.detours.cleanEvidence: a done's evidence plan, run, answer identity and result."""
+    if not isinstance(v, dict):
+        err("evidence")
+        return None
+    errs = []
+    for k in js_keys(v):
+        if k not in ("plan", "run", "answer", "result"):
+            errs.append("evidence has " + k + ".")
+    if not _tstr(v.get("plan")) or not D_PLAN.match(v["plan"]):
+        errs.append("evidence plan")
+    r = v.get("run")
+    if not isinstance(r, dict) or len(r) != 2 or not _tstr(r.get("process")) or not T_PROC.match(r["process"]) or not _tstr(r.get("id")) or not T_RUN.match(r["id"]):
+        errs.append("evidence run")
+    a = v.get("answer")
+    if not _tstr(a) or not js_trim(a) or js_len(a) > D_LIMITS["answer"] or K_CONTROL.search(a):
+        errs.append("evidence answer")
+    res = v.get("result")
+    if not _tstr(res) or js_len(res) > D_LIMITS["result"] or K_CONTROL.search(res):
+        errs.append("evidence result")
+    for w in errs:
+        err(w)
+    if errs:
+        return None
+    return {"plan": v["plan"], "run": {"process": r["process"], "id": r["id"]}, "answer": a, "result": res}
+
+
+def _evidence_hash(todo, ev):
+    """PF.detours.requestId/requestKey: a done named by its to-do and the run it rests on."""
+    return _thash(["evidence-done", todo, ev["plan"], ev["run"]["process"], ev["run"]["id"], ev["answer"], ev["result"]], 24)
 
 
 def fact_moment_ok(v):
@@ -2142,6 +2214,168 @@ def fact_why(o, name, unchecked=None):
     if len(errors) == n0 and o["complete"] and (o["reported"] != o["fetched"] or ers):
         err("complete is true only when reported equals fetched and there are no errors")
     return "is a fact that isn't in its format: " + errors[0] if errors else ""
+
+
+# Keeps (4.0 slice 5, PF.learn): a to-do or a spread kept for next time, a correction request on its checklist's publication.
+K_LIMITS = {"text": 2000, "reason": 300, "needs": 300}
+K_KEYS = ["format", "features", "app", "kind", "id", "run", "by", "producer", "key", "at", "source", "template", "anchor", "base", "change", "needs", "reason"]
+K_H8 = re.compile(r"^[0-9a-f]{8}\Z")
+K_FOLDER = re.compile(r"^v([1-9][0-9]{0,8})-[a-z0-9]{1,40}\Z")
+K_CONTROL = re.compile("[\u0000-\u001f\u007f\u2028\u2029]")
+K_WS = re.compile("[" + re.escape(JS_WS) + "]+")
+K_ROLE = re.compile("(^|[" + re.escape(JS_WS) + "])[@^][A-Za-z0-9_-]")
+
+
+def _kq(k):
+    """'"k"' as the app quotes a field it doesn't know: its first 70 UTF-16 units."""
+    u = k.encode("utf-16-le", "surrogatepass")[:140]
+    return '"' + u.decode("utf-16-le", "surrogatepass") + '"'
+
+
+def _konly(o, keys, what, err):
+    for k in js_keys(o):
+        if k not in keys:
+            err(what + " has " + _kq(k) + ".")
+
+
+def _kline(v, mx, what, err):
+    if not _tstr(v) or not js_trim(v):
+        err(what + " is text.")
+        return None
+    if js_len(v) > mx:
+        err(what + " is " + str(js_len(v)) + " characters; the most is " + str(mx) + ".")
+        return None
+    if K_CONTROL.search(v):
+        err(what + " has a line break or another control character.")
+        return None
+    return v
+
+
+def keep_step_why(t):
+    """PF.learn.stepTextWhy."""
+    n = js_trim(K_WS.sub(" ", t))
+    if not n:
+        return "Say what the missing step is."
+    if js_len(n) > K_LIMITS["text"]:
+        return "A step is at most " + str(K_LIMITS["text"]) + " characters (this is " + str(js_len(n)) + "). Nothing was cut."
+    if "{#" in t or K_ROLE.search(t):
+        return "Leave out @roles, ^details and {#ids}: a checklist line would read them as its own. Say it in plain words with --text."
+    return ""
+
+
+def _khash(run, source, template, anchor, text):
+    sk = "todo:" + source["todo"] if "todo" in source else "spread:" + source["spread"]
+    ak = anchor["phase"] + "/" + (anchor.get("after") or "") if anchor else ""
+    return _thash(["keep", run["process"], run["id"], sk, template["process"] if template else "", ak, js_trim(K_WS.sub(" ", text))], 24)
+
+
+def keep_why(o, name):
+    """PF.learn.cleanFile: '' when the app reads this keep, else why it refuses it."""
+    if not _tstr(o.get("id")) or not T_REQ.match(o["id"]):
+        return "is a keep without a request id"
+    if _tstr(name) and not todo_request_file(name, o["id"]):
+        return "is a keep whose name isn't its id"
+    errors = []
+    err = errors.append
+    _konly(o, K_KEYS, "It", err)
+    run = o.get("run")
+    rrun = None
+    if not isinstance(run, dict) or len(run) != 2 or not _tstr(run.get("process")) or not T_PROC.match(run["process"]) or not _tstr(run.get("id")) or not T_RUN.match(run["id"]):
+        err('"run" is {"process": <checklist>, "id": <run id>}.')
+    else:
+        rrun = run
+    tool = False
+    if o.get("producer") is not None:
+        pr = o["producer"]
+        if not isinstance(pr, dict) or len(pr) != 2 or not _tstr(pr.get("name")) or not T_TOOL.match(pr["name"]) or not _tstr(pr.get("version")) or not T_VERSION.match(pr["version"]):
+            err('"producer" is {"name": <tool>, "version": <its version>}.')
+        else:
+            tool = True
+        if o.get("by") is not None:
+            err("A tool's keep has no \"by\".")
+    elif not _tstr(o.get("by")) or not T_PERSON.match(o["by"]):
+        err('"by" is the ID from people.json of the person who kept it.')
+    elif o.get("key") is not None:
+        err("Only a tool's keep has a \"key\".")
+    if not _tstr(o.get("at")) or not T_ISO.match(o["at"]):
+        err('"at" is a date and time.')
+    src = o.get("source")
+    source = None
+    if isinstance(src, dict) and len(src) == 1 and _tstr(src.get("todo")) and T_TD.match(src["todo"]):
+        source = src
+    elif isinstance(src, dict) and len(src) == 1 and _tstr(src.get("spread")) and T_SP.match(src["spread"]):
+        source = src
+    else:
+        err('"source" is {"todo": <to-do id>} or {"spread": <spread id>}.')
+    tpl = None
+    if o.get("template") is not None:
+        v = o["template"]
+        if not isinstance(v, dict):
+            err('"template" is {"process", "folder", "version", "mapHash", "typesHash"}.')
+        else:
+            n0 = len(errors)
+            _konly(v, ["process", "folder", "version", "mapHash", "typesHash"], '"template"', err)
+            if not _tstr(v.get("process")) or not T_PROC.match(v["process"]):
+                err('"template" "process" is a checklist id.')
+            m = K_FOLDER.match(v["folder"]) if _tstr(v.get("folder")) else None
+            if not m:
+                err('"template" "folder" is a version folder, like v3-k3m9p2q8.')
+            elif not _tnum(v.get("version")) or v["version"] != int(m.group(1)):
+                err("\"template\" \"version\" is its folder's version number.")
+            if not _tstr(v.get("mapHash")) or not K_H8.match(v["mapHash"]) or not _tstr(v.get("typesHash")) or not K_H8.match(v["typesHash"]):
+                err("\"template\" names its version's two fingerprints (\"mapHash\", \"typesHash\").")
+            if len(errors) == n0:
+                tpl = v
+    anc = None
+    a = o.get("anchor")
+    if a is not None:
+        if not isinstance(a, dict):
+            err('"anchor" is {"phase": <phase id>, "after": <step id>?}.')
+        else:
+            n0 = len(errors)
+            _konly(a, ["phase", "after"], '"anchor"', err)
+            if not _tstr(a.get("phase")) or not T_STEP.match(a["phase"]):
+                err('"anchor" "phase" is a phase id.')
+            if a.get("after") is not None and (not _tstr(a["after"]) or not T_STEP.match(a["after"])):
+                err('"anchor" "after" is a step id.')
+            if len(errors) == n0:
+                anc = a
+    ch = o.get("change")
+    if not isinstance(ch, dict):
+        err('"change" is {"op": "add", "text", "where"}.')
+    else:
+        _konly(ch, ["op", "text", "where"], '"change"', err)
+        if ch.get("op") != "add":
+            err('"change" "op" is add: a keep suggests a missing step.')
+        t = _kline(ch.get("text"), K_LIMITS["text"], '"change" "text"', err)
+        if t and keep_step_why(t):
+            w = keep_step_why(t)
+            err('"change" "text" ' + w[0].lower() + w[1:])
+        wh = ch.get("where")
+        if wh != "after" and wh != "end":
+            err('"change" "where" is after or end.')
+        elif a is not None and (wh == "after") != (isinstance(a, dict) and a.get("after") is not None):
+            err('"change" "where" is after exactly when "anchor" names a step.')
+        elif a is None and wh != "end":
+            err('"change" "where" is end while it needs placement.')
+    if a is not None:
+        if o.get("template") is None:
+            err('A placed keep names its checklist ("template").')
+        if not _tstr(o.get("base")) or not K_H8.match(o["base"]):
+            err("\"base\" is the signature of its place as the run's version had it.")
+        if o.get("needs") is not None:
+            err('A placed keep has no "needs".')
+    else:
+        if o.get("base") is not None:
+            err('Only a placed keep has a "base".')
+        _kline(o.get("needs"), K_LIMITS["needs"], '"needs" (why it needs placement)', err)
+    if o.get("reason") is not None:
+        _kline(o["reason"], K_LIMITS["reason"], '"reason"', err)
+    if not errors and o["id"] != "req-keep-" + _khash(rrun, source, tpl, anc, ch["text"]):
+        err("Its id isn't the one its run, source, place and wording give.")
+    if not errors and tool and o.get("key") != "kp-" + _khash(rrun, source, tpl, anc, ch["text"]):
+        err("Its key isn't the one its run, source, place and wording give.")
+    return "is a keep that isn't in its format: " + errors[0] if errors else ""
 
 
 def todo_why(o, name, nbytes=None, unchecked=None):
@@ -2370,7 +2604,7 @@ def todo_why(o, name, nbytes=None, unchecked=None):
 
     def clean_spread_body(oo, rid):
         b = {"op": oo["op"]}
-        for k in ("todo", "target", "placement", "origin", "to", "fulfills", "support"):
+        for k in ("todo", "target", "placement", "origin", "to", "fulfills", "support", "checklist", "evidence"):
             if oo.get(k) is not None:
                 err("A spread request has no " + k)
         if oo["op"] == "spread-add":
@@ -2492,6 +2726,8 @@ def todo_why(o, name, nbytes=None, unchecked=None):
                 out["origin"] = clean_origin(e["origin"])
             if e.get("fulfills") is not None:
                 out["fulfills"] = clean_fulfills(e["fulfills"])
+            if e.get("checklist") is not None:
+                out["checklist"] = detour_clean_checklist(e["checklist"], err)
         if e.get("reason") is not None:
             rr = line(e["reason"], TODO_LIMITS["reason"], "effect reason")
             if rr:
@@ -2502,6 +2738,11 @@ def todo_why(o, name, nbytes=None, unchecked=None):
             out["to"] = clean_to(e.get("to"))
         if e.get("support") is not None:
             out["support"] = fact_clean_support(e["support"], err)
+        if e.get("evidence") is not None:
+            if e.get("support") is not None:
+                err("effect of a done rests on support or on evidence, never both")
+            else:
+                out["evidence"] = detour_clean_evidence(e["evidence"], err)
         return out
 
     def effect_of(p):
@@ -2526,7 +2767,7 @@ def todo_why(o, name, nbytes=None, unchecked=None):
             e["text"] = p.get("text")
             e["target"] = p.get("target")
             e["placement"] = p.get("placement")
-            for k in ("owner", "reason", "origin", "fulfills"):
+            for k in ("owner", "reason", "origin", "fulfills", "checklist"):
                 if p.get(k):
                     e[k] = p[k]
         if p["op"] == "wont" or (p["op"] in ("reopen", "done", "move") and p.get("reason")):
@@ -2535,6 +2776,8 @@ def todo_why(o, name, nbytes=None, unchecked=None):
             e["to"] = p.get("to")
         if p["op"] == "done" and p.get("support"):
             e["support"] = p["support"]
+        if p["op"] == "done" and p.get("evidence"):
+            e["evidence"] = p["evidence"]
         return e
 
     def clean_authority(a):
@@ -2593,8 +2836,10 @@ def todo_why(o, name, nbytes=None, unchecked=None):
     kind = o.get("kind")
     if kind == "fact":
         return fact_why(o, name, unchecked)
+    if kind == "keep":
+        return keep_why(o, name)
     if kind not in TODO_PKINDS:
-        return "is a to-do record that isn't a proposal, a compound, a grant, a revoke or a fact"
+        return "is a to-do record that isn't a proposal, a compound, a grant, a revoke, a fact or a keep"
     if not _tstr(o.get("id")) or not T_REQ.match(o["id"]):
         return "is a to-do record without a request id"
     if _tstr(name) and not todo_request_file(name, o["id"]):
@@ -2638,6 +2883,14 @@ def todo_why(o, name, nbytes=None, unchecked=None):
             err("Its id isn't the one its to-do and support give")
         elif o.get("key") != "sg-" + _suggest_hash(o["todo"], sp["incarnation"], sp["source"], sp["domain"], sp["content"]):
             err("Its key isn't its suggestion's")
+    elif isinstance(o.get("evidence"), dict) and o.get("op") == "done" and o.get("support") is None:
+        ev = o["evidence"]
+        er = ev.get("run")
+        ok = _tstr(o.get("todo")) and _tstr(ev.get("plan")) and isinstance(er, dict) and _tstr(er.get("process")) and _tstr(er.get("id")) and _tstr(ev.get("answer")) and _tstr(ev.get("result"))
+        if not ok or o["id"] != "req-evidence-" + _evidence_hash(o["todo"], ev):
+            err("Its id isn't the one its to-do and evidence give")
+        elif by and by.get("tool") and o.get("key") != "ev-" + _evidence_hash(o["todo"], ev):
+            err("Its key isn't its evidence's")
     elif by and by.get("tool") and o["id"] != _todo_id(by["tool"], o.get("key")):
         err("Its id isn't the one its tool and key give")
     if kind in ("proposal", "compound"):
@@ -2686,6 +2939,19 @@ def todo_why(o, name, nbytes=None, unchecked=None):
                     err("Only a done request has support")
                 else:
                     b["support"] = fact_clean_support(o["support"], err)
+            # Checklist-linked to-dos (PF.todos.cleanBody, 4.0 slice 5): checklist on an addition, evidence on a done.
+            if o.get("checklist") is not None:
+                if op != "add":
+                    err("Only an addition has checklist")
+                else:
+                    b["checklist"] = detour_clean_checklist(o["checklist"], err)
+            if o.get("evidence") is not None:
+                if op != "done":
+                    err("Only a done request has evidence")
+                elif o.get("support") is not None:
+                    err("A done rests on support or on evidence, never both")
+                else:
+                    b["evidence"] = detour_clean_evidence(o["evidence"], err)
             if op == "add" and o.get("owner") is not None:
                 if not _tstr(o["owner"]) or not T_PERSON.match(o["owner"]):
                     err("owner")

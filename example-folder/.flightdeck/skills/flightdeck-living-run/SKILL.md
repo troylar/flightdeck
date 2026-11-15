@@ -42,11 +42,29 @@ A fact is what a tool observed about one item of a loop (its PRs, commits, statu
 2. **File what you observed** with `flightdeck fact sync ... --from <file> --tool <name>@<version> --dry-run --json` first, then without `--dry-run`. Give each observation a new `key`, and say `complete: true` only when you read the whole list without an error. If the exit code is 4 and `status` is `partial`, run the same `sync` again; it files only what is missing. Filing what you observed within the task goes on without asking: facts change no work.
 3. **Suggest a to-do done** on a fact only when the person asks, or when a fact plainly shows the to-do's work done: `flightdeck todo suggest-done ... --todo <to-do id> --fact <fact id> --tool <name>@<version> --dry-run --json` first. If it is refused, say why (stale, incomplete, replaced, another fact disagrees) and don't work around it. Otherwise write it: it waits for a person's decision (or a delegation), and the recorder applies it only if the evidence still holds then.
 
+## Keep for next time
+
+When a to-do or a spread shows a step the checklist itself is missing, it can be kept as a suggestion for next time. It changes nothing on this run.
+
+1. **Keep one** only when the person asks, or offer it when the same to-do keeps coming back: `flightdeck todo keep <team folder> <process>/<run id> --todo <to-do id> --tool <name>@<version> --dry-run --json` first (`flightdeck spread keep ... --spread <spread id>` for a spread). No `--key`: asking again is `already`. Say the preview: which checklist and version it goes to, and where (the end of a phase, or after a step). Then write it.
+2. **Place item work.** A to-do on one item of a loop belongs to the checklist the items run, and needs `--phase <phase id>` or `--after <step id>` in that checklist; read it first (`flightdeck process <team folder> <process> --contract 2 --json`, the latest usable version, or `--folder <version folder>` for the one the items run) and ask the person if where it goes isn't plain. Without one it is kept as needing placement, and says so.
+3. **Say where it stands** as it is: Suggested, Applied to draft, or Published in vN. Only the checklist's owner decides it, in Flightdeck.
+
+## A to-do another checklist settles
+
+Some to-dos are settled by running a whole checklist ("run the smoke test").
+
+1. **Link one** only when the person asks: `flightdeck todo add ... --checklist <process>@<version folder> [--accepts <result>,...] --dry-run --json` first. Name the exact version folder from that process's `versions` in `flightdeck processes <team folder> --contract 2 --json` (read it with `flightdeck process <team folder> <process> --folder <version folder> --contract 2 --json`); never guess the latest. The person starts it with Run this checklist.
+2. **Ask for it done** on a run that completed: `flightdeck todo suggest-done ... --todo <to-do id> --evidence-run <process>/<run id> --tool <name>@<version> --dry-run --json` first. Name the run its plan started; if more than one was started, ask the person which. If it is refused, say why (not completed, a result it doesn't accept, a run that changed) and don't work around it.
+3. **Say what changed.** If `todo list` shows `provenance` on a checked-off to-do, tell the person; nothing reopens on its own.
+
 ## Never
 
 - Never say a to-do is done, dropped or moved, or that an item has met a spread, until `todo list` or `spread list` shows it applied. A suggestion on evidence is a request like any other.
 - Never use a new key to retry. If the command can't confirm the save, retry with the same key: a new key could ask twice.
 - Never drop or move work, stop a spread or send an approval back without the person's agreement. Never ask for any of them to make a gate pass, and never pass a gate. A person decides that.
-- Never put secrets, tokens or customer data in a to-do's or a spread's text, reason or destination, or in a fact's entries, errors or source.
+- Never say a kept step is in the checklist until a published version has it.
+- Never say a to-do is settled by a checklist's run until `todo list` shows it done on that run.
+- Never put secrets, tokens or customer data in a to-do's or a spread's text, reason or destination, in a keep's text or reason, or in a fact's entries, errors or source.
 
 Remember that OneDrive may be up to a minute behind, so say what you read, not what is guaranteed.
