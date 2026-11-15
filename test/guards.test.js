@@ -240,6 +240,44 @@ rule('Round 22 (AB): a genuine save\'s guard, reused for another run, changed by
   }
   assert.strictEqual(mine().text, before, 'the run is as it was');
 });
+/* Round 22 (AC): a write that isn't gated never reaches a run's own files or a scope or to-do record. Each writer below is
+   aimed at one: a run's run.json, a backup or candidate name beside it, a path under one of those names, a scope record
+   in proposals/, or (for the install and update files) anywhere but their own place. Each is refused, the test build's
+   gate is told (it throws), and nothing in the folder changes. */
+const SCOPE_DEC = 'req-mutant-0123456789abcdef01234567.status-wmutant-0123abcd.json';
+const PLAIN = {
+  'contractWrite onto a run.json': (app, r, p, text) => app.PF.repo.contractWrite(app.fs, p, text, text.replace(/"title": "[^"]*"/, '"title": "Changed"')),
+  'archiveCopy as a backup beside a run': (app, r) => app.PF.repo.archiveCopy(app.fs, 'runs/' + r.process + '/' + r.id, 'replaced-mutant.json', '{}'),
+  'archiveDir in a run\'s folder': (app, r) => app.PF.repo.archiveDir(app.fs, 'runs/' + r.process + '/' + r.id),
+  'archiveStaged putting a run.json away': (app, r, p, text) => app.PF.repo.archiveStaged(app.fs, 'runs/' + r.process + '/' + r.id, p, 'replaced-mutant.json', text, () => true),
+  'appendHistory as a candidate': (app, r) => app.PF.repo.appendHistory(app.fs, 'runs/' + r.process + '/' + r.id, 'candidate-mutant', ['{}'], {}),
+  'appendHistory into proposals/': (app) => app.PF.repo.appendHistory(app.fs, 'proposals', 'req-mutant-0123456789abcdef01234567', ['{"format":"flightdeck-plan/3","features":["loops"]}'], {}),
+  'addNote under a candidate\'s name': (app, r) => app.PF.repo.addNote(app.fs, { process: r.process, id: r.id + '/candidate-mutant' }, 'mutant', { text: 'x' }),
+  'saveAttachment under run.json': (app, r) => app.PF.repo.saveAttachment(app.fs, { process: r.process, id: r.id + '/run.json' }, new Blob(['x'], { type: 'text/plain' }), 'mutant', 'a.txt'),
+  'archiveOverflow under a backup\'s name': (app, r) => app.PF.repo.archiveOverflow(app.fs, { process: r.process, id: r.id + '/replaced-mutant', _overflow: [{ id: 'x' }] }, 'mutant'),
+  'recordPlanStatus over a scope decision': (app) => app.PF.repo.recordPlanStatus(app.fs, { id: 'req-mutant-0123456789abcdef01234567', process: 'check-in', version: 1 }, 'wmutant-0123abcd', 'retargeted', '', 'person-avery', { folder: 'v1-x', version: 1 }, '4.0.0'),
+  'savePlan with a scope record\'s bytes': (app) => app.PF.repo.savePlan(app.fs, { id: 'plan-mutant', format: 'flightdeck-plan/3', features: ['loops'] }, {})
+};
+for (const m of Object.keys(PLAIN)) rule('Round 22 (AC): ' + m + ' is refused and nothing is written', async () => {
+  const app = await opened(), { r, p, text } = aRun(app);
+  app.fs.files['proposals/' + SCOPE_DEC] = { t: JSON.stringify({ format: 'flightdeck-plan-status/3', features: ['loops'], proposal: 'req-mutant-0123456789abcdef01234567' }), m: Date.now() };
+  const dirs = JSON.stringify(app.fs.dirs || {});
+  const o = await outcome(app, () => PLAIN[m](app, r, p, text));
+  assert.deepStrictEqual([refused(o), o.wrote, JSON.stringify(app.fs.dirs || {}) === dirs], [true, false, true], JSON.stringify(o));
+});
+/* Round 22 (AC): the source keeps it so: in storage, a folder's write, append or new folder is called only by the gated
+   writer and the one plain writer; in the app, never on a folder at all. */
+rule('Round 22 (AC): storage writes to the folder only through the gated writer or the plain writer, and the app never does', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'storage', 'repo.js'), 'utf8');
+  const fnAt = (name) => { const i = src.indexOf('  function ' + name + '('); assert.ok(i >= 0, name); return [i, src.indexOf('\n  }\n', i)]; };
+  const ok = [fnAt('gatedWrite'), fnAt('plainPut')];
+  /* A folder's write always names a path; o.write() is a plan decision's own callback, not a folder. */
+  const calls = [...src.matchAll(/\.(write|append|mkdirExclusive)\((?!\))/g)].map(m => m.index).filter(i => !ok.some(([a, b]) => i > a && i < b));
+  assert.deepStrictEqual(calls.map(i => src.slice(src.lastIndexOf('\n', i) + 1, src.indexOf('\n', i)).trim().slice(0, 120)), [], 'raw folder writes in repo.js');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
+  const raw = [...app.matchAll(/([\w.]+)\.(write|append|mkdirExclusive)\(/g)].filter(m => !/^(handles|PF\.links)$/.test(m[1])).map(m => m[0]);
+  assert.deepStrictEqual(raw, [], 'folder writes in app.js');
+});
 /* The same mutants made in the app's own source: a click handler that aliases, wraps or calls the writer through a property,
    or through a Proxy of the folder, built into the page. Each click throws in the test build and writes nothing. */
 const HTML = fs.readFileSync(path.join(__dirname, '..', 'dist', 'flightdeck.html'), 'utf8');
@@ -250,7 +288,9 @@ const SOURCE = {
   property: "'mutant': function () { var o = { put: PF.repo.saveRun }; o.put(state.fs, data.runs[0], SESSION, { writer: WRITER }); },",
   proxy: "'mutant': function () { repo.saveRun(new Proxy(state.fs, {}), data.runs[0], SESSION, { writer: WRITER }); },",
   scope: "'mutant': function () { var w = repo.saveScope; w(state.fs, '" + SCOPE + "', { format: 'flightdeck-plan/3' }, {}); },",
-  backup: "'mutant': function () { repo.keepDisplaced(state.fs, data.runs[0], WRITER); },"
+  backup: "'mutant': function () { repo.keepDisplaced(state.fs, data.runs[0], WRITER); },",
+  contract: "'mutant': function () { var r = data.runs[0]; repo.contractWrite(state.fs, 'runs/' + r.process + '/' + r.id + '/run.json', null, '{}'); },",
+  archive: "'mutant': function () { var r = data.runs[0]; repo.archiveCopy(state.fs, 'runs/' + r.process + '/' + r.id, 'replaced-mutant.json', '{}'); },"
 };
 for (const m of Object.keys(SOURCE)) rule('A writer reached by ' + m + ' in the app\'s own source throws when clicked in the test build, and nothing is written', async () => {
   assert.strictEqual(HTML.split(ANCHOR).length, 2, 'set-up: one place to put the mutant');

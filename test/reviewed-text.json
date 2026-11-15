@@ -25,8 +25,8 @@
       "reviewed": "round 17 VD: only add and bind can be delegated"
     },
     "docs/design.md": {
-      "sha256": "3e4d06e157d65e26998cfeb1c1fa1f18b6ffdfab51f0ea9d3b7f075826663335",
-      "reviewed": "AB: every guard the app hands a writer is bound to the writes it was made for (kind, path, run, revision, bytes); checked for direct writes and unconditional deletes"
+      "sha256": "b60f5cc7ac411a525924c16cf3a04d945567f92baae9e17068a401d02968de10",
+      "reviewed": "AC: every ungated write goes through one plain writer that refuses run files, scope and to-do records and paths that climb; contract and archive writers keep to their own places; setup writes through contractWrite and savePeople; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -405,12 +405,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "881286b261066f789a81a35240ee6a50d5ddd763c4c022d1f6caa6fb4a37a93a",
-      "reviewed": "AB: every guard the app hands a writer is bound to the writes it was made for (kind, path, run, revision, bytes); checked for direct writes and unconditional deletes"
+      "sha256": "f4f94df3f86b46dcc5f1951d4577c981f188cf166d56660e3f95ca91011f55c4",
+      "reviewed": "AC: every ungated write goes through one plain writer that refuses run files, scope and to-do records and paths that climb; contract and archive writers keep to their own places; setup writes through contractWrite and savePeople; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "6bd38365d6c727b0cf480d91d70155eaa4f25206c456ded06040cf49497b58e9",
-      "reviewed": "AB: every guard the app hands a writer is bound to the writes it was made for (kind, path, run, revision, bytes); checked for direct writes and unconditional deletes"
+      "sha256": "d3bdb09ee2e891060eeb49eeac877d382bc257b4e2a92f4e86e62c6b53fe3ecb",
+      "reviewed": "AC: every ungated write goes through one plain writer that refuses run files, scope and to-do records and paths that climb; contract and archive writers keep to their own places; setup writes through contractWrite and savePeople; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "7db943140369906843961189dc3f34c8ec9430164cca3cb0f3a9f5bdd6ab946f",

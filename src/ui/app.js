@@ -1317,7 +1317,15 @@
   /* The assistant contract a new team folder starts with: AGENTS.md (Flightdeck's part and Team notes), the skills, and
      .flightdeck/installed.json saying which defaults they are, so flightdeck install can later tell them from the team's own
      changes. Without hashing in this browser, the command falls back on the defaults every version shipped. */
+  /* Round 22 (AC): each file is written through repo.contractWrite, only where nothing is yet (the folder was empty), and read
+     back; a file someone else wrote first, or a write that failed, stops the setup. */
   function writeContract(fs) {
+    var put = function (k, text) {
+      return repo.contractWrite(fs, k, null, text).then(function (res) {
+        if (res && (res.ok || res.unverified)) return;
+        throw new Error(res && res.conflict ? 'another window started this folder at the same moment; open it with Join your team\'s folder instead' : 'Couldn\'t write ' + k + (res && res.why ? ': ' + res.why : ''));
+      });
+    };
     var C = PF.contract, contract = Object.keys(EXAMPLES).filter(function (k) { return k === C.AGENTS || /^\.flightdeck\/skills\//.test(k); });
     var installed = function () {
       var sub = typeof crypto !== 'undefined' && crypto.subtle;
@@ -1325,10 +1333,10 @@
       return Promise.all(contract.map(function (k) { return sub.digest('SHA-256', new TextEncoder().encode(C.managed(k, EXAMPLES[k]))); })).then(function (ds) {
         var files = {};
         ds.forEach(function (d, i) { files[contract[i]] = C.hex(d); });
-        return fs.write('.flightdeck/installed.json', C.installed(APP_VERSION, new Date().toISOString(), 'app', files));
+        return put('.flightdeck/installed.json', C.installed(APP_VERSION, new Date().toISOString(), 'app', files));
       }, function () { return null; });
     };
-    return contract.reduce(function (p, k) { return p.then(function () { return fs.write(k, EXAMPLES[k]); }); }, Promise.resolve()).then(installed);
+    return contract.reduce(function (p, k) { return p.then(function () { return put(k, EXAMPLES[k]); }); }, Promise.resolve()).then(installed);
   }
 
   /* ---------- Settings, AI assistant files: flightdeck install's contract rules, from the app ---------- */
@@ -1805,7 +1813,8 @@
       return notEmpty(fs, dir.name).then(function (why) {
         if (why) throw new Error('"' + dir.name + '" isn\'t empty any more. Someone may have started it from another window');
         /* Two browsers starting the same folder at once can't share a lock, so each checks that people.json is the one it wrote. */
-        return fs.write('people.json', mine).then(function () { return fs.read('people.json'); }).then(function (f) { if (!f || f.text !== mine) throw new Error('another window started this folder at the same moment; open it with Join your team\'s folder instead'); });
+        /* Round 22 (AC): through repo.savePeople, only where no people.json is yet, then read back. */
+        return repo.savePeople(fs, mine, null, { expectText: null }).then(function (res) { if (!res || !res.ok) throw new Error('another window started this folder at the same moment; open it with Join your team\'s folder instead'); });
       }).then(function () { return writeContract(fs); });
     };
     (LOCKS ? lock('preflight:new-folder', init) : init()).then(function () { return handles.set(dir); }).then(function (rec) {

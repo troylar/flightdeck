@@ -22740,7 +22740,7 @@ PF.repo = (function () {
     var path = 'corrections/' + rec.process + '/' + rec.group + '.' + writer + '.' + Math.floor(rec.rev) + '.json';
     return fs.read(path).then(function (f) {
       if (f) throw new Error('A decision with that name is already in the folder. Look again, then decide.');
-      return fs.write(path, JSON.stringify(rec, null, 2) + '\n').then(function () { return path; });
+      return putFile(fs, path, JSON.stringify(rec, null, 2) + '\n').then(function () { return path; });
     });
   }
   /* What became of follow-ups: followups/<process>/<run>.<follow-up>.<writer>.<rev>.json, each written once by whoever
@@ -22786,7 +22786,7 @@ PF.repo = (function () {
     function release(v) { delete claims[path]; return v; }
     return fs.read(path).then(function (f) {
       if (f) throw new Error('A decision with that name is already in the folder. Look again, then decide.');
-      return fs.write(path, text);
+      return putFile(fs, path, text);
     }).then(function () { return fs.read(path); }).then(function (f) {
       var back = f ? F.cleanDecision(json(f.text), rec.process, name) : null;
       if (!back || f.text !== text) throw new Error('The decision didn\'t read back from the team folder as it was written. Look again, then decide.');
@@ -22894,7 +22894,7 @@ PF.repo = (function () {
     return fs.read(path, { maxBytes: X.LIMITS.decisionBytes }).then(function (f) {
       if (f && f.text === text) return 'same';
       if (f) throw new Error('A decision with that name is already in the folder. Look again, then decide.');
-      return fs.write(path, text);
+      return putFile(fs, path, text);
     }).then(function () { return fs.read(path, { maxBytes: X.LIMITS.decisionBytes }); }).then(function (f) {
       var back = f ? X.cleanDecision(json(f.text), rec.process, name) : null;
       if (!back || !back.ok || f.text !== text) throw new Error('The decision didn\'t read back from the team folder as it was written. Look again, then decide.');
@@ -23076,6 +23076,50 @@ PF.repo = (function () {
       return fs.write(w.path, text);
     });
   }
+  /* Round 22 (AC): every write that isn't a gated one reaches the folder here and only here (putFile, addToFile, makeDir;
+     test/guards.test.js checks the source). It never writes:
+     - a run's own files: run.json, a save's candidate, a conflict copy or a recovery's backup, or anything under one of
+       those names (a run named to reach one);
+     - a path that climbs or isn't plain;
+     - in proposals/, a scope or to-do record: neither bytes that are one, nor over a file that is one (or that can't be
+       read as anything else).
+     Those go only through gatedWrite, on their guard's token. Each segment is compared without case and without trailing
+     dots or spaces, as Windows and a Mac's folders compare names. A refusal writes nothing; the gate, when the app has set
+     one, is told (a test build throws there). */
+  var RUN_OWN = /^runs\/[^/]+\/[^/]+\/(run\.json|candidate-[^/]*|run\.conflict-[^/]*|replaced-[^/]*)(\/|$)/i;
+  function plainPath(path) {
+    if (typeof path !== 'string' || !path || path.length > 1024 || path.charAt(0) === '/' || /[\\\u0000-\u001f]/.test(path)) return null;
+    var segs = path.split('/').map(function (x) { return x.replace(/[. ]+$/, ''); });
+    return segs.some(function (x) { return !x; }) ? null : segs.join('/');
+  }
+  function aRecord(o) { return !!o && typeof o === 'object' && (PF.loop.claims(o) || PF.todos.claims(o)); }
+  function plainRefused(path, what) {
+    if (GATE) GATE(null, { kind: 'plain', path: String(path), unguarded: true });
+    var e = new Error('Flightdeck doesn\'t write ' + String(path) + ' that way: ' + what + '. Nothing was written.');
+    e.dropped = true; e.refused = true;
+    return Promise.reject(e);
+  }
+  function plainPut(fs, path, data, how) {
+    var norm = plainPath(path);
+    if (norm == null) return plainRefused(path, 'it isn\'t a plain path in the team folder');
+    if (RUN_OWN.test(norm)) return plainRefused(path, 'it is one of a run\'s own files, which only the run writer writes');
+    var go = function () { return how === 'append' ? fs.append(path, data) : how === 'dir' ? fs.mkdirExclusive(path) : fs.write(path, data); };
+    if (!/^proposals(\/|$)/i.test(norm)) return go();
+    if (how !== 'write' || typeof data !== 'string' || aRecord(json(data)) || !json(data)) return plainRefused(path, 'scope and to-do records are written only on their guard\'s token');
+    return fs.read(path).then(function (f) {
+      var o = f ? json(f.text) : null;
+      if (f && (!o || typeof o !== 'object' || aRecord(o))) return plainRefused(path, 'the file there may be a scope or to-do record');
+      return go();
+    });
+  }
+  function putFile(fs, path, data) { return plainPut(fs, path, data, 'write'); }
+  function addToFile(fs, path, data) { return plainPut(fs, path, data, 'append'); }
+  function makeDir(fs, path) { return plainPut(fs, path, null, 'dir'); }
+  /* Where Flightdeck's install and update files go (the contract): AGENTS.md, .flightdeck/ and, for a skills folder, its
+     skills, its updates and its record. Their copies go only under an updates folder. */
+  var CONTRACT_AT = /^(AGENTS\.md|\.flightdeck\/.+|\.flightdeck-updates\/.+|\.flightdeck-installed\.json|_flightdeck\/.+|flightdeck-[a-z0-9-]+\/.+)$/;
+  var UPDATES_AT = /^(\.flightdeck\/updates|\.flightdeck-updates)\/.+$/;
+  function contractWhy(path, re) { var n = plainPath(path); return n != null && re.test(n) && n === path ? '' : 'it isn\'t one of Flightdeck\'s install or update files'; }
   /* The run a scope or to-do record is about, when it names one (a status decision names only its request). */
   function subjectOf(file) {
     if (file && file.loop && typeof file.loop.process === 'string' && typeof file.loop.run === 'string') return file.loop.process + '/' + file.loop.run;
@@ -23223,7 +23267,7 @@ PF.repo = (function () {
   function archiveOverflow(fs, run, session) {
     var batch = (run._overflow || []).splice(0);
     if (!batch.length) return Promise.resolve();
-    return fs.append('runs/' + run.process + '/' + run.id + '/history-' + session + '.jsonl', batch.map(function (x) { return JSON.stringify(x); }).join('\n') + '\n')
+    return addToFile(fs, 'runs/' + run.process + '/' + run.id + '/history-' + session + '.jsonl', batch.map(function (x) { return JSON.stringify(x); }).join('\n') + '\n')
       .catch(function (e) { run._overflow = batch.concat(run._overflow || []); throw e; });
   }
   /* Everything archived from a run's history files, oldest first. Read on demand, never during routine refreshes. */
@@ -23274,7 +23318,8 @@ PF.repo = (function () {
     if (GATE && typeof check !== 'function') { GATE(null, { kind: 'backup', key: key, unguarded: true }); return Promise.reject(unguarded()); }
     forgetRun(fs, run);
     var path = 'runs/' + key + '/replaced-' + session + '-' + Date.now() + '.json', text = JSON.stringify(stripMeta(run), null, 2);
-    if (typeof check !== 'function') return fs.write(path, text).then(function () { return path; });
+    var w0 = writeAs({ kind: 'backup', path: path, expect: 'absent', key: key, rev: run.rev || 0 }, text, run);
+    if (typeof check !== 'function') return gatedWrite(fs, w0, text, null).then(function () { return path; });
     var w = writeAs({ kind: 'backup', path: path, expect: 'absent', key: key, rev: run.rev || 0 }, text, run);
     return Promise.resolve().then(function () { return check(fs, 'backup', w); }).then(function (tok) {
       if (tok === false) return null;
@@ -23319,7 +23364,7 @@ PF.repo = (function () {
   /* Each window appends only to its own notes file. */
   function addNote(fs, run, session, note) {
     forgetRun(fs, run);
-    return fs.append('runs/' + run.process + '/' + run.id + '/notes-' + session + '.jsonl', JSON.stringify(note) + '\n');
+    return addToFile(fs, 'runs/' + run.process + '/' + run.id + '/notes-' + session + '.jsonl', JSON.stringify(note) + '\n');
   }
   /* An attachment is checked against the allowed kinds and the 10 MB limit (PF.attach) and named after the person's own file,
      cleaned. Older copies keep these notes: the path still matches what they read, and an image still shows as one. */
@@ -23327,7 +23372,7 @@ PF.repo = (function () {
     var ok = PF.attach.check(name || blob.name || '', blob.type, blob.size);
     if (ok.error) return Promise.reject(new Error(ok.error));
     var path = PF.attach.pathFor('runs/' + run.process + '/' + run.id + '/', Date.now(), U.randomId(6), session, ok.name);
-    return fs.write(path, blob).then(function () { return path; });
+    return putFile(fs, path, blob).then(function () { return path; });
   }
 
   /* A reference screenshot added in the builder (o: { process, step, file, writer, now?, rand? }): checked like an attachment
@@ -23346,7 +23391,7 @@ PF.repo = (function () {
       if (!path) throw new Error('Flightdeck can\'t name a screenshot for this process.');
       return fs.stat(path).then(function (st) {
         if (st) { if (++tries >= 3) throw new Error('Couldn\'t find a free name for the image. Try again.'); return attempt(); }
-        return fs.write(path, f).then(function () { return fs.blob(path); }).then(function (b) {
+        return putFile(fs, path, f).then(function () { return fs.blob(path); }).then(function (b) {
           if (!b) throw new Error('The image wasn\'t there when Flightdeck read it back. Try again.');
           return b.arrayBuffer();
         }).then(function (back) {
@@ -23414,15 +23459,15 @@ PF.repo = (function () {
       return shots.reduce(function (p, src) { return p.then(function (m) { return bytesOf(blobs[src]).then(function (b) { bytes[src] = b; m[src] = fnvBytes(b); return m; }); }); }, Promise.resolve({})).then(function (images) {
         var rebuilt = Object.keys(images).length ? P.build(draftMd, Object.assign({}, opts, { images: images, imageBytes: bytes, rand: built.folder.replace(/^v\d+-/, '') })) : built;
         if (rebuilt.blockers) return rebuilt;
-        return shots.reduce(function (p, src) { return p.then(function () { return fs.write(base + src, blobs[src]); }); }, Promise.resolve())
+        return shots.reduce(function (p, src) { return p.then(function () { return putFile(fs, base + src, blobs[src]); }); }, Promise.resolve())
           .then(function () { return writePublication(fs, base, rebuilt); });
       });
     });
   }
   function writePublication(fs, base, built) {
-    return fs.write(base + 'map.md', built.files['map.md'])
-      .then(function () { return fs.write(base + 'types.json', built.files['types.json']); })
-      .then(function () { return fs.write(base + 'publication.json', built.files['publication.json']); })
+    return putFile(fs, base + 'map.md', built.files['map.md'])
+      .then(function () { return putFile(fs, base + 'types.json', built.files['types.json']); })
+      .then(function () { return putFile(fs, base + 'publication.json', built.files['publication.json']); })
       .then(function () { return built; });
   }
 
@@ -23454,13 +23499,13 @@ PF.repo = (function () {
         return shots.reduce(function (p, src) { return p.then(function () { return bytesOf(blobs[src]).then(function (b) { bytes[src] = b; images[src] = fnvBytes(b); }); }); }, Promise.resolve()).then(function () {
           var b2 = shots.length ? P.build(draftMd, Object.assign({}, o, { images: images, imageBytes: bytes, rand: built.folder.replace(/^stage-/, '') })) : built;
           if (b2.blockers) return b2;
-          var put = function (path, data, want) { return fs.write(base + path, data).then(function () { return readBack(fs, base + path, want); }); };
+          var put = function (path, data, want) { return putFile(fs, base + path, data).then(function () { return readBack(fs, base + path, want); }); };
           /* The window's folder and person, checked right before the first write (o.still, as for promote). */
           if (typeof opts.still === 'function' && !opts.still()) return { dropped: true };
           return shots.reduce(function (p, src) { return p.then(function () { return put(src, blobs[src], sha256Of(bytes[src])); }); }, Promise.resolve())
             .then(function () { return put('map.md', b2.files['map.md'], sha256Of(b2.files['map.md'])); })
             .then(function () { return put('types.json', b2.files['types.json'], sha256Of(b2.files['types.json'])); })
-            .then(function () { return fs.write(base + 'publication.json', b2.files['publication.json']); })
+            .then(function () { return putFile(fs, base + 'publication.json', b2.files['publication.json']); })
             .then(function () { return readStage(fs, proc, b2.folder); })
             .then(function (res) {
               if (!res.ok) throw new Error('The stage didn\'t read back as written (' + res.why + '). It isn\'t usable; Folder health names it.');
@@ -23607,7 +23652,7 @@ PF.repo = (function () {
     return stageState(fs, proc).then(function (sp) {
       var l = PF.staging.latest(stageFolder, sp.decisions), d = PF.staging.decision(proc, stageFolder, status, { window: o.window, by: o.by, now: o.now || new Date().toISOString(), reason: o.reason, app: o.app || '', seen: l.rev || null });
       try { stillOk(o); } catch (e) { return { dropped: true }; }
-      return fs.write(d.path, JSON.stringify(d.rec, null, 2)).then(function () { return d.rec; });
+      return putFile(fs, d.path, JSON.stringify(d.rec, null, 2)).then(function () { return d.rec; });
     });
   }
   /* Make a stage the default: the next number from a fresh listing (renumbered and said when someone published meanwhile),
@@ -23641,7 +23686,7 @@ PF.repo = (function () {
         /* Every file is copied by its exact bytes and checked against the stage's frozen payload, before and after: what's
            published is byte for byte what was staged (a byte-order mark included). */
         var shots = Object.keys(st.info.images || {}), pay = st.info.payload;
-        var put = function (path, data, want) { return fs.write(base + path, data).then(function () { return readBack(fs, base + path, want); }); };
+        var put = function (path, data, want) { return putFile(fs, base + path, data).then(function () { return readBack(fs, base + path, want); }); };
         var raw = function (name, want) {
           return fs.blob(from + name).then(function (b) { return b ? bytesOf(b) : null; }).then(function (u8) {
             if (!u8 || sha256Of(u8) !== want) throw new Error('Still syncing: ' + from + name + ' doesn\'t match the stage. Nothing was published.');
@@ -23663,7 +23708,7 @@ PF.repo = (function () {
               .then(function () { return put('types.json', got.types, pay.types); })
               .then(function () { return writeRecord(); });
           });
-        function writeRecord() { return fs.write(base + 'publication.json', record).then(finish); }
+        function writeRecord() { return putFile(fs, base + 'publication.json', record).then(finish); }
         function finish() { return readVersion(fs, proc, folder).then(function (res) {
             if (!res.ok) throw new Error('The new version didn\'t read back as written (' + res.why + ').');
             return { version: version, folder: folder, proposed: st.info.stage.proposed, renumbered: version !== st.info.stage.proposed };
@@ -23677,7 +23722,8 @@ PF.repo = (function () {
      back, so two editors over a shared folder never silently overwrite each other. */
   /* opts.expectText: when given, the file must be exactly that text (null: not there), compared right before the write, not
      only its fingerprint (two different drafts can share an FNV fingerprint). */
-  function saveChecked(fs, path, text, expect, opts) {
+  function saveChecked(fs, path, text, expect, opts) { return checkedWith(function (p, t) { return putFile(fs, p, t); }, fs, path, text, expect, opts); }
+  function checkedWith(put, fs, path, text, expect, opts) {
     var exact = opts && opts.expectText !== undefined;
     /* Replacing a file needs the exact text it replaces: a fingerprint alone (32-bit FNV) could match a file that changed. */
     if (expect != null && (!exact || typeof opts.expectText !== 'string')) return Promise.reject(new Error('A save needs the exact text it expects to find.'));
@@ -23697,7 +23743,7 @@ PF.repo = (function () {
           if (opts && typeof opts.still === 'function' && !opts.still()) return { dropped: true };
           /* A folder can't check and write in one step, so read it back: if anything else is there now, say so rather than
              report a save that didn't stick. (Across computers, OneDrive keeps both copies of a file changed on two.) */
-          return fs.write(path, text).then(function () { return fs.read(path, rd); }).then(function (back) {
+          return put(path, text).then(function () { return fs.read(path, rd); }).then(function (back) {
             if (back && back.text === text) return { ok: true, hash: U.hash(text), text: text };
             return { conflict: true, theirs: back ? back.text : null, theirsHash: back ? U.hash(back.text) : null, afterWrite: true };
           });
@@ -23712,15 +23758,13 @@ PF.repo = (function () {
      read-back failed; { unsure } the write failed and what's there now is neither text. A failed write that left the file as it
      was still throws: that one really did change nothing. */
   function contractWrite(fs, path, expectText, text) {
-    var expect = expectText == null ? null : expectText, wrote = false, failed = null;
+    var expect = expectText == null ? null : expectText, wrote = false, failed = null, no = contractWhy(path, CONTRACT_AT);
     var why = function (e) { return e && e.message || String(e); };
-    var watched = {
-      read: function (p, o) { return fs.read(p, o); },
-      write: function (p, t) { return fs.write(p, t).then(function () { wrote = true; }, function (e) { failed = { e: e }; throw e; }); }
-    };
-    return saveChecked(watched, path, text, expect == null ? null : U.hash(expect), { expectText: expect }).catch(function (e) {
+    if (no) return plainRefused(path, no);
+    var put = function (p, t) { return putFile(fs, p, t).then(function () { wrote = true; }, function (e) { failed = { e: e }; throw e; }); };
+    return checkedWith(put, fs, path, text, expect == null ? null : U.hash(expect), { expectText: expect }).catch(function (e) {
       if (wrote) return { unverified: true, why: why(e) };
-      if (!failed) throw e;
+      if (!failed || failed.e.refused) throw e;
       var unsure = { unsure: true, why: why(failed.e) };
       return fs.read(path).then(function (f) {
         var now = f ? f.text : null;
@@ -23756,16 +23800,18 @@ PF.repo = (function () {
       for (var j = 0; j < 3; j++) rnd += p2(b[j].toString(16));
       return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + '-' + p2(d.getHours()) + p2(d.getMinutes()) + p2(d.getSeconds()) + '-' + p2(d.getMilliseconds(), 3) + '-' + rnd;
     }
+    if (contractWhy(base + '/x', UPDATES_AT)) return plainRefused(base, 'copies are kept only in an updates folder');
     function attempt(n) {
       var at = base + '/' + name();
-      return fs.mkdirExclusive(at).then(function () { return at; }, function (e) { if (n >= 20 || !/already there/.test(e && e.message)) throw e; return attempt(n + 1); });
+      return makeDir(fs, at).then(function () { return at; }, function (e) { if (n >= 20 || !/already there/.test(e && e.message)) throw e; return attempt(n + 1); });
     }
     return attempt(0);
   }
   /* A copy of a file about to be replaced, read back: no checked copy, no replacement. */
   function archiveCopy(fs, dir, rel, text) {
     var at = dir + '/' + rel;
-    return fs.write(at, text).then(function () { return fs.read(at); }).then(function (back) {
+    if (contractWhy(at, UPDATES_AT)) return plainRefused(at, 'copies are kept only in an updates folder');
+    return putFile(fs, at, text).then(function () { return fs.read(at); }).then(function (back) {
       if (!back || back.text !== text) throw new Error('The copy of ' + rel + ' didn\'t read back the same, so nothing was replaced. Check the folder and try again.');
     });
   }
@@ -23775,6 +23821,7 @@ PF.repo = (function () {
      removal is removed; the command's --force has the same limit, and this is a generated copy. */
   function archiveStaged(fs, dir, path, rel, text, alive) {
     var on = function () { return !alive || alive(); };
+    if (contractWhy(path, UPDATES_AT)) return plainRefused(path, 'only a staged copy in an updates folder is put away');
     if (!on()) return Promise.resolve({ stale: true });
     return archiveCopy(fs, dir, rel, text).then(function () { return on() ? fs.read(path) : null; }).then(function (now) {
       if (!on()) return { stale: true };
@@ -23817,13 +23864,13 @@ PF.repo = (function () {
   function recordValidation(fs, pub, session, by, note, evidence, as) {
     var rec = { kind: 'validation', process: pub.map.meta.process, version: pub.info.version, folder: pub.info.folder, by: by, at: new Date().toISOString(), note: String(note || '').slice(0, 300), evidence: evidence };
     if (as === 'backup') rec.as = 'backup';
-    return fs.write('validations/' + pub.map.meta.process + '.v' + pub.info.version + '.' + session + '.json', JSON.stringify(rec, null, 2));
+    return putFile(fs, 'validations/' + pub.map.meta.process + '.v' + pub.info.version + '.' + session + '.json', JSON.stringify(rec, null, 2));
   }
   /* A stage sign-off (2.1): flightdeck-validation/2 in validations/<process>.<stage>.<window>.json, the frozen shape
      (PF.skills.stageSignoff). o: { window, by, note, evidence, as, app, now }. */
   function recordStageValidation(fs, stage, o) {
     var s = PF.skills.stageSignoff(stage, { window: o.window, by: o.by, at: o.now || new Date().toISOString(), note: o.note, evidence: o.evidence, as: o.as, app: o.app });
-    return fs.write(s.path, s.text).then(function () { return s.rec; });
+    return putFile(fs, s.path, s.text).then(function () { return s.rec; });
   }
   /* Sign off a stage from the app (2.1 slice 6): under the same per-process lock as promote and retire, the stage, its
      decisions and publications/<process>/ are read again; it must still be staged. o.check(stage) says who signs and with
@@ -23943,7 +23990,7 @@ PF.repo = (function () {
     var path = '.flightdeck/write-test-' + writer + '.tmp', text = 'Flightdeck checks it can save in this folder. This file is removed right away.\n';
     /* The file is always removed (or said to be left), whatever the read back found. */
     var remove = function () { return fs.remove(path).then(function () { return { removed: true }; }, function () { return { removed: false, path: path }; }); };
-    return fs.write(path, text).then(function () { return fs.read(path).catch(function () { return null; }); }).then(function (f) {
+    return putFile(fs, path, text).then(function () { return fs.read(path).catch(function () { return null; }); }).then(function (f) {
       return remove().then(function (res) { if (!f || f.text !== text) throw new Error('a test file didn\'t read back as written' + (res.removed ? '' : ', and ' + path + ' couldn\'t be removed; delete it')); return res; });
     });
   }
@@ -23957,12 +24004,9 @@ PF.repo = (function () {
       var rc = opts && opts.recheck, text = PF.loop.text(file), path = 'proposals/' + name;
       if (typeof rc !== 'function') { GATE(null, { kind: 'scope', path: path, unguarded: true }); return Promise.resolve({ dropped: true, unguarded: true }); }
       var w = writeAs({ kind: 'scope', path: path, expect: 'absent', key: subjectOf(file) }, text), tok = null, refused = null;
-      var gfs = {
-        read: function (p, o) { return fs.read(p, o); },
-        write: function (p, t) { if (p !== path || t !== text) return Promise.reject(notAdmitted()); return gatedWrite(fs, w, t, tok).then(null, function (e) { refused = e; throw e; }); }
-      };
+      var gput = function (p, t) { if (p !== path || t !== text) return Promise.reject(notAdmitted()); return gatedWrite(fs, w, t, tok).then(null, function (e) { refused = e; throw e; }); };
       var o2 = Object.assign({}, opts, { recheck: function () { return Promise.resolve(rc(fs, 'first', w)).then(function (t) { if (t === false) return false; if (!t || typeof t !== 'object') { try { GATE(null, w); } catch (e) { refused = e; } return false; } tok = t; return true; }); } });
-      return saveChecked(gfs, path, text, null, o2).then(function (res) { if (refused && !refused.dropped) throw refused; return res; }, function (e) {
+      return checkedWith(gput, fs, path, text, null, o2).then(function (res) { if (refused && !refused.dropped) throw refused; return res; }, function (e) {
         if (e && e === refused && e.dropped) return { dropped: true, arrived: !!e.arrived };
         throw e;
       });
@@ -24036,7 +24080,7 @@ PF.repo = (function () {
      never replaces the switch this window made before it. Resolves to the path written. */
   function recordPlanStatus(fs, plan, session, status, runId, by, to, app) {
     var rec = PF.plans.decision(plan, status, runId, by, new Date().toISOString(), to, app), path = 'proposals/' + plan.id + '.status-' + session + (status === 'retargeted' ? '' : '-d') + '.json';
-    return fs.write(path, JSON.stringify(rec, null, 2)).then(function () { return path; });
+    return putFile(fs, path, JSON.stringify(rec, null, 2)).then(function () { return path; });
   }
   /* Try again (2.1.1): the run a planned start reserved, written from the exact bytes this window kept when its first save
      failed (k: { process, id, path, text, cand, dec }), never made again. Under the plan's lock and then the run's, on a fresh
@@ -24121,7 +24165,7 @@ PF.repo = (function () {
       var chunk = '', b = size;
       while (i < lines.length) { var t = lines[i] + '\n', tb = TL.bytes(t); if (TL.rolls(b, tb)) break; chunk += t; b += tb; i++; }
       if (!chunk) { roll[dir] = ++n; return sizeOf().then(next); }
-      return fs.append(path(), chunk).then(function () { return next(b); });
+      return addToFile(fs, path(), chunk).then(function () { return next(b); });
     }
     return sizeOf().then(next);
   }
@@ -24265,7 +24309,7 @@ PF.repo = (function () {
     var path = PF.proposals.DIR + '/' + proc + '/' + name, text = JSON.stringify(rec, null, 2) + '\n';
     return fs.read(path).then(function (f) {
       if (f) throw new Error('A file with that name is already in the folder.');
-      return fs.write(path, text);
+      return putFile(fs, path, text);
     }).then(function () { return fs.read(path); }).then(function (back) {
       if (!back || back.text !== text) throw new Error('it didn\'t read back as written');
       return name;
@@ -24283,7 +24327,7 @@ PF.repo = (function () {
       }).then(function (l) { return l.filter(Boolean); });
     });
   }
-  function writePresence(fs, rec) { return fs.write(PF.proposals.PRESENCE + '/' + PF.proposals.presenceName(rec.writer), JSON.stringify(rec) + '\n'); }
+  function writePresence(fs, rec) { return putFile(fs, PF.proposals.PRESENCE + '/' + PF.proposals.presenceName(rec.writer), JSON.stringify(rec) + '\n'); }
   function removePresence(fs, writer) { return fs.remove(PF.proposals.PRESENCE + '/' + PF.proposals.presenceName(writer)).then(null, function () {}); }
   /* Any window writing presence may delete files in presence/ over 24 hours old, at most 20 a pass (the second documented
      exception to one writer per file, beside connection/). Each is looked at again first, and deleted only if its size and
@@ -24461,7 +24505,7 @@ PF.repo = (function () {
     var text = JSON.stringify(rec, null, 2) + '\n';
     return fs.read(path).then(function (f) {
       if (f) throw new Error('A file with that name is already in the folder.');
-      return fs.write(path, text);
+      return putFile(fs, path, text);
     }).then(function () { return path; });
   }
   function sendProbe(fs, rec, atMs) {
@@ -34392,7 +34436,15 @@ PF.examples = (function () {
   /* The assistant contract a new team folder starts with: AGENTS.md (Flightdeck's part and Team notes), the skills, and
      .flightdeck/installed.json saying which defaults they are, so flightdeck install can later tell them from the team's own
      changes. Without hashing in this browser, the command falls back on the defaults every version shipped. */
+  /* Round 22 (AC): each file is written through repo.contractWrite, only where nothing is yet (the folder was empty), and read
+     back; a file someone else wrote first, or a write that failed, stops the setup. */
   function writeContract(fs) {
+    var put = function (k, text) {
+      return repo.contractWrite(fs, k, null, text).then(function (res) {
+        if (res && (res.ok || res.unverified)) return;
+        throw new Error(res && res.conflict ? 'another window started this folder at the same moment; open it with Join your team\'s folder instead' : 'Couldn\'t write ' + k + (res && res.why ? ': ' + res.why : ''));
+      });
+    };
     var C = PF.contract, contract = Object.keys(EXAMPLES).filter(function (k) { return k === C.AGENTS || /^\.flightdeck\/skills\//.test(k); });
     var installed = function () {
       var sub = typeof crypto !== 'undefined' && crypto.subtle;
@@ -34400,10 +34452,10 @@ PF.examples = (function () {
       return Promise.all(contract.map(function (k) { return sub.digest('SHA-256', new TextEncoder().encode(C.managed(k, EXAMPLES[k]))); })).then(function (ds) {
         var files = {};
         ds.forEach(function (d, i) { files[contract[i]] = C.hex(d); });
-        return fs.write('.flightdeck/installed.json', C.installed(APP_VERSION, new Date().toISOString(), 'app', files));
+        return put('.flightdeck/installed.json', C.installed(APP_VERSION, new Date().toISOString(), 'app', files));
       }, function () { return null; });
     };
-    return contract.reduce(function (p, k) { return p.then(function () { return fs.write(k, EXAMPLES[k]); }); }, Promise.resolve()).then(installed);
+    return contract.reduce(function (p, k) { return p.then(function () { return put(k, EXAMPLES[k]); }); }, Promise.resolve()).then(installed);
   }
 
   /* ---------- Settings, AI assistant files: flightdeck install's contract rules, from the app ---------- */
@@ -34880,7 +34932,8 @@ PF.examples = (function () {
       return notEmpty(fs, dir.name).then(function (why) {
         if (why) throw new Error('"' + dir.name + '" isn\'t empty any more. Someone may have started it from another window');
         /* Two browsers starting the same folder at once can't share a lock, so each checks that people.json is the one it wrote. */
-        return fs.write('people.json', mine).then(function () { return fs.read('people.json'); }).then(function (f) { if (!f || f.text !== mine) throw new Error('another window started this folder at the same moment; open it with Join your team\'s folder instead'); });
+        /* Round 22 (AC): through repo.savePeople, only where no people.json is yet, then read back. */
+        return repo.savePeople(fs, mine, null, { expectText: null }).then(function (res) { if (!res || !res.ok) throw new Error('another window started this folder at the same moment; open it with Join your team\'s folder instead'); });
       }).then(function () { return writeContract(fs); });
     };
     (LOCKS ? lock('preflight:new-folder', init) : init()).then(function () { return handles.set(dir); }).then(function (rec) {
