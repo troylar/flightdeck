@@ -1262,7 +1262,8 @@ PF.repo = (function () {
        those names (a run named to reach one);
      - a path that climbs or isn't plain;
      - in proposals/, a scope or to-do record: neither bytes that are one, nor over a file that is one (or that can't be
-       read as anything else).
+       read as anything else), nor at a record's name or a synced copy's of one, there or not (round 23: a plan decision
+       written first at a decision's name would keep the loop's own decision from ever being recorded).
      Those go only through gatedWrite, on their guard's token. Each segment is compared without case and without trailing
      dots or spaces, as Windows and a Mac's folders compare names. A refusal writes nothing; the gate, when the app has set
      one, is told (a test build throws there). */
@@ -1272,6 +1273,9 @@ PF.repo = (function () {
     var segs = path.split('/').map(function (x) { return x.replace(/[. ]+$/, ''); });
     return segs.some(function (x) { return !x; }) ? null : segs.join('/');
   }
+  /* A scope or to-do record's name in proposals/ (a request, or its decision <request>.status-<writer>-<rev>), or a synced
+     copy's, compared without case. */
+  var RECORD_NAME = /^req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24}(\.status-[a-z0-9][a-z0-9-]{0,39}-[0-9a-f]{8})?( \([0-9]{1,3}\)|-[a-z0-9-]{1,63})?\.json$/i;
   function aRecord(o) { return !!o && typeof o === 'object' && (PF.loop.claims(o) || PF.todos.claims(o)); }
   function plainRefused(path, what) {
     if (GATE) GATE(null, { kind: 'plain', path: String(path), unguarded: true });
@@ -1285,6 +1289,7 @@ PF.repo = (function () {
     if (RUN_OWN.test(norm)) return plainRefused(path, 'it is one of a run\'s own files, which only the run writer writes');
     var go = function () { return how === 'append' ? fs.append(path, data) : how === 'dir' ? fs.mkdirExclusive(path) : fs.write(path, data); };
     if (!/^proposals(\/|$)/i.test(norm)) return go();
+    if (RECORD_NAME.test(norm.slice(norm.lastIndexOf('/') + 1))) return plainRefused(path, 'that name is kept for a scope or to-do record, which is written only on its guard\'s token');
     if (how !== 'write' || typeof data !== 'string' || aRecord(json(data)) || !json(data)) return plainRefused(path, 'scope and to-do records are written only on their guard\'s token');
     return fs.read(path).then(function (f) {
       var o = f ? json(f.text) : null;
@@ -2260,7 +2265,10 @@ PF.repo = (function () {
   }
   /* A start or decline goes to <plan>.status-<session>-d.json and a switch to <plan>.status-<session>.json (2.1.1), so a start
      never replaces the switch this window made before it. Resolves to the path written. */
+  var PLAN_ID = /^(plan-[a-z0-9-]{1,100}|req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})$/, SESSION_ID = /^[a-z0-9][a-z0-9-]{0,59}$/;
   function recordPlanStatus(fs, plan, session, status, runId, by, to, app) {
+    if (!plan || typeof plan.id !== 'string' || !PLAN_ID.test(plan.id)) return Promise.reject(new Error('That isn\'t a plan Flightdeck can record a decision on. Nothing was written.'));
+    if (typeof session !== 'string' || !SESSION_ID.test(session)) return Promise.reject(new Error('That isn\'t a window Flightdeck can record a decision for. Nothing was written.'));
     var rec = PF.plans.decision(plan, status, runId, by, new Date().toISOString(), to, app), path = 'proposals/' + plan.id + '.status-' + session + (status === 'retargeted' ? '' : '-d') + '.json';
     return putFile(fs, path, JSON.stringify(rec, null, 2)).then(function () { return path; });
   }

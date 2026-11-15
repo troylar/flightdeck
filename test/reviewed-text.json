@@ -25,8 +25,8 @@
       "reviewed": "round 17 VD: only add and bind can be delegated"
     },
     "docs/design.md": {
-      "sha256": "b60f5cc7ac411a525924c16cf3a04d945567f92baae9e17068a401d02968de10",
-      "reviewed": "AC: every ungated write goes through one plain writer that refuses run files, scope and to-do records and paths that climb; contract and archive writers keep to their own places; setup writes through contractWrite and savePeople; checked for direct writes and unconditional deletes"
+      "sha256": "d841fe8118c3b7e0e8c9a5b34238f2b756f20911bfc4f753071eccb6ff5ba204",
+      "reviewed": "Round 23 (slice 3 review): plainPut keeps scope and to-do record names in proposals/ whether or not a file is there; recordPlanStatus refuses a plan or window ID that isn't one. Adds refusals only; checked for direct writes and unconditional deletes: none."
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -405,8 +405,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "02bb461757c9409260c367109640afb8a32b25e954ab3a0522b941165dbb398c",
-      "reviewed": "Round 22 (AC): saveScope without a gate writes through the record writer; checked for direct writes and unconditional deletes"
+      "sha256": "57e10c9f9be9c02cf568d1de75a26bf3ea7868f1f735e97f76f002a575e7a354",
+      "reviewed": "Round 23 (slice 3 review): plainPut keeps scope and to-do record names in proposals/ whether or not a file is there; recordPlanStatus refuses a plan or window ID that isn't one. Adds refusals only; checked for direct writes and unconditional deletes: none."
     },
     "src/ui/app.js": {
       "sha256": "d3bdb09ee2e891060eeb49eeac877d382bc257b4e2a92f4e86e62c6b53fe3ecb",

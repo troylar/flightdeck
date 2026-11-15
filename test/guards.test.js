@@ -265,6 +265,31 @@ for (const m of Object.keys(PLAIN)) rule('Round 22 (AC): ' + m + ' is refused an
   const o = await outcome(app, () => PLAIN[m](app, r, p, text));
   assert.deepStrictEqual([refused(o), o.wrote, JSON.stringify(app.fs.dirs || {}) === dirs], [true, false, true], JSON.stringify(o));
 });
+/* Round 23: with nothing at the name, a plain write still never takes a scope or to-do record's name (a decision's, or a
+   synced copy's), so a plan decision can't occupy the file a loop decision needs. The gate is told (the test build's
+   throws, naming the plain write), and nothing is written. A plan ID that isn't one is refused before any path is made. */
+const REQ_ID = 'req-mutant-0123456789abcdef01234567';
+const decide = (app, id, session, status) => app.PF.repo.recordPlanStatus(app.fs, { id, process: 'check-in', version: 1 }, session, status, status === 'accepted' ? 'run-mutant' : null, 'person-avery', status === 'retargeted' ? { folder: 'v1-x', version: 1 } : null, '4.0.0');
+const ABSENT = {
+  'a scope decision\'s name': ['wmutant-0123abcd', 'retargeted', SCOPE_DEC],
+  'a synced copy of a scope decision\'s name': ['w-0123abcd', 'accepted', REQ_ID + '.status-w-0123abcd-d.json']
+};
+for (const m of Object.keys(ABSENT)) rule('Round 23: recordPlanStatus at ' + m + ', with nothing there, is refused, the gate is told, and nothing is written', async () => {
+  const app = await opened(), [session, status, name] = ABSENT[m];
+  assert.strictEqual(app.fs.files['proposals/' + name], undefined, 'set-up: nothing at the name');
+  const o = await outcome(app, () => decide(app, REQ_ID, session, status));
+  assert.deepStrictEqual([refused(o), o.wrote, /"kind":"plain"/.test(o.why) && o.why.indexOf('proposals/' + name) >= 0], [true, false, true], JSON.stringify(o));
+});
+for (const id of ['../runs/check-in/x', REQ_ID + '.status-wmutant-0123abcd', 'REQ-MUTANT-0123456789ABCDEF01234567', '']) rule('Round 23: recordPlanStatus on the plan ID ' + JSON.stringify(id) + ' is refused before any path is made, and nothing is written', async () => {
+  const app = await opened();
+  const o = await outcome(app, () => decide(app, id, 'w2abcdefgh', 'declined'));
+  assert.deepStrictEqual([o.how, /isn't a plan Flightdeck can record a decision on/.test(o.why), o.wrote], ['rejected', true, false], JSON.stringify(o));
+});
+rule('Round 23: a request\'s own plan decision from a window still writes (only record names are kept)', async () => {
+  const app = await opened();
+  const o = await outcome(app, () => decide(app, REQ_ID, 'w2abcdefgh', 'declined'));
+  assert.deepStrictEqual([o.how, o.value, o.wrote], ['resolved', 'proposals/' + REQ_ID + '.status-w2abcdefgh-d.json', true], JSON.stringify(o));
+});
 /* Round 22 (AC): the source keeps it so: in storage, a folder's write, append or new folder is called only by the gated
    writer and the one plain writer; in the app, never on a folder at all. */
 rule('Round 22 (AC): storage writes to the folder only through the gated writer or the plain writer, and the app never does', () => {
