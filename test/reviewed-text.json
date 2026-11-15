@@ -421,8 +421,8 @@
       "reviewed": "WB: the app's ordinary run read keeps a part it couldn't take in (a notes file gone when read, a part listed as a link) on the run as _parts, and runProblems names it; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "b55f12a945d86dc60d8760a60fc98e237eee5f8c28d9a027b8b6c6c808a3e746",
-      "reviewed": "WE: Run this checklist makes the plan again with the same attribution and time and compares it whole, pin included, never by id alone; checked for direct writes and unconditional deletes"
+      "sha256": "8a6be9ee11175c2f0fc736e9b708ea78991e6b0ff6aa45c4c2454c8f10f8db15",
+      "reviewed": "Review fix (PR #117): keptGuard's open path requires no hold and no correction-list limit, so an unreadable keep holds Publish and Promote for everyone, not only when an owner is needed; checked for direct writes and unconditional deletes: none added, the change only refuses more"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
