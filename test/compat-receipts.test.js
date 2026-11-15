@@ -21,8 +21,8 @@ const PY = python();
 const written = {};
 /* run-l: a living run ended with its receipt. run-q: a run with one tool's request waiting, nothing landed (no living).
    run-p: a run without to-dos. With waiting, run-l also has a tool's request still waiting when it ended. */
-async function folder(waiting) {
-  const memo = waiting ? 'waiting' : 'plain';
+async function folder(waiting, keep) {
+  const memo = (waiting ? 'waiting' : 'plain') + (keep ? '+keep' : '');
   if (written[memo]) return written[memo];
   const NEW = H.loadMain({ at: AT, seed: 43 }), m = H.memFolder(NEW, await G.main()), repo = NEW.repo, T = NEW.todos, R = NEW.run;
   const res = await repo.publish(m, MD, { people: G.PEOPLE, customTypes: {}, workflows: {}, by: 'person-avery', changes: 'First', existing: [], now: AT, app: '4.0.0' });
@@ -40,6 +40,11 @@ async function folder(waiting) {
     lw = T.buildProposal({ run: { process: 'release-notes', id: 'run-l' }, producer: { name: 'notes-bot', version: '1.0' }, key: 'k-l1', seen: [], at: AT, body: Object.assign({}, body, { text: 'Ask legal' }), app: '4.0.0' });
     await repo.saveScope(m, lw.id + '.json', lw);
   }
+  let kp = null;
+  if (keep) {
+    kp = NEW.learn.build({ run: { process: 'release-notes', id: 'run-l' }, by: 'person-avery', at: AT, app: '4.0.0', source: { todo: T.todoIdFor(id) }, change: { text: 'Check the links twice', where: 'end' }, needs: 'It isn\'t placed yet.' });
+    await repo.saveScope(m, kp.id + '.json', kp);
+  }
   l.living = { head: id }; l.features = NEW.envelope.FROZEN.filter(f => l.features.concat(['living-runs']).indexOf(f) >= 0);
   const d = await repo.loadAll(m);
   const P = NEW.receipts.prepare(l, { outcome: 'Cancelled', by: 'person-avery', at: AT, app: '4.0.0', records: d.todos, unread: d.todosUnread, people: { people: G.PEOPLE }, now: Date.parse(AT), loops: { records: [], unread: [] }, runs: [] });
@@ -47,7 +52,7 @@ async function folder(waiting) {
   await repo.saveScope(m, P.name, P.file);
   R.end(l, R.mapOf(l), 'Cancelled', 'person-avery', 'Avery', AT, { receipt: P.id });
   await repo.saveRun(m, l, 'w-avery'); await repo.saveRun(m, q, 'w-avery'); await repo.saveRun(m, p, 'w-avery');
-  written[memo] = { files: H.filesOf(m), receipt: P.name, records: [c.id + '.json', w.id + '.json', P.name], waiting: lw ? lw.id : '' };
+  written[memo] = { files: H.filesOf(m), receipt: P.name, records: [c.id + '.json', w.id + '.json', P.name], waiting: lw ? lw.id : '', keep: kp ? kp.id : '' };
   return written[memo];
 }
 function cli(bin, ...a) { const r = cp.spawnSync(process.execPath, [bin, ...a], { encoding: 'utf8' }); let j = null; try { j = JSON.parse(r.stdout || r.stderr); } catch (e) { j = { raw: r.stdout + r.stderr }; } return { code: r.status, json: j, out: r.stdout + r.stderr }; }
@@ -394,6 +399,38 @@ rule('This version: a receipt resting on a record with a different copy, or call
         const mine = (res.runReceipts || []).filter((x) => x.run === 'release-notes/run-l');
         if (!kind) same([mine.length, mine[0] && mine[0].state], [1, 'confirmed'], what + ' checker: ' + JSON.stringify(res.runReceipts));
         else same([mine.length, mine[0] && mine[0].path, mine[0] && mine[0].kind, mine[0] && mine[0].why], [1, 'proposals/' + c.name, kind, want[0][1]], what + ' checker: ' + JSON.stringify(res.runReceipts));
+      }
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
+});
+/* The keeps a receipt names (YI): a receipt holds them by id, never by what a copy says, so a copy of a keep writing an
+   optional field as null, or saying another step, leaves it confirmed for run, next, runs, todo list and the checker alike. */
+rule('This version: a receipt holds the keeps it names by id: any copy of one leaves it confirmed for every reader and the checker', async () => {
+  const { files, receipt, keep } = await folder(false, true), kp = 'proposals/' + keep + '.json';
+  const rc = JSON.parse(files['proposals/' + receipt]), k0 = JSON.parse(files[kp]);
+  assert.ok(JSON.stringify(rc.keeps || []).indexOf(keep) >= 0 && k0.by && !('template' in k0) && !('reason' in k0), 'set-up: the receipt rests on an unplaced person\'s keep: ' + JSON.stringify(rc.keeps));
+  const copy = (edit) => { const o = JSON.parse(files[kp]); edit(o); return Object.assign({}, files, { [kp.replace(/\.json$/, ' (1).json')]: JSON.stringify(o, null, 2) + '\n' }); };
+  const cases = [['the control', files],
+    ['a copy with "template" and "anchor" null', copy((o) => { o.template = null; o.anchor = null; })],
+    ['a copy with "reason" and "base" null', copy((o) => { o.reason = null; o.base = null; })],
+    ['a copy of the person\'s keep with "producer" and "key" null', copy((o) => { o.producer = null; o.key = null; })],
+    ['a copy saying another step', copy((o) => { o.change.text = 'Check the links three times'; })]];
+  for (const [what, f] of cases) {
+    const { root, dir } = tree(f);
+    try {
+      const outs = {
+        run: cli(MINE, 'run', dir, 'release-notes/run-l', '--contract', '2', '--json'),
+        next: cli(MINE, 'next', dir, 'release-notes/run-l', '--as', 'person-avery', '--contract', '2', '--json'),
+        runs: cli(MINE, 'runs', dir, '--contract', '2', '--json'),
+        'todo list': cli(MINE, 'todo', 'list', dir, 'release-notes/run-l', '--json')
+      };
+      const got = Object.keys(outs).map((k) => [k, (outs[k].json.problems || []).filter((x) => x.path === 'proposals/' + receipt).map((x) => [x.kind, x.why])]);
+      assert.strictEqual(outs.run.json.data.run.receipt.state, 'confirmed', what + ': ' + JSON.stringify(outs.run.json.problems));
+      same(got, Object.keys(outs).map((k) => [k, []]), what + ': ' + JSON.stringify(got));
+      if (PY) {
+        const res = JSON.parse(cp.execFileSync(PY, ['-I', path.join(ROOT, 'example-folder', '.flightdeck', 'skills', '_flightdeck', 'check_folder.py'), dir], { encoding: 'utf8' }));
+        const mine = (res.runReceipts || []).filter((x) => x.run === 'release-notes/run-l');
+        same([mine.length, mine[0] && mine[0].state], [1, 'confirmed'], what + ' checker: ' + JSON.stringify(res.runReceipts));
       }
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   }

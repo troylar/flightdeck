@@ -468,7 +468,11 @@ def group_id(k):
 
 
 def fact_content(f):
-    """PF.facts.contentOf: what an observation says, apart from when and by whom."""
+    """PF.facts.contentOf: what an observation says, apart from when and by whom, from the fact as its reader reads it (an
+    entry's "link": null is no link)."""
+    rec = CF.todo_checked(f, None)
+    if isinstance(rec, dict) and "content" in rec:
+        return rec["content"]
     es = sorted(arr(f.get("entries")), key=lambda e: str(obj(e).get("id")).encode("utf-16-be", "surrogatepass"))
     return CF._tsha(["fact", f.get("domain"), js_truthy(f.get("complete")), f.get("reported"), len(arr(f.get("errors"))) > 0, es])
 

@@ -2213,8 +2213,16 @@ def fact_clean_support(v, err):
     return {"fact": v["fact"], "content": v["content"], "incarnation": inc, "source": src, "domain": v["domain"]}
 
 
-def fact_why(o, name, unchecked=None):
-    """PF.facts.cleanFile: '' when the app reads this fact, else why it refuses it."""
+def fact_content_of(f):
+    """PF.facts.contentOf: what an observation says, apart from when and by whom, from its checked entries."""
+    es = sorted(f.get("entries") or [], key=lambda e: str(e.get("id")).encode("utf-16-be", "surrogatepass"))
+    return _tsha(["fact", f.get("domain"), bool(f.get("complete")), f.get("reported"), len(f.get("errors") or []) > 0, es])
+
+
+def fact_why(o, name, unchecked=None, record=None):
+    """PF.facts.cleanFile: '' when the app reads this fact, else why it refuses it. record: a list the record it returns is
+    appended to when it reads it (its envelope left out, its source and entries without a field written as null, by from
+    its producer and its content derived)."""
     if not _tstr(o.get("id")) or not T_REQ.match(o["id"]):
         return "is a fact without a request id"
     if _tstr(name) and not todo_request_file(name, o["id"]):
@@ -2249,7 +2257,7 @@ def fact_why(o, name, unchecked=None):
         err("uid")
     if not _twhole(o.get("attempt"), 1, 999):
         err("attempt")
-    fact_clean_source(o.get("source"), err, "source")
+    fsrc = fact_clean_source(o.get("source"), err, "source")
     dom = o.get("domain")
     if not _tstr(dom) or dom not in F_NAMES:
         err("domain")
@@ -2264,6 +2272,7 @@ def fact_why(o, name, unchecked=None):
         err("reported")
     field, values, mx = F_DOMAINS[dom]
     ents = o.get("entries")
+    cents = []
     if not isinstance(ents, list) or len(ents) > mx:
         err("entries")
     else:
@@ -2297,6 +2306,12 @@ def fact_why(o, name, unchecked=None):
                 err("entries twice")
                 break
             have.add(e["id"])
+            ce = {"id": e["id"], "text": t}
+            if field:
+                ce[field] = e[field]
+            if e.get("link") is not None:
+                ce["link"] = e["link"]
+            cents.append(ce)
     fe = o.get("fetched")
     if not _twhole(fe, 0, F_LIMITS["entries"]) or (isinstance(ents, list) and fe != len(ents)):
         err("fetched")
@@ -2309,7 +2324,15 @@ def fact_why(o, name, unchecked=None):
                 err("errors entry")
     if len(errors) == n0 and o["complete"] and (o["reported"] != o["fetched"] or ers):
         err("complete is true only when reported equals fetched and there are no errors")
-    return "is a fact that isn't in its format: " + errors[0] if errors else ""
+    if errors:
+        return "is a fact that isn't in its format: " + errors[0]
+    if record is not None:
+        r = {"id": o["id"], "kind": "fact", "run": {"process": run["process"], "id": run["id"]}, "seen": list(sn), "by": {"tool": pr["name"], "version": pr["version"]},
+             "at": o["at"], "loopStep": o["loopStep"], "uid": o["uid"], "attempt": o["attempt"], "source": fsrc, "domain": dom, "observedAt": o["observedAt"],
+             "maxAgeSeconds": o["maxAgeSeconds"], "complete": o["complete"], "reported": o["reported"], "entries": cents, "fetched": fe, "errors": list(ers)}
+        r["content"] = fact_content_of(r)
+        record.append(r)
+    return ""
 
 
 # Keeps (4.0 slice 5, PF.learn): a to-do or a spread kept for next time, a correction request on its checklist's publication.
@@ -2365,8 +2388,9 @@ def _khash(run, source, template, anchor):
     return _thash(["keep", run["process"], run["id"], sk, template["process"] if template else "", ak], 24)
 
 
-def keep_why(o, name):
-    """PF.learn.cleanFile: '' when the app reads this keep, else why it refuses it."""
+def keep_why(o, name, record=None):
+    """PF.learn.cleanFile: '' when the app reads this keep, else why it refuses it. record: a list the record it returns is
+    appended to when it reads it (its envelope left out, by as a person or a tool, what isn't there null or '')."""
     if not _tstr(o.get("id")) or not T_REQ.match(o["id"]):
         return "is a keep without a request id"
     if _tstr(name) and not todo_request_file(name, o["id"]):
@@ -2471,7 +2495,24 @@ def keep_why(o, name):
         err("Its id isn't the one its run, source and place give.")
     if not errors and tool and o.get("key") != "kp-" + _khash(rrun, source, tpl, anc):
         err("Its key isn't the one its run, source and place give.")
-    return "is a keep that isn't in its format: " + errors[0] if errors else ""
+    if errors:
+        return "is a keep that isn't in its format: " + errors[0]
+    if record is not None:
+        by = {"tool": o["producer"]["name"], "version": o["producer"]["version"]} if tool else {"person": o["by"]}
+        r = {"id": o["id"], "kind": "keep", "run": {"process": rrun["process"], "id": rrun["id"]}, "by": by, "at": o["at"], "source": dict(source),
+             "template": {k: tpl[k] for k in ("process", "folder", "version", "mapHash", "typesHash")} if tpl else None, "anchor": None, "base": "",
+             "change": {"op": "add", "text": ch["text"], "where": ch["where"]}, "needs": "", "reason": ""}
+        if anc:
+            r["anchor"] = {"phase": anc["phase"]}
+            if anc.get("after") is not None:
+                r["anchor"]["after"] = anc["after"]
+            r["base"] = o["base"]
+        else:
+            r["needs"] = o["needs"]
+        if o.get("reason") is not None:
+            r["reason"] = o["reason"]
+        record.append(r)
+    return ""
 
 
 R_KEYS = ["format", "features", "app", "kind", "id", "run", "seen", "by", "at", "outcome", "head", "counts", "coverage", "evidence", "keeps"]
@@ -3047,9 +3088,9 @@ def todo_why(o, name, nbytes=None, unchecked=None, body=None, record=None):
         return ""
     kind = o.get("kind")
     if kind == "fact":
-        return fact_why(o, name, unchecked)
+        return fact_why(o, name, unchecked, record)
     if kind == "keep":
-        return keep_why(o, name)
+        return keep_why(o, name, record)
     if kind == "receipt":
         return receipt_why(o, name)
     if kind not in TODO_PKINDS:
@@ -4683,8 +4724,9 @@ def _js_canon(v):
 
 
 def todo_checked(o, name):
-    """A to-do record as the app's reader returns it (PF.todos.cleanFile), the form copies are compared in, or the record as
-    it is when it is of a family whose reader this doesn't port (a fact, a keep or a receipt) or isn't one the app reads.
+    """A to-do record as the app's reader returns it (PF.todos.cleanFile, a fact's PF.facts.cleanFile and a keep's
+    PF.learn.cleanFile), the form copies are compared in, or the record as it is when it is a receipt (compared by its own
+    body) or isn't one the app reads.
     name: its file name in proposals/ (a decision or an application takes its id from it)."""
     rec = []
     if isinstance(o, dict) and todo_claims(o) and not todo_why(o, name, record=rec) and rec:

@@ -992,6 +992,27 @@ rule('The checker writes a to-do copy as JSON.stringify writes the app\'s canoni
   assert.deepStrictEqual(out, recs.map((t) => PF.loop.copyBody(JSON.parse(t))));
 });
 
+rule('The checker reads a fact and a keep as the app\'s readers return them, the record their copies are compared in: same fields, same content', () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const at = '2026-11-09T09:00:00.000Z', run = { process: 'release-notes', id: 'run-l' }, T = PF.todos;
+  const tpl = { process: 'release-notes', folder: 'v3-k3m9p2q8', version: 3, mapHash: 'a1b2c3d4', typesHash: 'e5f6a7b8' };
+  const fact = PF.facts.build({ run, producer: { name: 'git-bot', version: '1.0' }, key: 'prs-1', seen: [], at, app: '4.0.0', loopStep: 'each', uid: 'jira:ABC-123', attempt: 1,
+    source: { feed: 'bitbucket', site: 'git.example.com', account: 'team' }, domain: 'prs', observedAt: at, maxAgeSeconds: 86400, complete: false, reported: 3, fetched: 2,
+    errors: ['Page 2 timed out'], entries: [{ id: 'b', text: 'Change 2', state: 'open', link: 'https://git.example.com/pr/2' }, { id: 'a', text: 'Change 1', state: 'merged' }] });
+  const kPerson = PF.learn.build({ run, by: 'person-avery', at, app: '4.0.0', source: { todo: 'td-' + 'a'.repeat(24) }, change: { text: 'Check the links twice', where: 'end' }, needs: 'It isn\'t placed yet.' });
+  const kTool = PF.learn.build({ run, producer: { name: 'notes-bot', version: '1.0' }, at, source: { spread: 'sp-' + 'b'.repeat(24) }, template: tpl, anchor: { phase: 'draft', after: 'write' }, base: 'c0ffee00', change: { text: 'Read them aloud', where: 'after' }, reason: 'Missed twice' });
+  const kEnd = PF.learn.build({ run, by: 'person-avery', at, source: { todo: 'td-' + 'c'.repeat(24) }, template: tpl, anchor: { phase: 'review' }, base: '0badc0de', change: { text: 'Sign it', where: 'end' } });
+  const edit = (o, fn) => { const x = JSON.parse(JSON.stringify(o)); fn(x); return x; };
+  const files = [fact, edit(fact, (x) => { x.source.account = null; x.entries[1].link = null; }), kPerson, edit(kPerson, (x) => { x.template = null; x.anchor = null; x.reason = null; x.producer = null; x.key = null; x.base = null; }),
+    kTool, kEnd, edit(kEnd, (x) => { x.anchor.after = null; x.reason = null; x.needs = null; })];
+  const want = files.map((o) => { const c = T.cleanFile(JSON.parse(JSON.stringify(o)), o.id + '.json'); assert.ok(c.ok, JSON.stringify(c)); return JSON.parse(PF.loop.copyBody(c.record)); });
+  const src = 'import json,sys\nsys.path.insert(0,sys.argv[1])\nimport check_folder as CF\n' +
+    'a=json.loads(sys.stdin.read())\nprint(json.dumps([json.loads(CF.todo_copy_body(CF.todo_checked(x, x["id"] + ".json"))) for x in a]))';
+  const got = JSON.parse(cp.execFileSync(py, ['-I', '-c', src, path.dirname(CHECKER)], { input: JSON.stringify(files), encoding: 'utf8' }));
+  assert.deepStrictEqual(got, want);
+});
+
 rule('The checker reads a number of thousands of digits in a team file as JSON, as the app does: never "isn\'t valid JSON", and the same verdict for a publication and team-values.json', async () => {
   const py = python();
   if (!py) { console.log('  (skipped: no Python on this computer)'); return; }

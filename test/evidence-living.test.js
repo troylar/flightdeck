@@ -1185,6 +1185,35 @@ rule('A synced copy that leaves out a derived field, or writes an optional one a
   }
   assert.deepStrictEqual(off, []);
 });
+/* YI: a fact and a keep the work rests on are compared as their readers read them (PF.facts.cleanFile, PF.learn.cleanFile,
+   then PF.loop.copyBody), so a copy writing an optional field as null is the same record, and a fact's content is what its
+   reader derives: an entry's "link": null is no link, for the export and for Python alike. */
+rule('A synced copy of a fact or a keep that writes an optional field as null is the same record for the export and for Python', async () => {
+  const [A, B] = await familyWorlds();
+  const find = (W, kind) => Object.keys(W.files).find((p) => /^proposals\/req-/.test(p) && JSON.parse(W.files[p]).kind === kind);
+  const fp = find(B, 'fact'), kp = find(A, 'keep'), f0 = JSON.parse(B.files[fp]), k0 = JSON.parse(A.files[kp]);
+  assert.ok(f0.source.site && !('account' in f0.source) && !('link' in f0.entries[0]), 'set-up: a fact with a site, no account, an entry without a link');
+  assert.ok(k0.by && !k0.producer && !('template' in k0) && !('anchor' in k0) && !('reason' in k0), 'set-up: an unplaced person\'s keep without a reason');
+  const edits = [
+    ['fact with its source\'s "account": null', B, fp, (x) => { x.source.account = null; }],
+    ['fact with an entry\'s "link": null', B, fp, (x) => { x.entries[0].link = null; }],
+    ['keep with "template" and "anchor" null', A, kp, (x) => { x.template = null; x.anchor = null; }],
+    ['keep with "reason" and "base" null', A, kp, (x) => { x.reason = null; x.base = null; }],
+    ['keep of a person with "producer" and "key" null', A, kp, (x) => { x.producer = null; x.key = null; }]];
+  const off = [];
+  for (const [what, W, p, edit] of edits) {
+    const o = JSON.parse(String(W.files[p])); edit(o);
+    const text = JSON.stringify(o, null, 2) + '\n';
+    for (const [how, files] of [['a copy', Object.assign({}, W.files, { [copyOf(p)]: text })], ['the only file', Object.assign({}, W.files, { [p]: text })]]) {
+      const r = await pack(W.PF, new BytesFS(files), W.key);
+      if (r.res.status !== 'complete') { off.push(what + ', ' + how + ': the export ' + r.res.status + ' ' + JSON.stringify(r.res.col.unresolved).slice(0, 300)); continue; }
+      if (!PY) continue;
+      const c = checkPack(r.zip);
+      if (!c.ok) off.push(what + ', ' + how + ': Python: ' + c.out.slice(0, 300));
+    }
+  }
+  assert.deepStrictEqual(off, []);
+});
 /* AB: every record the work rests on is held to its copies, a pending request and a loop's scope record included: a copy
    that says something else is named, the pack partial, and Python refuses a complete claim. */
 rule('A pending request or a loop scope record with a copy that says something else makes the pack partial, named, and Python refuses it as complete', async () => {
