@@ -177,6 +177,35 @@ rule('A keep record that can\'t be read holds publishing and promoting a version
   assert.ok(/can.t be read/.test(txt(app.html())), 'said why: ' + txt(app.html()).slice(0, 600));
 });
 
+/* A keep only suggested (no decision applied it) whose record can't be read, on a version whose text needs no owner (the same
+   as the one before): the hold still stands for everyone, so the open path never skips it. */
+rule('A keep record that can\'t be read holds Publish and Promote even when the version needs no owner: nothing is written', async () => {
+  for (const path of ['publish', 'promote']) for (const mode of ['refresh', 'cached']) {
+    const label = path + ' · ' + mode, app = await setup(), id = await added(app, 'Post the release notes');
+    app.click('keep', id, { kind: 'todo' }); await app.tick(120);
+    const kf = app.files('proposals/req-keep-')[0];
+    assert.ok(kf, label + ': set-up: the keep record');
+    const pub = app.files('publications/release-notes/').filter(p => /\/map\.md$/.test(p))[0];
+    await app.fs.write('maps/drafts/release-notes.md', app.fs.files[pub].t);
+    await refresh(app, 300); await openPage(app);
+    let folder = null;
+    if (path === 'promote') {
+      app.set('change-note', 'Same text'); app.click('stage-draft', 'release-notes'); await app.tick(300);
+      const st = app.files('staged/release-notes/').filter(f => /publication\.json$/.test(f));
+      assert.strictEqual(st.length, 1, label + ': set-up: staged'); folder = JSON.parse(app.fs.files[st[0]].t).folder;
+    }
+    const n = versions(app), files = Object.keys(app.fs.files).length;
+    app.fs.files[kf] = { t: app.fs.files[kf].t.slice(0, 40), m: Date.now() };
+    if (mode === 'refresh') { await refresh(app, 300); await openPage(app); }
+    if (path === 'publish') { app.set('change-note', 'Same text'); app.click('publish', 'release-notes'); } else app.click('promote-stage', folder);
+    await app.tick(400);
+    assert.strictEqual(versions(app), n, label + ': no version written while the keep can\'t be read');
+    assert.strictEqual(app.files('publications/release-notes/').filter(p => /publication\.json$/.test(p)).length, n, label + ': no version file');
+    assert.ok(Object.keys(app.fs.files).length <= files, label + ': nothing else written');
+    assert.ok(/can.t be read/.test(txt(app.html())), label + ': said why: ' + (txt(app.html()).match(/Nothing was published[^.]*\.[^.]*\./) || [])[0]);
+  }
+});
+
 rule('A stage listing a keep whose record was deleted holds the promote; one whose correction can\'t be classified at all needs the owner', async () => {
   for (const how of ['keep', 'keep and decisions']) {
     const { app } = await appliedKeep();

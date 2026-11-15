@@ -38227,7 +38227,8 @@ PF.examples = (function () {
           return true;
         });
       },
-      open: function () { return !fail && !!K && !K.owner; },
+      /* Open only when who() would refuse nothing: a hold (proof that can't be read) stands for everyone, owner or not. */
+      open: function () { return !fail && !!K && !K.owner && !K.hold && !PF.learn.keptCapWhy(K, listed()); },
       who: function (ppl, me) {
         if (fail) return fail;
         if (!K) return 'what was kept for next time couldn\'t be read again right before it was written.';
