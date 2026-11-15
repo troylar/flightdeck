@@ -405,8 +405,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "f4f94df3f86b46dcc5f1951d4577c981f188cf166d56660e3f95ca91011f55c4",
-      "reviewed": "AC: every ungated write goes through one plain writer that refuses run files, scope and to-do records and paths that climb; contract and archive writers keep to their own places; setup writes through contractWrite and savePeople; checked for direct writes and unconditional deletes"
+      "sha256": "02bb461757c9409260c367109640afb8a32b25e954ab3a0522b941165dbb398c",
+      "reviewed": "Round 22 (AC): saveScope without a gate writes through the record writer; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
       "sha256": "d3bdb09ee2e891060eeb49eeac877d382bc257b4e2a92f4e86e62c6b53fe3ecb",
@@ -509,8 +509,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. A maintainer tool, not shipped. Not read line by line."
     },
     "tools/readers.js": {
-      "sha256": "ebf269f8c896cddc941c1da123fb8396a5fd0aca851ef8fd9915d5add62a05c1",
-      "reviewed": "4.0 slice 2 commit 6: a taken todo request name is read back through PF.todos.cleanFile (listed as a checked reader) before it is compared; assistant-start's 2.12.0 stand-in leaves out the new living-run skill. Checked for direct writes and unconditional deletes: none added"
+      "sha256": "b5866b3e605e1c8589be03166abae179f1c267a23b5dc5102e3ce2870e6e701b",
+      "reviewed": "Round 22 (AC): saveScope without a gate writes through the record writer; checked for direct writes and unconditional deletes"
     },
     "tools/scale-limits.js": {
       "sha256": "23e06ee46d6b4ff44216f92c530578f714aa05bcecd7a2b0458515287d554ec1",

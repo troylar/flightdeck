@@ -2191,7 +2191,9 @@ PF.repo = (function () {
         throw e;
       });
     }
-    return saveChecked(fs, 'proposals/' + name, PF.loop.text(file), null, opts);
+    /* No gate installed (the command, a test build): still the record writer, never the plain one, which refuses records. */
+    var t0 = PF.loop.text(file), p0 = 'proposals/' + name, w0 = writeAs({ kind: 'scope', path: p0, expect: 'absent', key: subjectOf(file) }, t0);
+    return checkedWith(function (p, t) { if (p !== p0 || t !== t0) return Promise.reject(notAdmitted()); return gatedWrite(fs, w0, t, null); }, fs, p0, t0, null, opts);
   }
   /* A plan made in the app is a new file this window creates once (expect null: "doesn't exist yet"), so it never replaces one. */
   function savePlan(fs, plan, opts) {

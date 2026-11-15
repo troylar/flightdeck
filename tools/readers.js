@@ -22,6 +22,8 @@ const RAW = [
   { file: 'src/core/todos.js', has: 'var v = cleanFile(JSON.parse(t), name);', why: 'fileWhy: a to-do record this copy just built, read back through cleanFile (the to-do reader every copy uses) before it is filed, so nothing is written that a reader refuses' },
   { file: 'src/core/run.js', has: 'snapshot: JSON.parse(text)', why: 'a copy of a skill snapshot this function just checked and wrote out itself (at most 2 KB), not a file' },
   { file: 'src/storage/repo.js', has: "var o = json(text); if (!o || typeof o !== 'object') return '\\u0000' + text;", why: 'compares two saves of one run by their bytes, never reads a field for meaning' },
+  { file: 'src/storage/repo.js', has: "aRecord(json(data)) || !json(data)", why: 'the plain writer only asks whether bytes it is handed claim to be a scope or to-do record (PF.loop.claims, PF.todos.claims), to refuse them; no field is read for meaning' },
+  { file: 'src/storage/repo.js', has: "var o = f ? json(f.text) : null;", why: 'the plain writer only asks whether the file already in proposals/ claims to be a scope or to-do record, to refuse replacing it; no field is read for meaning' },
   { file: 'src/storage/repo.js', has: 'types: json(tj)', why: 'a copy of a run\'s types this window already sanitized (intern), not a file' },
   { file: 'src/storage/repo.js', has: "readJson(fs, 'runs/' + i.name)", why: 'v0.1 runs (preflight-run/1): the legacy lister checks the format before reading a field' },
   { file: 'src/storage/repo.js', has: "info = f && json(f.text)", why: 'pubProblem: shape checked, then P.newerOf (the envelope) before any other field' },
