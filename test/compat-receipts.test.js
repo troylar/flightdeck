@@ -259,7 +259,7 @@ rule('This version: a receipt copy whose counts are written in another key order
 });
 /* AF: the checker reads a receipt and run.json with the app's replacement decoder: a byte that isn't UTF-8 (FF) in a
    receipt's evidence result, or in run.json's title, reads as the app reads it, and the receipt is confirmed by both. */
-rule('This version: a receipt or run.json with a byte that isn\'t UTF-8 is read by the checker as the app reads it: confirmed by both', async () => {
+rule('This version: a receipt or run.json with a byte that isn\'t UTF-8 is read by the checker as the app reads it: the same verdict from both, never unread', async () => {
   const { files, receipt } = await folder(), NEW = H.loadMain(), rp = 'runs/release-notes/run-l/run.json';
   const FFB = (t, mark) => { const b = Buffer.from(t), at = b.indexOf(Buffer.from(mark)); assert.ok(at >= 0, 'set-up: ' + mark); return Buffer.concat([b.slice(0, at), Buffer.from([0xff]), b.slice(at + Buffer.byteLength(mark))]); };
   const cases = [];
@@ -269,18 +269,66 @@ rule('This version: a receipt or run.json with a byte that isn\'t UTF-8 is read 
     const r = JSON.parse(files[rp]); r.living.receipt = o.id;
     const f = Object.assign({}, files); delete f['proposals/' + receipt];
     f['proposals/' + o.id + '.json'] = FFB(JSON.stringify(o, null, 2) + '\n', '�'); f[rp] = JSON.stringify(r, null, 2) + '\n';
-    cases.push(['FF in the receipt\'s evidence result', f]); }
+    /* The evidence it names isn't the run's (review round 1: a receipt's claims are held to its work), so both read it whole
+       and both refuse it for that, in the same words: decoded alike, never unread. */
+    cases.push(['FF in the receipt\'s evidence result', f, 'mismatch']); }
   { const r = JSON.parse(files[rp]); r.title = r.title + ' �';
-    cases.push(['FF in run.json\'s title', Object.assign({}, files, { [rp]: FFB(JSON.stringify(r, null, 2) + '\n', '�') })]); }
-  for (const [what, f] of cases) {
+    cases.push(['FF in run.json\'s title', Object.assign({}, files, { [rp]: FFB(JSON.stringify(r, null, 2) + '\n', '�') }), 'confirmed']); }
+  for (const [what, f, want] of cases) {
     const { root, dir } = tree(f);
     try {
-      const rl = cli(MINE, 'run', dir, 'release-notes/run-l', '--contract', '2', '--json');
-      assert.strictEqual(rl.json.data && rl.json.data.run.receipt.state, 'confirmed', what + ': ' + rl.out.slice(0, 400));
+      const rl = cli(MINE, 'run', dir, 'release-notes/run-l', '--contract', '2', '--json'), got = rl.json.data && rl.json.data.run.receipt;
+      assert.strictEqual(got && got.state, want, what + ': ' + rl.out.slice(0, 400));
+      if (want === 'mismatch') assert.ok(/the evidence it names for td-1{24} isn't the evidence that to-do was checked off on/.test(got.why), got.why);
       if (PY) {
         const res = JSON.parse(cp.execFileSync(PY, ['-I', path.join(ROOT, 'example-folder', '.flightdeck', 'skills', '_flightdeck', 'check_folder.py'), dir], { encoding: 'utf8' }));
         const mine = (res.runReceipts || []).filter((x) => x.run === 'release-notes/run-l');
-        assert.strictEqual(mine.length && mine[0].state, 'confirmed', what + ' checker: ' + JSON.stringify(res.runReceipts));
+        assert.strictEqual(mine.length && mine[0].state, want, what + ' checker: ' + JSON.stringify(res.runReceipts));
+        assert.strictEqual(mine[0].why || null, got.why || null, what + ' checker why');
+      }
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
+});
+/* Review round 1 (PR #114): a receipt's id is its own content, never proof of what it says. A receipt rewritten with its id
+   recomputed that counts more answered or more steps than the run has, or whose seen record is gone, is never confirmed: run,
+   next, runs, todo list and the folder checker name the same path, kind and why. */
+rule('This version: a receipt with a recomputed id whose numbers aren\'t its run\'s work, or a record it rests on gone, is named alike by every reader and the checker', async () => {
+  const { files, receipt } = await folder(), NEW = H.loadMain(), rp = 'runs/release-notes/run-l/run.json';
+  const forge = (edit) => {
+    const o = JSON.parse(files['proposals/' + receipt]); edit(o);
+    o.id = NEW.receipts.idFor(o.run, o, o.by);
+    const r = JSON.parse(files[rp]); r.living.receipt = o.id;
+    const f = Object.assign({}, files); delete f['proposals/' + receipt];
+    f['proposals/' + o.id + '.json'] = JSON.stringify(o, null, 2) + '\n'; f[rp] = JSON.stringify(r, null, 2) + '\n';
+    return { f, name: o.id + '.json' };
+  };
+  const seen = JSON.parse(files['proposals/' + receipt]).seen;
+  assert.ok(seen.length, 'set-up: the receipt saw a record');
+  const gone = Object.assign({}, files); delete gone['proposals/' + seen[0] + '.json'];
+  const cases = [['answered 999999', forge((o) => { o.counts.answered = 999999; }), 'malformed', /steps answered, but the run has/],
+    ['one step more', forge((o) => { o.counts.steps += 1; }), 'malformed', /for "steps"/],
+    ['a to-do more, done', forge((o) => { o.counts.todos += 1; o.counts.resolved += 1; o.counts.done += 1; }), 'malformed', /for "todos"/],
+    ['the record it saw gone', { f: gone, name: receipt }, 'nofile', /rests on proposals\/req-/]];
+  for (const [what, c, kind, why] of cases) {
+    const { root, dir } = tree(c.f);
+    try {
+      const outs = {
+        run: cli(MINE, 'run', dir, 'release-notes/run-l', '--contract', '2', '--json'),
+        next: cli(MINE, 'next', dir, 'release-notes/run-l', '--as', 'person-avery', '--contract', '2', '--json'),
+        runs: cli(MINE, 'runs', dir, '--contract', '2', '--json'),
+        'todo list': cli(MINE, 'todo', 'list', dir, 'release-notes/run-l', '--json')
+      };
+      const got = Object.keys(outs).map((k) => [k, (outs[k].json.problems || []).filter((x) => x.path === 'proposals/' + c.name).map((x) => [x.kind, x.why])]);
+      const want = got[0][1];
+      assert.strictEqual(want.length, 1, what + ': run names it once: ' + JSON.stringify(outs.run.json.problems));
+      assert.strictEqual(want[0][0], kind, what);
+      assert.ok(why.test(want[0][1]), what + ': ' + want[0][1]);
+      same(got, Object.keys(outs).map((k) => [k, want]), what + ': ' + JSON.stringify(got));
+      assert.notStrictEqual(outs.run.json.data.run.receipt.state, 'confirmed', what);
+      if (PY) {
+        const res = JSON.parse(cp.execFileSync(PY, ['-I', path.join(ROOT, 'example-folder', '.flightdeck', 'skills', '_flightdeck', 'check_folder.py'), dir], { encoding: 'utf8' }));
+        const mine = (res.runReceipts || []).filter((x) => x.run === 'release-notes/run-l');
+        same([mine.length, mine[0] && mine[0].path, mine[0] && mine[0].kind, mine[0] && mine[0].why], [1, 'proposals/' + c.name, kind, want[0][1]], what + ' checker: ' + JSON.stringify(res.runReceipts));
       }
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   }

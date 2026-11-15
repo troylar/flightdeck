@@ -262,8 +262,11 @@ async function evidenceMade(o) {
 }
 /* The run's receipt made again as Flightdeck writes one, its evidence edited (edit gets the list and returns the new one): a
    valid receipt under the id its content gives, run.json naming it. Returns the files. */
-function rereceipt(W, edit) {
-  const files = Object.assign({}, W.files), r = JSON.parse(files[W.runPath]), old = 'proposals/' + r.living.receipt + '.json', rc = JSON.parse(files[old]);
+/* The run's receipt made again, its id the one its content gives and run.json naming it: edit changes its evidence, whole (if
+   given) anything else first. files: the folder to make it in (W.files by default). */
+function rereceipt(W, edit, whole, base) {
+  const files = Object.assign({}, base || W.files), r = JSON.parse(files[W.runPath]), old = 'proposals/' + r.living.receipt + '.json', rc = JSON.parse(files[old]);
+  if (whole) whole(rc);
   const f = W.PF.receipts.build({ run: rc.run, by: rc.by, at: rc.at, app: rc.app, head: rc.head, outcome: rc.outcome, seen: rc.seen, counts: rc.counts, coverage: rc.coverage, evidence: edit(JSON.parse(JSON.stringify(rc.evidence))), keeps: rc.keeps });
   delete files[old]; files['proposals/' + f.id + '.json'] = JSON.stringify(f, null, 2) + '\n';
   r.living.receipt = f.id; files[W.runPath] = JSON.stringify(r, null, 2);

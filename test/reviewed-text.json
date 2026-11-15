@@ -1,8 +1,8 @@
 {
   "texts": {
     "CHANGELOG.md": {
-      "sha256": "f91d4fd7878436e2d7e3649f0a8ad901fb9fb9e07180f7f1dd6fc8a01d5b0c0d",
-      "reviewed": "4.0.0 fixed entry for YG (check_folder.py reads a very long number); checked for direct writes and unconditional deletes: none"
+      "sha256": "3878fe21643fc7ee57be44b6834619f61f93e54bb7962b6b84033df009e573e4",
+      "reviewed": "Review round 1 of PR #114: receipts are confirmed only when their claims replay against the run's work (PF.receipts.claimsWhy, check_folder.py receipt_claims_why, check_pack.py), and loop-child discovery is bounded by CHILD_SCAN before any run folder is read, each process listed once; read-only code, checked for direct writes and unconditional deletes: none added"
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
@@ -21,16 +21,16 @@
       "reviewed": "4.0 slice 6 commit 7, plan versus now and receipts: PF.receipts (compare, the receipt record, prepare, stateOf, since, deps), cleanLiving's receipt, PF.run.end's receipt, the app's end flow with its receipt guard and plan-versus-now chips, the evidence pack's living section and check_pack.py's replay, design 45.5 and docs/evidence.md; checked for direct writes and unconditional deletes: the receipt is written create-once through repo.saveScope with a fresh read before the write under the run and to-do guards, the run through the checked save chain, export only reads, nothing deleted"
     },
     "docs/apps.md": {
-      "sha256": "98a0ea952f9b42d848dd978fa052686b588087aeb990870933b2a08ae1684dc7",
-      "reviewed": "ND: run, next and todo list name proposals/ unreadable (exit 4) whether or not the run is living; apps.md says so. Checked for direct writes and unconditional deletes"
+      "sha256": "e9c9e3568d021ebcd7221e86534e97f3493676ef223587decee4d70a8148e64e",
+      "reviewed": "Review round 1 of PR #114: receipts are confirmed only when their claims replay against the run's work (PF.receipts.claimsWhy, check_folder.py receipt_claims_why, check_pack.py), and loop-child discovery is bounded by CHILD_SCAN before any run folder is read, each process listed once; read-only code, checked for direct writes and unconditional deletes: none added"
     },
     "docs/design.md": {
-      "sha256": "d9d9b4fa6c908838313ad8cfd2e41eb5a9008830fa7ce879a4202934f1708826",
-      "reviewed": "YC: check_pack.py finds dependency runs from checked request bodies; checked for direct writes and unconditional deletes"
+      "sha256": "1ea3bf0022718154aa2424eb0b1f24f05e630266227f058555191e870475e826",
+      "reviewed": "Review round 1 of PR #114: receipts are confirmed only when their claims replay against the run's work (PF.receipts.claimsWhy, check_folder.py receipt_claims_why, check_pack.py), and loop-child discovery is bounded by CHILD_SCAN before any run folder is read, each process listed once; read-only code, checked for direct writes and unconditional deletes: none added"
     },
     "docs/evidence.md": {
-      "sha256": "f1888f293ac4248d13cd445508f25d6dac78756b938ce890dc33ad9e11e5b313",
-      "reviewed": "XB: the export and check_pack.py replay the chain by the app's rules before binding the receipt; check_folder.py's effect_of hoisted, no change in what it checks; checked for direct writes and unconditional deletes"
+      "sha256": "f6aa6267ae03a0401aff464615ca57b4930fee28f0acf338d4ea295c23650ecc",
+      "reviewed": "Review round 1 of PR #114: receipts are confirmed only when their claims replay against the run's work (PF.receipts.claimsWhy, check_folder.py receipt_claims_why, check_pack.py), and loop-child discovery is bounded by CHILD_SCAN before any run folder is read, each process listed once; read-only code, checked for direct writes and unconditional deletes: none added"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
@@ -53,8 +53,8 @@
       "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "00f0b0ed6dbec0d085ca99488e15b6ba226551e4ba952aa126ce028f413c2b5e",
-      "reviewed": "every JSON load of file text in the checkers parses integers as doubles via _jsint; checked for direct writes and unconditional deletes: none"
+      "sha256": "dc86ec347155fe1907a9e21349bb322f833facc296c5d50993172c79eeabf412",
+      "reviewed": "Review round 1 of PR #114: receipt claims replay names the to-do whose evidence differs, and check_pack.py's refusals carry the reason; read-only code, checked for direct writes and unconditional deletes: none added"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
       "sha256": "197779e5fb047d6137527db0211659a2db320470f3086d61b5126d6e868b0cf8",
@@ -89,8 +89,8 @@
       "reviewed": "4.0 slice 6 commit 8, readers, checker and release: appjson and bin/flightdeck.js read pending to-do requests before a run gains living and an ended run's receipt (missing or mismatch named, exit 4), check_folder.py's receipt_why port, the living-run, status and learn-from-runs skills, the command guide, file formats, docs/apps.md, the 4.0.0 release entries and the rehearsal waiver; checked for direct writes and unconditional deletes: the readers only read, the skills tell an assistant never to write a receipt or end a run, nothing deleted"
     },
     "example-folder/.flightdeck/skills/flightdeck-living-run/SKILL.md": {
-      "sha256": "5db1bd05fe074a4eb59bf9f0561b2c3f620686fa8caac927f0bfb86b6cb8c2d1",
-      "reviewed": "4.0 slice 6 commit 8, readers, checker and release: appjson and bin/flightdeck.js read pending to-do requests before a run gains living and an ended run's receipt (missing or mismatch named, exit 4), check_folder.py's receipt_why port, the living-run, status and learn-from-runs skills, the command guide, file formats, docs/apps.md, the 4.0.0 release entries and the rehearsal waiver; checked for direct writes and unconditional deletes: the readers only read, the skills tell an assistant never to write a receipt or end a run, nothing deleted"
+      "sha256": "e3b5b47c9ce489d88656825572303ce1dd89e572fb16b6eacd66f69128b2883e",
+      "reviewed": "Review round 1 of PR #114: receipts are confirmed only when their claims replay against the run's work (PF.receipts.claimsWhy, check_folder.py receipt_claims_why, check_pack.py), and loop-child discovery is bounded by CHILD_SCAN before any run folder is read, each process listed once; read-only code, checked for direct writes and unconditional deletes: none added"
     },
     "example-folder/.flightdeck/skills/flightdeck-new-checklist/SKILL.md": {
       "sha256": "3a6eb58e264583f36fb072835912f61bbb9a3fcf619f5932b2f0bdea2cfa6099",
@@ -201,8 +201,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "04398030df6a099256d7ac568698ffb22dd8b78f7ff93f6b2b7804787182853b",
-      "reviewed": "every JSON load of file text in the checkers parses integers as doubles via _jsint; checked for direct writes and unconditional deletes: none"
+      "sha256": "393fff6b00cce7cf78bff81fd8cef4fe948b84f0b08fdb00916ba2f7c21f783e",
+      "reviewed": "Review round 1 of PR #114: receipt claims replay names the to-do whose evidence differs, and check_pack.py's refusals carry the reason; read-only code, checked for direct writes and unconditional deletes: none added"
     },
     "src/core/appjson.js": {
       "sha256": "98019ea60f70df332d6774d2ac26d0bbd028e95f1f76f543cbe54c89cb8cd4fe",
@@ -313,8 +313,8 @@
       "reviewed": "loops: items: item kind, feed binding, completeness fix, nouns, unknown-kind refusal in loop.js/map.js/publish.js/types.js and check_folder.py parity; pure checks only, checked for direct writes and unconditional deletes"
     },
     "src/core/receipts.js": {
-      "sha256": "8dbd16bfe481fe3ff61d607e00d4e43b5661a7a0d9032e92b3fc46bc82a7f76f",
-      "reviewed": "XB: the export and check_pack.py replay the chain by the app's rules before binding the receipt; check_folder.py's effect_of hoisted, no change in what it checks; checked for direct writes and unconditional deletes"
+      "sha256": "4b175d10ff1da3d7db045c794acc89a77ce7f3f3e74d95c301a1c477bd662224",
+      "reviewed": "Review round 1 of PR #114: receipt claims replay names the to-do whose evidence differs, and check_pack.py's refusals carry the reason; read-only code, checked for direct writes and unconditional deletes: none added"
     },
     "src/core/refs.js": {
       "sha256": "24b7d2b52fcd99673fcc427db286a7224af83342da19efcd561ac850d6baa441",
@@ -417,20 +417,20 @@
       "reviewed": "FD: every fact line reachable on the run screen (count left out, Show all), contrary lines first; checked for direct writes and unconditional deletes"
     },
     "src/releases.json": {
-      "sha256": "90dd3042d69dd7a1e8a2f3753fa2b9fca4266ad247e429fee30f560af153a4f1",
-      "reviewed": "4.0.0 fixed entry for YG (check_folder.py reads a very long number); checked for direct writes and unconditional deletes: none"
+      "sha256": "0c97669f7b937bc5353c060a23ebf312831e7df1d2cb55d2703cf5a9d5396671",
+      "reviewed": "Review round 1 of PR #114: receipts are confirmed only when their claims replay against the run's work (PF.receipts.claimsWhy, check_folder.py receipt_claims_why, check_pack.py), and loop-child discovery is bounded by CHILD_SCAN before any run folder is read, each process listed once; read-only code, checked for direct writes and unconditional deletes: none added"
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "a97fdb1704550a6a3d217ef2f513709941b820a3846286690d85478b354b87c0",
-      "reviewed": "TE: version files gone after sizing are named at capture; checked for direct writes and unconditional deletes"
+      "sha256": "5aeb51a54da80279a1008553fd88bc0568205acf6aa5abce1ff832507a08bc5e",
+      "reviewed": "Review round 1 of PR #114: receipts are confirmed only when their claims replay against the run's work (PF.receipts.claimsWhy, check_folder.py receipt_claims_why, check_pack.py), and loop-child discovery is bounded by CHILD_SCAN before any run folder is read, each process listed once; read-only code, checked for direct writes and unconditional deletes: none added"
     },
     "src/ui/app.js": {
-      "sha256": "dd6a2a70f212cb0512ef142198a2ff83bd5fef55429e56fab44cd64a83edaeb6",
-      "reviewed": "OE: ending guards seed kidsBy from loaded children of every closure parent; checked for direct writes and unconditional deletes"
+      "sha256": "0f7e8f69d47be71ddca4aebc4c38c2af89616d9e0476f7859e2d4b8e121b37c4",
+      "reviewed": "Review round 1 of PR #114: receipts are confirmed only when their claims replay against the run's work (PF.receipts.claimsWhy, check_folder.py receipt_claims_why, check_pack.py), and loop-child discovery is bounded by CHILD_SCAN before any run folder is read, each process listed once; read-only code, checked for direct writes and unconditional deletes: none added"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

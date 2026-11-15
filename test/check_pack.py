@@ -1232,6 +1232,7 @@ def check_living(z, man):
         receipt = own.get("receipt")
         good_receipt = True
         own_ok[0] = False
+        claims_why[0] = ""
         if receipt:
             rec = wit(receipt)
             ended = obj(run.get("ended"))
@@ -1292,11 +1293,36 @@ def check_living(z, man):
             if good_receipt and closed:
                 saw(rec)
                 good_receipt = walk()
+            # What it claims, replayed from the packed bytes as the folder checker replays it (PF.receipts.claimsWhy): what it
+            # names as unsettled, the chain from its head, the to-dos, requests, coverage, steps and evidence that chain and the
+            # packed run.json give, and its keeps. Its id is its own content, never proof of it.
+            if good_receipt and closed:
+                work, keeps = {}, set()
+                for path in sorted(by_path):
+                    rid = record_name(path)
+                    if not rid:
+                        continue
+                    d, o = dispatch(path), packed(path)
+                    if d["fam"] != "todo" or d["bad"] or d["run"] != me or not isinstance(o, dict):
+                        continue
+                    if o.get("kind") == "keep":
+                        keeps.add(rid)
+                    if o.get("kind") not in ("fact", "keep", "receipt"):
+                        work.setdefault(rid, []).append(o)
+                sr = RV.sanitize(run) if isinstance(run, dict) else None
+                cw = CF.receipt_claims_why(sr, rec, work, keeps) if isinstance(sr, dict) else ("why", "its run.json can't be read")
+                if cw:
+                    claims_why[0] = "it rests on proposals/" + cw[1] + ".json, which isn't in the pack" if cw[0] == "missing" else "it says something its run's work doesn't: " + cw[1]
+                    work_problems.append(str(me["process"]) + "/" + str(me["id"]) + "'s receipt: " + claims_why[0])
+                    good_receipt = False
+                    own_ok[0] = False
         return whole, chain, closed, good_receipt, copies[0]
 
     # Whether the last run check_run read has a receipt record of its own that says what it ended with, read whole (what
     # PF.receipts.stateOf calls confirmed), apart from what the receipt saw.
     own_ok = [False]
+    # Why the last run check_run read has a receipt whose claims its packed work doesn't bear out ('' when they hold).
+    claims_why = [""]
 
     def checked(path, o):
         """A packed to-do record as the app reads it (YC): a request or compound with the body the shipped checker checked laid
@@ -1764,7 +1790,7 @@ def check_living(z, man):
             if man["status"] == "complete" and not d["confirmed"]:
                 sys.exit("living: " + r["key"] + " says " + d["key"] + ", a run its work depends on, isn't confirmed, but the pack says it's complete")
         if rc is not None and rc["state"] == "confirmed" and not own_ok[0]:
-            sys.exit("living: " + r["key"] + "'s receipt is said to be confirmed, but the receipt in the pack doesn't say what it ended with")
+            sys.exit("living: " + r["key"] + "'s receipt is said to be confirmed, but the receipt in the pack doesn't say what it ended with" + (": " + claims_why[0] if claims_why[0] else ""))
         if not lv.get("complete"):
             if man["status"] != "partial":
                 sys.exit("living: " + r["key"] + " is missing some of its work, but the pack doesn't say it is partial")
@@ -1776,7 +1802,7 @@ def check_living(z, man):
         if not closed:
             sys.exit("living: " + r["key"] + " says its work is complete, but an application's request, its authority or a record it saw isn't in the pack")
         if not good_receipt:
-            sys.exit("living: " + r["key"] + " says its work is complete, but its receipt isn't in the pack, doesn't say what it ended with, or a record it saw isn't in the pack")
+            sys.exit("living: " + r["key"] + " says its work is complete, but its receipt isn't in the pack, doesn't say what it ended with, or a record it saw isn't in the pack" + (": " + claims_why[0] if claims_why[0] else ""))
         if plans_bad:
             sys.exit("living: " + r["key"] + " says its work is complete, but " + plans_bad[0] + ", an evidence plan it rests on, isn't a plan the app reads")
         # Every run its work depends on, the manifest's and the ones found here, walked the same way, bounded.

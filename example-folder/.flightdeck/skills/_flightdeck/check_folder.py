@@ -4603,7 +4603,180 @@ def receipt_verdict_of(r, read, unread, key=None):
         return {"state": "mismatch", "path": path, "kind": "malformed", "why": "Its receipt (" + rid + ") doesn't say what the run ended with (its work head or outcome differs)."}
     if rec.get("by") != r["ended"].get("by"):
         return {"state": "mismatch", "path": path, "kind": "malformed", "why": "Its receipt (" + rid + ") was written by another person than the one who ended the run."}
+    me = {"process": r.get("process"), "id": r.get("id")}
+    work, keeps = {}, set()
+    for k, xs in read.items():
+        for _, x in xs:
+            if not isinstance(x, dict) or x.get("run") != me or not isinstance(k, str):
+                continue
+            if x.get("kind") == "keep":
+                keeps.add(k)
+            if x.get("kind") not in ("fact", "keep", "receipt"):
+                work.setdefault(k, []).append(x)
+    cw = receipt_claims_why(run_verdict.sanitize(r), rec, work, keeps)
+    if cw and cw[0] == "missing":
+        return {"state": "missing", "path": path, "kind": "nofile", "why": "Its receipt (" + rid + ") rests on proposals/" + cw[1] + ".json, which isn't in the folder as read, so what it ended with can't be confirmed."}
+    if cw:
+        return {"state": "mismatch", "path": path, "kind": "malformed", "why": "Its receipt (" + rid + ") says something its run's work doesn't: " + cw[1] + "."}
     return {"state": "confirmed", "path": path, "kind": "", "why": ""}
+
+
+def _jnum(v):
+    """A whole number as JavaScript writes it (3, never 3.0)."""
+    return str(int(v)) if isinstance(v, float) and v.is_integer() else str(v)
+
+
+RECEIPT_COUNTS = ["steps", "answered", "items", "cleared", "abandoned", "todos", "resolved", "done", "wont", "moved", "ticket", "toRun", "link",
+                  "asked", "added", "queued", "waiting", "held", "disputed", "declined", "applied", "pending", "refused", "owed", "covered"]
+CLAIM_CAP = 5000
+
+
+def receipt_claims_why(r, rec, work, keeps):
+    """PF.receipts.claimsWhy, check for check: what a receipt claims, held to the work it froze (its id is its own content,
+    never proof of it). r: the run as the readers sanitize it. work: the run's own to-do records (never a fact, keep or
+    receipt), id -> every copy read; keeps: the ids of the run's keeps. None, ("missing", id) or ("why", text)."""
+    import run_verdict  # noqa: PLC0415 - the readers' own run port
+
+    def dct(v):
+        return v if isinstance(v, dict) else None
+
+    def part(x):
+        ap = dct(x.get("application")) if x.get("kind") == "compound" else x
+        return _tsha({"kind": x.get("kind"), "op": x.get("op"), "seen": x.get("seen") or [], "previous": ap.get("previous") if ap else None,
+                      "effect": ap.get("effect") if ap else None})
+
+    past, order, seen_by, q, i = {}, [], set(), list(rec.get("seen") or []), 0
+    while i < len(q):
+        rid = q[i]
+        i += 1
+        if rid in past:
+            continue
+        xs = work.get(rid)
+        if not xs:
+            return ("missing", rid)
+        if any(part(x) != part(xs[0]) for x in xs):
+            return ("why", "the folder has two different copies of " + rid + ", a record it rests on")
+        if len(order) >= CLAIM_CAP:
+            return ("why", "it rests on more than " + str(CLAIM_CAP) + " records")
+        past[rid] = xs[0]
+        order.append(xs[0])
+        for y in xs[0].get("seen") if isinstance(xs[0].get("seen"), list) else []:
+            seen_by.add(y)
+            q.append(y)
+    settled = [y for y in rec.get("seen") or [] if y in seen_by]
+    if settled:
+        return ("why", "it names " + settled[0] + " as unsettled, but a record it saw had seen it")
+    chain, at, visited = [], rec.get("head") or "", set()
+    while at:
+        if at in visited:
+            return ("why", "its applications go round in a circle at " + at)
+        visited.add(at)
+        a = past.get(at)
+        ap = (a if a.get("kind") == "application" else dct(a.get("application")) if a.get("kind") == "compound" else None) if a else None
+        if not ap:
+            return ("why", "its work head's chain names " + at + ", which isn't an application it saw")
+        chain.insert(0, ap)
+        at = ap.get("previous") if isinstance(ap.get("previous"), str) else ""
+    c = {k: 0 for k in RECEIPT_COUNTS}
+    todos, by_todo, spreads = [], {}, []
+    for ap in chain:
+        e = dct(ap.get("effect")) or {}
+        td, op = e.get("todo"), e.get("op")
+        x = by_todo.get(td) if isinstance(td, str) else None
+        if op == "spread-add":
+            if e.get("spread") not in spreads:
+                spreads.append(e.get("spread"))
+            continue
+        if op == "add":
+            c["added"] += 1
+            if x is None and isinstance(td, str):
+                x = {"id": td, "state": "open", "to": None, "support": None, "evidence": None}
+                by_todo[td] = x
+                todos.append(x)
+            continue
+        if x is None:
+            continue
+        if op == "done":
+            x.update({"state": "done", "support": e.get("support") if run_verdict.truthy(e.get("support")) else None,
+                      "evidence": e.get("evidence") if run_verdict.truthy(e.get("evidence")) else None})
+        elif op == "wont":
+            x["state"] = "wont"
+        elif op == "move":
+            x.update({"state": "moved", "to": e.get("to") if run_verdict.truthy(e.get("to")) else None})
+        elif op == "reopen":
+            x.update({"state": "open", "to": None, "support": None, "evidence": None})
+    for x in todos:
+        c["todos"] += 1
+        if x["state"] == "open":
+            continue
+        c["resolved"] += 1
+        c[x["state"]] += 1
+        to = dct(x["to"]) or {}
+        if x["state"] == "moved" and x["to"]:
+            if run_verdict.truthy(to.get("ticket")):
+                c["ticket"] += 1
+            elif run_verdict.truthy(to.get("run")):
+                c["toRun"] += 1
+            elif run_verdict.truthy(to.get("link")):
+                c["link"] += 1
+    reqs = [x for x in order if x.get("kind") in ("proposal", "compound")]
+    n = rec.get("counts") or {}
+    c["asked"], c["applied"] = len([x for x in reqs if x.get("op") == "add"]), len(chain)
+    try:
+        mp = parse_map(r["snapshot"]) if r and isinstance(r.get("snapshot"), str) else None
+    except Exception:
+        mp = None
+    if not mp:
+        return ("why", "its run's checklist can't be read")
+    room = 0
+    for st in mp["steps"]:
+        ap_ = run_verdict.applies(r, mp, st)
+        a = r["steps"].get(st["id"]) if isinstance(r.get("steps"), dict) else None
+        s_ = a.get("s") if isinstance(a, dict) else None
+        if ap_ is not False:
+            c["steps"] += 1
+        if ap_ is True and s_ in ("done", "na"):
+            room += 1
+    for k in ("steps", "todos", "resolved", "done", "wont", "moved", "ticket", "toRun", "link", "asked", "added", "applied"):
+        if n.get(k) != c[k]:
+            return ("why", "it counts " + _jnum(n.get(k)) + " for \"" + k + "\", but its run's work gives " + str(c[k]))
+    if n["answered"] > room:
+        return ("why", "it counts " + _jnum(n["answered"]) + " steps answered, but the run has " + str(room) + " answered")
+    if n["applied"] + n["pending"] + n["refused"] != len(reqs):
+        return ("why", "its requests don't add up to the " + str(len(reqs)) + " it saw")
+    if n["queued"] + n["waiting"] + n["held"] + n["disputed"] + n["declined"] != n["asked"] - n["added"] or n["declined"] > n["refused"]:
+        return ("why", "its additions not applied don't add up")
+    if n["cleared"] + n["abandoned"] > n["items"] or (n["items"] and not any(st.get("type") == "for.each" for st in mp["steps"])):
+        return ("why", "its loop items don't add up")
+    cv = rec.get("coverage") or []
+    if sorted(x.get("spread") for x in cv) != sorted(spreads):
+        return ("why", "its coverage doesn't name the spreads its run's work holds")
+    if any(x.get("resolved") > x.get("owed") for x in cv) or sum(x.get("owed") for x in cv) != n["owed"] or sum(x.get("resolved") for x in cv) != n["covered"]:
+        return ("why", "its coverage doesn't add up")
+    ev = []
+    for x in todos:
+        if x["state"] != "done":
+            continue
+        s_, e_ = dct(x["support"]), dct(x["evidence"])
+        if s_ is not None:
+            ev.append({"todo": x["id"], "fact": s_.get("fact"), "content": s_.get("content")})
+        elif e_ is not None:
+            ru = dct(e_.get("run")) or {}
+            ev.append({"todo": x["id"], "plan": e_.get("plan"), "run": {"process": ru.get("process"), "id": ru.get("id")}, "answer": e_.get("answer"), "result": e_.get("result")})
+    said = rec.get("evidence") or []
+    want = {e["todo"]: e for e in ev}
+    wrong = [e for e in said if want.get(e.get("todo")) != e]
+    if wrong:
+        return ("why", "the evidence it names for " + str(wrong[0].get("todo")) + " isn't the evidence that to-do was checked off on")
+    left = [e for e in ev if not any(y.get("todo") == e["todo"] for y in said)]
+    if left:
+        return ("why", "it doesn't name the evidence " + left[0]["todo"] + " was checked off on")
+    if ev != said:
+        return ("why", "the evidence it names isn't in the order its run's to-dos were checked off")
+    lost = [k for k in rec.get("keeps") or [] if k not in keeps]
+    if lost:
+        return ("missing", lost[0])
+    return None
 
 
 def run_entry(out, rdir, key, rcpt_read, unread):
@@ -4705,7 +4878,8 @@ def main():
             un = []
             bad = todo_why(obj, name, os.path.getsize(os.path.join(prop_dir, name)), un)
             if not bad:
-                rcpt_read.setdefault(obj.get("id"), []).append((name, obj))
+                # A status record (a decision or an application) is named by its file, as the app names it.
+                rcpt_read.setdefault(todo_status_file(name)[:-5] if obj.get("format") == TODO_STATUS else obj.get("id"), []).append((name, obj))
                 good_reads.append((name, "todo", obj.get("id")))
             elif bad:
                 rcpt_unread.append((name, "newer" if " newer Flightdeck" in bad else "malformed", bad))

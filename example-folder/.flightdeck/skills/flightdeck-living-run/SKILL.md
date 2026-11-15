@@ -61,7 +61,7 @@ Some to-dos are settled by running a whole checklist ("run the smoke test").
 ## Plan versus now and the receipt
 
 1. **Say how the run stands** from `flightdeck run <team folder> <process>/<run id> --contract 2 --json`: the checklist's steps, a loop's items and the run's to-dos are three numbers, each out of its own total; never add them together. A request that isn't applied yet is waiting or queued, never done. A run with requests but no to-do applied yet still lists them (`todoRequests`).
-2. **An ended run's receipt** is what it ended with: `receipt.state` `confirmed` means the record it names is in the folder and says its work and outcome. Say that, and say anything that arrived after the end as arriving after it: it never changes the outcome. `missing` or `mismatch` (exit 4, named in `problems`) means it can't be confirmed: say so, never guess. `none` is a run that ended before receipts.
+2. **An ended run's receipt** is what it ended with: `receipt.state` `confirmed` means the record it names is in the folder, says its work and outcome, and what it counts matches the run's work as Flightdeck replays it. Say that, and say anything that arrived after the end as arriving after it: it never changes the outcome. `missing` or `mismatch` (exit 4, named in `problems`) means it can't be confirmed: say so, never guess. `none` is a run that ended before receipts.
 3. **Ending a run** is done in Flightdeck, by the run's recorder: it writes the receipt, then ends the run. Never write a receipt, and never end a run yourself.
 
 ## Never

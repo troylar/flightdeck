@@ -64,7 +64,7 @@
         "kind": "new",
         "area": "Runs",
         "title": "A run with to-dos ends with a receipt that says what it ended with",
-        "now": "Ending a run with to-dos first writes a receipt: its work, counts, coverage, evidence and keeps. The same save then ends the run and names it. If anything it rests on can't be read, the run isn't ended, and Flightdeck says why. What arrives after the end shows apart, under After it ended, and never changes the outcome. flightdeck run says whether the receipt is there.",
+        "now": "Ending a run with to-dos first writes a receipt: its work, counts, coverage, evidence and keeps. The same save then ends the run and names it. If anything it rests on can't be read, the run isn't ended. What arrives after the end shows apart and never changes the outcome. flightdeck run and check_folder.py confirm a receipt only when it matches the run's work.",
         "where": "Finishing a run, the receipt, flightdeck run"
       },
       {

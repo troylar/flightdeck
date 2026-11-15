@@ -247,9 +247,101 @@ PF.receipts = (function () {
     return { id: f.id, name: f.id + '.json', file: f, record: fd.record, counts: b.counts, lines: w.lines, chips: w.chips };
   }
 
+  /* What a receipt claims, held to the work it froze (a receipt's id is its own content, never proof of it). Its past is
+     what it saw and everything those saw, the run's own to-do records only: at the end that was every record the run had,
+     so it is replayed here from the folder, whatever arrived since. Checked: what it names as unsettled is unsettled in
+     that past; the chain from its head is there; the to-dos as that chain leaves them, the requests in that past and the
+     evidence are exactly its numbers and evidence; its coverage is the chain's spreads, adding up to its owed and covered;
+     its steps are the frozen checklist's and no more were answered than the run says; every keep it names is a keep on the
+     run. What rests on other runs (a loop's items, each spread's owed) can change after the end, so those only have to
+     add up. Returns '' or { missing: id } (a record it rests on isn't in the folder as read) or { why }. check_folder.py's
+     receipt_claims_why is the same rule, check for check. */
+  var CLAIM_CAP = 5000;
+  function claimsWhy(r, rec, records) {
+    var me = function (x) { return !!x && !!x.run && x.run.process === r.process && x.run.id === r.id; };
+    var by = Object.create(null), keeps = Object.create(null);
+    (records || []).forEach(function (x) {
+      if (!me(x) || typeof x.id !== 'string') return;
+      if (x.kind === 'keep') keeps[x.id] = true;
+      if (PF.todos.notFact(x)) (by[x.id] = by[x.id] || []).push(x);
+    });
+    /* What the replay reads of a record: copies that differ in it leave which is meant unknown. */
+    var part = function (x) { var ap = x.kind === 'compound' ? x.application : x; return JSON.stringify(PF.todos.fingerprint({ kind: x.kind, op: x.op === undefined ? null : x.op, seen: x.seen || [], previous: ap && ap.previous !== undefined ? ap.previous : null, effect: ap && ap.effect !== undefined ? ap.effect : null })); };
+    var past = Object.create(null), list = [], seenBy = Object.create(null), q = (rec.seen || []).slice();
+    for (var i = 0; i < q.length; i++) {
+      var id = q[i];
+      if (past[id]) continue;
+      var xs = by[id];
+      if (!xs) return { missing: id };
+      if (xs.some(function (x) { return part(x) !== part(xs[0]); })) return { why: 'the folder has two different copies of ' + id + ', a record it rests on' };
+      if (list.length >= CLAIM_CAP) return { why: 'it rests on more than ' + CLAIM_CAP + ' records' };
+      past[id] = xs[0]; list.push(xs[0]);
+      (Array.isArray(xs[0].seen) ? xs[0].seen : []).forEach(function (s) { seenBy[s] = true; q.push(s); });
+    }
+    var settled = (rec.seen || []).filter(function (s) { return seenBy[s]; })[0];
+    if (settled) return { why: 'it names ' + settled + ' as unsettled, but a record it saw had seen it' };
+    var chain = [], at = rec.head, visited = Object.create(null);
+    while (at) {
+      if (visited[at]) return { why: 'its applications go round in a circle at ' + at };
+      visited[at] = true;
+      var a = past[at], ap = a && (a.kind === 'application' ? a : a.kind === 'compound' ? a.application : null);
+      if (!ap) return { why: 'its work head\'s chain names ' + at + ', which isn\'t an application it saw' };
+      chain.unshift(ap); at = typeof ap.previous === 'string' ? ap.previous : '';
+    }
+    var c = Object.create(null); COUNTS.forEach(function (k) { c[k] = 0; });
+    var todos = [], byTodo = Object.create(null), spreads = [];
+    chain.forEach(function (ap) {
+      var e = ap.effect || {}, x = typeof e.todo === 'string' ? byTodo[e.todo] : null;
+      if (e.op === 'spread-add') { if (spreads.indexOf(e.spread) < 0) spreads.push(e.spread); return; }
+      if (e.op === 'add') { c.added++; if (!x && typeof e.todo === 'string') { x = { id: e.todo, state: 'open', to: null, support: null, evidence: null }; byTodo[e.todo] = x; todos.push(x); } return; }
+      if (!x) return;
+      if (e.op === 'done') { x.state = 'done'; x.support = e.support || null; x.evidence = e.evidence || null; }
+      else if (e.op === 'wont') x.state = 'wont';
+      else if (e.op === 'move') { x.state = 'moved'; x.to = e.to || null; }
+      else if (e.op === 'reopen') { x.state = 'open'; x.to = null; x.support = null; x.evidence = null; }
+    });
+    todos.forEach(function (x) {
+      c.todos++;
+      if (x.state === 'open') return;
+      c.resolved++; c[x.state]++;
+      if (x.state === 'moved' && x.to) { if (x.to.ticket) c.ticket++; else if (x.to.run) c.toRun++; else if (x.to.link) c.link++; }
+    });
+    var reqs = list.filter(function (x) { return x.kind === 'proposal' || x.kind === 'compound'; }), n = rec.counts;
+    c.asked = reqs.filter(function (x) { return x.op === 'add'; }).length; c.applied = chain.length;
+    var map = mapOf(r);
+    if (!map) return { why: 'its run\'s checklist can\'t be read' };
+    var room = 0;
+    map.phases.forEach(function (p, pi) { p.steps.forEach(function (s) {
+      var ap = PF.run.applies(r, map, pi, s).applies, st = r.steps[s.id] && r.steps[s.id].s;
+      if (ap !== false) c.steps++;
+      if (ap === true && (st === 'done' || st === 'na')) room++;
+    }); });
+    var off = ['steps', 'todos', 'resolved', 'done', 'wont', 'moved', 'ticket', 'toRun', 'link', 'asked', 'added', 'applied'].filter(function (k) { return n[k] !== c[k]; })[0];
+    if (off) return { why: 'it counts ' + n[off] + ' for "' + off + '", but its run\'s work gives ' + c[off] };
+    if (n.answered > room) return { why: 'it counts ' + n.answered + ' steps answered, but the run has ' + room + ' answered' };
+    if (n.applied + n.pending + n.refused !== reqs.length) return { why: 'its requests don\'t add up to the ' + reqs.length + ' it saw' };
+    if (n.queued + n.waiting + n.held + n.disputed + n.declined !== n.asked - n.added || n.declined > n.refused) return { why: 'its additions not applied don\'t add up' };
+    if (n.cleared + n.abandoned > n.items || (n.items && !map.phases.some(function (p) { return p.steps.some(function (s) { return s.type === 'for.each'; }); }))) return { why: 'its loop items don\'t add up' };
+    var cv = rec.coverage || [], ids = cv.map(function (x) { return x.spread; }).sort(cmpStr);
+    if (JSON.stringify(ids) !== JSON.stringify(spreads.slice().sort(cmpStr))) return { why: 'its coverage doesn\'t name the spreads its run\'s work holds' };
+    var owed = 0, covered = 0;
+    if (cv.some(function (x) { owed += x.owed; covered += x.resolved; return x.resolved > x.owed; }) || owed !== n.owed || covered !== n.covered) return { why: 'its coverage doesn\'t add up' };
+    var ev = evidenceOf({ todos: todos }), said = rec.evidence || [], want = Object.create(null);
+    ev.forEach(function (e) { want[e.todo] = JSON.stringify(PF.todos.fingerprint(e)); });
+    var wrong = said.filter(function (e) { return want[e.todo] !== JSON.stringify(PF.todos.fingerprint(e)); })[0];
+    if (wrong) return { why: 'the evidence it names for ' + wrong.todo + ' isn\'t the evidence that to-do was checked off on' };
+    var left = ev.filter(function (e) { return !said.some(function (y) { return y.todo === e.todo; }); })[0];
+    if (left) return { why: 'it doesn\'t name the evidence ' + left.todo + ' was checked off on' };
+    if (JSON.stringify(PF.todos.fingerprint(ev)) !== JSON.stringify(PF.todos.fingerprint(said))) return { why: 'the evidence it names isn\'t in the order its run\'s to-dos were checked off' };
+    var lost = (rec.keeps || []).filter(function (k) { return !keeps[k]; })[0];
+    if (lost) return { missing: lost };
+    return '';
+  }
+
   /* How an ended living run's receipt stands: null for a run that isn't an ended living run; else { state, why, path, kind,
-     record }. confirmed: the record named is in the folder, read, and says this run's head and outcome. none: it ended
-     without one (a run ended before receipts). missing, unread or mismatch: a problem, named by its path. */
+     record }. confirmed: the record named is in the folder, read, says this run's head and outcome, and its claims hold
+     (claimsWhy). none: it ended without one (a run ended before receipts). missing, unread or mismatch: a problem, named by
+     its path. */
   function stateOf(r, records, unread) {
     if (!r || !r.living || !r.ended) return null;
     var id = r.living.receipt;
@@ -272,6 +364,9 @@ PF.receipts = (function () {
     if (!rec.run || rec.run.process !== r.process || rec.run.id !== r.id) return { state: 'mismatch', why: 'Its receipt (' + id + ') is another run\'s.', path: path, kind: 'malformed', record: null };
     if (rec.head !== r.living.head || rec.outcome !== r.ended.outcome) return { state: 'mismatch', why: 'Its receipt (' + id + ') doesn\'t say what the run ended with (its work head or outcome differs).', path: path, kind: 'malformed', record: null };
     if (!rec.by || rec.by.person !== r.ended.by) return { state: 'mismatch', why: 'Its receipt (' + id + ') was written by another person than the one who ended the run.', path: path, kind: 'malformed', record: null };
+    var cw = claimsWhy(r, rec, records);
+    if (cw && cw.missing) return { state: 'missing', why: 'Its receipt (' + id + ') rests on proposals/' + cw.missing + '.json, which isn\'t in the folder as read, so what it ended with can\'t be confirmed.', path: path, kind: 'nofile', record: null };
+    if (cw) return { state: 'mismatch', why: 'Its receipt (' + id + ') says something its run\'s work doesn\'t: ' + cw.why + '.', path: path, kind: 'malformed', record: null };
     return { state: 'confirmed', why: '', path: path, kind: '', record: rec };
   }
 
@@ -547,5 +642,5 @@ PF.receipts = (function () {
 
 
   return { LIMITS: LIMITS, COUNTS: COUNTS, deps: deps, DEP_CAP: DEP_CAP, OUTCOMES: OUTCOMES, loopsOf: loopsOf, tally: tally, words: words, compare: compare, coverageOf: coverageOf, evidenceOf: evidenceOf, keepsOf: keepsOf,
-    idFor: idFor, build: build, cleanFile: cleanFile, prepare: prepare, stateOf: stateOf, verdict: verdict, since: since };
+    idFor: idFor, build: build, cleanFile: cleanFile, prepare: prepare, claimsWhy: claimsWhy, stateOf: stateOf, verdict: verdict, since: since };
 })();

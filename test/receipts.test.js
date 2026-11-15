@@ -358,4 +358,55 @@ rule('One receipt verdict sees everything under the receipt\'s id: an unreadable
     assert.ok(mx.why.indexOf('proposals/' + copy) >= 0, 'the other kind is named by its path: ' + mx.why);
   }
 });
+/* Review round 1 (PR #114): a receipt's id is its own content, never proof of it. A receipt written with a valid id that
+   counts more than the run answered, or that leaves out a request still pending at the end, is a mismatch, never
+   confirmed; a record it rests on that isn't in the folder leaves it unconfirmed. */
+function forged(W, P1, edit) {
+  const b = plain(P1.file);
+  edit(b);
+  const f = RC.build({ run: b.run, by: b.by, at: b.at, app: '4.0.0', head: b.head, outcome: b.outcome, seen: b.seen, counts: b.counts, coverage: b.coverage, evidence: b.evidence, keeps: b.keeps });
+  const back = T.cleanFile(JSON.parse(T.text(f)), f.id + '.json');
+  assert.ok(back.ok, 'set-up: the forged receipt reads, its id recomputed: ' + back.why);
+  back.record._file = f.id + '.json';
+  const r2 = plain(W.r); r2.living.receipt = f.id;
+  return { r: r2, recs: W.recs.concat([back.record]), id: f.id };
+}
+rule('A receipt with a valid id that counts more answered steps than the run has, or other numbers than its work, is a mismatch, never confirmed', () => {
+  const W = world();
+  W.todo('Post the notes', { phase: 'ship' });
+  pendingTwo(W);
+  const P1 = W.end('Stopped early');
+  same(RC.verdict(W.r, W.recs, []).state, 'confirmed', 'the control');
+  same(RC.verdict(forged(W, P1, () => {}).r, forged(W, P1, () => {}).recs, []).state, 'confirmed', 'rebuilt as it was: confirmed');
+  const cases = [['answered', (b) => { b.counts.answered = 999999; }], ['answered', (b) => { b.counts.answered += 1; }], ['steps', (b) => { b.counts.steps += 1; }],
+    ['todos', (b) => { b.counts.todos += 1; b.counts.resolved += 1; b.counts.done += 1; }], ['applied', (b) => { b.counts.applied += 1; b.counts.pending -= 1; }],
+    ['added', (b) => { b.counts.added += 1; b.counts.queued -= 1; }], ['requests', (b) => { b.counts.pending += 1; }], ['coverage', (b) => { b.counts.owed = 3; }],
+    ['loop items', (b) => { b.counts.cleared = b.counts.items + 1; }]];
+  for (const [what, edit] of cases) {
+    const F = forged(W, P1, edit), v = RC.verdict(F.r, F.recs, []);
+    same([v.state, v.problem && v.problem.kind, v.problem && v.problem.path], ['mismatch', 'malformed', 'proposals/' + F.id + '.json'], what + ': ' + JSON.stringify(v));
+    assert.ok(/says something its run's work doesn't/.test(v.why), v.why);
+  }
+});
+rule('A receipt with a valid id that leaves out a request still pending at the end, or names one a later record settled, is a mismatch, never confirmed', () => {
+  const W = world();
+  W.todo('Post the notes', { phase: 'ship' });
+  pendingTwo(W);
+  /* A tool's request that saw nothing: pending, and unsettled on its own at the end. */
+  const loose = W.file({ op: 'add', text: 'Ask support', target: { phase: 'ship' }, placement: { beforeGate: 'ship-confirm' } });
+  const P1 = W.end('Stopped early');
+  assert.ok(P1.record.seen.indexOf(loose.id) >= 0 && P1.record.seen.length > 1, 'set-up: the loose request is an unsettled head at the end');
+  same(RC.verdict(W.r, W.recs, []).state, 'confirmed', 'the control');
+  const omit = forged(W, P1, (b) => { b.seen = b.seen.filter((x) => x !== loose.id); }), v = RC.verdict(omit.r, omit.recs, []);
+  same([v.state, v.problem && v.problem.kind], ['mismatch', 'malformed'], JSON.stringify(v));
+  assert.ok(/for "asked", but its run's work gives 3/.test(v.why), v.why);
+  const all = T.recordsFor(W.recs, W.r).filter(T.notFact).map((x) => x.id), old = all.filter((x) => P1.record.seen.indexOf(x) < 0)[0];
+  assert.ok(old, 'set-up: a record some later one saw');
+  const back = forged(W, P1, (b) => { b.seen = b.seen.concat([old]).sort(); }), v2 = RC.verdict(back.r, back.recs, []);
+  same([v2.state, v2.problem && v2.problem.kind], ['mismatch', 'malformed'], JSON.stringify(v2));
+  assert.ok(/as unsettled, but a record it saw had seen it/.test(v2.why), v2.why);
+  const gone = RC.verdict(W.r, W.recs.filter((x) => x.id !== P1.record.seen[0]), []);
+  same([gone.state, gone.problem && gone.problem.kind], ['missing', 'nofile'], JSON.stringify(gone));
+  assert.ok(gone.why.indexOf('proposals/' + P1.record.seen[0] + '.json') >= 0, gone.why);
+});
 run();

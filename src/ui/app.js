@@ -3589,7 +3589,7 @@
     if (!self) return Promise.resolve(null);
     var procs = loopProcs(self);
     var idx = Promise.all(procs.map(function (n) { return repo.readProcess(cx.fs, n).then(null, function (e) { return { latest: null, all: [], clashes: [], broken: [], unlisted: 'publications/' + n + '/ ' + String(e && e.message || e) }; }); }));
-    return Promise.all([repo.readTodos(cx.fs, { evidence: true }).then(null, function () { return null; }), repo.readLoopChildren(cx.fs, self).then(null, function () { return null; }), idx]).then(function (x) {
+    return Promise.all([repo.readTodos(cx.fs, { evidence: true }).then(null, function () { return null; }), repo.readLoopChildren(cx.fs, self).then(null, function (e) { if (e && e.message) cx.rcptWhy = String(e.message).slice(0, 400); return null; }), idx]).then(function (x) {
       if (!bound() || !x[0] || !x[1]) return null;
       var pubs = Object.create(null), off = '';
       procs.forEach(function (n, i) { pubs[n] = x[2][i] || null; if (!off && x[2][i] && x[2][i].unlisted) off = x[2][i].unlisted; });

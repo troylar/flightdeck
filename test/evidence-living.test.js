@@ -492,7 +492,14 @@ rule('Python counts every record reached and every dependency run together again
       man.files.push(Object.assign({}, x, { path, pack: pk }));
     });
   });
-  const small = checkPack(await make(10));
+  /* Under the bound, an honest folder: the chain in it, and the receipt made again counting those requests (a receipt's
+     claims are replayed against its work, so the repacked one would no longer say what the run ended with). */
+  const recs10 = chainOf(10), files10 = Object.assign({}, W.files), pp = 'proposals/' + id + '.json', po = JSON.parse(files10[pp]);
+  po.seen = [recs10[0][0]]; files10[pp] = JSON.stringify(po, null, 2) + '\n';
+  recs10.forEach(([rid, text]) => { files10['proposals/' + rid + '.json'] = text; });
+  const honest10 = await pack(PF, new BytesFS(rereceipt(W, (ev) => ev, (rc) => { rc.counts.asked += 10; rc.counts.pending += 10; rc.counts.waiting += 10; }, files10)), W.key);
+  assert.strictEqual(honest10.res.status, 'complete', JSON.stringify(honest10.res.col.unresolved));
+  const small = checkPack(honest10.zip);
   assert.ok(small.ok, 'under the bound it holds: ' + small.out);
   const over = checkPack(await make(4998));
   assert.ok(!over.ok && /more|bound|holds at most/.test(over.out), 'over the bound in total: ' + over.out);
@@ -564,6 +571,39 @@ rule('The export reads proposals/ and the runs its work depends on within the si
   assert.ok(res.col.retained && res.col.retained.peak >= readBytes, 'what was read is counted: peak ' + (res.col.retained && res.col.retained.peak) + ' of ' + readBytes + ' bytes read');
   const ctl = await W.PF.repo.exportEvidence(new BytesFS(W.files), { run: W.key }, { sink: () => {}, now: () => Date.now(), tz: 'UTC', maxFile: MAX });
   assert.strictEqual(ctl.status, 'complete', 'the control holds: ' + JSON.stringify(ctl.col.unresolved));
+});
+/* Review round 1 (PR #114): a run's loop children are looked for among a bounded number of run folders. The loop's process
+   is listed once (never again per run read there), people.json and follow-up decisions aren't read for it, and each version is
+   read once; past the bound the end and the export are refused, named, before any run folder there is read. */
+rule('Loop children are looked for among a bounded number of run folders: each process listed once, and past the bound nothing there is read', async () => {
+  const W = await loopMade(), PF = W.PF, P = PF.run.sanitize(JSON.parse(W.files['runs/' + W.key + '/run.json'])), K = JSON.parse(W.files[W.kidPath]), kidDir = W.kidPath.replace(/\/[^/]+\/run\.json$/, '');
+  const N = 2000, files = Object.assign({}, W.files);
+  for (let i = 0; i < N; i++) { const id = 'u' + String(i).padStart(5, '0'), o = JSON.parse(JSON.stringify(K)); o.id = id; o.parent = Object.assign({}, o.parent, { id: 'another-run' }); files[kidDir + '/' + id + '/run.json'] = JSON.stringify(o, null, 2); }
+  const count = () => { const c = { lists: {}, reads: {} }; return { c, hooks: { list: (p) => { c.lists[p] = (c.lists[p] || 0) + 1; }, read: (p) => { c.reads[p] = (c.reads[p] || 0) + 1; } } }; };
+  const a = count(), got = await PF.repo.readLoopChildren(new BytesFS(files, { hooks: a.hooks }), P);
+  assert.strictEqual(JSON.stringify(got.runs.map((r) => r.process + '/' + r.id)), JSON.stringify([W.kidKey]), 'the one child is found among ' + (N + 1) + ' run folders');
+  assert.strictEqual(got.unread.length, 0, 'the other runs are read whole: ' + JSON.stringify(got.unread[0]));
+  assert.strictEqual(a.c.lists[kidDir], 1, 'the process is listed once, not once per run: ' + a.c.lists[kidDir]);
+  assert.strictEqual(a.c.reads['people.json'] || 0, 0, 'people.json isn\'t read for discovery');
+  assert.strictEqual(a.c.lists.followups || 0, 0, 'follow-up decisions aren\'t listed for discovery');
+  const runReads = Object.keys(a.c.reads).filter((p) => /^runs\/.*\/run\.json$/.test(p)), twice = Object.keys(a.c.reads).filter((p) => a.c.reads[p] > 1 && /^publications\//.test(p));
+  assert.strictEqual(runReads.length, N + 1, 'each run there is read once');
+  assert.deepStrictEqual(twice, [], 'each version\'s files are read once for all its runs');
+  /* Past the bound: refused, named, before a single run folder there is read. */
+  const b = count();
+  let why = '';
+  try { await PF.repo.readLoopChildren(new BytesFS(files, { hooks: b.hooks }), P, { cap: N }); } catch (e) { why = String(e && e.message || e); }
+  assert.ok(/hold 2001 run folders; its loop children are looked for among at most 2000, so none of them was read/.test(why), why);
+  assert.ok(why.indexOf(kidDir + '/') >= 0, 'the folder is named: ' + why);
+  assert.deepStrictEqual(Object.keys(b.c.reads).filter((p) => /^runs\//.test(p)), [], 'no run folder there was read');
+  /* The export, at the shipped bound (CHILD_SCAN): run folders past it, never opened, refuse the pack by name. */
+  const many = Object.assign({}, W.files);
+  for (let i = 0; i < PF.repo.CHILD_SCAN; i++) many[kidDir + '/x' + String(i).padStart(5, '0') + '/run.json'] = '{}';
+  const e = count();
+  let refused = null;
+  try { const x = await pack(PF, new BytesFS(many, { hooks: e.hooks }), W.key); refused = x.res.status !== 'complete' ? JSON.stringify(x.res).slice(0, 600) : null; } catch (err) { refused = String(err && err.message || err); }
+  assert.ok(refused && /its loop children are looked for among at most 5000/.test(refused), 'the export refuses it: ' + refused);
+  assert.deepStrictEqual(Object.keys(e.c.reads).filter((p) => p.indexOf(kidDir + '/x') === 0), [], 'none of those run folders was read');
 });
 /* RB: the closure's reads reserve what they may hold before each starts, so reads in flight together never take the pack past
    its memory: a read that doesn't fit is refused by name, and the pack is partial. */
@@ -2316,6 +2356,38 @@ rule('A receipt\'s evidence that isn\'t the evidence its to-do was checked off o
   }
   assert.deepStrictEqual(misses, []);
 });
+/* Review round 1 (PR #114): a receipt's id is its own content, never proof of it. Made again with a recomputed id, a receipt
+   that counts more answered steps or to-dos than the run's work, or that leaves out a request still pending at the end, leaves
+   the pack partial, named; Python, replaying the packed bytes, refuses a complete claim for each. */
+rule('A receipt with a recomputed id whose numbers aren\'t its work, or that leaves out a pending request, leaves the pack partial; Python refuses a complete claim', async () => {
+  const W = await made({ todos: 2 }), PF = W.PF, T = PF.todos, r0 = PF.run.sanitize(JSON.parse(W.files[W.runPath]));
+  /* A tool's request that saw nothing, pending at the end: the receipt made again as an honest one would have named it. */
+  const q = T.buildProposal({ run: { process: r0.process, id: r0.id }, producer: { name: 'notes-bot', version: '1.0' }, key: 'k-loose', seen: [], at: new Date().toISOString(),
+    body: { op: 'add', text: 'Ask support', target: { phase: 'draft' }, placement: T.placementFor(PF.run.mapOf(r0), { phase: 'draft' }) } });
+  const withLoose = Object.assign({}, W.files, { ['proposals/' + q.id + '.json']: T.text(q) });
+  const honest = (rc) => { rc.seen = rc.seen.concat([q.id]).sort(); rc.counts.asked++; rc.counts.pending++; rc.counts.waiting++; };
+  const ctl = await pack(PF, new BytesFS(rereceipt(W, (ev) => ev, honest, withLoose)), W.key);
+  assert.strictEqual(ctl.res.status, 'complete', 'the control, the pending request named as an honest receipt names it: ' + JSON.stringify(ctl.res.col.unresolved));
+  if (PY) assert.ok(checkPack(ctl.zip).ok, 'Python accepts the control: ' + checkPack(ctl.zip).out);
+  const worlds = {
+    'answered 999999': (rc) => { honest(rc); rc.counts.answered = 999999; },
+    'a to-do more, done': (rc) => { honest(rc); rc.counts.todos++; rc.counts.resolved++; rc.counts.done++; },
+    'the pending request left out': (rc) => { honest(rc); rc.seen = rc.seen.filter((x) => x !== q.id); }
+  };
+  const misses = [];
+  for (const what of Object.keys(worlds)) {
+    const { res, zip } = await pack(PF, new BytesFS(rereceipt(W, (ev) => ev, worlds[what], withLoose)), W.key);
+    if (!(res.status === 'partial' && res.col.unresolved.some((u) => /says something its run's work doesn't/.test(u)))) misses.push(what + ': the export: ' + res.status + ' ' + JSON.stringify(res.col.unresolved));
+    /* The manifest made to claim the work complete, and then its receipt confirmed too: Python's own replay refuses both. */
+    if (PY) {
+      for (const confirm of [false, true]) {
+        const c = checkPack(await repacked(PF, zip, (e, man) => { forced(man); if (confirm) man.runs.forEach((x) => { if (x.living && x.living.receipt) x.living.receipt.state = 'confirmed'; }); }));
+        if (c.ok || !/receipt/.test(c.out)) misses.push(what + (confirm ? ', said confirmed' : '') + ': Python: ' + c.out);
+      }
+    }
+  }
+  assert.deepStrictEqual(misses, []);
+});
 /* WA: a done that landed on a run's evidence is held to that run as packed: it still gives the answer and result the done
    froze. The run ended again (another ended.at, so another answer) leaves the pack partial naming it, as the app says the
    evidence changed; the receipt's entry naming another run and plan is named too; Python refuses a complete claim. */
@@ -2351,7 +2423,9 @@ rule('A receipt that leaves out the evidence a landed done rests on leaves the w
     if (PY && !checkPack(ctl.zip).ok) misses.push(what + ': Python, the control: ' + checkPack(ctl.zip).out);
     const { res, zip } = await pack(PF, new BytesFS(rereceipt(W, () => [])), W.key);
     if (!(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(W.todo) >= 0 && /receipt/.test(u)))) misses.push(what + ': the export: ' + res.status + ' ' + JSON.stringify(res.col.unresolved));
-    if (PY) { const c = checkPack(await repacked(PF, zip, (e, man) => forced(man))); if (c.ok || c.out.indexOf(W.todo) < 0) misses.push(what + ': Python: ' + c.out); }
+    /* The manifest made to claim the work complete and the receipt confirmed (the export calls it a mismatch: its claims
+       are replayed against the work): Python's own replay refuses it, naming the to-do. */
+    if (PY) { const c = checkPack(await repacked(PF, zip, (e, man) => { forced(man); man.runs.forEach((x) => { if (x.living && x.living.receipt) x.living.receipt.state = 'confirmed'; }); })); if (c.ok || c.out.indexOf(W.todo) < 0) misses.push(what + ': Python: ' + c.out); }
   }
   assert.deepStrictEqual(misses, []);
 });

@@ -839,10 +839,14 @@ PF.repo = (function () {
   /* One run, for other apps (flightdeck run and next): read-only (nothing is removed, not even a save receipt that lost
      nothing), through a view that throws on any change, and only that run's folder, its version's record (pubProblem), its
      follow-up decisions and people.json. Resolves to { found: false } when the folder has no such run folder, else
-     { found, run (or null), nofile, bad: [{path, kind, why}], fuDecisions, fuUnread: [{path, why}], people, peopleWhy }. */
-  function readRunOnly(fsIn, proc, id) {
+     { found, run (or null), nofile, bad: [{path, kind, why}], fuDecisions, fuUnread: [{path, why}], people, peopleWhy }.
+     o (optional), for a caller reading many runs of one process (a run's loop children): listed, the process folder's listing
+     it already has (not listed again per run); lean, the run and its version only (no follow-up decisions, no people.json);
+     pubs, a map that shares each version's read across those runs. */
+  function readRunOnly(fsIn, proc, id, o) {
+    o = o || {};
     var fs = readOnlyView(fsIn, 'Reading for other apps'), cache = newCache(), bad = [], key = proc + '/' + id, F = PF.followups;
-    return fs.list('runs/' + proc).then(function (items) {
+    return (o.listed ? Promise.resolve(o.listed) : fs.list('runs/' + proc)).then(function (items) {
       if (!items.some(function (i) { return i.kind === 'dir' && i.name === id; })) return { found: false };
       var out = { found: true, run: null, nofile: false, bad: bad, fuDecisions: [], fuUnread: [], people: [], peopleWhy: '' };
       /* The run's version is checked below (readVersion) and judged by the caller, as runs judges it, not by pubProblem. */
@@ -851,7 +855,7 @@ PF.repo = (function () {
       }, function (e) { bad.push({ path: 'runs/' + key + '/run.json', key: key, kind: errKind(e), why: why(e) }); });
       /* The process's decisions folder is found through its parent's listing, so one gone between the two is named (vanished)
          by a ledger, never read as "no decisions". */
-      var fuP = fs.list('followups').then(function (top) {
+      var fuP = o.lean ? Promise.resolve() : fs.list('followups').then(function (top) {
         return top.some(function (i) { return i.kind === 'dir' && i.name === proc; }) ? fs.list('followups/' + proc) : [];
       }).then(function (list) {
         var mine = list.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name) && i.name.indexOf(id + '.') === 0; });
@@ -866,14 +870,16 @@ PF.repo = (function () {
           }, function (e) { out.fuUnread.push({ path: path, kind: errKind(e), why: why(e) }); });
         }));
       }, function (e) { out.fuUnread.push({ path: 'followups/' + proc + '/', kind: errKind(e), why: why(e) }); });
-      var peopleP = loadPeople(fs).then(function (p) { out.people = p; }, function (e) { out.peopleWhy = why(e); out.peopleKind = errKind(e); });
+      var peopleP = o.lean ? Promise.resolve() : loadPeople(fs).then(function (p) { out.people = p; }, function (e) { out.peopleWhy = why(e); out.peopleKind = errKind(e); });
       return Promise.all([runP, fuP, peopleP]).then(function () {
         /* The run's version, verified here so a failure is named, not taken as "nothing to say" (pubProblem's answer). */
         var r = out.run;
         /* A test run's version is its stage (2.1), read by the stage rules. */
         if (r && isTestRun(r) && typeof r.folder === 'string' && P.STAGE.test(r.folder) && /^[a-z0-9][a-z0-9-]{0,59}$/.test(r.process)) return readStage(fs, r.process, r.folder, true).then(function (res) { out.pub = res; }, function (e) { out.pub = { ok: false, why: why(e), folder: r.folder, process: r.process, _readFailed: true }; }).then(function () { return out; });
         if (!r || typeof r.folder !== 'string' || !P.versionOf(r.folder) || !/^[a-z0-9][a-z0-9-]{0,59}$/.test(r.process)) return out;
-        return readVersion(fs, r.process, r.folder, true).then(function (res) { out.pub = res; }, function (e) { out.pub = { ok: false, why: why(e), folder: r.folder, process: r.process, _readFailed: true }; }).then(function () { return out; });
+        var vk = r.process + '/' + r.folder, vp = o.pubs && o.pubs[vk];
+        if (!vp) { vp = readVersion(fs, r.process, r.folder, true); if (o.pubs) o.pubs[vk] = vp; }
+        return vp.then(function (res) { out.pub = res; }, function (e) { out.pub = { ok: false, why: why(e), folder: r.folder, process: r.process, _readFailed: true }; }).then(function () { return out; });
       });
     });
   }
@@ -2674,10 +2680,11 @@ PF.repo = (function () {
     if (c._canonical) return { bad: { key: key, path: path, kind: 'malformed', why: 'it isn\'t exactly as the app writes it, at ' + c._canonical } };
     return { run: c, pub: one.pub || null };
   }
-  /* One run the work depends on, read as the readers read it (readRunOnly) and judged as they judge it (depVerdict). */
-  function depRead(fs, proc, id) {
+  /* One run the work depends on, read as the readers read it (readRunOnly) and judged as they judge it (depVerdict): the run
+     and its version, all the verdict reads. o: readRunOnly's (listed, pubs) for a caller reading many runs of one process. */
+  function depRead(fs, proc, id, o) {
     var key = proc + '/' + id, path = 'runs/' + key + '/run.json';
-    return readRunOnly(fs, proc, id).then(function (one) { return depVerdict(proc, id, one); }, function (e) { return { bad: { key: key, path: path, kind: errKind(e), why: why(e) } }; });
+    return readRunOnly(fs, proc, id, Object.assign({}, o || {}, { lean: true })).then(function (one) { return depVerdict(proc, id, one); }, function (e) { return { bad: { key: key, path: path, kind: errKind(e), why: why(e) } }; });
   }
   /* A living run's bounded dependency closure (PF.receipts.deps), walked until it holds every run it depends on: the shared
      collector names the runs it found that aren't read yet; they are read (and their loop children listed), and it is asked
@@ -2724,31 +2731,53 @@ PF.repo = (function () {
       return { D: D, known: known, plans: plans, kids: kids };
     });
   }
-  function readLoopChildren(fs, self) {
+  /* Where a run's loop children are found: each {for.each} step's process, as the run's own checklist sends it (Fill in
+     included). Every run folder there may be one (which run a child belongs to is in its run.json), so the candidates are
+     counted from the listings before any is read: past the one bound (CHILD_SCAN, the most runs a pack holds) discovery is
+     refused, named, and nothing is read. Each process is listed once, and that listing and each version's read are shared by
+     every run read there (readRunOnly's listed and pubs). */
+  var CHILD_SCAN = 5000;
+  function childProcs(self) {
     var map = null; try { map = R.mapOf(self); } catch (e) { map = null; }
-    var procs = [], out = { runs: [], unread: [] };
+    var procs = [];
     (map ? map.phases : []).forEach(function (ph) { ph.steps.forEach(function (st) { var cp = st.type === 'for.each' ? String(R.fieldsOf(self, st).process || '') : ''; if (cp && /^[a-z0-9][a-z0-9-]{0,59}$/.test(cp) && procs.indexOf(cp) < 0) procs.push(cp); }); });
+    return procs;
+  }
+  /* The listings of the processes a run's loops start, each once: { lists: [{ cp, items }] (items null: it couldn't be listed,
+     e: why), count } or a refusal (an Error naming the bound) when the run folders there go past it. */
+  function listChildProcs(fs, self, cap) {
+    var procs = childProcs(self), lists = [];
     return procs.reduce(function (q, cp) { return q.then(function () {
-      return fs.list('runs/' + cp).then(null, function () { return null; }).then(function (items) {
-        if (items === null) { out.unread.push({ key: cp, path: 'runs/' + cp + '/', kind: 'unreadable', why: 'runs/' + cp + ' couldn\'t be listed' }); return; }
-        /* A link where a run folder could be may be a child this run must count: named unread, never read through (RC). */
-        items.forEach(function (i) { if (i.kind === 'link' && /^[a-z0-9-]{1,40}$/i.test(i.name)) out.unread.push({ key: cp + '/' + i.name, path: 'runs/' + cp + '/' + i.name, kind: 'link', why: 'it is a link, and Flightdeck never reads through links' }); });
-        return limited(items.filter(function (i) { return i.kind === 'dir' && /^[a-z0-9-]{1,40}$/i.test(i.name); }).map(function (i) { return i.name; }).sort(), 4, function (cid) {
-          var key = cp + '/' + cid;
-          return readRunOnly(fs, cp, cid).then(function (one) {
-            /* Listed, then gone before it was read: named missing (depVerdict), so the end is refused, never skipped. */
-            /* Judged whole first (depVerdict), as the export's closure judges every listed run: one the readers refuse is
-               unread, named, whichever run it says it is a child of (sanitizing may have dropped that). Only a run read whole
-               may be taken as another run's child, which isn't this run's to judge. */
-            var v = depVerdict(cp, cid, one);
-            if (v.bad) { out.unread.push(v.bad); return; }
-            var c = v.run;
-            if (!(c.parent && c.parent.item && c.parent.process === self.process && c.parent.id === self.id)) return;
-            out.runs.push(c);
-          }, function (e) { out.unread.push({ key: key, path: 'runs/' + key + '/run.json', kind: errKind(e), why: why(e) }); });
-        });
+      return fs.list('runs/' + cp).then(function (items) { lists.push({ cp: cp, items: items }); }, function (e) { lists.push({ cp: cp, items: null, e: e }); });
+    }); }, Promise.resolve()).then(function () {
+      var n = 0, most = cap || CHILD_SCAN;
+      lists.forEach(function (l) { n += (l.items || []).filter(function (i) { return (i.kind === 'dir' || i.kind === 'link') && /^[a-z0-9-]{1,40}$/i.test(i.name); }).length; });
+      if (n > most) throw new Error('The loops of ' + self.process + '/' + self.id + ' start runs in ' + procs.map(function (cp) { return 'runs/' + cp + '/'; }).join(', ') + ', which hold ' + n + ' run folders; its loop children are looked for among at most ' + most + ', so none of them was read.');
+      return { lists: lists, count: n };
+    });
+  }
+  function readLoopChildren(fs, self, o) {
+    var out = { runs: [], unread: [] }, pubs = Object.create(null);
+    return listChildProcs(fs, self, o && o.cap).then(function (L) { return L.lists.reduce(function (q, l) { return q.then(function () {
+      var cp = l.cp, items = l.items;
+      if (items === null) { out.unread.push({ key: cp, path: 'runs/' + cp + '/', kind: 'unreadable', why: 'runs/' + cp + ' couldn\'t be listed' }); return; }
+      /* A link where a run folder could be may be a child this run must count: named unread, never read through (RC). */
+      items.forEach(function (i) { if (i.kind === 'link' && /^[a-z0-9-]{1,40}$/i.test(i.name)) out.unread.push({ key: cp + '/' + i.name, path: 'runs/' + cp + '/' + i.name, kind: 'link', why: 'it is a link, and Flightdeck never reads through links' }); });
+      return limited(items.filter(function (i) { return i.kind === 'dir' && /^[a-z0-9-]{1,40}$/i.test(i.name); }).map(function (i) { return i.name; }).sort(), 4, function (cid) {
+        var key = cp + '/' + cid;
+        return readRunOnly(fs, cp, cid, { listed: items, lean: true, pubs: pubs }).then(function (one) {
+          /* Listed, then gone before it was read: named missing (depVerdict), so the end is refused, never skipped. */
+          /* Judged whole first (depVerdict), as the export's closure judges every listed run: one the readers refuse is
+             unread, named, whichever run it says it is a child of (sanitizing may have dropped that). Only a run read whole
+             may be taken as another run's child, which isn't this run's to judge. */
+          var v = depVerdict(cp, cid, one);
+          if (v.bad) { out.unread.push(v.bad); return; }
+          var c = v.run;
+          if (!(c.parent && c.parent.item && c.parent.process === self.process && c.parent.id === self.id)) return;
+          out.runs.push(c);
+        }, function (e) { out.unread.push({ key: key, path: 'runs/' + key + '/run.json', kind: errKind(e), why: why(e) }); });
       });
-    }); }, Promise.resolve()).then(function () { return out; });
+    }); }, Promise.resolve()); }).then(function () { return out; });
   }
   /* Checklist-linked to-dos (4.0 slice 5): what a done on a run's result is checked against, from one read of proposals/ (got,
      as readPlans gave it): every plan grouped as the folder reader groups them (a decision that can't be read holds its plan),
@@ -3552,31 +3581,30 @@ PF.repo = (function () {
     }
     /* One run the work depends on, read as the readers read it (readRunOnly) and judged as they judge it: { run } or { bad:
        { key, path, kind, why } } for one that isn't there, can't be read, or whose version can't be read or doesn't verify. */
-    function depRun(proc, id) { return depRead(lro, proc, id); }
+    function depRun(proc, id, o) { return depRead(lro, proc, id, o); }
     /* A run's loop children: every run folder under each {for.each} step's process, read. A listing that fails, or a folder
        whose run.json is missing or can't be read, is named (it may be a child: nothing tells it apart); a run there naming
        another parent isn't this run's child. */
     function childrenOf(self, got) {
-      var map = null; try { map = R.mapOf(self); } catch (e) { map = null; }
-      var procs = [], out = { runs: [], bad: [] };
-      /* Where the run's own checklist sends them, Fill in included (R.fieldsOf), as the ending guard finds them. */
-      (map ? map.phases : []).forEach(function (ph) { ph.steps.forEach(function (st) { var cp = st.type === 'for.each' ? String(R.fieldsOf(self, st).process || '') : ''; if (cp && EV_PROC.test(cp) && procs.indexOf(cp) < 0) procs.push(cp); }); });
-      return procs.reduce(function (q, cp) { return q.then(function () {
-        return lro.list('runs/' + cp).then(function (items) {
-          /* A link where a run folder could be may be a child of this run: named for it, never read through (RC). */
-          items.forEach(function (i) { if (i.kind === 'link' && /^[a-z0-9-]{1,40}$/i.test(i.name)) out.bad.push({ key: '', path: 'runs/' + cp + '/' + i.name, kind: 'link', why: 'it is a link, and Flightdeck never reads through links' }); });
-          return limited(items.filter(function (i) { return i.kind === 'dir' && /^[a-z0-9-]{1,40}$/i.test(i.name); }).map(function (i) { return i.name; }).sort(), 4, function (cid) {
-            var k = cp + '/' + cid;
-            return (got[k] ? Promise.resolve(got[k]) : depRun(cp, cid).then(function (x) { got[k] = x; return x; })).then(function (x) {
-              if (x.run) seenHashes['runs/' + k + '/run.json'] = rawOf['runs/' + k + '/run.json'] || x.run._fileHash || '';
-              /* Which run it is a child of can't be told: named for this run whatever it is (key '': always said). */
-              if (x.bad) { out.bad.push({ key: '', path: x.bad.path, kind: x.bad.kind, why: x.bad.why }); return; }
-              var c = x.run;
-              if (c.parent && c.parent.item && c.parent.process === self.process && c.parent.id === self.id) out.runs.push(c);
-            });
+      var out = { runs: [], bad: [] }, pubs = Object.create(null);
+      /* Where the run's own checklist sends them, Fill in included (R.fieldsOf), as the ending guard finds them, and bounded
+         the same way before any run folder is read (listChildProcs). */
+      return listChildProcs(lro, self).then(function (L) { return L.lists.reduce(function (q, l) { return q.then(function () {
+        var cp = l.cp, items = l.items;
+        if (items === null) { out.bad.push({ key: '', path: 'runs/' + cp + '/', kind: errKind(l.e), why: 'the folder of ' + cp + ' runs couldn\'t be listed (' + why(l.e) + ')' }); return; }
+        /* A link where a run folder could be may be a child of this run: named for it, never read through (RC). */
+        items.forEach(function (i) { if (i.kind === 'link' && /^[a-z0-9-]{1,40}$/i.test(i.name)) out.bad.push({ key: '', path: 'runs/' + cp + '/' + i.name, kind: 'link', why: 'it is a link, and Flightdeck never reads through links' }); });
+        return limited(items.filter(function (i) { return i.kind === 'dir' && /^[a-z0-9-]{1,40}$/i.test(i.name); }).map(function (i) { return i.name; }).sort(), 4, function (cid) {
+          var k = cp + '/' + cid;
+          return (got[k] ? Promise.resolve(got[k]) : depRun(cp, cid, { listed: items, pubs: pubs }).then(function (x) { got[k] = x; return x; })).then(function (x) {
+            if (x.run) seenHashes['runs/' + k + '/run.json'] = rawOf['runs/' + k + '/run.json'] || x.run._fileHash || '';
+            /* Which run it is a child of can't be told: named for this run whatever it is (key '': always said). */
+            if (x.bad) { out.bad.push({ key: '', path: x.bad.path, kind: x.bad.kind, why: x.bad.why }); return; }
+            var c = x.run;
+            if (c.parent && c.parent.item && c.parent.process === self.process && c.parent.id === self.id) out.runs.push(c);
           });
-        }, function (e) { out.bad.push({ key: '', path: 'runs/' + cp + '/', kind: errKind(e), why: 'the folder of ' + cp + ' runs couldn\'t be listed (' + why(e) + ')' }); });
-      }); }, Promise.resolve()).then(function () { return out; });
+        });
+      }); }, Promise.resolve()); }).then(function () { return out; });
     }
     function livingPart(p, add) {
       var self = p.self, bad = p.selfBad;
@@ -3970,5 +3998,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readTodos: readTodos, readLoopChildren: readLoopChildren, depVerdict: depVerdict, depRead: depRead, depClosure: depClosure, judgeRunFile: judgeRunFile, readEvidence: readEvidence, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, saveScope: saveScope, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readTodos: readTodos, readLoopChildren: readLoopChildren, CHILD_SCAN: CHILD_SCAN, depVerdict: depVerdict, depRead: depRead, depClosure: depClosure, judgeRunFile: judgeRunFile, readEvidence: readEvidence, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, saveScope: saveScope, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();
