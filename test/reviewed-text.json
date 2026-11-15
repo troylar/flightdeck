@@ -25,8 +25,8 @@
       "reviewed": "round 17 VD: only add and bind can be delegated"
     },
     "docs/design.md": {
-      "sha256": "d841fe8118c3b7e0e8c9a5b34238f2b756f20911bfc4f753071eccb6ff5ba204",
-      "reviewed": "Round 23 (slice 3 review): plainPut keeps scope and to-do record names in proposals/ whether or not a file is there; recordPlanStatus refuses a plan or window ID that isn't one. Adds refusals only; checked for direct writes and unconditional deletes: none."
+      "sha256": "764823237259d048ee428c328ca35a4d3f144edf022c42944ed8cb035b157aac",
+      "reviewed": "Round 24 (slice 3 review): recordPlanStatus again records decisions on an older plan's plain-file-name ID (release-old); plan-/req- lookalikes, device names, dots and slashes stay refused. Widens one ID check only, the write still goes through plainPut; checked for direct writes and unconditional deletes: none."
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -405,8 +405,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "57e10c9f9be9c02cf568d1de75a26bf3ea7868f1f735e97f76f002a575e7a354",
-      "reviewed": "Round 23 (slice 3 review): plainPut keeps scope and to-do record names in proposals/ whether or not a file is there; recordPlanStatus refuses a plan or window ID that isn't one. Adds refusals only; checked for direct writes and unconditional deletes: none."
+      "sha256": "01f000eadaf31d8e3b8c06e962abd9f5beb55d2b17ebb68703a6d0cde6b03bb4",
+      "reviewed": "Round 24 (slice 3 review): recordPlanStatus again records decisions on an older plan's plain-file-name ID (release-old); plan-/req- lookalikes, device names, dots and slashes stay refused. Widens one ID check only, the write still goes through plainPut; checked for direct writes and unconditional deletes: none."
     },
     "src/ui/app.js": {
       "sha256": "d3bdb09ee2e891060eeb49eeac877d382bc257b4e2a92f4e86e62c6b53fe3ecb",

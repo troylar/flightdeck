@@ -285,6 +285,37 @@ for (const id of ['../runs/check-in/x', REQ_ID + '.status-wmutant-0123abcd', 'RE
   const o = await outcome(app, () => decide(app, id, 'w2abcdefgh', 'declined'));
   assert.deepStrictEqual([o.how, /isn't a plan Flightdeck can record a decision on/.test(o.why), o.wrote], ['rejected', true, false], JSON.stringify(o));
 });
+/* Round 24: an older plan's ID the plan reader still reads (any text before 2.1.1, such as release-old) is still decided,
+   when it is one plain file name; plan- or req- in another shape, a device name, a dot or a space is refused. */
+for (const id of ['plan-Old', 'req-tool-old', 'Req-Old', 'CON', 'lpt1', 'release.old', 'release old', '-release', 'release/old', 'x'.repeat(161)]) rule('Round 24: recordPlanStatus on the older-looking plan ID ' + JSON.stringify(id.length > 20 ? id.slice(0, 8) + '…' : id) + ' is refused before any path is made, and nothing is written', async () => {
+  const app = await opened();
+  const o = await outcome(app, () => decide(app, id, 'w2abcdefgh', 'declined'));
+  assert.deepStrictEqual([o.how, /isn't a plan Flightdeck can record a decision on/.test(o.why), o.wrote], ['rejected', true, false], JSON.stringify(o));
+});
+for (const how of ['decline', 'start']) rule('Round 24: a legacy plan (release-old) loads and can be ' + (how === 'decline' ? 'declined' : 'started') + ': one readable decision is written, once', async () => {
+  const app = await opened();
+  const src = app.files('proposals/').find(f => /^proposals\/plan-[^.]+\.json$/.test(f));
+  const legacy = Object.assign(JSON.parse(app.fs.files[src].t), { id: 'release-old' });
+  delete app.fs.files[src];
+  await app.fs.write('proposals/release-old.json', JSON.stringify(legacy, null, 2));
+  app.click('refresh'); await app.tick(80);
+  app.click('review-plan', 'release-old'); await app.tick();
+  assert.ok(/data-act="decline-plan"/.test(app.html()), 'set-up: the legacy plan can be decided');
+  if (how === 'decline') { app.click('decline-plan', 'release-old'); await app.tick(150); }
+  else { app.chooseApprovers().submitForm('start-form'); await app.tick(200); }
+  const decs = app.files('proposals/').filter(f => /^proposals\/release-old\.status-/.test(f));
+  assert.strictEqual(decs.length, 1, 'one decision: ' + decs.join(', '));
+  assert.ok(/-d\.json$/.test(decs[0]), decs[0]);
+  const rec = JSON.parse(app.fs.files[decs[0]].t);
+  assert.deepStrictEqual([rec.proposal, rec.status], ['release-old', how === 'decline' ? 'declined' : 'accepted']);
+  const d = await app.PF.repo.loadAll(app.fs);
+  const plan = d.plans.find(x => x.id === 'release-old');
+  assert.ok(plan && plan._status && plan._status.status === rec.status, 'the decision reads back: ' + JSON.stringify(plan && plan._status));
+  assert.deepStrictEqual([d.refused.filter(x => /release-old/.test(x.path)).length, d.planUnread.filter(x => /release-old/.test(x.path)).length, JSON.parse(JSON.stringify(plan._statusHeld || []))], [0, 0, []], 'nothing about it refused or unread');
+  if (how === 'decline') { app.click('review-plan', 'release-old'); await app.tick(); app.click('decline-plan', 'release-old'); await app.tick(150); }
+  else { app.click('review-plan', 'release-old'); await app.tick(); if (/id="start-form"/.test(app.html())) { app.chooseApprovers().submitForm('start-form'); await app.tick(200); } }
+  assert.strictEqual(app.files('proposals/').filter(f => /^proposals\/release-old\.status-/.test(f)).length, 1, 'still written once');
+});
 rule('Round 23: a request\'s own plan decision from a window still writes (only record names are kept)', async () => {
   const app = await opened();
   const o = await outcome(app, () => decide(app, REQ_ID, 'w2abcdefgh', 'declined'));

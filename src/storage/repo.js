@@ -2265,9 +2265,15 @@ PF.repo = (function () {
   }
   /* A start or decline goes to <plan>.status-<session>-d.json and a switch to <plan>.status-<session>.json (2.1.1), so a start
      never replaces the switch this window made before it. Resolves to the path written. */
+  /* A plan ID a decision can be named for: today's (plan-… or a request's), or an older plan's ID that the plan reader still
+     reads (any text before 2.1.1, such as release-old) when it is one plain file name: letters, numbers, dashes and
+     underscores, not a Windows device name, and never plan- or req- in another shape (a request's names, in any case, are
+     kept for scope and to-do records). */
   var PLAN_ID = /^(plan-[a-z0-9-]{1,100}|req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})$/, SESSION_ID = /^[a-z0-9][a-z0-9-]{0,59}$/;
+  var OLD_PLAN_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,159}$/, NOT_OLD = /^((plan|req)-|(con|prn|aux|nul|com[0-9]|lpt[0-9])$)/i;
+  function decidableId(id) { return typeof id === 'string' && (PLAN_ID.test(id) || (OLD_PLAN_ID.test(id) && !NOT_OLD.test(id))); }
   function recordPlanStatus(fs, plan, session, status, runId, by, to, app) {
-    if (!plan || typeof plan.id !== 'string' || !PLAN_ID.test(plan.id)) return Promise.reject(new Error('That isn\'t a plan Flightdeck can record a decision on. Nothing was written.'));
+    if (!plan || !decidableId(plan.id)) return Promise.reject(new Error('That isn\'t a plan Flightdeck can record a decision on. Nothing was written.'));
     if (typeof session !== 'string' || !SESSION_ID.test(session)) return Promise.reject(new Error('That isn\'t a window Flightdeck can record a decision for. Nothing was written.'));
     var rec = PF.plans.decision(plan, status, runId, by, new Date().toISOString(), to, app), path = 'proposals/' + plan.id + '.status-' + session + (status === 'retargeted' ? '' : '-d') + '.json';
     return putFile(fs, path, JSON.stringify(rec, null, 2)).then(function () { return path; });
