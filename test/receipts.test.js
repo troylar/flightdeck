@@ -409,4 +409,55 @@ rule('A receipt with a valid id that leaves out a request still pending at the e
   same([gone.state, gone.problem && gone.problem.kind], ['missing', 'nofile'], JSON.stringify(gone));
   assert.ok(gone.why.indexOf('proposals/' + P1.record.seen[0] + '.json') >= 0, gone.why);
 });
+/* Review round 2 (PR #114): a receipt is confirmed only on one past. A record it rests on with a second copy that says
+   something else (other text or target under the same id, or the same id naming another run) leaves which past is meant
+   unknown: a mismatch, never confirmed, whichever copy comes first. */
+rule('A receipt that rests on a record with a second, different copy under its id, in this run or another, is a mismatch, never confirmed', () => {
+  const W = world();
+  W.todo('Post the notes', { phase: 'ship' });
+  const { waits } = pendingTwo(W);
+  const P1 = W.end('Stopped early');
+  same(RC.verdict(W.r, W.recs, []).state, 'confirmed', 'the control');
+  const orig = W.recs.filter((x) => x.id === waits.id)[0], copy = (edit) => { const c = plain(orig); edit(c); c._file = waits.id + ' (1).json'; return c; };
+  same(RC.verdict(W.r, W.recs.concat([copy(() => {})]), []).state, 'confirmed', 'an honest copy that says the same is one record');
+  const cases = [['other text', (c) => { c.text = 'A different task'; }], ['another target', (c) => { c.target = { phase: 'stories' }; }],
+    ['another run', (c) => { c.run = { process: 'release-readiness', id: 'r-other' }; }]];
+  for (const [what, edit] of cases) {
+    for (const recs of [W.recs.concat([copy(edit)]), [copy(edit)].concat(W.recs)]) {
+      const v = RC.verdict(W.r, recs, []);
+      same([v.state, v.problem && v.problem.kind, v.problem && v.problem.path], ['mismatch', 'malformed', 'proposals/' + P1.id + '.json'], what + ': ' + JSON.stringify(v));
+      assert.ok(v.why.indexOf('two different copies of ' + waits.id) >= 0, what + ': ' + v.why);
+    }
+  }
+});
+/* Review round 2 (PR #114): a request's status is held to the records on it. A receipt with its id recomputed that moves a
+   waiting or queued request into declined, the totals kept balanced, names a decline no record made: a mismatch. One that
+   moves it into disputed names a dispute no two records made. A decline that was decided stays confirmed. */
+rule('A receipt with a valid id that calls a request declined or disputed with no decision on it to say so is a mismatch, never confirmed', () => {
+  const W = world();
+  W.todo('Post the notes', { phase: 'ship' });
+  const { waits } = pendingTwo(W);
+  const P1 = W.end('Stopped early');
+  same([P1.counts.waiting, P1.counts.queued, P1.counts.declined, P1.counts.refused, P1.counts.pending], [1, 1, 0, 0, 2], 'set-up: one waiting, one queued');
+  same(RC.verdict(forged(W, P1, () => {}).r, forged(W, P1, () => {}).recs, []).state, 'confirmed', 'rebuilt as it was: confirmed');
+  const cases = [['waiting to declined', (b) => { b.counts.waiting--; b.counts.declined++; b.counts.pending--; b.counts.refused++; }, /additions declined, but 0 of/],
+    ['queued to declined', (b) => { b.counts.queued--; b.counts.declined++; b.counts.pending--; b.counts.refused++; }, /additions declined, but 0 of/],
+    ['both to declined', (b) => { b.counts.queued = 0; b.counts.waiting = 0; b.counts.declined = 2; b.counts.pending = 0; b.counts.refused = 2; }, /additions declined, but 0 of/],
+    ['waiting to disputed', (b) => { b.counts.waiting--; b.counts.disputed++; }, /additions disputed, but 0 of/]];
+  for (const [what, edit, why] of cases) {
+    const F = forged(W, P1, edit), v = RC.verdict(F.r, F.recs, []);
+    same([v.state, v.problem && v.problem.kind, v.problem && v.problem.path], ['mismatch', 'malformed', 'proposals/' + F.id + '.json'], what + ': ' + JSON.stringify(v));
+    assert.ok(why.test(v.why), what + ': ' + v.why);
+  }
+  /* The control the other way: a request a person declined before the end, counted declined, is confirmed. */
+  const D = world();
+  D.todo('Post the notes', { phase: 'ship' });
+  const asked = D.ask({ op: 'add', text: 'Ask legal', target: { phase: 'ship' } }, BOT);
+  const it = T.inbox([D.r], { records: D.recs, unread: D.unread, people: D.people, me: 'person-morgan' }).filter((x) => x.id === asked.id)[0];
+  const d = T.decide(D.r, { records: D.recs, unread: D.unread, people: D.people, request: asked.id, op: 'decline', by: 'person-morgan', shown: it.consequence.fingerprint, at: AT, writer: 'w1', rev: rev(), app: '4.0.0' });
+  assert.ok(!d.why, d.why); D.push(d.record, d.name);
+  const P2 = D.end('Stopped early');
+  same([P2.counts.declined, P2.counts.refused], [1, 1], 'set-up: the decline is counted');
+  same(RC.verdict(D.r, D.recs, []).state, 'confirmed', 'a decided decline is confirmed');
+});
 run();

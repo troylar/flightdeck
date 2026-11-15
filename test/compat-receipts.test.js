@@ -18,11 +18,12 @@ const same = (a, b, msg) => assert.deepStrictEqual(JSON.parse(JSON.stringify(a))
 function python() { for (const c of ['python3', 'python']) { try { cp.execFileSync(c, ['--version'], { stdio: 'ignore' }); return c; } catch (e) { /* next */ } } return null; }
 const PY = python();
 
-let written = null;
+const written = {};
 /* run-l: a living run ended with its receipt. run-q: a run with one tool's request waiting, nothing landed (no living).
-   run-p: a run without to-dos. */
-async function folder() {
-  if (written) return written;
+   run-p: a run without to-dos. With waiting, run-l also has a tool's request still waiting when it ended. */
+async function folder(waiting) {
+  const memo = waiting ? 'waiting' : 'plain';
+  if (written[memo]) return written[memo];
   const NEW = H.loadMain({ at: AT, seed: 43 }), m = H.memFolder(NEW, await G.main()), repo = NEW.repo, T = NEW.todos, R = NEW.run;
   const res = await repo.publish(m, MD, { people: G.PEOPLE, customTypes: {}, workflows: {}, by: 'person-avery', changes: 'First', existing: [], now: AT, app: '4.0.0' });
   assert.ok(res && !res.blockers, JSON.stringify(res && res.blockers));
@@ -34,6 +35,11 @@ async function folder() {
   const c = T.buildProposal({ kind: 'compound', run: { process: 'release-notes', id: 'run-l' }, id, by: 'person-avery', seen: [], at: AT, body, decision: { by: 'person-avery', consequence: C }, application: { previous: '', effect: eff, fingerprint: T.fingerprint(eff) }, app: '4.0.0' });
   const w = T.buildProposal({ run: { process: 'release-notes', id: 'run-q' }, producer: { name: 'notes-bot', version: '1.0' }, key: 'k-q1', seen: [], at: AT, body: Object.assign({}, body, { text: 'Ask legal' }), app: '4.0.0' });
   await repo.saveScope(m, c.id + '.json', c); await repo.saveScope(m, w.id + '.json', w);
+  let lw = null;
+  if (waiting) {
+    lw = T.buildProposal({ run: { process: 'release-notes', id: 'run-l' }, producer: { name: 'notes-bot', version: '1.0' }, key: 'k-l1', seen: [], at: AT, body: Object.assign({}, body, { text: 'Ask legal' }), app: '4.0.0' });
+    await repo.saveScope(m, lw.id + '.json', lw);
+  }
   l.living = { head: id }; l.features = NEW.envelope.FROZEN.filter(f => l.features.concat(['living-runs']).indexOf(f) >= 0);
   const d = await repo.loadAll(m);
   const P = NEW.receipts.prepare(l, { outcome: 'Cancelled', by: 'person-avery', at: AT, app: '4.0.0', records: d.todos, unread: d.todosUnread, people: { people: G.PEOPLE }, now: Date.parse(AT), loops: { records: [], unread: [] }, runs: [] });
@@ -41,8 +47,8 @@ async function folder() {
   await repo.saveScope(m, P.name, P.file);
   R.end(l, R.mapOf(l), 'Cancelled', 'person-avery', 'Avery', AT, { receipt: P.id });
   await repo.saveRun(m, l, 'w-avery'); await repo.saveRun(m, q, 'w-avery'); await repo.saveRun(m, p, 'w-avery');
-  written = { files: H.filesOf(m), receipt: P.name, records: [c.id + '.json', w.id + '.json', P.name] };
-  return written;
+  written[memo] = { files: H.filesOf(m), receipt: P.name, records: [c.id + '.json', w.id + '.json', P.name], waiting: lw ? lw.id : '' };
+  return written[memo];
 }
 function cli(bin, ...a) { const r = cp.spawnSync(process.execPath, [bin, ...a], { encoding: 'utf8' }); let j = null; try { j = JSON.parse(r.stdout || r.stderr); } catch (e) { j = { raw: r.stdout + r.stderr }; } return { code: r.status, json: j, out: r.stdout + r.stderr }; }
 const bare = (j) => { const o = JSON.parse(JSON.stringify(j)); delete o.app; delete o.readAt; return o; };
@@ -329,6 +335,55 @@ rule('This version: a receipt with a recomputed id whose numbers aren\'t its run
         const res = JSON.parse(cp.execFileSync(PY, ['-I', path.join(ROOT, 'example-folder', '.flightdeck', 'skills', '_flightdeck', 'check_folder.py'), dir], { encoding: 'utf8' }));
         const mine = (res.runReceipts || []).filter((x) => x.run === 'release-notes/run-l');
         same([mine.length, mine[0] && mine[0].path, mine[0] && mine[0].kind, mine[0] && mine[0].why], [1, 'proposals/' + c.name, kind, want[0][1]], what + ' checker: ' + JSON.stringify(res.runReceipts));
+      }
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
+});
+/* Review round 2 (PR #114): a receipt is confirmed only on one past, and a request it calls declined needs a decline on it.
+   A second copy of the request it rests on that says other text, or names another run, and a receipt with its id
+   recomputed that moves the waiting request into declined (its totals balanced) are named alike, path, kind and why, by
+   run, next, runs, todo list and the folder checker. */
+rule('This version: a receipt resting on a record with a different copy, or calling a waiting request declined, is named alike by every reader and the checker', async () => {
+  const { files, receipt, waiting } = await folder(true), NEW = H.loadMain(), rp = 'runs/release-notes/run-l/run.json', wp = 'proposals/' + waiting + '.json';
+  const rc = JSON.parse(files['proposals/' + receipt]);
+  same([rc.counts.waiting, rc.counts.pending, rc.counts.declined, rc.counts.refused], [1, 1, 0, 0], 'set-up: the request was waiting at the end');
+  const copy = (edit) => { const o = JSON.parse(files[wp]); edit(o); return { f: Object.assign({}, files, { ['proposals/' + waiting + ' (1).json']: JSON.stringify(o, null, 2) + '\n' }), name: receipt }; };
+  const forge = (edit) => {
+    const o = JSON.parse(files['proposals/' + receipt]); edit(o);
+    o.id = NEW.receipts.idFor(o.run, o, o.by);
+    const r = JSON.parse(files[rp]); r.living.receipt = o.id;
+    const f = Object.assign({}, files); delete f['proposals/' + receipt];
+    f['proposals/' + o.id + '.json'] = JSON.stringify(o, null, 2) + '\n'; f[rp] = JSON.stringify(r, null, 2) + '\n';
+    return { f, name: o.id + '.json' };
+  };
+  const cases = [['the control', { f: files, name: receipt }, '', null],
+    ['a copy with other text', copy((o) => { o.text = 'A different task'; }), 'malformed', /two different copies of req-/],
+    ['a copy naming another run', copy((o) => { o.run = { process: 'release-notes', id: 'run-q' }; }), 'malformed', /two different copies of req-/],
+    ['waiting called declined', forge((o) => { o.counts.waiting = 0; o.counts.declined = 1; o.counts.pending = 0; o.counts.refused = 1; }), 'malformed', /additions declined, but 0 of/]];
+  for (const [what, c, kind, why] of cases) {
+    const { root, dir } = tree(c.f);
+    try {
+      const outs = {
+        run: cli(MINE, 'run', dir, 'release-notes/run-l', '--contract', '2', '--json'),
+        next: cli(MINE, 'next', dir, 'release-notes/run-l', '--as', 'person-avery', '--contract', '2', '--json'),
+        runs: cli(MINE, 'runs', dir, '--contract', '2', '--json'),
+        'todo list': cli(MINE, 'todo', 'list', dir, 'release-notes/run-l', '--json')
+      };
+      const got = Object.keys(outs).map((k) => [k, (outs[k].json.problems || []).filter((x) => x.path === 'proposals/' + c.name).map((x) => [x.kind, x.why])]);
+      const want = got[0][1];
+      if (!kind) assert.strictEqual(outs.run.json.data.run.receipt.state, 'confirmed', what + ': ' + JSON.stringify(outs.run.json.problems));
+      else {
+        assert.strictEqual(want.length, 1, what + ': run names it once: ' + JSON.stringify(outs.run.json.problems));
+        assert.strictEqual(want[0][0], kind, what);
+        assert.ok(why.test(want[0][1]), what + ': ' + want[0][1]);
+        assert.notStrictEqual(outs.run.json.data.run.receipt.state, 'confirmed', what);
+      }
+      same(got, Object.keys(outs).map((k) => [k, want]), what + ': ' + JSON.stringify(got));
+      if (PY) {
+        const res = JSON.parse(cp.execFileSync(PY, ['-I', path.join(ROOT, 'example-folder', '.flightdeck', 'skills', '_flightdeck', 'check_folder.py'), dir], { encoding: 'utf8' }));
+        const mine = (res.runReceipts || []).filter((x) => x.run === 'release-notes/run-l');
+        if (!kind) same([mine.length, mine[0] && mine[0].state], [1, 'confirmed'], what + ' checker: ' + JSON.stringify(res.runReceipts));
+        else same([mine.length, mine[0] && mine[0].path, mine[0] && mine[0].kind, mine[0] && mine[0].why], [1, 'proposals/' + c.name, kind, want[0][1]], what + ' checker: ' + JSON.stringify(res.runReceipts));
       }
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   }

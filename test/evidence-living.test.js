@@ -182,6 +182,9 @@ rule('A loop child with a missing application makes the parent\'s pack partial b
   assert.ok(!bad.ok && bad.out.indexOf(W.kidKey) >= 0, bad.out);
 });
 
+/* A manifest made to claim the work complete and its receipt confirmed, as the export said of a receipt resting on copies
+   that differ before review round 2: Python's own walk must still find the copies. */
+const claimed = (man) => { forced(man); man.runs.forEach((x) => { if (x.living && x.living.receipt && x.living.receipt.state !== 'none') { x.living.receipt.state = 'confirmed'; x.living.receipt.why = ''; } }); };
 rule('Two different copies of a link in the chain (a compound) make the pack ambiguous by path; Python refuses a complete claim with both packed', async () => {
   const W = await made({ todos: 1 }), head = W.run.living.head, ap = 'proposals/' + head + '.json', o = JSON.parse(W.files[ap]);
   assert.strictEqual(o.kind, 'compound', 'set-up: the recorder\'s own add is a compound');
@@ -193,7 +196,7 @@ rule('Two different copies of a link in the chain (a compound) make the pack amb
   if (!PY) return;
   const e = unzip(zip), man = JSON.parse(e['manifest.json']);
   assert.ok(man.files.some(f => f.path === 'proposals/' + head + ' (1).json'), 'both copies are packed');
-  man.status = 'complete'; man.runs[0].living.complete = true; man.runs[0].living.missing = [];
+  claimed(man);
   e['manifest.json'] = Buffer.from(JSON.stringify(man, null, 2) + '\n');
   const bad = checkPack(await rezip(W.PF, e));
   assert.ok(!bad.ok && /cop/.test(bad.out), bad.out);
@@ -1167,7 +1170,7 @@ rule('A pending request or a loop scope record with a copy that says something e
     const { zip, res } = await pack(W.PF, new BytesFS(files), W.key);
     assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(p) >= 0 && /two different copies/.test(u)), what + ': ' + res.status + ' ' + JSON.stringify(res.col.unresolved).slice(0, 400));
     if (!PY) continue;
-    const c = checkPack(await repacked(W.PF, zip, (e, man) => forced(man)));
+    const c = checkPack(await repacked(W.PF, zip, (e, man) => claimed(man)));
     assert.ok(!c.ok && /two different copies/.test(c.out), what + ': Python: ' + c.out);
   }
 });
@@ -1275,7 +1278,7 @@ rule('A packed record named .JSON or .Json is selected as the loader selects it:
     const cp = p.replace(/\.json$/, ' (1)' + ext), { zip, res } = await pack(W.PF, new BytesFS(Object.assign({}, W.files, { [cp]: JSON.stringify(o, null, 2) + '\n' })), W.key);
     assert.ok(res.status === 'partial' && res.col.unresolved.some((u) => u.indexOf(p) >= 0 && /two different copies/.test(u)), ext + ' copy: ' + res.status + ' ' + JSON.stringify(res.col.unresolved).slice(0, 400));
     if (!PY) continue;
-    const c = checkPack(await repacked(W.PF, zip, (e, man) => forced(man)));
+    const c = checkPack(await repacked(W.PF, zip, (e, man) => claimed(man)));
     assert.ok(!c.ok && /two different copies/.test(c.out), ext + ' copy: Python: ' + c.out);
   }
 });
@@ -2383,6 +2386,38 @@ rule('A receipt with a recomputed id whose numbers aren\'t its work, or that lea
       for (const confirm of [false, true]) {
         const c = checkPack(await repacked(PF, zip, (e, man) => { forced(man); if (confirm) man.runs.forEach((x) => { if (x.living && x.living.receipt) x.living.receipt.state = 'confirmed'; }); }));
         if (c.ok || !/receipt/.test(c.out)) misses.push(what + (confirm ? ', said confirmed' : '') + ': Python: ' + c.out);
+      }
+    }
+  }
+  assert.deepStrictEqual(misses, []);
+});
+/* Review round 2 (PR #114): a receipt is confirmed only on one past, and a request it calls declined needs a decline on it.
+   The pending request with a second copy saying other text or naming another run, and a receipt with its id recomputed that
+   moves the waiting request into declined (its totals balanced), leave the pack partial, named; Python, replaying the packed
+   bytes, refuses a complete claim and a confirmed one for each. */
+rule('A receipt resting on a request with a different copy, or calling a waiting request declined, leaves the pack partial; Python refuses a complete claim', async () => {
+  const W = await made({ todos: 2 }), PF = W.PF, T = PF.todos, r0 = PF.run.sanitize(JSON.parse(W.files[W.runPath]));
+  const q = T.buildProposal({ run: { process: r0.process, id: r0.id }, producer: { name: 'notes-bot', version: '1.0' }, key: 'k-loose', seen: [], at: new Date().toISOString(),
+    body: { op: 'add', text: 'Ask support', target: { phase: 'draft' }, placement: T.placementFor(PF.run.mapOf(r0), { phase: 'draft' }) } });
+  const withLoose = Object.assign({}, W.files, { ['proposals/' + q.id + '.json']: T.text(q) });
+  const honest = (rc) => { rc.seen = rc.seen.concat([q.id]).sort(); rc.counts.asked++; rc.counts.pending++; rc.counts.waiting++; };
+  const copyOf = (edit) => { const o = JSON.parse(T.text(q)); edit(o); return Object.assign({}, withLoose, { ['proposals/' + q.id + ' (1).json']: JSON.stringify(o, null, 2) + '\n' }); };
+  const ctl = await pack(PF, new BytesFS(rereceipt(W, (ev) => ev, honest, withLoose)), W.key);
+  assert.strictEqual(ctl.res.status, 'complete', 'the control: ' + JSON.stringify(ctl.res.col.unresolved));
+  if (PY) assert.ok(checkPack(ctl.zip).ok, 'Python accepts the control: ' + checkPack(ctl.zip).out);
+  const worlds = {
+    'a copy with other text': [honest, copyOf((o) => { o.text = 'A different task'; })],
+    'a copy naming another run': [honest, copyOf((o) => { o.run = { process: r0.process, id: 'r-other' }; })],
+    'waiting called declined': [(rc) => { honest(rc); rc.counts.waiting--; rc.counts.declined++; rc.counts.pending--; rc.counts.refused++; }, withLoose]
+  };
+  const misses = [];
+  for (const what of Object.keys(worlds)) {
+    const [whole, base] = worlds[what], { res, zip } = await pack(PF, new BytesFS(rereceipt(W, (ev) => ev, whole, base)), W.key);
+    if (res.status !== 'partial' || !res.col.unresolved.some((u) => u.indexOf(q.id) >= 0 || /additions declined/.test(u))) misses.push(what + ': the export: ' + res.status + ' ' + JSON.stringify(res.col.unresolved));
+    if (PY) {
+      for (const confirm of [false, true]) {
+        const c = checkPack(await repacked(PF, zip, (e, man) => { forced(man); if (confirm) man.runs.forEach((x) => { if (x.living && x.living.receipt) x.living.receipt.state = 'confirmed'; }); }));
+        if (c.ok || !/receipt|copies/.test(c.out)) misses.push(what + (confirm ? ', said confirmed' : '') + ': Python: ' + c.out);
       }
     }
   }

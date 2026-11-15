@@ -253,39 +253,41 @@ PF.receipts = (function () {
      that past; the chain from its head is there; the to-dos as that chain leaves them, the requests in that past and the
      evidence are exactly its numbers and evidence; its coverage is the chain's spreads, adding up to its owed and covered;
      its steps are the frozen checklist's and no more were answered than the run says; every keep it names is a keep on the
-     run. What rests on other runs (a loop's items, each spread's owed) can change after the end, so those only have to
-     add up. Returns '' or { missing: id } (a record it rests on isn't in the folder as read) or { why }. check_folder.py's
-     receipt_claims_why is the same rule, check for check. */
+     run. A record it rests on with copies that differ anywhere in the folder (another text, target or run under its id;
+     PF.loop.splitIds, the rule every reducer holds copies by) leaves which past is meant unknown. A request counted declined
+     needs a decline decision on it in that past, and one counted disputed two decisions or two applications on it; whether
+     a decision counted (people.json then) and queued, waiting or held (authority, placement, other runs) aren't replayed
+     here, so those only have to add up. What rests on other runs (a loop's items, each spread's owed) can change after the
+     end, so those only have to add up too. Returns '' or { missing: id } (a record it rests on isn't in the folder as read)
+     or { why }. check_folder.py's receipt_claims_why is the same rule, check for check. */
   var CLAIM_CAP = 5000;
   function claimsWhy(r, rec, records) {
     var me = function (x) { return !!x && !!x.run && x.run.process === r.process && x.run.id === r.id; };
-    var by = Object.create(null), keeps = Object.create(null);
+    var by = Object.create(null), keeps = Object.create(null), split = PF.loop.splitIds(records || []);
     (records || []).forEach(function (x) {
       if (!me(x) || typeof x.id !== 'string') return;
       if (x.kind === 'keep') keeps[x.id] = true;
-      if (PF.todos.notFact(x)) (by[x.id] = by[x.id] || []).push(x);
+      if (PF.todos.notFact(x) && !by[x.id]) by[x.id] = x;
     });
-    /* What the replay reads of a record: copies that differ in it leave which is meant unknown. */
-    var part = function (x) { var ap = x.kind === 'compound' ? x.application : x; return JSON.stringify(PF.todos.fingerprint({ kind: x.kind, op: x.op === undefined ? null : x.op, seen: x.seen || [], previous: ap && ap.previous !== undefined ? ap.previous : null, effect: ap && ap.effect !== undefined ? ap.effect : null })); };
     var past = Object.create(null), list = [], seenBy = Object.create(null), q = (rec.seen || []).slice();
     for (var i = 0; i < q.length; i++) {
       var id = q[i];
       if (past[id]) continue;
-      var xs = by[id];
-      if (!xs) return { missing: id };
-      if (xs.some(function (x) { return part(x) !== part(xs[0]); })) return { why: 'the folder has two different copies of ' + id + ', a record it rests on' };
+      if (!by[id]) return { missing: id };
+      if (split[id]) return { why: 'the folder has two different copies of ' + id + ', a record it rests on' };
       if (list.length >= CLAIM_CAP) return { why: 'it rests on more than ' + CLAIM_CAP + ' records' };
-      past[id] = xs[0]; list.push(xs[0]);
-      (Array.isArray(xs[0].seen) ? xs[0].seen : []).forEach(function (s) { seenBy[s] = true; q.push(s); });
+      past[id] = by[id]; list.push(by[id]);
+      (Array.isArray(by[id].seen) ? by[id].seen : []).forEach(function (s) { seenBy[s] = true; q.push(s); });
     }
     var settled = (rec.seen || []).filter(function (s) { return seenBy[s]; })[0];
     if (settled) return { why: 'it names ' + settled + ' as unsettled, but a record it saw had seen it' };
-    var chain = [], at = rec.head, visited = Object.create(null);
+    var chain = [], at = rec.head, visited = Object.create(null), landed = Object.create(null);
     while (at) {
       if (visited[at]) return { why: 'its applications go round in a circle at ' + at };
       visited[at] = true;
       var a = past[at], ap = a && (a.kind === 'application' ? a : a.kind === 'compound' ? a.application : null);
       if (!ap) return { why: 'its work head\'s chain names ' + at + ', which isn\'t an application it saw' };
+      landed[a.kind === 'compound' ? a.id : String(a.proposal)] = true;
       chain.unshift(ap); at = typeof ap.previous === 'string' ? ap.previous : '';
     }
     var c = Object.create(null); COUNTS.forEach(function (k) { c[k] = 0; });
@@ -321,6 +323,21 @@ PF.receipts = (function () {
     if (n.answered > room) return { why: 'it counts ' + n.answered + ' steps answered, but the run has ' + room + ' answered' };
     if (n.applied + n.pending + n.refused !== reqs.length) return { why: 'its requests don\'t add up to the ' + reqs.length + ' it saw' };
     if (n.queued + n.waiting + n.held + n.disputed + n.declined !== n.asked - n.added || n.declined > n.refused) return { why: 'its additions not applied don\'t add up' };
+    /* What each request not applied could be, from the decisions and applications on it in that past. */
+    var dec = Object.create(null), apps = Object.create(null), may = { add: 0, other: 0, disputed: 0 };
+    list.forEach(function (x) {
+      if (x.kind === 'decision') { (dec[x.proposal] = dec[x.proposal] || []).push(x.op); return; }
+      if (x.kind === 'application') apps[x.proposal] = (apps[x.proposal] || 0) + 1;
+    });
+    reqs.forEach(function (x) {
+      if (landed[x.id]) return;
+      var ds = dec[x.id] || [];
+      if (ds.indexOf('decline') >= 0) may[x.op === 'add' ? 'add' : 'other']++;
+      if (x.op === 'add' && (ds.length > 1 || (apps[x.id] || 0) > 1)) may.disputed++;
+    });
+    if (n.declined > may.add) return { why: 'it counts ' + n.declined + ' additions declined, but ' + may.add + ' of the additions it saw not applied have a decline decision' };
+    if (n.refused - n.declined > may.other) return { why: 'it counts ' + (n.refused - n.declined) + ' other requests declined, but ' + may.other + ' of the other requests it saw not applied have a decline decision' };
+    if (n.disputed > may.disputed) return { why: 'it counts ' + n.disputed + ' additions disputed, but ' + may.disputed + ' of the additions it saw not applied were decided or applied more than once' };
     if (n.cleared + n.abandoned > n.items || (n.items && !map.phases.some(function (p) { return p.steps.some(function (s) { return s.type === 'for.each'; }); }))) return { why: 'its loop items don\'t add up' };
     var cv = rec.coverage || [], ids = cv.map(function (x) { return x.spread; }).sort(cmpStr);
     if (JSON.stringify(ids) !== JSON.stringify(spreads.slice().sort(cmpStr))) return { why: 'its coverage doesn\'t name the spreads its run\'s work holds' };

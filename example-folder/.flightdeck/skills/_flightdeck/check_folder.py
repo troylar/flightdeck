@@ -4604,16 +4604,19 @@ def receipt_verdict_of(r, read, unread, key=None):
     if rec.get("by") != r["ended"].get("by"):
         return {"state": "mismatch", "path": path, "kind": "malformed", "why": "Its receipt (" + rid + ") was written by another person than the one who ended the run."}
     me = {"process": r.get("process"), "id": r.get("id")}
-    work, keeps = {}, set()
+    work, keeps, copies = {}, set(), {}
     for k, xs in read.items():
         for _, x in xs:
-            if not isinstance(x, dict) or x.get("run") != me or not isinstance(k, str):
+            if not isinstance(x, dict) or not isinstance(k, str):
+                continue
+            copies.setdefault(k, []).append(x)
+            if x.get("run") != me:
                 continue
             if x.get("kind") == "keep":
                 keeps.add(k)
             if x.get("kind") not in ("fact", "keep", "receipt"):
                 work.setdefault(k, []).append(x)
-    cw = receipt_claims_why(run_verdict.sanitize(r), rec, work, keeps)
+    cw = receipt_claims_why(run_verdict.sanitize(r), rec, work, keeps, copies)
     if cw and cw[0] == "missing":
         return {"state": "missing", "path": path, "kind": "nofile", "why": "Its receipt (" + rid + ") rests on proposals/" + cw[1] + ".json, which isn't in the folder as read, so what it ended with can't be confirmed."}
     if cw:
@@ -4631,20 +4634,29 @@ RECEIPT_COUNTS = ["steps", "answered", "items", "cleared", "abandoned", "todos",
 CLAIM_CAP = 5000
 
 
-def receipt_claims_why(r, rec, work, keeps):
+# What the app's reader leaves out of a checked to-do record when it tells copies apart (PF.loop.copyBody): its envelope, the
+# tool's key its id already holds, and when it was written.
+TODO_ENVELOPE = ("format", "features", "app", "created", "key")
+
+
+def todo_copy_body(o):
+    """A to-do record as PF.loop.copyBody compares its copies: its own fields, the envelope left out, keys in any order."""
+    if not isinstance(o, dict):
+        return json.dumps(o, sort_keys=True)
+    return json.dumps({k: v for k, v in o.items() if k not in TODO_ENVELOPE and not k.startswith("_")}, sort_keys=True)
+
+
+def receipt_claims_why(r, rec, work, keeps, copies=None):
     """PF.receipts.claimsWhy, check for check: what a receipt claims, held to the work it froze (its id is its own content,
     never proof of it). r: the run as the readers sanitize it. work: the run's own to-do records (never a fact, keep or
-    receipt), id -> every copy read; keeps: the ids of the run's keeps. None, ("missing", id) or ("why", text)."""
+    receipt), id -> every copy read; keeps: the ids of the run's keeps; copies: every checked to-do record read, whatever
+    its kind or run, id -> every copy (PF.loop.splitIds; work when not given). None, ("missing", id) or ("why", text)."""
     import run_verdict  # noqa: PLC0415 - the readers' own run port
 
     def dct(v):
         return v if isinstance(v, dict) else None
 
-    def part(x):
-        ap = dct(x.get("application")) if x.get("kind") == "compound" else x
-        return _tsha({"kind": x.get("kind"), "op": x.get("op"), "seen": x.get("seen") or [], "previous": ap.get("previous") if ap else None,
-                      "effect": ap.get("effect") if ap else None})
-
+    copies = work if copies is None else copies
     past, order, seen_by, q, i = {}, [], set(), list(rec.get("seen") or []), 0
     while i < len(q):
         rid = q[i]
@@ -4654,7 +4666,8 @@ def receipt_claims_why(r, rec, work, keeps):
         xs = work.get(rid)
         if not xs:
             return ("missing", rid)
-        if any(part(x) != part(xs[0]) for x in xs):
+        every = copies.get(rid) or xs
+        if any(todo_copy_body(x) != todo_copy_body(every[0]) for x in every):
             return ("why", "the folder has two different copies of " + rid + ", a record it rests on")
         if len(order) >= CLAIM_CAP:
             return ("why", "it rests on more than " + str(CLAIM_CAP) + " records")
@@ -4666,7 +4679,7 @@ def receipt_claims_why(r, rec, work, keeps):
     settled = [y for y in rec.get("seen") or [] if y in seen_by]
     if settled:
         return ("why", "it names " + settled[0] + " as unsettled, but a record it saw had seen it")
-    chain, at, visited = [], rec.get("head") or "", set()
+    chain, at, visited, landed = [], rec.get("head") or "", set(), set()
     while at:
         if at in visited:
             return ("why", "its applications go round in a circle at " + at)
@@ -4675,6 +4688,7 @@ def receipt_claims_why(r, rec, work, keeps):
         ap = (a if a.get("kind") == "application" else dct(a.get("application")) if a.get("kind") == "compound" else None) if a else None
         if not ap:
             return ("why", "its work head's chain names " + at + ", which isn't an application it saw")
+        landed.add(a.get("id") if a.get("kind") == "compound" else str(a.get("proposal")))
         chain.insert(0, ap)
         at = ap.get("previous") if isinstance(ap.get("previous"), str) else ""
     c = {k: 0 for k in RECEIPT_COUNTS}
@@ -4746,6 +4760,27 @@ def receipt_claims_why(r, rec, work, keeps):
         return ("why", "its requests don't add up to the " + str(len(reqs)) + " it saw")
     if n["queued"] + n["waiting"] + n["held"] + n["disputed"] + n["declined"] != n["asked"] - n["added"] or n["declined"] > n["refused"]:
         return ("why", "its additions not applied don't add up")
+    # What each request not applied could be, from the decisions and applications on it in that past.
+    dec, apps, may = {}, {}, {"add": 0, "other": 0, "disputed": 0}
+    for x in order:
+        if x.get("kind") == "decision":
+            dec.setdefault(x.get("proposal"), []).append(x.get("op"))
+        elif x.get("kind") == "application":
+            apps[x.get("proposal")] = apps.get(x.get("proposal"), 0) + 1
+    for x in reqs:
+        if x.get("id") in landed:
+            continue
+        ds = dec.get(x.get("id")) or []
+        if "decline" in ds:
+            may["add" if x.get("op") == "add" else "other"] += 1
+        if x.get("op") == "add" and (len(ds) > 1 or apps.get(x.get("id"), 0) > 1):
+            may["disputed"] += 1
+    if n["declined"] > may["add"]:
+        return ("why", "it counts " + _jnum(n["declined"]) + " additions declined, but " + str(may["add"]) + " of the additions it saw not applied have a decline decision")
+    if n["refused"] - n["declined"] > may["other"]:
+        return ("why", "it counts " + _jnum(n["refused"] - n["declined"]) + " other requests declined, but " + str(may["other"]) + " of the other requests it saw not applied have a decline decision")
+    if n["disputed"] > may["disputed"]:
+        return ("why", "it counts " + _jnum(n["disputed"]) + " additions disputed, but " + str(may["disputed"]) + " of the additions it saw not applied were decided or applied more than once")
     if n["cleared"] + n["abandoned"] > n["items"] or (n["items"] and not any(st.get("type") == "for.each" for st in mp["steps"])):
         return ("why", "its loop items don't add up")
     cv = rec.get("coverage") or []

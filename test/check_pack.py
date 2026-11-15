@@ -1297,20 +1297,24 @@ def check_living(z, man):
             # names as unsettled, the chain from its head, the to-dos, requests, coverage, steps and evidence that chain and the
             # packed run.json give, and its keeps. Its id is its own content, never proof of it.
             if good_receipt and closed:
-                work, keeps = {}, set()
+                work, keeps, every = {}, set(), {}
                 for path in sorted(by_path):
                     rid = record_name(path)
                     if not rid:
                         continue
                     d, o = dispatch(path), packed(path)
-                    if d["fam"] != "todo" or d["bad"] or d["run"] != me or not isinstance(o, dict):
+                    if d["fam"] != "todo" or d["bad"] or not isinstance(o, dict):
+                        continue
+                    # Every packed copy under the id, whatever run it names, as the app tells copies apart (PF.loop.splitIds).
+                    every.setdefault(rid, []).append(o)
+                    if d["run"] != me:
                         continue
                     if o.get("kind") == "keep":
                         keeps.add(rid)
                     if o.get("kind") not in ("fact", "keep", "receipt"):
                         work.setdefault(rid, []).append(o)
                 sr = RV.sanitize(run) if isinstance(run, dict) else None
-                cw = CF.receipt_claims_why(sr, rec, work, keeps) if isinstance(sr, dict) else ("why", "its run.json can't be read")
+                cw = CF.receipt_claims_why(sr, rec, work, keeps, every) if isinstance(sr, dict) else ("why", "its run.json can't be read")
                 if cw:
                     claims_why[0] = "it rests on proposals/" + cw[1] + ".json, which isn't in the pack" if cw[0] == "missing" else "it says something its run's work doesn't: " + cw[1]
                     work_problems.append(str(me["process"]) + "/" + str(me["id"]) + "'s receipt: " + claims_why[0])
