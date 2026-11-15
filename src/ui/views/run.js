@@ -1344,8 +1344,33 @@
     }
     var TV = prOf(ctx) ? null : tdView(ctx, r);
     if (TV && TV.todos.length) out.push('To-dos: ' + TV.todos.filter(function (x) { return x.state !== 'open'; }).length + ' of ' + TV.todos.length);
-    return '<ul class="rw-counts small" aria-label="Progress">' + out.map(function (o) { return '<li>' + esc(o) + '</li>'; }).join('') + '</ul>';
+    /* An ended living run's progress is what its receipt froze; the counts now (anything that arrived after the end
+       included) are said apart, never mixed into it. */
+    var pv = !prOf(ctx) && r.living && ctx.planVsNow ? ctx.planVsNow(r) : null, now = '';
+    /* A running living run counts by the shared comparison rules too (PF.receipts.compare), as its receipt will. */
+    if (pv && !pv.ended && pv.lines && pv.lines.length) out = pv.lines.slice();
+    if (pv && pv.ended && pv.lines && pv.lines.length) {
+      /* The counts now by the shared comparison rules (PF.receipts.compare), as the frozen lines were made. */
+      if (pv.now && pv.now.lines) out = pv.now.lines.concat(pv.now.unread && pv.now.unread.length ? ['The loop ' + pv.now.unread[0] + ' can\'t be read here, so its items aren\'t counted'] : []);
+      now = '<p class="small rw-now">' + esc('Counted now, after the end: ' + out.join(' · ')) + '</p>'; out = pv.lines;
+    }
+    return '<ul class="rw-counts small" aria-label="Progress">' + out.map(function (o) { return '<li>' + esc(o) + '</li>'; }).join('') + '</ul>' + now + (prOf(ctx) ? '' : planVsNow(ctx, r));
   }
+  /* Plan versus now (4.0 slice 6): for a living run, what was asked and what landed, each with its own denominator (chips:
+     additions, resolutions, coverage, changes). Running, it is worked out now; ended, it is the receipt's frozen words, and
+     what arrived since is shown apart, never changing them. A receipt that can't be confirmed says so by its path. */
+  function planVsNow(ctx, r) {
+    var v = r && r.living && ctx.planVsNow ? ctx.planVsNow(r) : null;
+    if (!v) return '';
+    var h = '<div class="pvn" aria-label="Plan versus now">';
+    if (v.ended && v.state && v.state.state !== 'confirmed') h += '<p class="small pvn-why">' + esc(v.state.state === 'none' ? 'It ended without a receipt record, so what it ended with is only what the run says.' : v.state.why + (v.state.path ? ' (' + v.state.path + ')' : '')) + '</p>';
+    if (v.chips.length) h += '<ul class="pvn-chips small">' + v.chips.map(function (c) { return '<li class="chip pvn-' + esc(c.id) + '">' + esc(c.words) + '</li>'; }).join('') + '</ul>';
+    if (v.ended && v.state && v.state.state === 'confirmed') h += '<p class="small">As the receipt froze it when the run ended.</p>';
+    if (v.unread && v.unread.length) h += '<p class="small">' + esc('The loop ' + v.unread[0] + ' can\'t be read here, so its items aren\'t counted.') + '</p>';
+    if (v.since && v.since.lines && v.since.lines.length) h += '<div class="pvn-since"><h4><span>After it ended</span></h4><ul class="small">' + v.since.lines.map(function (l) { return '<li>' + esc(l) + '</li>'; }).join('') + '</ul></div>';
+    return h + '</div>';
+  }
+  V.planVsNow = planVsNow;
 
   /* The phases rail, the checklist with Next up docked at its top, and the selected step: the same for a run and Practice. */
   function panes(ctx, r, map, rec, nx, items, schedBy, late) {

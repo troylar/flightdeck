@@ -93,7 +93,8 @@ PF.loop = (function () {
       (by[id].seen || []).forEach(function (s) {
         var j = idx[s];
         if (j === undefined) { ok = false; missing.push(s); return; }
-        if (state[j] !== 2 || anc[j] === null) { ok = false; return; }
+        /* Not finished, held, or this record itself (it names itself: its ancestors aren't known yet): a circle, held. */
+        if (state[j] !== 2 || !anc[j]) { ok = false; return; }
         a[j >>> 5] |= 1 << (j & 31);
         var aj = anc[j]; for (var k = 0; k < W; k++) a[k] |= aj[k];
       });
@@ -1090,6 +1091,6 @@ PF.loop = (function () {
   function recordsFor(records, loop) { return (records || []).filter(function (r) { return r.loop && r.loop.process === loop.process && r.loop.run === loop.run && r.loop.step === loop.step; }); }
 
   return { splitIds: splitIds, withCopies: withCopies, headFor: headFor, askerWhy: askerWhy, seenFor: seenFor, page: page, settleIn: settleIn, pageWords: pageWords, fileWhy: fileWhy, KINDS: KINDS, kindOf: kindOf, nounOf: nounOf, count: count, feedWhy: feedWhy, httpLink: httpLink, cleanItem: cleanItem, cleanChanges: cleanChanges, FEED: FEED, NOUN: NOUN, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
-    idFor: idFor, isScope: isScope, claims: claims, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
+    idFor: idFor, isScope: isScope, claims: claims, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text, copyBody: copyBody,
     rollup: rollup, view: view, markStale: markStale, rowId: rowId, choiceWhy: choiceWhy, resolveWhy: resolveWhy, resolvedBy: resolvedBy, planWhy: planWhy, sendBackWhy: sendBackWhy, again: again, appliedIn: appliedIn, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();

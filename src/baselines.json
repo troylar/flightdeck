@@ -77,7 +77,7 @@
       "24c5a846ef74e5b1d549fd6039dafee044d13f9be55b22b693c87d85df3c3192": [
         "3.0.1"
       ],
-      "2ae9f7eb728a80e2615dbc065db07bc7932dc6ff791d41d12895941aa43da706": [
+      "0201f9fb9e66b0d1682334fbf5c1589cd1f61d4103ae325a1c194fa8c9f2b4c6": [
         "4.0.0"
       ]
     },
@@ -107,7 +107,7 @@
       "6b481b41848a4d32bbe57076f65769724aad85bce47af23fd01e3bb2f3849dad": [
         "3.0.1"
       ],
-      "ac37fcbf187d7800330d47903b53d3e5709ef005cfcc67e65e6c3be3dd58533f": [
+      "79d694d3af4d66a804484c325b61e55f4d464d60426694bc926781efe532a609": [
         "4.0.0"
       ]
     },
@@ -265,6 +265,11 @@
         "4.0.0"
       ]
     },
+    ".flightdeck/skills/_flightdeck/run_verdict.py": {
+      "a4c0467f3703f5efeeba4cadb1053287216ff0d1d320e4d2851d8bec36622634": [
+        "4.0.0"
+      ]
+    },
     ".flightdeck/skills/flightdeck-edit-checklist/SKILL.md": {
       "a360ead4084faaf55c7d55ee92726856fa53acb251a976a9320dbe9bd382e0ba": [
         "1.10.0",
@@ -389,12 +394,12 @@
       "23218b1cfcb218c7dc1a414c5255e90e8100c0fb02144b55589722c25857fc2d": [
         "3.0.1"
       ],
-      "1ceb4e7f20872d5ad209033d98f4e15f79975d7cd67e4b37008b109a09292d52": [
+      "8bd08c936234c4e3f871cd551fd175cfe4f7277880014d7f532e3d7487278bec": [
         "4.0.0"
       ]
     },
     ".flightdeck/skills/flightdeck-living-run/SKILL.md": {
-      "df0acaaa7463888fbc177e196e04664991d5ac11dc33c1998687dd2247021fee": [
+      "8f2bfdb5325713d23501b4c14693b520c843848cb7f8a87244e1704ff22a4f3b": [
         "4.0.0"
       ]
     },
@@ -756,7 +761,7 @@
       "f4489f459cf189d3087f29af0a6091465e97e5f38b35470513ee8828b9d29bc0": [
         "3.0.1"
       ],
-      "33b4d2a65ddf84162520337ae2799b074e5fd310db42520e403858f1501c2777": [
+      "667fb29b4a649b34dd4a21bd86ec97d7ca4618f33463a08d753a8440c07e6273": [
         "4.0.0"
       ]
     },

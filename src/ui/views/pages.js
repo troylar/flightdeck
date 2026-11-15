@@ -94,7 +94,18 @@
     var r = ctx.run(); if (!r) return '';
     var map = R.mapOf(r), x = receiptParts(ctx, r, map);
     x.reportOf.lines = PF.reports.lines(x.reps, x.rb ? x.rb.cur : null, r, map, x.who);
-    return R.receipt(r, map, x.who, new Date(ctx.now()).toISOString(), r._notes, x.statusOf, x.fuStatusOf, x.reportOf);
+    return R.receipt(r, map, x.who, new Date(ctx.now()).toISOString(), r._notes, x.statusOf, x.fuStatusOf, x.reportOf) + livingText(ctx, r);
+  }
+  /* An ended living run's plan versus now as the receipt froze it, its verdict when it can't be confirmed, and what arrived
+     after the end, apart (4.0 slice 6). '' for every other run, so its copied text is exactly as before. */
+  function livingText(ctx, r) {
+    var v = r && r.living && r.ended && ctx.planVsNow ? ctx.planVsNow(r) : null;
+    if (!v) return '';
+    var out = ['', '', 'Plan versus now (as the receipt froze it when the run ended):'];
+    if (v.state && v.state.state !== 'confirmed') out.push(v.state.state === 'none' ? 'It ended without a receipt record, so what it ended with is only what the run says.' : v.state.why + (v.state.path ? ' (' + v.state.path + ')' : ''));
+    v.lines.concat(v.chips.map(function (c) { return c.words; })).forEach(function (l) { out.push('- ' + l); });
+    if (v.since && v.since.lines && v.since.lines.length) { out.push('', 'After it ended:'); v.since.lines.forEach(function (l) { out.push('- ' + l); }); }
+    return out.join('\n');
   }
   function receipt(ctx) {
     var r = ctx.run(); if (!r) return V.run(ctx);
@@ -125,6 +136,9 @@
       var x = fuOf(f);
       return '<div class="rrow"><span class="ric open">→</span><span>' + esc(f.text) + (f.ticket ? ' <span class="cat">' + esc(f.ticket) + '</span>' : '') + (x ? ' ' + V.fuPill(x) : '') + (x && x.decision && !x.tie && x.status !== 'open' ? '<span class="small" style="display:block">' + esc(fuStatusOf(f)) + '</span>' : '') + '</span><span class="small">' + esc(f.owner ? nameOf(ctx, f.owner) : '') + '</span></div>';
     }).join('') + '</div>';
+    /* A living run's receipt record (4.0 slice 6): its frozen plan-versus-now words, and what arrived after it ended. */
+    var pv = r.living && V.planVsNow ? V.planVsNow(ctx, r) : '';
+    if (pv) body = '<div class="r-pvn"><h4><span>Plan versus now</span></h4>' + (function () { var v = ctx.planVsNow(r); return v && v.lines.length ? '<ul class="small">' + v.lines.map(function (l) { return '<li>' + esc(l) + '</li>'; }).join('') + '</ul>' : ''; })() + pv + '</div>' + body;
     var unread = reps.filter(function (g) { return g.unreadable.length; }).length;
     /* 50 report groups at a time, formatted only when drawn (2.11); Copy for Jira formats every one. */
     if (reps.length || (rb && (rb.loading || rb.failed))) body += '<div class="r-reps"><h4><span>Reports · ' + reps.length + '</span></h4>' +

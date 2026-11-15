@@ -58,6 +58,12 @@ Some to-dos are settled by running a whole checklist ("run the smoke test").
 2. **Ask for it done** on a run that completed: `flightdeck todo suggest-done ... --todo <to-do id> --evidence-run <process>/<run id> --tool <name>@<version> --dry-run --json` first. Name the run its plan started; if more than one was started, ask the person which. If it is refused, say why (not completed, a result it doesn't accept, a run that changed) and don't work around it.
 3. **Say what changed.** If `todo list` shows `provenance` on a checked-off to-do, tell the person; nothing reopens on its own.
 
+## Plan versus now and the receipt
+
+1. **Say how the run stands** from `flightdeck run <team folder> <process>/<run id> --contract 2 --json`: the checklist's steps, a loop's items and the run's to-dos are three numbers, each out of its own total; never add them together. A request that isn't applied yet is waiting or queued, never done. A run with requests but no to-do applied yet still lists them (`todoRequests`).
+2. **An ended run's receipt** is what it ended with: `receipt.state` `confirmed` means the record it names is in the folder, says its work and outcome, and what it counts matches the run's work as Flightdeck replays it. Say that, and say anything that arrived after the end as arriving after it: it never changes the outcome. `missing` or `mismatch` (exit 4, named in `problems`) means it can't be confirmed: say so, never guess. `none` is a run that ended before receipts.
+3. **Ending a run** is done in Flightdeck, by the run's recorder: it writes the receipt, then ends the run. Never write a receipt, and never end a run yourself.
+
 ## Never
 
 - Never say a to-do is done, dropped or moved, or that an item has met a spread, until `todo list` or `spread list` shows it applied. A suggestion on evidence is a request like any other.
@@ -65,6 +71,7 @@ Some to-dos are settled by running a whole checklist ("run the smoke test").
 - Never drop or move work, stop a spread or send an approval back without the person's agreement. Never ask for any of them to make a gate pass, and never pass a gate. A person decides that.
 - Never say a kept step is in the checklist until a published version has it.
 - Never say a to-do is settled by a checklist's run until `todo list` shows it done on that run.
+- Never write or change a receipt (`"kind": "receipt"` in `proposals/`): only the recorder's window writes one, as the run ends.
 - Never put secrets, tokens or customer data in a to-do's or a spread's text, reason or destination, in a keep's text or reason, or in a fact's entries, errors or source.
 
 Remember that OneDrive may be up to a minute behind, so say what you read, not what is guaranteed.

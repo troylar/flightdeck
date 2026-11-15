@@ -174,6 +174,7 @@
     todoGrants: function () { return tdInboxNow().grants; },
     /* Spreads on a run (4.0 slice 3): coverage as every window and the CLI work it out (PF.spreads.coverage), once per draw. */
     spreadCoverage: function (r) { return spreadCoverageOf(r); },
+    planVsNow: function (r) { return planVsNowOf(r); },
     /* Facts on a run (4.0 slice 4) and the time they are judged at; a suggestion's evidence as it stands now. */
     factView: function (r) { return factViewOf(r); },
     factNow: function () { return tdNow(); },
@@ -2135,7 +2136,7 @@
     repHarvest();
     corrHarvest();
     tdHarvest();
-    procCache = null; pplBy = { list: null, len: -1, by: null }; pplSorted = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null; tdMemo = null; tdBox = null; spBox = null; fcMemo = null;
+    procCache = null; pplBy = { list: null, len: -1, by: null }; pplSorted = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null; tdMemo = null; tdBox = null; spBox = null; fcMemo = null; pvnMemo = null;
     pruneUnapplied();
     var keep = {}, ae = document.activeElement, focusKey = null;
     /* What a person typed or ticked survives a redraw of the same thing: the same screen, run, step and open form. Moving to
@@ -3035,6 +3036,7 @@
   function guardOk(cx) {
     if (!cx || cx.g !== gen || cx.fs !== state.fs || cx.me !== state.me) return false;
     if (cx.todo && !todoStill(cx.todo)) return false;
+    if (cx.receipt && !receiptStill(cx)) return false;
     if (!cx.run) return true;
     var r = findRun(cx.run);
     if (!r || runSig(r) !== cx.sig) return false;
@@ -3088,7 +3090,8 @@
   function todoSaveChain(cx, ed) {
     ed.opts.fresh = function () {
       if (!cx.todo || !cx.todo.living) return true;
-      return tdFresh(cx).then(function (x) { if (!x || !cx.todo) { ed.opts.putBack(); return false; } cx.todo.snap = x; return true; });
+      /* A save that ends the run with its receipt reads its loops' scope records and child runs again too (rcptFresh). */
+      return (cx.receipt ? rcptFresh(cx, cx.todo.key) : tdFresh(cx)).then(function (x) { if (!x || !cx.todo) { ed.opts.putBack(); return false; } cx.todo.snap = x; return true; });
     };
     return ed;
   }
@@ -3113,7 +3116,9 @@
        it moved out of run.json (logB, logA, mine), so putting it back never touches a line any other change wrote or moved. */
     var wrapped = function (r, m, me, now) {
       target = r; before = copy(r); logB = (r.log || []).slice(); var ov0 = (r._overflow || []).slice();
-      var out = fn(r, m, me, now);
+      var out;
+      /* A change that throws part way is put back by identity before the error goes on: nothing it set stays in memory. */
+      try { out = fn(r, m, me, now); } catch (e) { after = copy(r); logA = (r.log || []).slice(); mine = (r._overflow || []).filter(function (x) { return ov0.indexOf(x) < 0; }); back(r, before, after, false); logBack(r); after = null; throw e; }
       after = copy(r); logA = (r.log || []).slice(); mine = (r._overflow || []).filter(function (x) { return ov0.indexOf(x) < 0; });
       return out;
     };
@@ -4081,6 +4086,271 @@
       lastAll = -Infinity;
       render();
     }, function (err) { endBusy(); if (sg !== gen) return; say('Couldn\'t save what was kept: ' + (err && err.message || err) + ' It may or may not have been saved; keeping it again is the same keep.', 'bad'); render(); });
+  }
+  /* ---- Plan versus now and the receipt (4.0 slice 6, docs/design.md 45.5) ---- */
+  /* What a receipt is prepared from: the to-do records, unread files, people and evidence, the loops' scope records and the
+     runs (sn: the folder read again at a write, rcptFresh; else what this window read, for the screen and the first check). */
+  /* The checked scope records of a run's loops, as the receipt was prepared from them: one per copy, each by the app's copy
+     rule (PF.loop.copyBody), in id order. An end is bound to these, not only to the counts they give. */
+  function scopeSig(run, sn) {
+    var recs = rcptInputs(sn).loops.records || [];
+    return JSON.stringify(recs.filter(function (x) { var l = PF.loop.loopOf(x); return l && l.process === run.process && l.run === run.id; }).map(function (x) { return x.id + ' ' + PF.loop.copyBody(x); }).sort());
+  }
+  function rcptInputs(sn) {
+    sn = sn || tdData();
+    var lp = sn.loops || { records: data.scopes || [], unread: data.scopesUnread || [] };
+    return { records: sn.records, unread: sn.unread, people: sn.people, evidence: sn.evidence || null, now: tdNow(), loops: { records: lp.records, unread: lp.unread, procOf: sn.procOf || ctx.procOf }, runs: sn.runs || data.runs || [] };
+  }
+  /* The processes a run's loops start (each {for.each} step's process, with Fill in's changes): the publication indexes a
+     receipt's pins are resolved on, read again by rcptFresh. */
+  function loopProcs(run) {
+    var out = [], m = null; try { m = R.mapOf(run); } catch (e) { m = null; }
+    (m ? m.phases : []).forEach(function (ph) { ph.steps.forEach(function (st) {
+      if (st.type !== 'for.each') return;
+      var f = null; try { f = R.fieldsOf(run, st); } catch (e) { f = null; }
+      if (f && typeof f.process === 'string' && /^[a-z0-9][a-z0-9-]{0,59}$/.test(f.process) && out.indexOf(f.process) < 0) out.push(f.process);
+    }); });
+    return out.sort();
+  }
+  /* The one fresh dependency read a receipt is prepared and asked again on, right before each write that writes it or ends the
+     run: the to-do records, people and evidence (tdFresh), the loops' scope records from that same read, and the run's loop
+     children read again with the versions they ran checked (repo.readLoopChildren), and the publication indexes of the processes
+     its loops start (loopProcs, repo.readProcess), whose procOf every receipt and save-chain check then resolves pins on. null, and nothing is written, when any of
+     it can't be read, the window moved on, or a run it depends on isn't one every reader would read whole (its loop children,
+     its evidence runs and the runs whose spread it fulfills, rcptDepsJudged): each child is judged with the
+     verdict every reader gives a run (its version read and verified, then PF.appjson.judgeRun: times, records this copy
+     can't read as written, conflict copies, why it's read-only), and the first problem is named by its path, kind and reason. */
+  function rcptFresh(cx, key) {
+    var bound = function () { return !!cx && cx.g === gen && cx.fs === state.fs && cx.me === state.me; };
+    var self = findRun(key);
+    if (!self) return Promise.resolve(null);
+    var procs = loopProcs(self);
+    var idx = Promise.all(procs.map(function (n) { return repo.readProcess(cx.fs, n).then(null, function (e) { return { latest: null, all: [], clashes: [], broken: [], unlisted: 'publications/' + n + '/ ' + String(e && e.message || e) }; }); }));
+    return Promise.all([repo.readTodos(cx.fs, { evidence: true }).then(null, function () { return null; }), repo.readLoopChildren(cx.fs, self).then(null, function (e) { if (e && e.message) cx.rcptWhy = String(e.message).slice(0, 400); return null; }), idx]).then(function (x) {
+      if (!bound() || !x[0] || !x[1]) return null;
+      var pubs = Object.create(null), off = '';
+      procs.forEach(function (n, i) { pubs[n] = x[2][i] || null; if (!off && x[2][i] && x[2][i].unlisted) off = x[2][i].unlisted; });
+      if (off) { cx.rcptWhy = String(off).slice(0, 300) + ' (the versions this run\'s loops start can\'t be listed, so its children can\'t be checked against them).'; return null; }
+      /* The loops' pins are resolved on these indexes, read again right here, never the ones this window cached. */
+      var procOf = function (id) { return Object.prototype.hasOwnProperty.call(pubs, id) ? pubs[id] : ctx.procOf(id); };
+      if (x[1].unread.length) { var u = x[1].unread[0]; cx.rcptWhy = String(u.path || 'runs/' + u.key + '/run.json') + ': a child run of this run\'s loops can\'t be read as every reader reads it (' + String(u.kind || 'unreadable') + ': ' + String(u.why).slice(0, 200) + ').'; return null; }
+      var s = x[0], d = { todos: s.records, todosUnread: s.unread }; todoBodies(d);
+      var mine = function (c) { return c && c.parent && c.parent.item && c.parent.process === self.process && c.parent.id === self.id; };
+      /* Every child seen during this ending attempt (the receipt's write and each guard of the save that ends the run, or a
+         recovery's), carried from guard to guard: each later listing must still hold all of them. */
+      var seenK = cx.kidsSeen || (cx.kidsSeen = Object.create(null));
+      var seenList = function () { return Object.keys(seenK).sort().map(function (k) { return seenK[k]; }); };
+      var note = function (runs) { runs.forEach(function (c) { seenK[c.process + '/' + c.id] = { process: c.process, id: c.id }; }); };
+      var gone = rcptAbsent(self, x[1].runs, d.todos || [], s.scopes || [], (data.runs || []).filter(mine), seenList());
+      if (gone) { cx.rcptWhy = gone; return null; }
+      note(x[1].runs);
+      return rcptDepsJudged(cx, self, d.todos || []).then(function (bad) {
+        if (!bound()) return null;
+        if (bad) { cx.rcptWhy = String(bad.path) + ': a run this run\'s work depends on can\'t be read as every reader reads it (' + String(bad.kind) + ': ' + String(bad.why).slice(0, 200) + ').'; return null; }
+        return rcptClosure(cx, self, s).then(function (cl) {
+          if (!bound()) return null;
+          if (cl.why) { cx.rcptWhy = cl.why; return null; }
+          /* The children the closure listed last are held to every child read before: the guard's first read and this
+             window's. One gone between those listings is named, never left out of what the receipt counts. */
+          var gone2 = rcptAbsent(self, cl.kids, d.todos || [], s.scopes || [], (data.runs || []).filter(mine), x[1].runs.concat(seenList()));
+          if (gone2) { cx.rcptWhy = gone2; return null; }
+          note(cl.kids);
+          /* Every parent the closure listed children of, at any depth (a story's parts too), is held the same way: each child
+             an earlier listing in this ending attempt gave it must be in its listing now (4.0, NA). */
+          var by = cx.kidsBy || (cx.kidsBy = Object.create(null)), lost = '';
+          /* The children this window already holds of every parent the closure listed, at every depth, count as seen too
+             (4.0, OE): one gone from every listing this ending makes is still named. */
+          (data.runs || []).forEach(function (c) {
+            var pa = c && c.parent;
+            if (!pa || !pa.item || typeof pa.process !== 'string' || typeof pa.id !== 'string') return;
+            var pk = pa.process + '/' + pa.id;
+            if (!Object.prototype.hasOwnProperty.call(cl.kidsBy, pk)) return;
+            (by[pk] || (by[pk] = Object.create(null)))[c.process + '/' + c.id] = true;
+          });
+          Object.keys(by).sort().forEach(function (pk) {
+            if (lost) return;
+            var now = Object.create(null);
+            (cl.kidsBy[pk] || []).forEach(function (c) { now[c.process + '/' + c.id] = true; });
+            Object.keys(by[pk]).sort().forEach(function (ck) { if (!lost && !now[ck]) lost = 'runs/' + ck + '/run.json: a child run of ' + pk + ' that isn\'t in the folder now (an earlier read while ending this run listed it as one), so the receipt can\'t say what was done.'; });
+          });
+          if (lost) { cx.rcptWhy = lost; return null; }
+          Object.keys(cl.kidsBy).forEach(function (pk) { var m = by[pk] || (by[pk] = Object.create(null)); (cl.kidsBy[pk] || []).forEach(function (c) { m[c.process + '/' + c.id] = true; }); });
+          /* One checked dependency snapshot: the receipt is prepared and asked again on the very runs the closure read and
+             checked (its loop children, evidence runs and the runs it fulfills), never on an earlier read of them. */
+          var dep = cl.runs, have = Object.create(null);
+          dep.forEach(function (c) { have[c.process + '/' + c.id] = true; });
+          return { records: d.todos || [], unread: d.todosUnread || [], people: s.people || data.people, evidence: s.evidence || null, loops: { records: s.scopes || [], unread: s.scopesUnread || [] },
+            runs: (data.runs || []).filter(function (c) { return !mine(c) && !have[c.process + '/' + c.id]; }).concat(dep), procOf: procOf, rcpt: true };
+        });
+      });
+    });
+  }
+  /* The whole bounded closure every reader of an evidence pack asks of the run's work (repo.depClosure: PF.receipts.deps,
+     walked as the export walks it), on this same fresh read of proposals/ and the runs read again: each run it depends on
+     with its own living chain, each application's request, authority and what it saw, and its receipt. { why }: its first
+     missing piece, named by its path; else { why: '', runs, kids }: every run it read and checked, which the receipt is then
+     prepared on, and this run's loop children as the closure listed them. */
+  function rcptClosure(cx, self, s) {
+    var got = Object.create(null);
+    var Pr = { todos: s.records || [], todosUnread: (s.unread || []).filter(function (u) { return u && u.file !== 'people.json'; }), scopes: s.scopes || [], scopesUnread: s.scopesUnread || [], plans: s.plans || [], plansUnread: s.plansUnread || [] };
+    return repo.depClosure(self, Pr, {
+      depRun: function (proc, id) { var k = proc + '/' + id; return got[k] ? Promise.resolve(got[k]) : repo.depRead(cx.fs, proc, id).then(function (y) { got[k] = y; return y; }); },
+      childrenOf: function (X) { return repo.readLoopChildren(cx.fs, X).then(function (o) { return { runs: o.runs, bad: o.unread.map(function (b) { return { key: '', path: b.path, kind: b.kind, why: b.why }; }) }; }); },
+      count: function () { return Object.keys(got).length; }
+    }).then(function (res) {
+      var m = res.D.missing[0];
+      if (m) return { why: String(m).slice(0, 400) + ' The work this run depends on isn\'t all in the folder as every reader reads it.' };
+      return { why: '', runs: Object.keys(res.known).sort().map(function (k) { return res.known[k]; }), kids: res.kids[self.process + '/' + self.id] || [], kidsBy: res.kids };
+    }, function (e) { return { why: 'The work this run depends on can\'t all be checked here: ' + String(e && e.message || e).slice(0, 300) }; });
+  }
+  /* The other runs the receipt depends on, besides the loop children: each run one of this run's records names as a to-do's
+     evidence, and each run whose spread one of its requests fulfills. Each is read again and judged as the export judges it
+     (repo.depVerdict); the first that doesn't hold, or null. */
+  function rcptDepsJudged(cx, self, records) {
+    var want = [], seen = Object.create(null), PROC = /^[a-z0-9][a-z0-9-]{0,59}$/, RUN = /^[a-z0-9-]{1,40}$/i;
+    var add = function (r) { if (!r || typeof r.process !== 'string' || typeof r.id !== 'string' || !PROC.test(r.process) || !RUN.test(r.id)) return; var k = r.process + '/' + r.id; if (seen[k] || (r.process === self.process && r.id === self.id)) return; seen[k] = true; want.push(r); };
+    records.forEach(function (x) {
+      if (!x || !x.run || x.run.process !== self.process || x.run.id !== self.id) return;
+      [x, x.effect, x.application && x.application.effect].forEach(function (b) { if (b && b.evidence) add(b.evidence.run); });
+      if (x.fulfills) add(x.fulfills.run);
+    });
+    want.sort(function (a, b) { var ka = a.process + '/' + a.id, kb = b.process + '/' + b.id; return ka < kb ? -1 : ka > kb ? 1 : 0; });
+    return want.reduce(function (q, r) {
+      return q.then(function (bad) {
+        if (bad) return bad;
+        return repo.readRunOnly(cx.fs, r.process, r.id).then(function (one) { var v = repo.depVerdict(r.process, r.id, one); return v.bad || null; }, function (e) { return { path: 'runs/' + r.process + '/' + r.id + '/run.json', kind: 'unreadable', why: String(e && e.message || e) }; });
+      });
+    }, Promise.resolve(null));
+  }
+  /* A child run the folder still refers to that the fresh listing doesn't have (deleted, or now naming another parent): the
+     children this window read, the run a loop item's choice names, a spread's binding and a request fulfilling one of this
+     run's spreads. Named by its path, and the end is refused: no listing can tell a missing child from one never started. */
+  function rcptAbsent(self, kids, records, scopes, known, seen) {
+    var have = Object.create(null), ids = Object.create(null), want = [], me = function (x) { return x && x.run && x.run.process === self.process && x.run.id === self.id; };
+    kids.forEach(function (c) { have[c.process + '/' + c.id] = true; ids[c.id] = true; });
+    known.forEach(function (c) { want.push({ key: c.process + '/' + c.id, why: 'this window read it as a child run of this run' }); });
+    (seen || []).forEach(function (c) { want.push({ key: c.process + '/' + c.id, why: 'an earlier read while ending this run listed it as a child run' }); });
+    records.forEach(function (x) {
+      if (!x) return;
+      if (x.fulfills && x.fulfills.run && x.fulfills.run.process === self.process && x.fulfills.run.id === self.id && x.run) want.push({ key: x.run.process + '/' + x.run.id, why: 'proposals/' + String(x._file || x.id + '.json') + ' fulfills one of this run\'s spreads on it' });
+      [x.dest, x.effect && x.effect.dest, x.application && x.application.effect && x.application.effect.dest].forEach(function (dv) { if (dv && me(x) && typeof dv.process === 'string') want.push({ key: dv.process + '/' + dv.id, why: 'proposals/' + String(x._file || x.id + '.json') + ' binds a spread to it' }); });
+    });
+    /* A loop item's choice names a run of the process its own loop step starts (with Fill in's changes, as PF.receipts.deps
+       finds it): that exact process and run, never a run of that id under another loop's process. */
+    var smap = null; try { smap = R.mapOf(self); } catch (e) { smap = null; }
+    var procOfStep = function (stepId) { var f = null; (smap ? smap.phases : []).forEach(function (ph) { ph.steps.forEach(function (st) { if (st.id === stepId && st.type === 'for.each') { try { f = R.fieldsOf(self, st); } catch (e) { f = null; } } }); }); return f && typeof f.process === 'string' ? f.process : ''; };
+    scopes.forEach(function (x) {
+      var l = PF.loop.loopOf(x);
+      if (!l || l.process !== self.process || l.run !== self.id) return;
+      (Array.isArray(x.changes) ? x.changes : []).forEach(function (ch) {
+        if (!ch || ch.op !== 'choose' || typeof ch.run !== 'string' || !ch.run) return;
+        var cp = procOfStep(l.step), why = 'proposals/' + String(x._file || x.id + '.json') + ' chose it for a loop item';
+        want.push(cp ? { key: cp + '/' + ch.run, why: why } : { id: ch.run, why: why + ', and its loop\'s checklist can\'t be told', never: true });
+      });
+    });
+    for (var i = 0; i < want.length; i++) {
+      var w = want[i];
+      if (w.never || (w.key ? !have[w.key] : !ids[w.id])) return (w.key ? 'runs/' + w.key + '/run.json' : 'The run ' + w.id) + ': a child run of this run that isn\'t in the folder now (' + w.why + '), so the receipt can\'t say what was done.';
+    }
+    return '';
+  }
+  /* The receipt guard, asked before every write of the run's save that ends it (guardOk, with the to-do guard): on the run as
+     it was before it ended, prepared again from the folder read again right there (rcptFresh: never what this window read),
+     it is still exactly the receipt written, and that record is in the folder. */
+  function receiptStill(cx) {
+    var t = cx.receipt, sn = cx.todo && cx.todo.snap, pre;
+    if (!sn || !sn.rcpt) return false;
+    try { pre = R.sanitize(JSON.parse(t.pre)); } catch (e) { return false; }
+    if (!pre || pre._unrunnable) return false;
+    if (!(sn.records || []).some(function (x) { return x && x.kind === 'receipt' && x.id === t.id; })) return false;
+    var A = PF.receipts.prepare(pre, Object.assign(rcptInputs(sn), { outcome: t.outcome, by: t.by || cx.me, at: t.at, app: APP_VERSION }));
+    /* Bound to the scope records it was prepared from too (an end from this window), so a change that keeps every count is a change. */
+    if (A.why || A.none || A.id !== t.id || (t.scopes != null && scopeSig(pre, sn) !== t.scopes)) return false;
+    /* The one receipt verdict every reader gives, on the run as this save would end it and on this fresh read: everything under
+       the receipt's id (a copy that can't be read, whatever run it names, or a copy of another kind) is asked, not only the
+       receipt this window prepared. */
+    var ended = JSON.parse(JSON.stringify(pre));
+    ended.ended = { outcome: t.outcome, by: t.by || cx.me };
+    ended.living = { head: pre.living ? pre.living.head : '', receipt: t.id };
+    var S = PF.receipts.verdict(ended, sn.records || [], sn.unread || []);
+    if (S && S.problem) { cx.rcptWhy = S.why + ' (' + S.path + ')'; return false; }
+    return !!S && S.state === 'confirmed';
+  }
+  /* Ending a run. A run that isn't living ends exactly as in 3.0. A living run ends with its receipt: prepared from the folder
+     as this window reads it (nothing is written when it can't be: a record, the loop or a spread's coverage that can't be
+     read, a list over its limit), written once under the run guard (prepared again on the folder read again right before
+     the write; a retry writes exactly the first bytes), then the run's save sets ended and living.receipt together, with the
+     to-do and receipt guards asked again before each of its writes. Refused there, nothing more is written and the end is
+     put back; the receipt record stays, naming nothing, and ending again prepares it again. */
+  /* Ending as in 3.0, for a run that isn't living: a run that has become living by then ends only with its receipt. */
+  function plainEnd(rr, map, outcome, me, now) {
+    if (rr.living) throw new Error('This run has to-dos now, so it ends with its receipt. End it again.');
+    R.end(rr, map, outcome, me, V.nameOf(ctx, me), now);
+  }
+  function endRun(outcome) {
+    var g = gen, key = state.runKey, r = ctx.run();
+    var after = function (ok) { if (ok && g === gen && state.runKey === key && ctx.run() && ctx.run().ended) { backMode(true); setView('receipt'); render(); window.scrollTo(0, 0); } };
+    if (!r || !r.living) { mutate(function (rr, map, me, now) { plainEnd(rr, map, outcome, me, now); }).then(after); return; }
+    if (!ctx.recording(r)) { say('Only the recorder\'s window can end the run.', 'warn'); render(); return; }
+    if (runUnread(r)) { say(runUnread(r) + ' The run wasn\'t ended.', 'warn'); render(); return; }
+    var sig = JSON.stringify([fsKey(), key, state.me, outcome, r.living.head]), kept = state.rcptTry && state.rcptTry.sig === sig ? state.rcptTry.P : null;
+    var at = kept ? kept.record.at : new Date().toISOString();
+    var ask = function (run, sn) { return PF.receipts.prepare(run, Object.assign(rcptInputs(sn), { outcome: outcome, by: state.me, at: at, app: APP_VERSION })); };
+    var P = ask(r, null), scopes = scopeSig(r, null);
+    if (P.none) { mutate(function (rr, map, me, now) { plainEnd(rr, map, outcome, me, now); }).then(after); return; }
+    if (P.why) { say(P.why, 'warn'); render(); return; }
+    if (kept && kept.id === P.id) P = kept;
+    state.rcptTry = { sig: sig, P: P };
+    var cx = loopGuard({ run: key, readable: true }), text = PF.todos.text(P.file), endBusy = busyStart(), snap = null;
+    var fresh = function () { return rcptFresh(cx, key).then(function (s) { snap = s; return !!s; }); };
+    var still = function () { if (!guardOk(cx) || !snap) return false; var A = ask(findRun(key), snap); return !A.why && !A.none && A.id === P.id && scopeSig(findRun(key), snap) === scopes; };
+    repo.saveScope(cx.fs, P.name, P.file, { fresh: fresh, still: still }).then(function (res) {
+      endBusy(); if (g !== gen) return;
+      if (res && res.dropped) { say(cx.rcptWhy ? cx.rcptWhy + ' The run wasn\'t ended.' : 'The run wasn\'t ended: the folder, the person, the run or its to-dos changed before its receipt was written. End it again if it still should.', 'warn'); render(); return; }
+      /* A receipt already in the folder under its name says the same (its name is what it says); anything else there isn't one. */
+      if (res && res.conflict && res.theirs !== text) {
+        var v = null; try { var o = PF.util.jsonTooDeep(res.theirs) ? undefined : JSON.parse(res.theirs); if (o && typeof o === 'object') v = PF.todos.cleanFile(o, P.name, PF.util.utf8Bytes(res.theirs)); } catch (e) { v = null; }
+        if (!v || !v.ok || v.record.kind !== 'receipt' || v.record.id !== P.id) { say('Something else is already saved under the receipt\'s name. The run wasn\'t ended; read the folder again.', 'bad'); render(); return; }
+      }
+      var rec = P.record; rec._file = P.name;
+      if (!(data.todos || []).some(function (x) { return x.id === rec.id; })) data.todos = (data.todos || []).concat([rec]);
+      var lcx = loopGuard({ run: key, readable: true });
+      /* The children the receipt's write saw are carried into the save's guards: one ending attempt, one set. */
+      lcx.kidsSeen = cx.kidsSeen || Object.create(null);
+      lcx.kidsBy = cx.kidsBy || Object.create(null);
+      var ed = loopEdit(lcx, key, function (rr, m, me, now) {
+        if (!rr.living || rr.living.head !== P.record.head) throw new Error('The run\'s to-dos changed since its receipt was prepared, so it wasn\'t ended. End it again.');
+        var pre = todoPre(rr);
+        lcx.todo = { key: key, from: rr.living.head, head: rr.living.head, pre: pre, living: true };
+        lcx.receipt = { pre: pre, id: P.id, at: at, outcome: outcome, scopes: scopes };
+        R.end(rr, m, outcome, me, V.nameOf(ctx, me), now, { receipt: P.id });
+        /* The guard asks after the end: the run as this change left it (ended) is the one it compares with. */
+        lcx.sig = runSig(rr);
+      }, { redo: true });
+      todoSaveChain(lcx, ed);
+      mutate(ed.fn, ed.opts).then(function (ok) { if (ok && state.rcptTry && state.rcptTry.P === P) state.rcptTry = null; if (!ok && lcx.rcptWhy && g === gen) { say(lcx.rcptWhy + ' The run wasn\'t ended.', 'warn'); render(); } after(ok); });
+    }, function (err) { endBusy(); if (g !== gen) return; say('Couldn\'t save the run\'s receipt: ' + (err && err.message || err) + ' It may or may not have been saved; ending again writes the same receipt. The run wasn\'t ended.', 'bad'); render(); });
+  }
+  var pvnMemo = null;
+  function planVsNowOf(r) {
+    if (!r || !r.living || r._unrunnable) return null;
+    var k = [r, r.rev || 0, r.living.head, r.living.receipt || '', r.ended, data.todos, data.todosUnread, data.scopes, data.runs, data.people, Math.floor(tdNow() / 60000)];
+    if (pvnMemo && pvnMemo.k.length === k.length && pvnMemo.k.every(function (x, i) { return x === k[i]; })) return pvnMemo.v;
+    var v = null;
+    try {
+      if (r.ended) {
+        var S = PF.receipts.stateOf(r, data.todos || [], data.todosUnread || []);
+        v = { ended: true, state: S, lines: [], chips: [], since: null };
+        if (S && S.record) { var w = PF.receipts.words(S.record.counts, S.record.coverage); v.lines = w.lines; v.chips = w.chips; v.since = PF.receipts.since(r, S.record, data.todos || [], spreadCoverageOf(r)); }
+        /* The counts now, by the same comparison rules as the frozen ones, so the two differ only by what changed since. */
+        try { var Cn = PF.receipts.compare(r, PF.run.mapOf(r), todoViewFor(r), spreadCoverageOf(r), rcptInputs()); v.now = { lines: Cn.lines, unread: Cn.unread }; } catch (e) { v.now = null; }
+      } else {
+        var C = PF.receipts.compare(r, PF.run.mapOf(r), todoViewFor(r), spreadCoverageOf(r), rcptInputs());
+        v = { ended: false, lines: C.lines, chips: C.chips, phases: C.phases, unread: C.unread };
+      }
+    } catch (e) { v = null; }
+    pvnMemo = { k: k, v: v };
+    return v;
   }
   var spBox = null;
   function spreadCoverageOf(r) {
@@ -9174,7 +9444,7 @@
     pickup: function () { if (runBusy(ctx.run())) return; fresh().then(function (t) { if (t) mutateRun(t.key, t.g, function (r, map, me, now) { R.pickUp(r, me, SESSION, now, R.legacyLinks(r, ctx.findRun)); }, { any: true }); }); },
     takeover: function () { if (runBusy(ctx.run())) return; fresh().then(function (t) { if (t) mutateRun(t.key, t.g, function (r, map, me, now) { R.takeOver(r, me, SESSION, now, R.legacyLinks(r, ctx.findRun)); }, { any: true, takeover: true }); }); },
     /* The receipt opens only once the ending is really in the team folder; a failed save keeps you here with Try again. */
-    end: function (id) { var g = gen, key = state.runKey; mutate(function (r, map, me, now) { R.end(r, map, id, me, V.nameOf(ctx, me), now); }).then(function (ok) { if (ok && g === gen && state.runKey === key && ctx.run() && ctx.run().ended) { backMode(true); setView('receipt'); render(); window.scrollTo(0, 0); } }); },
+    end: function (id) { endRun(id); },
     /* Finishing: outcome, follow-ups and suggested map changes, then the receipt. */
     finish: function () { setView('finish'); state.pick = null; render(); window.scrollTo(0, 0); },
     'add-followup': function (id, b) {
@@ -10146,8 +10416,13 @@
           var bare = Object.create(null); Object.keys(trial).forEach(function (k) { if (k.charAt(0) !== '_') bare[k] = trial[k]; });
           var back = R.sanitize(JSON.parse(JSON.stringify(R.testLast(bare))));
           if (!back || back._unrunnable) throw new Error('Keeping that copy would save a run this copy of Flightdeck can\'t read back' + (back && back._unrunnable ? ' (' + String(back._unrunnable).slice(0, 200) + ')' : '') + ', so nothing was replaced.');
+          /* A copy that leaves the run ended and living (whether this run had ended or not) keeps it as Ending does: with its
+             receipt, checked here on the trial before the live run is touched, then asked again on the folder read again before
+             every write of this save (rcptFresh, receiptStill), on the run as it was before that end. */
+          var guard = trial.ended && trial.living ? recoverReceipt(trial) : null;
           keep(run);
           if (extra.length) run._overflow = (run._overflow || []).concat(extra);
+          if (guard) rcx.receipt = guard;
           /* redo: a save that fails (not only one the guard drops) of a copy that keeps living work puts it back here by
              identity (loopEdit), never left as an unsaved change a later save (a Pause) would write unguarded; the copy stays
              in the folder. A copy without to-dos stays for Try again, as in 3.0. */
@@ -10155,11 +10430,25 @@
         todoSaveChain(rcx, ed);
         return mutateRun(key, g, ed.fn, ed.opts);
       }).then(function (ok) {
+        if (!ok && rcx.rcptWhy && g === gen) { say(rcx.rcptWhy + ' The copy wasn\'t kept.', 'warn'); render(); }
         if (!ok || g !== gen) return;
         state.copyView = null;
         return cleanup(fs, cur).then(function () { if (g === gen) return refreshRun(); }, function (e) { if (g === gen) say('Kept the copy, but couldn\'t remove it: ' + e.message, 'warn'); });
       });
     }).catch(function (e) { if (g === gen) say('Couldn\'t keep that copy: ' + e.message, 'bad'); }).then(done);
+  }
+  /* The receipt guard for a kept copy that ends a living run: the receipt it names, as this window read it, and the run as it
+     was before that end (without ended, running, living without the receipt). A copy that names none, or a receipt this
+     window doesn't have, isn't kept. */
+  function recoverReceipt(run) {
+    var id = run.living.receipt, rec = id ? (data.todos || []).filter(function (x) { return x && x.kind === 'receipt' && x.id === id; })[0] : null;
+    if (!id) throw new Error('That copy ended the run without its receipt, so it wasn\'t kept.');
+    if (!rec || rec.outcome !== run.ended.outcome || rec.head !== run.living.head) throw new Error('The receipt that copy ended the run with (proposals/' + id + '.json) isn\'t in the folder as read, so it wasn\'t kept.');
+    /* The shared receipt verdict on the copy as it would be kept (who ended it included), before the live run is touched. */
+    var S = PF.receipts.stateOf(run, data.todos || [], data.todosUnread || []);
+    if (!S || S.state !== 'confirmed') throw new Error((S && S.why ? S.why : 'Its receipt can\'t be confirmed.') + ' (proposals/' + id + '.json) So the copy wasn\'t kept.');
+    var pre = JSON.stringify(run, function (k, v) { if (this !== run) return v; if (k.charAt(0) === '_' || k === 'ended') return undefined; return k === 'state' ? 'running' : k === 'living' ? { head: run.living.head } : v; });
+    return { pre: pre, id: id, at: rec.at, outcome: rec.outcome, by: run.ended.by };
   }
   function fresh() {
     var r = ctx.run(), g = gen, fs = state.fs, at = startRead(), bad = []; if (!r) return Promise.resolve(null);

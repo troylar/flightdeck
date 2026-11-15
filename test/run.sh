@@ -123,6 +123,7 @@ test/todos-rules.test.js -
 test/spreads.test.js -
 test/facts.test.js -
 test/learn.test.js -
+test/receipts.test.js -
 test/learn-cli.test.js -
 test/detours.test.js -
 test/detours-cli.test.js -
@@ -176,6 +177,8 @@ test/app-learn.test.js 4/8
 test/app-learn.test.js 5/8
 test/app-learn.test.js 6/8
 test/app-learn.test.js 7/8
+test/app-receipts.test.js 0/2
+test/app-receipts.test.js 1/2
 test/app-detours.test.js -
 test/staging-app.test.js -
 test/test-runs-app.test.js -
@@ -194,6 +197,7 @@ test/compat-pass.test.js -
 test/compat-results.test.js -
 test/compat-loops.test.js -
 test/compat-todos.test.js -
+test/compat-receipts.test.js -
 test/compat-teamvalues.test.js -
 test/compat-typesave.test.js -
 test/skills-parity.test.js -
@@ -211,6 +215,8 @@ test/agents-inventory.test.js -
 test/old-bundles.test.js -
 test/clarity-compat.test.js -
 test/evidence.test.js -
+test/evidence-living.test.js -
+test/run-corpus.test.js -
 test/light.test.js -
 test/wrong-record.test.js -
 test/practice.test.js -

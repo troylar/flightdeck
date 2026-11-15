@@ -122,9 +122,10 @@ async function build(PF, opts) {
   const mem2 = new PF.fs.MemoryFS('evidence2:' + Math.random(), null);
   mem2.reset({});
   /* v2note: v2 also adds a note on the first phase, so it is a preflight-publication/2 version. */
-  const md2 = opts.v2note ? rv.text.replace(/^(## [^\n]*\{#[\w-]+\}\n)/m, '$1  > Check the release notes first.\n') : rv.text;
+  /* v2same: v2 published from v1's unchanged text, its listing of the correction kept (a version that doesn't make it). */
+  const md2 = opts.v2same ? md : opts.v2note ? rv.text.replace(/^(## [^\n]*\{#[\w-]+\}\n)/m, '$1  > Check the release notes first.\n') : rv.text;
   if (opts.v2note && md2 === rv.text) throw new Error('no phase heading for the v2 note');
-  const pub2 = await repo.publish(mem2, md2, { people: JSON.parse(people), ...EX, by: 'person-avery', changes: 'Pods wording', existing: [v1.info], now: NOW, rand: 'bbbb2222', corrections: C.forPublish(md2, gs).list });
+  const pub2 = await repo.publish(mem2, md2, { people: JSON.parse(people), ...EX, by: 'person-avery', changes: 'Pods wording', existing: [v1.info], now: NOW, rand: 'bbbb2222', corrections: C.forPublish(opts.v2same ? rv.text : md2, gs).list });
   if (pub2.blockers) throw new Error(String(pub2.blockers));
   Object.assign(files, bytesOf(mem2));
   return { files, run: r, groupId: g.id, v1: r.folder, v2: pub2.folder, base, notesPath: base + 'notes-w2.jsonl', shot, log };

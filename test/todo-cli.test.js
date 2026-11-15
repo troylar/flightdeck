@@ -145,7 +145,7 @@ rule('run, next and runs (contract 2) list a living run\'s to-dos and say what h
   const { root: r2 } = await folder(), plain = json('run', r2, 'release-notes/r-1', '--contract', '2', '--json').data.run;
   assert.deepStrictEqual(['todos', 'todoCounts', 'todoHolds'].filter(k => k in plain), []);
 });
-rule('A run/2 with no to-dos yet is still held by a to-do record of it that can\'t be read, as every window holds it', async () => {
+rule('A run/2 with no to-dos yet is still held by a to-do record of it that can\'t be read, as every window holds it, and shows it; with no record naming it, nothing', async () => {
   const { root, d } = await folder(MD.replace('context: kind:choice(minor|major)\n', ''));
   const r = JSON.parse(fs.readFileSync(path.join(root, 'runs/release-notes/r-1/run.json'), 'utf8')), map = R.mapOf(R.sanitize(r));
   assert.strictEqual(r.format, R.FORMAT, 'set-up: a run/2');
@@ -159,10 +159,54 @@ rule('A run/2 with no to-dos yet is still held by a to-do record of it that can\
   assert.ok(one.problems.some(p => p.path === 'proposals/' + bad && p.kind === 'malformed'), 'named: ' + JSON.stringify(one.problems));
   assert.strictEqual(one.complete, false);
   assert.notStrictEqual(one.code, 0);
-  assert.deepStrictEqual(['todos', 'todoCounts', 'todoHolds'].filter(k => k in one.data.run), [], 'not living: no to-do fields');
+  /* Pending records stay visible before a run gains living (4.0 slice 6): one naming the run, even unreadable, shows its to-do
+     fields, held; a run with no to-do records naming it prints exactly as 3.0 did. */
+  assert.deepStrictEqual(['todos', 'todoCounts', 'todoHolds'].filter(k => k in one.data.run), ['todos', 'todoCounts', 'todoHolds'], 'a record naming it: its to-do fields');
+  assert.strictEqual(one.data.run.todoCounts.held, true, 'held');
   const n = json('next', root, 'release-notes/r-1', '--as', 'person-avery', '--contract', '2', '--json');
   assert.ok(n.problems.some(p => p.path === 'proposals/' + bad), 'next names it too');
-  assert.ok(!('todos' in n.data), 'and prints no to-do fields');
+  assert.ok('todos' in n.data, 'and its to-do fields');
+  assert.strictEqual(n.code, 4);
+  await d.remove('proposals/' + bad);
+  const none = json('run', root, 'release-notes/r-1', '--contract', '2', '--json');
+  assert.deepStrictEqual(['todos', 'todoCounts', 'todoHolds', 'todoRequests'].filter(k => k in none.data.run), [], 'no record naming it: no to-do fields');
+  assert.strictEqual(none.code, 0);
+});
+/* ND: proposals/ that can't be listed is named by every reader, whether or not the run is living yet, so none says complete
+   about a run whose pending requests it couldn't read: run, next, runs and todo list all exit 4 naming the same path. */
+rule('proposals/ that can\'t be listed (EIO) before a run is living: run, next, runs and todo list all exit 4 naming it', async () => {
+  const { root } = await folder();
+  const add = cli('todo', 'add', root, 'release-notes/r-1', '--text', 'Check the screenshots', '--phase', 'draft', ...TOOL);
+  assert.strictEqual(add.code, 0, add.out);
+  assert.ok(!JSON.parse(fs.readFileSync(path.join(root, 'runs/release-notes/r-1/run.json'), 'utf8')).living, 'set-up: not living yet');
+  const FD = require(BIN), readdir = fs.readdirSync, dir = fs.realpathSync(path.join(root, 'proposals')), got = {};
+  fs.readdirSync = function (p) { if ([path.resolve(String(p)), (() => { try { return fs.realpathSync(String(p)); } catch (e) { return ''; } })()].indexOf(dir) >= 0) { const e = new Error('EIO: i/o error, scandir'); e.code = 'EIO'; throw e; } return readdir.apply(fs, arguments); };
+  try {
+    for (const [name, args] of [['run', ['run', root, 'release-notes/r-1', '--contract', '2', '--json']], ['next', ['next', root, 'release-notes/r-1', '--as', 'person-avery', '--contract', '2', '--json']],
+      ['runs', ['runs', root, '--contract', '2', '--json']], ['todo list', ['todo', 'list', root, 'release-notes/r-1', '--json']]]) {
+      const r = await FD.main(args), j = JSON.parse(r.out);
+      got[name] = [r.code, j.complete === true, (j.problems || []).some((p) => p.path === 'proposals/')];
+    }
+  } finally { fs.readdirSync = readdir; }
+  const want = {}; Object.keys(got).forEach((k) => { want[k] = [4, false, true]; });
+  assert.deepStrictEqual(got, want);
+});
+/* RD: a request file whose run can't be told (it isn't JSON at all) may be a request pending on any run: before a run is
+   living, run, next, runs and todo list all name it (exit 4), and the run's evidence pack is partial naming it. */
+rule('A request file that can\'t be read and names no run: run, next, runs and todo list all exit 4 naming it, and the pack is partial', async () => {
+  const { root, d } = await folder(), bad = 'proposals/' + T.idFor('notes-bot', 'unknown') + '.json';
+  await d.write(bad, '{ not JSON');
+  const FD = require(BIN), got = {};
+  for (const [name, args] of [['run', ['run', root, 'release-notes/r-1', '--contract', '2', '--json']], ['next', ['next', root, 'release-notes/r-1', '--as', 'person-avery', '--contract', '2', '--json']],
+    ['runs', ['runs', root, '--contract', '2', '--json']], ['todo list', ['todo', 'list', root, 'release-notes/r-1', '--json']]]) {
+    const r = await FD.main(args), j = JSON.parse(r.out);
+    got[name] = [r.code, j.complete === true, (j.problems || []).some((p) => p.path === bad)];
+  }
+  const want = {}; Object.keys(got).forEach((k) => { want[k] = [4, false, true]; });
+  assert.deepStrictEqual(got, want);
+  const res = await PF.repo.exportEvidence(d, { run: 'release-notes/r-1' }, { sink: () => {}, now: () => Date.now(), tz: 'UTC' });
+  assert.strictEqual(res.status, 'partial', JSON.stringify(res.col.unresolved));
+  assert.ok(res.col.unresolved.some((u) => u.indexOf(bad) >= 0), 'named: ' + JSON.stringify(res.col.unresolved));
 });
 rule('A to-do record from a newer Flightdeck is named newer, not malformed, by run and next', async () => {
   const { root, d } = await folder();
@@ -234,5 +278,37 @@ rule('Usage, an unknown run, a run that ended and a folder part that can\'t be r
   const h = json('todo', 'add', root, 'release-notes/r-1', '--text', 'x', '--phase', 'draft', '--json', ...TOOL);
   assert.deepStrictEqual([h.code, h.data && h.data.status], [4, 'held']);
   assert.deepStrictEqual(ls(root), [T.idFor('notes-bot', 'zz') + '.json'], 'nothing written');
+});/* TE: what a reader couldn't read keeps its state. proposals/ that can't be listed is that problem, never a missing receipt
+   worked out from nothing read; a request that can't be read (EIO) is unreadable in every reader, todo list included. */
+const READERS = (root, id) => [['run', ['run', root, id, '--contract', '2', '--json']], ['next', ['next', root, id, '--as', 'person-avery', '--contract', '2', '--json']],
+  ['runs', ['runs', root, '--contract', '2', '--json']], ['todo list', ['todo', 'list', root, id, '--json']]];
+rule('proposals/ that can\'t be listed on an ended living run: every reader names it, and none says its receipt is missing', async () => {
+  const W = await require('./living-worlds').made({ todos: 1 }), root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-todo-'));
+  Object.keys(W.files).forEach((p) => { fs.mkdirSync(path.dirname(path.join(root, p)), { recursive: true }); fs.writeFileSync(path.join(root, p), W.files[p]); });
+  assert.ok(W.run.ended && W.run.living && W.run.living.receipt, 'set-up: an ended living run with a receipt');
+  const FD = require(BIN), readdir = fs.readdirSync, dir = fs.realpathSync(path.join(root, 'proposals')), got = {};
+  fs.readdirSync = function (p) { if ([path.resolve(String(p)), (() => { try { return fs.realpathSync(String(p)); } catch (e) { return ''; } })()].indexOf(dir) >= 0) { const e = new Error('EIO: i/o error, scandir'); e.code = 'EIO'; throw e; } return readdir.apply(fs, arguments); };
+  try {
+    for (const [name, args] of READERS(root, W.key)) {
+      const r = await FD.main(args), j = JSON.parse(r.out), ps = j.problems || [];
+      got[name] = [r.code, ps.some((p) => p.path === 'proposals/'), ps.filter((p) => p.path.indexOf(W.run.living.receipt) >= 0).map((p) => p.kind)];
+    }
+  } finally { fs.readdirSync = readdir; }
+  const want = {}; Object.keys(got).forEach((k) => { want[k] = [4, true, []]; });
+  assert.deepStrictEqual(got, want);
+});
+rule('A request whose run can\'t be told and whose read fails (EIO) is unreadable in run, next, runs and todo list alike', async () => {
+  const { root, d } = await folder(), bad = 'proposals/' + T.idFor('notes-bot', 'eio') + '.json';
+  await d.write(bad, '{}');
+  const FD = require(BIN), open = fs.openSync, full = fs.realpathSync(path.join(root, bad)), got = {};
+  fs.openSync = function (p) { if ([path.resolve(String(p)), (() => { try { return fs.realpathSync(String(p)); } catch (e) { return ''; } })()].indexOf(full) >= 0) { const e = new Error('EIO: i/o error, open'); e.code = 'EIO'; throw e; } return open.apply(fs, arguments); };
+  try {
+    for (const [name, args] of READERS(root, 'release-notes/r-1')) {
+      const r = await FD.main(args), j = JSON.parse(r.out);
+      got[name] = [r.code, (j.problems || []).filter((p) => p.path === bad).map((p) => p.kind)];
+    }
+  } finally { fs.openSync = open; }
+  const want = {}; Object.keys(got).forEach((k) => { want[k] = [4, ['unreadable']]; });
+  assert.deepStrictEqual(got, want);
 });
 run();

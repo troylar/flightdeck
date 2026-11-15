@@ -858,6 +858,8 @@ const FILE = 'text written to a file (front matter, a step\'s lines), never draw
 const FIXED = 'a fixed set of parts, at most a handful';
 const GROUP = 'one group path (Group / Subgroup), as deep as its author wrote it';
 const D10_JOIN_OK = [
+  { file: 'run.js', has: "esc('Counted now, after the end: ' + out.join(' · '))", why: 'an ended living run\'s counts now: at most the four progress counts (gates, steps, items, to-dos), said apart from the frozen lines' },
+  { file: 'pages.js', has: "return out.join('\\n');", why: 'Copy for Jira\'s plan versus now: the receipt\'s frozen lines (one per count kind and one per spread, a receipt names at most its limit of spreads) and what arrived after, one line each' },
   { file: 'run.js', has: 'i.planConflict.options.map(', why: 'a story\'s plans in conflict, every one, since each is a choice a person must be able to make (round 9); options of a select, not drawn as text, each naming at most 5 inputs' },
   { file: 'run.js', has: 'last.items.slice(0, 50).map(', why: 'a held loop\'s last readable view, at most 50 stories named, with how many more' },
   { file: 'run.js', has: 'S.skip.slice(0, 50).map(', why: 'the Start all preview\'s skipped stories, at most 50 named' },

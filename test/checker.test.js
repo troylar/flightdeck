@@ -892,6 +892,161 @@ rule('The checker reads pass: (2.8) and team: (2.9) like the app: the same error
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+/* YD: JavaScript lists an object's keys with array-index keys first, ascending, then the rest as written; Python keeps the
+   file's order. Each reader names the first key in JavaScript's order. The fixtures are raw texts with integer-like keys
+   written "2" before "1" (a JS object would reorder them): the end of a run, team-values.json (a value, a key in a value,
+   a top key), the places a run file says what the app doesn't keep, and jira/workflows.json. */
+rule('The checker names the first key a file holds in JavaScript\'s order, as the app does, for keys written "2" before "1"', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-keys-'));
+  try {
+    const d = new DiskFS(root), T = PF.teamValues, off = [];
+    await d.write('people.json', JSON.stringify(people));
+    const md = '---\nprocess: x\ntitle: X\n---\n## P {#p}\n- [ ] {confirm} Look {#a}\n\n## Gate: Ready {#ready}\n';
+    const v = await repo.publish(d, md, { people, ...EX, by: 'person-avery', changes: 'x', existing: [], now: NOW, app: '4.0.0' });
+    assert.ok(!v.blockers, String(v.blockers));
+    const pub = (await repo.loadAll(d)).processes.find(x => x.process === 'x').index.latest;
+    const run = JSON.stringify(PF.run.create(pub, { title: 'Keys', by: 'person-avery', session: 'w1', now: NOW, id: 'run-keys' }));
+    assert.ok(run.indexOf('"details":{}') > 0 && run.indexOf('"ended":null') > 0, 'set-up: a run file to edit');
+    const ended = run.replace('"ended":null', '"ended":{"outcome":"done","at":"' + NOW + '","by":"person-avery","2":"b","1":"a"}');
+    const drifted = run.replace(/"details":\{\}/, '"details":{"2":5,"1":6}');
+    const src = 'import json,sys\nsys.path.insert(0,sys.argv[1])\nimport check_folder as CF, run_verdict as RV\nd=json.load(sys.stdin)\n' +
+      'o=json.loads(d["ended"]);p=json.loads(d["drifted"])\nprint(json.dumps({"ended":CF.raw_problem(o),"drift":RV.drift(p,RV.strip(RV.sanitize(p)))}))';
+    const out = JSON.parse(cp.execFileSync(py, ['-I', '-c', src, path.dirname(CHECKER)], { input: JSON.stringify({ ended, drifted }), encoding: 'utf8' }));
+    const je = PF.run.rawProblem(JSON.parse(ended)), jd = PF.run.unexplained(JSON.parse(drifted));
+    if (!je || !out.ended || out.ended[1] !== je.why) off.push('the end: Python ' + JSON.stringify(out.ended) + ', the app ' + JSON.stringify(je));
+    if (!jd || !jd.length || JSON.stringify(out.drift) !== JSON.stringify(jd)) off.push('what the app doesn\'t keep: Python ' + JSON.stringify(out.drift) + ', the app ' + JSON.stringify(jd));
+    const check = () => JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
+    const F = '"format":"' + T.FORMAT + '"';
+    for (const [label, text] of [['two values that aren\'t entries', '{' + F + ',"values":{"2":"b","1":"a"}}'],
+      ['keys in a value', '{' + F + ',"values":{"a":{"value":"x","2":"b","1":"a"}}}'], ['top keys', '{' + F + ',"values":{"a":{"value":"x"}},"2":"b","1":"a"}']]) {
+      fs.writeFileSync(path.join(root, T.FILE), text);
+      const mine = check().teamValues, theirs = T.parse(text);
+      assert.ok(theirs.why || theirs.readOnly, label + ': set-up: the app names a key');
+      if (mine.why !== theirs.why || mine.readOnly !== theirs.readOnly) off.push('team-values.json, ' + label + ': Python ' + JSON.stringify([mine.why, mine.readOnly]) + ', the app ' + JSON.stringify([theirs.why, theirs.readOnly]));
+    }
+    fs.unlinkSync(path.join(root, T.FILE));
+    await d.write('jira/workflows.json', '{"2":{},"1":{}}');
+    const jp = check().teamFiles.problems.filter(p => p.file === 'jira/workflows.json').map(p => p.problem);
+    if (JSON.stringify(jp) !== JSON.stringify(['1: needs "statuses"', '2: needs "statuses"'])) off.push('jira/workflows.json: Python lists ' + JSON.stringify(jp));
+    assert.deepStrictEqual(off, []);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+rule('The checker reads a key of thousands of digits, and keys at the array-index bounds, as the app does: only a canonical index below 4294967295 goes first', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-longkeys-'));
+  try {
+    const d = new DiskFS(root), T = PF.teamValues, off = [];
+    await d.write('people.json', JSON.stringify(people));
+    const md = '---\nprocess: x\ntitle: X\n---\n## P {#p}\n- [ ] {confirm} Look {#a}\n\n## Gate: Ready {#ready}\n';
+    const v = await repo.publish(d, md, { people, ...EX, by: 'person-avery', changes: 'x', existing: [], now: NOW, app: '4.0.0' });
+    assert.ok(!v.blockers, String(v.blockers));
+    const pub = (await repo.loadAll(d)).processes.find(x => x.process === 'x').index.latest;
+    const run = JSON.stringify(PF.run.create(pub, { title: 'Keys', by: 'person-avery', session: 'w1', now: NOW, id: 'run-keys' }));
+    assert.ok(run.indexOf('"details":{}') > 0 && run.indexOf('"ended":null') > 0, 'set-up: a run file to edit');
+    const check = () => JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8', maxBuffer: 64 << 20 }));
+    const src = 'import json,sys\nsys.path.insert(0,sys.argv[1])\nimport check_folder as CF, run_verdict as RV\nd=json.load(sys.stdin)\nout=[]\n' +
+      'for t in d["texts"]:\n o=json.loads(t[0]);p=json.loads(t[1])\n' +
+      ' out.append({"ended":CF.raw_problem(o),"drift":RV.drift(p,RV.strip(RV.sanitize(p))),"list":RV.get([1],t[2]) is RV.MISSING,"str":RV.get("ab",t[2]) is RV.MISSING})\n' +
+      'print(json.dumps(out))';
+    const F = '"format":"' + T.FORMAT + '"';
+    for (const K of ['9'.repeat(4300), '9'.repeat(4301), '4294967294', '4294967295', '01', '0']) {
+      const label = K.length > 20 ? K.length + ' digits' : '"' + K + '"';
+      const ended = run.replace('"ended":null', '"ended":{"outcome":"done","at":"' + NOW + '","by":"person-avery","zz":"a","' + K + '":"b"}');
+      const drifted = run.replace(/"details":\{\}/, '"details":{"zz":1,"' + K + '":2,"1":3}');
+      const res = cp.spawnSync(py, ['-I', '-c', src, path.dirname(CHECKER)], { input: JSON.stringify({ texts: [[ended, drifted, K]] }), encoding: 'utf8', maxBuffer: 64 << 20 });
+      if (res.status !== 0) off.push(label + ': Python stopped: ' + String(res.stderr).trim().split('\n').pop());
+      else {
+        const out = JSON.parse(res.stdout)[0];
+        const je = PF.run.rawProblem(JSON.parse(ended)), jd = PF.run.unexplained(JSON.parse(drifted));
+        if (!je || !out.ended || out.ended[1] !== je.why) off.push(label + ', the end: Python ' + JSON.stringify(out.ended).slice(0, 200) + ', the app ' + JSON.stringify(je).slice(0, 200));
+        if (!jd || JSON.stringify(out.drift) !== JSON.stringify(jd)) off.push(label + ', what the app doesn\'t keep: Python ' + JSON.stringify(out.drift).slice(0, 200) + ', the app ' + JSON.stringify(jd).slice(0, 200));
+        if (out.list !== ([1][K] === undefined) || out.str !== ('ab'[K] === undefined)) off.push(label + ': Python reads it from a list or text as ' + JSON.stringify([out.list, out.str]));
+      }
+      fs.writeFileSync(path.join(root, T.FILE), '{' + F + ',"values":{"a":{"value":"x","zz":"a","' + K + '":"b"}}}');
+      await d.write('jira/workflows.json', '{"zz":{},"' + K + '":{}}');
+      const whole = cp.spawnSync(py, ['-I', CHECKER, root], { encoding: 'utf8', maxBuffer: 64 << 20 });
+      let folder = null;
+      try { folder = JSON.parse(whole.stdout); } catch (e) { off.push(label + ': the folder checker printed no JSON: ' + String(whole.stderr).trim().split('\n').pop()); }
+      if (!folder) continue;
+      const theirs = T.parse(fs.readFileSync(path.join(root, T.FILE), 'utf8'));
+      if (folder.teamValues.why !== theirs.why || folder.teamValues.readOnly !== theirs.readOnly) off.push(label + ', team-values.json: Python ' + JSON.stringify([folder.teamValues.why, folder.teamValues.readOnly]).slice(0, 200) + ', the app ' + JSON.stringify([theirs.why, theirs.readOnly]).slice(0, 200));
+      const jp = folder.teamFiles.problems.filter(p => p.file === 'jira/workflows.json').map(p => p.problem.split(':')[0]);
+      const want = /^(0|[1-9][0-9]{0,9})$/.test(K) && +K < 4294967295 ? [K, 'zz'] : ['zz', K];
+      if (JSON.stringify(jp) !== JSON.stringify(want)) off.push(label + ', jira/workflows.json: Python lists ' + JSON.stringify(jp).slice(0, 200));
+    }
+    assert.deepStrictEqual(off, []);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+rule('The checker writes a to-do copy as JSON.stringify writes the app\'s canonical record: 1.0 is 1, keys sorted by UTF-16 code unit', () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const src = 'import json,sys\nsys.path.insert(0,sys.argv[1])\nimport check_folder as CF\n' +
+    'a=json.loads(sys.stdin.read())\nprint(json.dumps([CF.todo_copy_body(x) for x in a]))';
+  const recs = ['{"id":"x","n":1.0,"m":[2.50]}', '{"\\ud83d\\ude00":1,"\\uffff":2,"b":{"z":1,"a":0.0}}'];
+  const out = JSON.parse(cp.execFileSync(py, ['-I', '-c', src, path.dirname(CHECKER)], { input: '[' + recs.join(',') + ']', encoding: 'utf8' }));
+  assert.deepStrictEqual(out, recs.map((t) => PF.loop.copyBody(JSON.parse(t))));
+});
+
+rule('The checker reads a fact and a keep as the app\'s readers return them, the record their copies are compared in: same fields, same content', () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const at = '2026-11-09T09:00:00.000Z', run = { process: 'release-notes', id: 'run-l' }, T = PF.todos;
+  const tpl = { process: 'release-notes', folder: 'v3-k3m9p2q8', version: 3, mapHash: 'a1b2c3d4', typesHash: 'e5f6a7b8' };
+  const fact = PF.facts.build({ run, producer: { name: 'git-bot', version: '1.0' }, key: 'prs-1', seen: [], at, app: '4.0.0', loopStep: 'each', uid: 'jira:ABC-123', attempt: 1,
+    source: { feed: 'bitbucket', site: 'git.example.com', account: 'team' }, domain: 'prs', observedAt: at, maxAgeSeconds: 86400, complete: false, reported: 3, fetched: 2,
+    errors: ['Page 2 timed out'], entries: [{ id: 'b', text: 'Change 2', state: 'open', link: 'https://git.example.com/pr/2' }, { id: 'a', text: 'Change 1', state: 'merged' }] });
+  const kPerson = PF.learn.build({ run, by: 'person-avery', at, app: '4.0.0', source: { todo: 'td-' + 'a'.repeat(24) }, change: { text: 'Check the links twice', where: 'end' }, needs: 'It isn\'t placed yet.' });
+  const kTool = PF.learn.build({ run, producer: { name: 'notes-bot', version: '1.0' }, at, source: { spread: 'sp-' + 'b'.repeat(24) }, template: tpl, anchor: { phase: 'draft', after: 'write' }, base: 'c0ffee00', change: { text: 'Read them aloud', where: 'after' }, reason: 'Missed twice' });
+  const kEnd = PF.learn.build({ run, by: 'person-avery', at, source: { todo: 'td-' + 'c'.repeat(24) }, template: tpl, anchor: { phase: 'review' }, base: '0badc0de', change: { text: 'Sign it', where: 'end' } });
+  const edit = (o, fn) => { const x = JSON.parse(JSON.stringify(o)); fn(x); return x; };
+  const files = [fact, edit(fact, (x) => { x.source.account = null; x.entries[1].link = null; }), kPerson, edit(kPerson, (x) => { x.template = null; x.anchor = null; x.reason = null; x.producer = null; x.key = null; x.base = null; }),
+    kTool, kEnd, edit(kEnd, (x) => { x.anchor.after = null; x.reason = null; x.needs = null; })];
+  const want = files.map((o) => { const c = T.cleanFile(JSON.parse(JSON.stringify(o)), o.id + '.json'); assert.ok(c.ok, JSON.stringify(c)); return JSON.parse(PF.loop.copyBody(c.record)); });
+  const src = 'import json,sys\nsys.path.insert(0,sys.argv[1])\nimport check_folder as CF\n' +
+    'a=json.loads(sys.stdin.read())\nprint(json.dumps([json.loads(CF.todo_copy_body(CF.todo_checked(x, x["id"] + ".json"))) for x in a]))';
+  const got = JSON.parse(cp.execFileSync(py, ['-I', '-c', src, path.dirname(CHECKER)], { input: JSON.stringify(files), encoding: 'utf8' }));
+  assert.deepStrictEqual(got, want);
+});
+
+rule('The checker reads a number of thousands of digits in a team file as JSON, as the app does: never "isn\'t valid JSON", and the same verdict for a publication and team-values.json', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-longnums-'));
+  try {
+    const d = new DiskFS(root), T = PF.teamValues, off = [];
+    await d.write('people.json', JSON.stringify(people));
+    const md = '---\nprocess: x\ntitle: X\n---\n## P {#p}\n- [ ] {confirm} Look {#a}\n\n## Gate: Ready {#ready}\n';
+    const v = await repo.publish(d, md, { people, ...EX, by: 'person-avery', changes: 'x', existing: [], now: NOW, app: '4.0.0' });
+    assert.ok(!v.blockers, String(v.blockers));
+    const pubPath = path.join(root, 'publications', 'x', v.folder, 'publication.json'), pub0 = fs.readFileSync(pubPath, 'utf8');
+    const F = '"format":"' + T.FORMAT + '"';
+    for (const N of ['9'.repeat(4300), '9'.repeat(4301), '-' + '9'.repeat(4301), '1' + '0'.repeat(309)]) {
+      const label = N.length + ' characters';
+      fs.writeFileSync(pubPath, pub0.replace(/"version":\s*1\b/, '"version": ' + N));
+      fs.writeFileSync(path.join(root, T.FILE), '{' + F + ',"values":{"a":{"value":"x"}},"zz":' + N + '}');
+      await d.write('jira/workflows.json', '{"a":{"statuses":["Open"],"zz":' + N + '}}');
+      await d.write('step-types/team.n.json', '{"id":"team.n","label":"N","fields":{},"record":[],"zz":' + N + '}');
+      const whole = cp.spawnSync(py, ['-I', CHECKER, root], { encoding: 'utf8', maxBuffer: 64 << 20 });
+      let out = null;
+      try { out = JSON.parse(whole.stdout); } catch (e) { off.push(label + ': the folder checker printed no JSON: ' + String(whole.stderr).trim().split('\n').pop()); }
+      if (!out) continue;
+      const app = await repo.loadAll(d, { deep: true }), theirs = app.processes.find(p => p.process === 'x').pubs.find(p => p.folder === v.folder);
+      const mine = out.publications.x.versions.find(p => p.folder === v.folder);
+      const words = (t) => String(t).toLowerCase().replace(/\.$/, '');
+      if (!mine || words(mine.why) !== words(theirs.why)) off.push(label + ', publication.json: Python ' + JSON.stringify(mine && [mine.status, mine.why]) + ', the app ' + JSON.stringify([theirs.ok, theirs.why]));
+      const tv = T.parse(fs.readFileSync(path.join(root, T.FILE), 'utf8'));
+      if (out.teamValues.why !== tv.why || out.teamValues.readOnly !== tv.readOnly) off.push(label + ', team-values.json: Python ' + JSON.stringify([out.teamValues.state, out.teamValues.why]) + ', the app ' + JSON.stringify([tv.why, tv.readOnly]));
+      for (const p of out.teamFiles.problems) if (/isn't valid JSON/.test(p.problem)) off.push(label + ', ' + p.file + ': Python says ' + p.problem);
+    }
+    assert.deepStrictEqual(off, []);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 rule('The checker reads team-values.json (2.9) like the app: the same state and reason for each file, too large is unreadable, and steps passing a value it lacks are named', async () => {
   const py = python();
   if (!py) { console.log('  (skipped: no Python on this computer)'); return; }

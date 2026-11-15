@@ -38,6 +38,14 @@ import stat
 import sys
 import time
 
+# The whole run port (run_verdict.py, beside this file) imports this module by name: under python -I this folder isn't on the
+# path, and run as a script this module is __main__, so both are made so here (loaded by a path alone, it imports its own).
+# The checker writes nothing in the team folder: no bytecode cache beside the files it loads either.
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+if __name__ in sys.modules:
+    sys.modules.setdefault("check_folder", sys.modules[__name__])
+
 
 REQ_ID = re.compile(r"^req-([a-z0-9][a-z0-9-]{0,29})-[0-9a-f]{24}\Z")
 REQ_BY = re.compile(r"^([a-z0-9][a-z0-9-]{0,29}) [A-Za-z0-9_.+-]{1,40} \(a tool\)\Z")
@@ -162,10 +170,20 @@ def json_too_deep(text):
     return False
 
 
+def js_index(k):
+    """k as a JavaScript array index (an int), or None: canonical decimal below 4294967295. The length is checked before
+    int(), so a key of thousands of digits stays an ordinary key and never reaches Python's digit limit."""
+    if not isinstance(k, str) or len(k) > 10 or not re.fullmatch(r"0|[1-9][0-9]*", k):
+        return None
+    i = int(k)
+    return i if i < 4294967295 else None
+
+
 def js_keys(obj):
     """Object keys in JavaScript's order: array-index keys ascending first, then the rest as written."""
-    idx = sorted((k for k in obj if re.fullmatch(r"0|[1-9][0-9]*", k) and int(k) < 4294967295), key=int)
-    return idx + [k for k in obj if k not in idx]
+    idx = sorted((k for k in obj if js_index(k) is not None), key=js_index)
+    held = set(idx)
+    return idx + [k for k in obj if k not in held]
 
 
 def js_json(v):
@@ -326,7 +344,7 @@ def step_name(s):
 def tokens(s, ch):
     out = []
     rest = re.sub(jsre(r"\s*\%s(%s+)" % (ch, r"[A-Za-z0-9_-]")), lambda m: out.append(m.group(1)) or "", s, flags=re.A)
-    return out, rest.strip()
+    return out, rest.strip(JS_WS)
 
 
 def shot_sources(parsed):
@@ -545,22 +563,22 @@ def parse_map(md):
     def err(n, msg):
         errors.append({"line": n + 1, "msg": msg})
 
-    if lines[0] and lines[0].strip() == "---":
+    if lines[0] and lines[0].strip(JS_WS) == "---":
         i = 1
-        while i < len(lines) and lines[i].strip() != "---":
+        while i < len(lines) and lines[i].strip(JS_WS) != "---":
             kv = re.match(jsre(r"^((?:%s|-)+):\s*(.*)$" % W), lines[i], re.A)
-            if not kv and lines[i].strip():
+            if not kv and lines[i].strip(JS_WS):
                 err(i, "Front matter line isn't \"key: value\".")
             elif kv and kv.group(1) == "context":
                 context, ctx_line = js_trim(kv.group(2)), i
             elif kv and kv.group(1) == "roles":
                 roles = kv.group(2)
             elif kv and kv.group(1) == "runs":
-                runs = kv.group(2).strip()
+                runs = kv.group(2).strip(JS_WS)
             elif kv and kv.group(1) == "result":
-                result = kv.group(2).strip()
+                result = kv.group(2).strip(JS_WS)
             elif kv and kv.group(1) == "process":
-                proc = kv.group(2).strip()
+                proc = kv.group(2).strip(JS_WS)
             i += 1
         i += 1
     names, typed, ctx_errors = detail_types(context_entries(context))
@@ -568,7 +586,7 @@ def parse_map(md):
         err(ctx_line if ctx_line >= 0 else 0, m)
     while i < len(lines):
         line = lines[i]
-        if not line.strip():
+        if not line.strip(JS_WS):
             i += 1
             continue
         m = re.match(jsre(r"^###\s+Track:\s*(.+?)\s*$"), line, re.I | re.A)
@@ -598,7 +616,7 @@ def parse_map(md):
                     else:
                         owner = None
                         for part in re.split(jsre(r"\s+·\s+"), g.group(1), flags=re.A)[1:]:
-                            om = re.match(jsre(r"^owner\s+@((?:%s|-)+)$" % W), part.strip(), re.I | re.A)
+                            om = re.match(jsre(r"^owner\s+@((?:%s|-)+)$" % W), part.strip(JS_WS), re.I | re.A)
                             if not om:
                                 err(i, "Gate option not understood: \"%s\"." % part)
                             else:
@@ -607,7 +625,7 @@ def parse_map(md):
                         phase["gate"] = gate
                 else:
                     pm = re.match(jsre(r"^(.*?)\s+·\s+(READ-DO|DO-CONFIRM)$"), head, re.A)
-                    phase = {"id": head_id, "title": (pm.group(1) if pm else head).strip(), "gate": None, "note": "", "shots": [], "noted": False}
+                    phase = {"id": head_id, "title": (pm.group(1) if pm else head).strip(JS_WS), "gate": None, "note": "", "shots": [], "noted": False}
                     phases.append(phase)
             i += 1
             continue
@@ -676,10 +694,10 @@ def parse_map(md):
             if step:
                 # JavaScript ignores a field named __proto__: it sets the object's prototype instead of a key.
                 if name != "__proto__":
-                    step["fields"][name] = m.group(2).strip()
+                    step["fields"][name] = m.group(2).strip(JS_WS)
                 i += 1
                 continue
-        err(i, "Not understood, so it was skipped: \"%s\"" % line.strip()[:60])
+        err(i, "Not understood, so it was skipped: \"%s\"" % line.strip(JS_WS)[:60])
         i += 1
     # Forward only: a condition may test a detail a step sets only when that step is in an earlier phase.
     for pi, p in enumerate(phases):
@@ -782,7 +800,7 @@ def features(parsed, types):
 
 
 def js_list(s):
-    return [x.strip() for x in js_str(s).split(",") if x.strip()]
+    return [x.strip(JS_WS) for x in js_str(s).split(",") if x.strip(JS_WS)]
 
 
 def sets_of(v):
@@ -791,7 +809,7 @@ def sets_of(v):
     out = []
     for e in js_list(v):
         i = e.find("=")
-        out.append({"name": e, "from": ""} if i < 0 else {"name": e[:i].strip(), "from": e[i + 1:].strip()})
+        out.append({"name": e, "from": ""} if i < 0 else {"name": e[:i].strip(JS_WS), "from": e[i + 1:].strip(JS_WS)})
     return out
 
 
@@ -1035,15 +1053,15 @@ def field_errors(type_def, fields, context=None):
         if kind == "choice":
             opts = js_list(fields.get(d["optionsFrom"])) if d.get("optionsFrom") else (d.get("options") or [])
             opts = opts if isinstance(opts, list) else []
-            if not any(js_str(o).lower() == v.strip().lower() for o in opts):
+            if not any(js_str(o).lower() == v.strip(JS_WS).lower() for o in opts):
                 errors.append("\"%s\" should be one of: %s." % (f, ", ".join(js_str(o) for o in opts)))
-        if kind == "time" and not re.match(r"^([01]?[0-9]|2[0-3]):[0-5][0-9]$", v.strip()):
+        if kind == "time" and not re.match(r"^([01]?[0-9]|2[0-3]):[0-5][0-9]$", v.strip(JS_WS)):
             errors.append("\"%s\" should be a time like 15:00." % f)
         if kind == "duration" and f == "after" and not js_duration(v):
             errors.append("\"after\" should be a duration like 2h or 30m.")
-        if kind == "pin" and f == "version" and not re.match(r"^[1-9]\d{0,5}$", v.strip(), re.A):
+        if kind == "pin" and f == "version" and not re.match(r"^[1-9]\d{0,5}$", v.strip(JS_WS), re.A):
             errors.append("\"version\" should be a version number, like 4.")
-        if kind == "pin" and f == "skillVersion" and not re.match(r"^[\w.+-]{1,40}$", v.strip(), re.A):
+        if kind == "pin" and f == "skillVersion" and not re.match(r"^[\w.+-]{1,40}$", v.strip(JS_WS), re.A):
             errors.append("\"skillVersion\" should be the skill's version, like 1.2.0.")
         if kind == "pass":
             errors.extend(pass_errors(v, tid == "for.each" and not (isinstance(type_def, dict) and type_def.get("custom"))))
@@ -1622,6 +1640,18 @@ def read_text(path):
         return None
 
 
+def read_app_text(path):
+    """A file's text as the app reads it (TextDecoder: UTF-8, each invalid sequence one U+FFFD, a leading byte-order mark
+    dropped), or None when it can't be read."""
+    try:
+        with open(path, "rb") as f:
+            raw = f.read()
+    except OSError:
+        return None
+    text = raw.decode("utf-8", "replace")
+    return text[1:] if raw.startswith(b"\xef\xbb\xbf") else text
+
+
 # The format envelope (Flightdeck's PF.envelope, docs/design.md section 28), for the families this checker reads. A file in a
 # newer major, or with a must-understand feature this copy doesn't know, is refused and named with the version it needs.
 # test/checker.test.js fails if this disagrees with src/core/envelope.js.
@@ -1632,6 +1662,8 @@ FAMILIES = {
     "flightdeck-plan-status": {"majors": {1: [], 2: [], 3: ["loops"], 4: ["living-runs"]}, "future": {}, "unmarked": False, "kinds": ["status"]},
     "flightdeck-skill": {"majors": {1: [], 2: []}, "future": {2: "2.0"}, "unmarked": True},
     "flightdeck-team-values": {"majors": {1: []}, "future": {1: "2.9"}, "unmarked": False},
+    # A decision on corrections: its major in "dv" when it has one, else 0 (PF.envelope's legacy field and legacyMajor).
+    "flightdeck-correction-decision": {"majors": {0: [], 1: [], 2: []}, "future": {}, "unmarked": False, "kinds": ["correction-decision"], "field": "dv", "legacy_major": 0},
 }
 # Every family's name, so a file of another known family is malformed here, never "newer".
 FAMILY_NAMES = ["flightdeck-checklist", "preflight-publication", "preflight-run", "flightdeck-run-archive", "flightdeck-step-type", "flightdeck-types", "flightdeck-plan",
@@ -1694,6 +1726,14 @@ def judge(family, o):
         if o.get("kind") not in fam["kinds"]:
             return bad("isn't a " + family + " file")
         major = 1
+        fld = fam.get("field")
+        if fld and o.get(fld) is not None:
+            v = o[fld]
+            if not _num(v) or not math.isfinite(v) or v < 0 or math.floor(v) != v or v > 9999:
+                return bad("has a \"" + fld + "\" that isn't a version number")
+            major = int(v)
+        elif fld:
+            major = fam["legacy_major"]
     elif fam["unmarked"]:
         major = 1
     else:
@@ -1936,8 +1976,29 @@ def todo_status_file(name):
     return m.group(1) + ".status-" + m.group(2) + "-" + m.group(3) + ".json" if m and _tcopy_mark(m.group(4)) else ""
 
 
+def name_keys(name):
+    """PF.todos.nameKeys: the ids a proposals/ file may stand for by its name alone: its stem, and the stem without each
+    suffix that is a synced copy's mark."""
+    st = re.sub(r"\.json\Z", "", str(name or ""), flags=re.I)
+    out = [st]
+    for i in range(1, len(st)):
+        if js_len(st[:i]) >= 240:
+            break
+        if st[i] in " -" and _tcopy_mark(st[i:]):
+            out.append(st[:i])
+    return out
+
+
+OTHER_COPY = "holds another record than the one its name stands for, so which is meant isn't known. Keep one of them"
+
+
+def json_name(name):
+    """The loader's file selection (/\\.json$/i): a name ending .json in any ASCII case."""
+    return isinstance(name, str) and re.search(r"\.[jJ][sS][oO][nN]\Z", name) is not None
+
+
 def todo_request_file(name, rid):
-    return _tstr(name) and js_len(name) <= 240 and name.startswith(rid) and name.endswith(".json") and _tcopy_mark(name[len(rid):-5] or None)
+    return _tstr(name) and js_len(name) <= 240 and name.startswith(rid) and json_name(name) and _tcopy_mark(name[len(rid):-5] or None)
 
 
 def todo_claims(o):
@@ -1965,6 +2026,43 @@ def _obligation_id(spread, uid, attempt):
 
 def _spread_child_id(spread, uid, attempt, run):
     return "req-spread-" + _thash(["spread", spread, uid, attempt, run["process"], run["id"]], 24)
+
+
+def todo_effect_of(p):
+    """PF.todos.effectOf: what a checked request asks for, as its application must carry it (shared with check_pack.py)."""
+    if p["op"] in TODO_SOPS:
+        e = {"op": p["op"], "spread": p.get("spread")}
+        if p["op"] == "spread-add":
+            e["loopStep"], e["text"], e["child"], e["scope"] = p.get("loopStep"), p.get("text"), p.get("child"), p.get("scope")
+            if p.get("owner"):
+                e["owner"] = p["owner"]
+        if p.get("item"):
+            e["item"] = p["item"]
+        if p.get("dest"):
+            e["dest"] = p["dest"]
+        if p["op"] == "spread-stop":
+            e["owed"] = p.get("owed")
+            e["cut"] = p.get("cut")
+        if p.get("reason"):
+            e["reason"] = p["reason"]
+        return e
+    e = {"op": p["op"], "todo": p.get("todo")}
+    if p["op"] == "add":
+        e["text"] = p.get("text")
+        e["target"] = p.get("target")
+        e["placement"] = p.get("placement")
+        for k in ("owner", "reason", "origin", "fulfills", "checklist"):
+            if p.get(k):
+                e[k] = p[k]
+    if p["op"] == "wont" or (p["op"] in ("reopen", "done", "move") and p.get("reason")):
+        e["reason"] = p.get("reason")
+    if p["op"] == "move":
+        e["to"] = p.get("to")
+    if p["op"] == "done" and p.get("support"):
+        e["support"] = p["support"]
+    if p["op"] == "done" and p.get("evidence"):
+        e["evidence"] = p["evidence"]
+    return e
 
 
 def _todo_td(proposal):
@@ -2117,8 +2215,16 @@ def fact_clean_support(v, err):
     return {"fact": v["fact"], "content": v["content"], "incarnation": inc, "source": src, "domain": v["domain"]}
 
 
-def fact_why(o, name, unchecked=None):
-    """PF.facts.cleanFile: '' when the app reads this fact, else why it refuses it."""
+def fact_content_of(f):
+    """PF.facts.contentOf: what an observation says, apart from when and by whom, from its checked entries."""
+    es = sorted(f.get("entries") or [], key=lambda e: str(e.get("id")).encode("utf-16-be", "surrogatepass"))
+    return _tsha(["fact", f.get("domain"), bool(f.get("complete")), f.get("reported"), len(f.get("errors") or []) > 0, es])
+
+
+def fact_why(o, name, unchecked=None, record=None):
+    """PF.facts.cleanFile: '' when the app reads this fact, else why it refuses it. record: a list the record it returns is
+    appended to when it reads it (its envelope left out, its source and entries without a field written as null, by from
+    its producer and its content derived)."""
     if not _tstr(o.get("id")) or not T_REQ.match(o["id"]):
         return "is a fact without a request id"
     if _tstr(name) and not todo_request_file(name, o["id"]):
@@ -2153,7 +2259,7 @@ def fact_why(o, name, unchecked=None):
         err("uid")
     if not _twhole(o.get("attempt"), 1, 999):
         err("attempt")
-    fact_clean_source(o.get("source"), err, "source")
+    fsrc = fact_clean_source(o.get("source"), err, "source")
     dom = o.get("domain")
     if not _tstr(dom) or dom not in F_NAMES:
         err("domain")
@@ -2168,6 +2274,7 @@ def fact_why(o, name, unchecked=None):
         err("reported")
     field, values, mx = F_DOMAINS[dom]
     ents = o.get("entries")
+    cents = []
     if not isinstance(ents, list) or len(ents) > mx:
         err("entries")
     else:
@@ -2201,6 +2308,12 @@ def fact_why(o, name, unchecked=None):
                 err("entries twice")
                 break
             have.add(e["id"])
+            ce = {"id": e["id"], "text": t}
+            if field:
+                ce[field] = e[field]
+            if e.get("link") is not None:
+                ce["link"] = e["link"]
+            cents.append(ce)
     fe = o.get("fetched")
     if not _twhole(fe, 0, F_LIMITS["entries"]) or (isinstance(ents, list) and fe != len(ents)):
         err("fetched")
@@ -2213,7 +2326,15 @@ def fact_why(o, name, unchecked=None):
                 err("errors entry")
     if len(errors) == n0 and o["complete"] and (o["reported"] != o["fetched"] or ers):
         err("complete is true only when reported equals fetched and there are no errors")
-    return "is a fact that isn't in its format: " + errors[0] if errors else ""
+    if errors:
+        return "is a fact that isn't in its format: " + errors[0]
+    if record is not None:
+        r = {"id": o["id"], "kind": "fact", "run": {"process": run["process"], "id": run["id"]}, "seen": list(sn), "by": {"tool": pr["name"], "version": pr["version"]},
+             "at": o["at"], "loopStep": o["loopStep"], "uid": o["uid"], "attempt": o["attempt"], "source": fsrc, "domain": dom, "observedAt": o["observedAt"],
+             "maxAgeSeconds": o["maxAgeSeconds"], "complete": o["complete"], "reported": o["reported"], "entries": cents, "fetched": fe, "errors": list(ers)}
+        r["content"] = fact_content_of(r)
+        record.append(r)
+    return ""
 
 
 # Keeps (4.0 slice 5, PF.learn): a to-do or a spread kept for next time, a correction request on its checklist's publication.
@@ -2269,8 +2390,9 @@ def _khash(run, source, template, anchor, text):
     return _thash(["keep", run["process"], run["id"], sk, template["process"] if template else "", ak, js_trim(K_WS.sub(" ", text))], 24)
 
 
-def keep_why(o, name):
-    """PF.learn.cleanFile: '' when the app reads this keep, else why it refuses it."""
+def keep_why(o, name, record=None):
+    """PF.learn.cleanFile: '' when the app reads this keep, else why it refuses it. record: a list the record it returns is
+    appended to when it reads it (its envelope left out, by as a person or a tool, what isn't there null or '')."""
     if not _tstr(o.get("id")) or not T_REQ.match(o["id"]):
         return "is a keep without a request id"
     if _tstr(name) and not todo_request_file(name, o["id"]):
@@ -2375,12 +2497,186 @@ def keep_why(o, name):
         err("Its id isn't the one its run, source, place and wording give.")
     if not errors and tool and o.get("key") != "kp-" + _khash(rrun, source, tpl, anc, ch["text"]):
         err("Its key isn't the one its run, source, place and wording give.")
-    return "is a keep that isn't in its format: " + errors[0] if errors else ""
+    if errors:
+        return "is a keep that isn't in its format: " + errors[0]
+    if record is not None:
+        by = {"tool": o["producer"]["name"], "version": o["producer"]["version"]} if tool else {"person": o["by"]}
+        r = {"id": o["id"], "kind": "keep", "run": {"process": rrun["process"], "id": rrun["id"]}, "by": by, "at": o["at"], "source": dict(source),
+             "template": {k: tpl[k] for k in ("process", "folder", "version", "mapHash", "typesHash")} if tpl else None, "anchor": None, "base": "",
+             "change": {"op": "add", "text": ch["text"], "where": ch["where"]}, "needs": "", "reason": ""}
+        if anc:
+            r["anchor"] = {"phase": anc["phase"]}
+            if anc.get("after") is not None:
+                r["anchor"]["after"] = anc["after"]
+            r["base"] = o["base"]
+        else:
+            r["needs"] = o["needs"]
+        if o.get("reason") is not None:
+            r["reason"] = o["reason"]
+        record.append(r)
+    return ""
 
 
-def todo_why(o, name, nbytes=None, unchecked=None):
+R_KEYS = ["format", "features", "app", "kind", "id", "run", "seen", "by", "at", "outcome", "head", "counts", "coverage", "evidence", "keeps"]
+R_COUNTS = ["steps", "answered", "items", "cleared", "abandoned", "todos", "resolved", "done", "wont", "moved", "ticket", "toRun", "link",
+            "asked", "added", "queued", "waiting", "held", "disputed", "declined", "applied", "pending", "refused", "owed", "covered"]
+R_LIMITS = {"refs": 500, "spreads": 50, "count": 1000000, "answer": 80, "result": 60, "seen": 50}
+R_OUTCOMES = ["Completed", "Stopped early", "Cancelled"]
+R_STATUS = re.compile(r"^req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24}\.status-[a-z0-9][a-z0-9-]{0,39}-[0-9a-f]{8}\Z")
+R_FP = re.compile(r"^[0-9a-f]{16}\Z")
+R_PLAN = re.compile(r"^plan-ev-[0-9a-f]{24}\Z")
+
+
+def _rrec(x):
+    return _tstr(x) and (T_REQ.match(x) is not None or R_STATUS.match(x) is not None)
+
+
+def _rcount(v):
+    return _twhole(v, 0, R_LIMITS["count"])
+
+
+def _rrun(r):
+    return isinstance(r, dict) and len(r) == 2 and _tstr(r.get("process")) and T_PROC.match(r["process"]) is not None and _tstr(r.get("id")) and T_RUN.match(r["id"]) is not None
+
+
+def _rdups(xs):
+    return any(xs.index(x) != i for i, x in enumerate(xs))
+
+
+def _revidence(v, i, err, errors):
+    w = '"evidence" ' + str(i + 1)
+    if not isinstance(v, dict):
+        err(w + ' is {"todo", "fact", "content"} or {"todo", "plan", "run", "answer", "result"}.')
+        return None
+    n0 = len(errors)
+    if "fact" in v:
+        _konly(v, ["todo", "fact", "content"], w, err)
+        if not _tstr(v.get("todo")) or not T_TD.match(v["todo"]):
+            err(w + ' "todo" is a to-do id.')
+        if not _tstr(v.get("fact")) or not T_REQ.match(v["fact"]):
+            err(w + ' "fact" is a fact\'s id.')
+        if not _tstr(v.get("content")) or not R_FP.match(v["content"]):
+            err(w + ' "content" is the fact\'s content fingerprint.')
+        return None if len(errors) > n0 else {"todo": v["todo"], "fact": v["fact"], "content": v["content"]}
+    _konly(v, ["todo", "plan", "run", "answer", "result"], w, err)
+    if not _tstr(v.get("todo")) or not T_TD.match(v["todo"]):
+        err(w + ' "todo" is a to-do id.')
+    if not _tstr(v.get("plan")) or not R_PLAN.match(v["plan"]):
+        err(w + ' "plan" is the to-do\'s evidence plan (plan-ev-...).')
+    if not _rrun(v.get("run")):
+        err(w + ' "run" is {"process", "id"}.')
+    a = v.get("answer")
+    if not _tstr(a) or not js_trim(a) or js_len(a) > R_LIMITS["answer"] or T_CONTROL.search(a):
+        err(w + ' "answer" is the run\'s answer, as Flightdeck records it.')
+    rs = v.get("result")
+    if not _tstr(rs) or js_len(rs) > R_LIMITS["result"] or T_CONTROL.search(rs):
+        err(w + ' "result" is the run\'s result, at most ' + str(R_LIMITS["result"]) + " characters.")
+    if len(errors) > n0:
+        return None
+    return {"todo": v["todo"], "plan": v["plan"], "run": {"process": v["run"]["process"], "id": v["run"]["id"]}, "answer": a, "result": rs}
+
+
+def receipt_why(o, name):
+    """PF.receipts.cleanFile: '' when the app reads this receipt, else why it refuses it (the same first reason)."""
+    if not _tstr(o.get("id")) or not T_REQ.match(o["id"]):
+        return "is a receipt without a request id"
+    if _tstr(name) and not todo_request_file(name, o["id"]):
+        return "is a receipt whose name isn't its id"
+    errors = []
+    err = errors.append
+    _konly(o, R_KEYS, "It", err)
+    rec = {}
+    run = o.get("run")
+    if not _rrun(run):
+        err('"run" is {"process": <checklist>, "id": <run id>}.')
+    else:
+        rec["run"] = run
+    seen = o.get("seen")
+    if not isinstance(seen, list) or len(seen) > R_LIMITS["seen"] or not all(_rrec(x) for x in seen):
+        err('"seen" is a list of at most ' + str(R_LIMITS["seen"]) + " to-do record ids.")
+    elif _rdups(seen):
+        err('"seen" names a record twice.')
+    else:
+        rec["seen"] = list(seen)
+    if not _tstr(o.get("by")) or not T_PERSON.match(o["by"]):
+        err('"by" is the ID from people.json of the person who ended the run.')
+    if not _tstr(o.get("at")) or not T_ISO.match(o["at"]):
+        err('"at" is a date and time.')
+    if not _tstr(o.get("outcome")) or o["outcome"] not in R_OUTCOMES:
+        err('"outcome" is Completed, Stopped early or Cancelled.')
+    else:
+        rec["outcome"] = o["outcome"]
+    h = o.get("head")
+    if not _tstr(h) or not (h == "" or T_REQ.match(h) or R_STATUS.match(h)):
+        err('"head" is the run\'s last application.')
+    else:
+        rec["head"] = h
+    c = o.get("counts")
+    if not isinstance(c, dict):
+        err('"counts" is {' + ", ".join('"' + k + '"' for k in R_COUNTS) + "}.")
+    else:
+        n0 = len(errors)
+        _konly(c, R_COUNTS, '"counts"', err)
+        for k in R_COUNTS:
+            if not _rcount(c.get(k)):
+                err('"counts" "' + k + '" is a whole number from 0 to ' + str(R_LIMITS["count"]) + ".")
+        if len(errors) == n0:
+            rec["counts"] = {k: c[k] for k in R_COUNTS}
+    cov = o.get("coverage")
+    if not isinstance(cov, list) or len(cov) > R_LIMITS["spreads"]:
+        err('"coverage" is a list of at most ' + str(R_LIMITS["spreads"]) + " spreads.")
+    else:
+        cv = []
+        for i, x in enumerate(cov):
+            w = '"coverage" ' + str(i + 1)
+            if not isinstance(x, dict):
+                err(w + ' is {"spread", "owed", "resolved"}.')
+                continue
+            n1 = len(errors)
+            _konly(x, ["spread", "owed", "resolved"], w, err)
+            if not _tstr(x.get("spread")) or not T_SP.match(x["spread"]):
+                err(w + ' "spread" is a spread id.')
+            elif any(y["spread"] == x["spread"] for y in cv):
+                err(w + " names " + x["spread"] + " again.")
+            if not _rcount(x.get("owed")) or not _rcount(x.get("resolved")):
+                err(w + ' "owed" and "resolved" are whole numbers.')
+            if len(errors) == n1:
+                cv.append({"spread": x["spread"], "owed": x["owed"], "resolved": x["resolved"]})
+        rec["coverage"] = cv
+    ev = o.get("evidence")
+    if not isinstance(ev, list) or len(ev) > R_LIMITS["refs"]:
+        err('"evidence" is a list of at most ' + str(R_LIMITS["refs"]) + " to-dos' evidence.")
+    else:
+        out = []
+        for i, x in enumerate(ev):
+            e = _revidence(x, i, err, errors)
+            if e:
+                if any(y["todo"] == e["todo"] for y in out):
+                    err('"evidence" ' + str(i + 1) + " names " + e["todo"] + " again.")
+                else:
+                    out.append(e)
+        rec["evidence"] = out
+    ks = o.get("keeps")
+    if not isinstance(ks, list) or len(ks) > R_LIMITS["refs"] or not all(_tstr(x) and T_REQ.match(x) for x in ks):
+        err('"keeps" is a list of at most ' + str(R_LIMITS["refs"]) + " keep ids.")
+    elif _rdups(ks):
+        err('"keeps" names a keep twice.')
+    else:
+        rec["keeps"] = list(ks)
+    if not errors:
+        body = {"head": rec["head"], "outcome": rec["outcome"], "seen": rec["seen"], "counts": rec["counts"], "coverage": rec["coverage"], "evidence": rec["evidence"], "keeps": rec["keeps"]}
+        if o["id"] != "req-receipt-" + _thash(["receipt", rec["run"]["process"], rec["run"]["id"], o["by"], _tsha(body)], 24):
+            err("Its id isn't the one its run, who ended it and what it says give.")
+    return "is a receipt that isn't in its format: " + errors[0] if errors else ""
+
+
+def todo_why(o, name, nbytes=None, unchecked=None, body=None, record=None):
     """'' when the app reads this to-do record, else why it refuses it (PF.todos.cleanFile's reason). A link on an
-    international domain name isn't judged (todo_http_link gives SCOPE_IDN): its place is added to unchecked, never a reason."""
+    international domain name isn't judged (todo_http_link gives SCOPE_IDN): its place is added to unchecked, never a reason.
+    body, a list: a request or compound the app reads gets its checked body appended (what todo_effect_of reads), with the
+    fields readers derive from its id filled in. record, a list: a proposal, compound, grant, revoke, decision or application
+    the app reads gets the record PF.todos.cleanFile returns appended (derived fields filled in, a field written as null left
+    out, the envelope dropped), the form copies are compared in."""
     if nbytes is not None and nbytes > TODO_LIMITS["bytes"]:
         return "is " + str(nbytes) + " bytes; a to-do record is at most " + str(TODO_LIMITS["bytes"])
     st = isinstance(o, dict) and o.get("format") == TODO_STATUS
@@ -2745,41 +3041,6 @@ def todo_why(o, name, nbytes=None, unchecked=None):
                 out["evidence"] = detour_clean_evidence(e["evidence"], err)
         return out
 
-    def effect_of(p):
-        if p["op"] in TODO_SOPS:
-            e = {"op": p["op"], "spread": p.get("spread")}
-            if p["op"] == "spread-add":
-                e["loopStep"], e["text"], e["child"], e["scope"] = p.get("loopStep"), p.get("text"), p.get("child"), p.get("scope")
-                if p.get("owner"):
-                    e["owner"] = p["owner"]
-            if p.get("item"):
-                e["item"] = p["item"]
-            if p.get("dest"):
-                e["dest"] = p["dest"]
-            if p["op"] == "spread-stop":
-                e["owed"] = p.get("owed")
-                e["cut"] = p.get("cut")
-            if p.get("reason"):
-                e["reason"] = p["reason"]
-            return e
-        e = {"op": p["op"], "todo": p.get("todo")}
-        if p["op"] == "add":
-            e["text"] = p.get("text")
-            e["target"] = p.get("target")
-            e["placement"] = p.get("placement")
-            for k in ("owner", "reason", "origin", "fulfills", "checklist"):
-                if p.get(k):
-                    e[k] = p[k]
-        if p["op"] == "wont" or (p["op"] in ("reopen", "done", "move") and p.get("reason")):
-            e["reason"] = p.get("reason")
-        if p["op"] == "move":
-            e["to"] = p.get("to")
-        if p["op"] == "done" and p.get("support"):
-            e["support"] = p["support"]
-        if p["op"] == "done" and p.get("evidence"):
-            e["evidence"] = p["evidence"]
-        return e
-
     def clean_authority(a):
         if isinstance(a, dict) and len(a) == 1:
             k = list(a)[0]
@@ -2802,28 +3063,33 @@ def todo_why(o, name, nbytes=None, unchecked=None):
             return "is a to-do status that isn't a decision or an application"
         only(o, [k for k in T_COMMON + ["proposal", "op", "consequence", "reason", "authority", "previous", "effect", "fingerprint"] if k not in ("id", "producer", "key")], "It")
         run = clean_run(o.get("run"))
-        clean_seen(o.get("seen"))
+        seen = clean_seen(o.get("seen"))
         if not _tstr(o.get("by")) or not T_PERSON.match(o["by"]):
             err("by")
         if not _tstr(o.get("at")) or not T_ISO.match(o["at"]):
             err("at")
+        srec = {"id": sname[:-5], "kind": o["kind"], "proposal": o.get("proposal"), "run": run, "seen": seen, "by": {"person": o.get("by")}, "at": o.get("at")}
         if o["kind"] == "decision":
             if o.get("op") not in TODO_DOPS:
                 err("op")
             if not _tstr(o.get("consequence")) or not T_FP.match(o["consequence"]):
                 err("consequence")
+            srec.update(op=o.get("op"), consequence=o.get("consequence"))
             if o.get("reason") is not None:
-                line(o["reason"], TODO_LIMITS["reason"], "reason")
+                dr = line(o["reason"], TODO_LIMITS["reason"], "reason")
+                if dr:
+                    srec["reason"] = dr
             for k in ("authority", "previous", "effect", "fingerprint"):
                 if o.get(k) is not None:
                     err("A decision has no " + k)
         else:
-            clean_authority(o.get("authority"))
+            srec["authority"] = clean_authority(o.get("authority"))
             if not prev_ok(o.get("previous")):
                 err("previous")
             eff = clean_effect(o.get("effect"))
             if eff:
                 self_move(run, eff.get("to"))
+            srec.update(previous=o.get("previous"), effect=eff, fingerprint=o.get("fingerprint"))
             fpv = o.get("fingerprint")
             if not _tstr(fpv) or not T_FP.match(fpv):
                 err("fingerprint")
@@ -2832,20 +3098,26 @@ def todo_why(o, name, nbytes=None, unchecked=None):
             for k in ("op", "consequence", "reason"):
                 if o.get(k) is not None:
                     err("An application has no " + k)
-        return "is a to-do " + o["kind"] + " that isn't in its format: " + errors[0] if errors else ""
+        if errors:
+            return "is a to-do " + o["kind"] + " that isn't in its format: " + errors[0]
+        if record is not None:
+            record.append(srec)
+        return ""
     kind = o.get("kind")
     if kind == "fact":
-        return fact_why(o, name, unchecked)
+        return fact_why(o, name, unchecked, record)
     if kind == "keep":
-        return keep_why(o, name)
+        return keep_why(o, name, record)
+    if kind == "receipt":
+        return receipt_why(o, name)
     if kind not in TODO_PKINDS:
-        return "is a to-do record that isn't a proposal, a compound, a grant, a revoke, a fact or a keep"
+        return "is a to-do record that isn't a proposal, a compound, a grant, a revoke, a fact, a keep or a receipt"
     if not _tstr(o.get("id")) or not T_REQ.match(o["id"]):
         return "is a to-do record without a request id"
     if _tstr(name) and not todo_request_file(name, o["id"]):
         return "is a to-do record whose name isn't its id"
     run = clean_run(o.get("run"))
-    clean_seen(o.get("seen"))
+    seen = clean_seen(o.get("seen"))
     by = None
     if o.get("producer") is not None:
         pr = o["producer"]
@@ -2855,6 +3127,7 @@ def todo_why(o, name, nbytes=None, unchecked=None):
             err("key")
         else:
             by = {"tool": pr["name"]}
+            by_rec = {"tool": pr["name"], "version": pr["version"]}
     else:
         if o.get("key") is not None:
             err("Only a tool's request has a key")
@@ -2988,7 +3261,7 @@ def todo_why(o, name, nbytes=None, unchecked=None):
                 n_ok = not errors
                 if not _tstr(a.get("fingerprint")) or not T_FP.match(a["fingerprint"]) or (eff and n_ok and a["fingerprint"] != _tsha(eff)):
                     err("application fingerprint")
-                if b and eff and not errors and _tsha({k: v for k, v in effect_of(b).items() if v is not None}) != _tsha(eff):
+                if b and eff and not errors and _tsha({k: v for k, v in todo_effect_of(b).items() if v is not None}) != _tsha(eff):
                     err("application effect isn't what the compound asks for")
     elif kind == "grant":
         only(o, T_COMMON + ["subject", "ops", "targets", "limits"], "It")
@@ -3023,7 +3296,32 @@ def todo_why(o, name, nbytes=None, unchecked=None):
             err("grant")
         if o.get("reason") is not None:
             line(o["reason"], TODO_LIMITS["reason"], "reason")
-    return "is a to-do " + kind + " that isn't in its format: " + errors[0] if errors else ""
+    if errors:
+        return "is a to-do " + kind + " that isn't in its format: " + errors[0]
+    if body is not None and kind in ("proposal", "compound") and b:
+        body.append(b)
+    if record is not None:
+        r = {"id": o["id"], "kind": kind, "run": run, "seen": seen, "by": by_rec if by.get("tool") else by, "at": o["at"]}
+        if kind in ("proposal", "compound"):
+            r.update({k: v for k, v in b.items() if v is not None})
+            if o.get("requester") is not None:
+                r["requester"] = o["requester"]
+        if kind == "compound":
+            d, a = o["decision"], o["application"]
+            r["decision"] = {"op": "accept", "by": d["by"], "consequence": d["consequence"]}
+            if d.get("reason") is not None:
+                r["decision"]["reason"] = d["reason"]
+            r["application"] = {"previous": a["previous"], "effect": clean_effect(a["effect"]), "fingerprint": a["fingerprint"]}
+        elif kind == "grant":
+            s = o["subject"]
+            r.update(subject={"tool": s["tool"]} if "tool" in s else {"person": s["person"]}, ops=list(o["ops"]),
+                     targets=[clean_target(x, "targets") for x in o["targets"]], limits={"adds": o["limits"]["adds"]})
+        elif kind == "revoke":
+            r["grant"] = o["grant"]
+            if o.get("reason") is not None:
+                r["reason"] = o["reason"]
+        record.append(r)
+    return ""
 
 
 # A loop's scope records (3.0, PF.loop): requests (flightdeck-plan/3) and decisions on them (flightdeck-plan-status/3). The
@@ -3479,7 +3777,7 @@ def skill_pin_ok(p):
     if not isinstance(p, dict) or set(p) - {"name", "version"}:
         return False
     n, v = p.get("name"), p.get("version")
-    return isinstance(n, str) and 1 <= len(n) <= 80 and n.strip() == n and not re.search(r"[\x00-\x1f]", n) and isinstance(v, str) and bool(re.match(jsre(r"^\S{1,40}\Z"), v, re.A))
+    return isinstance(n, str) and 1 <= len(n) <= 80 and n.strip(JS_WS) == n and not re.search(r"[\x00-\x1f]", n) and isinstance(v, str) and bool(re.match(jsre(r"^\S{1,40}\Z"), v, re.A))
 
 
 def pins_ok(pins):
@@ -3499,9 +3797,9 @@ def pins_problem(info, parsed):
     for st in parsed["steps"]:
         f = st["fields"]
         if st["type"] in ("run.process", "for.each") and "version" in f:
-            want["children"][st["id"]] = {"process": f.get("process"), "version": _jsint(f["version"].strip()) if re.match(r"^\d+$", f["version"].strip(), re.A) else f["version"]}
+            want["children"][st["id"]] = {"process": f.get("process"), "version": _jsint(f["version"].strip(JS_WS)) if re.match(r"^\d+$", f["version"].strip(JS_WS), re.A) else f["version"]}
         if st["type"] == "run.skill" and "skillVersion" in f:
-            want["skills"][st["id"]] = {"name": (f.get("skill") or "").strip(), "version": f["skillVersion"].strip()}
+            want["skills"][st["id"]] = {"name": (f.get("skill") or "").strip(JS_WS), "version": f["skillVersion"].strip(JS_WS)}
     for k, p in pins.get("children", {}).items():
         have["children"][k] = {"process": p.get("process"), "version": p.get("version")}
     for k, p in pins.get("skills", {}).items():
@@ -3528,12 +3826,15 @@ def payload_needs(info):
     return "%d.%d" % (a[0], a[1]) if a and a[0] >= 2 else "2.0"
 
 
-def check_publication(folder, name):
-    files = {n: read_text(os.path.join(folder, n)) for n in ("map.md", "types.json", "publication.json")}
+def check_publication(folder, name, read=read_text, rbytes=None):
+    """rbytes: a file's bytes by path, or None when it isn't there: given, nothing is read from disk (a pack's version is
+    checked from its packed bytes in memory, so the pack checker never writes a file)."""
+    rb = rbytes or read_bytes
+    files = {n: read(os.path.join(folder, n)) for n in ("map.md", "types.json", "publication.json")}
     if files["publication.json"] is None:
         return "syncing", "publication.json hasn't arrived", None
     try:
-        info = json.loads(files["publication.json"], parse_constant=_no_constant)
+        info = json.loads(files["publication.json"], parse_int=_jsint, parse_constant=_no_constant)
     except ValueError:
         return "damaged", "publication.json is unreadable", None
     if not isinstance(info, dict):
@@ -3554,7 +3855,7 @@ def check_publication(folder, name):
         if sorted((info.get("images") or {}).keys()) != sorted(p["images"].keys()):
             return "unusable", "Its screenshots don't match its payload. Edited by hand.", info
         # The payload is over the exact bytes on disk, before any byte-order mark is dropped.
-        if sha(read_bytes(os.path.join(folder, "map.md"))) != p["map"] or sha(read_bytes(os.path.join(folder, "types.json"))) != p["types"]:
+        if sha(rb(os.path.join(folder, "map.md"))) != p["map"] or sha(rb(os.path.join(folder, "types.json"))) != p["types"]:
             return "damaged", "files don't match their publication record (still syncing, or edited by hand)", info
     # A staged version (2.1) lives under staged/ and only test runs use it: never a version here (PF.publish.verify).
     if isinstance(info.get("features"), list) and "staged" in info["features"]:
@@ -3563,7 +3864,7 @@ def check_publication(folder, name):
     if info.get("folder") != name or not m or int(m.group(1)) != info.get("version"):
         return "damaged", "folder name doesn't match the publication record", info
     try:
-        types = json.loads(files["types.json"], parse_constant=_no_constant)
+        types = json.loads(files["types.json"], parse_int=_jsint, parse_constant=_no_constant)
     except ValueError:
         return "damaged", "types.json is unreadable", info
     if not isinstance(types, dict):
@@ -3590,12 +3891,17 @@ def check_publication(folder, name):
         return "unusable", "A screenshot it shows isn't in its publication record (%s). Edited by hand." % unlisted[0], info
     for src, want in (info.get("images") or {}).items():
         path = os.path.join(folder, *src.split("/"))
-        if not os.path.isfile(path):
-            return "syncing", "screenshot %s hasn't arrived" % src, info
-        with open(path, "rb") as f:
-            data = f.read()
-            if fnv(data) != want or (two and sha(data) != info["payload"]["images"].get(src)):
-                return "damaged", "screenshot %s doesn't match its record" % src, info
+        if rbytes is not None:
+            data = rbytes(path)
+            if data is None:
+                return "syncing", "screenshot %s hasn't arrived" % src, info
+        else:
+            if not os.path.isfile(path):
+                return "syncing", "screenshot %s hasn't arrived" % src, info
+            with open(path, "rb") as f:
+                data = f.read()
+        if fnv(data) != want or (two and sha(data) != info["payload"]["images"].get(src)):
+            return "damaged", "screenshot %s doesn't match its record" % src, info
     return "complete", "", info
 
 
@@ -3608,7 +3914,7 @@ MAX_SKILLS = 500
 
 
 def _str(v, n):
-    return v.strip()[:n] if isinstance(v, str) else ""
+    return v.strip(JS_WS)[:n] if isinstance(v, str) else ""
 
 
 def js_num(v):
@@ -3668,7 +3974,7 @@ def check_registration(rel, o, digest):
     st = o.get("steps")
     if st is not None:
         ok = isinstance(st, list) and all(isinstance(x, str) for x in st)
-        steps = [x.strip() for x in st if isinstance(x, str) and x.strip()] if isinstance(st, list) else []
+        steps = [x.strip(JS_WS) for x in st if isinstance(x, str) and x.strip(JS_WS)] if isinstance(st, list) else []
         if not ok or not steps or len(steps) != len(st) or len(steps) > 200 or not all(STEP_ID.match(x) for x in steps):
             errors.append('"steps" must be a list of step IDs, or left out for the whole process')
     if errors:
@@ -3700,7 +4006,7 @@ def check_legacy(o, file):
     st = o.get("steps")
     if st is not None:
         lst = [x for x in st if isinstance(x, str)] if isinstance(st, list) else st.split(",") if isinstance(st, str) else []
-        steps = [x.strip() for x in lst if x.strip()]
+        steps = [x.strip(JS_WS) for x in lst if x.strip(JS_WS)]
         if (not isinstance(st, (list, str))) or (isinstance(st, list) and len(lst) != len(st)) or not steps or not all(STEP_ID.match(x) for x in steps):
             errors.append('"steps" must be a list of step IDs, or left out for the whole process')
         if len(steps) > 200:
@@ -3775,7 +4081,7 @@ def _read_json(path):
     except OSError:
         return None, "couldn't be read", True, b""
     try:
-        return json.loads(data.decode("utf-8"), parse_constant=_no_constant), None, False, data
+        return json.loads(data.decode("utf-8"), parse_int=_jsint, parse_constant=_no_constant), None, False, data
     except (UnicodeDecodeError, ValueError):
         return None, "isn't valid JSON", False, data
 
@@ -3940,7 +4246,7 @@ def team_values(root):
     def bad(why):
         return {"state": "malformed", "why": why, "names": []}
     try:
-        o = json.loads(text, parse_constant=_no_constant)
+        o = json.loads(text, parse_int=_jsint, parse_constant=_no_constant)
     except ValueError:
         return bad(TEAM_FILE + " isn't valid JSON.")
     j = judge("flightdeck-team-values", o)
@@ -3963,14 +4269,15 @@ def team_values(root):
     if len(values) > TEAM_VALUES_MAX:
         return bad(TEAM_FILE + ": It can hold at most %d team values." % TEAM_VALUES_MAX)
     inner = ""
-    for n, e in values.items():
+    for n in js_keys(values):
+        e = values[n]
         if n in JS_PROTO:
             return bad(TEAM_FILE + ": \"%s\" is a name Flightdeck keeps for itself." % n)
         if not TEAM_NAME.match(n):
             return bad(TEAM_FILE + ": \"%s\" isn't a team value name (lowercase letters, digits and -, at most 40)." % n)
         if not isinstance(e, dict):
             return bad(TEAM_FILE + ": \"%s\" isn't a value with its text." % n)
-        extra = [k for k in e if k not in ("value", "about")]
+        extra = [k for k in js_keys(e) if k not in ("value", "about")]
         if extra and not inner:
             inner = "\"%s\" has \"%s\"" % (n, extra[0])
         pr = _team_value_problem(e.get("value"), "\"%s\"" % n)
@@ -3983,7 +4290,7 @@ def team_values(root):
             return bad(TEAM_FILE + ": What \"%s\" is for can be at most %d characters." % (n, TEAM_ABOUT_MAX))
     out = {"state": "ok", "why": "", "names": sorted(values)}
     # Keys this copy doesn't know, at the top or in a value: the values are used, but Settings can't change the file.
-    top = [k for k in o if k not in ("format", "features", "app", "values")]
+    top = [k for k in js_keys(o) if k not in ("format", "features", "app", "values")]
     if top:
         out["readOnly"] = TEAM_FILE + " has \"%s\", which this copy doesn't know, so it can't be changed here." % top[0]
     elif inner:
@@ -4017,7 +4324,7 @@ def team_files(root):
             continue
         try:
             with open(os.path.join(sdir, name), encoding="utf-8") as f:
-                d = json.load(f, parse_constant=_no_constant)
+                d = json.load(f, parse_int=_jsint, parse_constant=_no_constant)
         except (OSError, ValueError):
             problems.append({"file": "step-types/" + name, "problem": "isn't valid JSON"})
             continue
@@ -4035,9 +4342,9 @@ def team_files(root):
     if os.path.isfile(wf):
         try:
             with open(wf, encoding="utf-8") as f:
-                w = json.load(f, parse_constant=_no_constant)
+                w = json.load(f, parse_int=_jsint, parse_constant=_no_constant)
             workflows = sorted(w) if isinstance(w, dict) else []
-            for t, v in (w.items() if isinstance(w, dict) else []):
+            for t, v in ([(k, w[k]) for k in js_keys(w)] if isinstance(w, dict) else []):
                 if not isinstance(v, dict) or not isinstance(v.get("statuses"), list) or not v["statuses"]:
                     problems.append({"file": "jira/workflows.json", "problem": t + ": needs \"statuses\""})
         except (OSError, ValueError):
@@ -4059,7 +4366,7 @@ _VERDICT_RECORDS = {"decide": ("decision",), "review": ("verdict",), "verify.hea
 
 
 def _records_verdict(s):
-    req = [x.strip() for x in (s["fields"].get("require") or "").split(",") if x.strip()]
+    req = [x.strip(JS_WS) for x in (s["fields"].get("require") or "").split(",") if x.strip(JS_WS)]
     if (s["fields"].get("evidence") or "").lower() == "yes-no":
         return True
     return any("all" in req or n in req for n in _VERDICT_RECORDS.get(s["type"], ()))
@@ -4176,9 +4483,494 @@ def draft_main(args):
         sys.stdout.write("\n")
         return 1
     out = dict({"draft": path, "folder": root}, **draft_check(md, team_files(root)["stepTypes"]))
-    json.dump(json_safe(out), sys.stdout, indent=2, ensure_ascii=False, allow_nan=False)
+    json.dump(json_safe(out), sys.stdout, indent=2, ensure_ascii=True, allow_nan=False)
     sys.stdout.write("\n")
     return 0
+
+
+def clean_living(v):
+    """PF.todos.cleanLiving: head alone (an application's id, or "" for a living run with nothing landed yet: an approval made
+    before its first application recorded a cut), or head and receipt, whatever order the keys were written in."""
+    if not isinstance(v, dict) or not _tstr(v.get("head")) or not (v["head"] == "" or T_REQ.match(v["head"]) or R_STATUS.match(v["head"])):
+        return None
+    ks = sorted(v.keys())
+    if ks == ["head"]:
+        return {"head": v["head"]}
+    if ks == ["head", "receipt"] and _tstr(v.get("receipt")) and T_REQ.match(v["receipt"]):
+        return {"head": v["head"], "receipt": v["receipt"]}
+    return None
+
+
+RUN_ISO = re.compile(r"^(\d{4}|[+-]\d{6})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d{3})Z\Z", re.A)
+
+
+def iso_or_null(v):
+    """PF.run's isoOrNull: exactly the form Flightdeck writes (toISOString), a real calendar time within ECMAScript's date
+    range (8.64e15 ms either side of 1970), else None."""
+    if not isinstance(v, str):
+        return None
+    m = RUN_ISO.match(v)
+    if not m:
+        return None
+    y = int(m.group(1))
+    mo, d, h, mi, se, ms = (int(x) for x in m.group(2, 3, 4, 5, 6, 7))
+    if (0 <= y <= 9999) != (len(m.group(1)) == 4) or m.group(1) == "-000000":
+        return None
+    leap = (y % 4 == 0 and y % 100 != 0) or y % 400 == 0
+    days = [31, 29 if leap else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    if not 1 <= mo <= 12 or not 1 <= d <= days[mo - 1] or h > 23 or mi > 59 or se > 59:
+        return None
+    yy = y - (1 if mo <= 2 else 0)
+    era = yy // 400
+    yoe = yy - era * 400
+    doy = (153 * (mo + (-3 if mo > 2 else 9)) + 2) // 5 + d - 1
+    doe = yoe * 365 + yoe // 4 - yoe // 100 + doy
+    t = (era * 146097 + doe - 719468) * 86400000 + ((h * 60 + mi) * 60 + se) * 1000 + ms
+    return v if abs(t) <= 8.64e15 else None
+
+
+RUN_NEWER = "This run uses checklist features this copy of Flightdeck doesn't understand. Update Flightdeck to run it."
+ENDED_FIELDS = ("outcome", "by", "byName", "at")
+
+
+def living_problem(r):
+    """PF.run.livingProblem: a run/3 file's living record as newer() judges it (one clean_living refuses, or the living-runs
+    feature without it, or it without the feature), as (kind, why), or None."""
+    if not isinstance(r, dict) or r.get("format") != "preflight-run/3":
+        return None
+    lf = isinstance(r.get("features"), list) and TODO_FEATURE in r["features"]
+    if "living" in r and not clean_living(r["living"]):
+        return "newer", RUN_NEWER + " Its record of its to-dos isn't one this copy reads."
+    if ("living" in r) != lf:
+        return "newer", RUN_NEWER + " " + ("It names the living-runs feature without its record of its to-dos." if lf else "It records to-dos without naming the living-runs feature.")
+    return None
+
+
+def _no_end(r):
+    """A receipt named without an end (no end, null, or an end that isn't a record)."""
+    if not isinstance(r.get("ended"), dict) and isinstance(r.get("living"), dict) and "receipt" in r["living"]:
+        return "newer", RUN_NEWER + " It names the receipt it ended with, but it hasn't ended."
+    return None
+
+
+def _end_newer(r):
+    """An end field this copy doesn't know, or an outcome that isn't exactly one it knows as text."""
+    e = r.get("ended")
+    if not isinstance(e, dict):
+        return None
+    extra = next((k for k in js_keys(e) if k not in ENDED_FIELDS), None)
+    if extra is not None:
+        return "newer", RUN_NEWER + ' How it ended has "' + js_slice(str(extra), 40) + '".'
+    if e.get("outcome") is not None and not (isinstance(e.get("outcome"), str) and e["outcome"] in R_OUTCOMES):
+        return "newer", RUN_NEWER + ' How it ended is "' + js_slice(js_String(e.get("outcome")), 40) + '".'
+    return None
+
+
+def _end_malformed(r):
+    """The time badTimes() can't read, and what repairs() drops or cuts."""
+    e = r.get("ended")
+    if e is None:
+        return None
+    is_obj = isinstance(e, dict)
+    parts, fixed = [], []
+    known = is_obj and isinstance(e.get("outcome"), str) and e.get("outcome") in R_OUTCOMES
+    if known and not iso_or_null(e.get("at")):
+        parts.append("Some times in this file couldn't be read (the end).")
+    if not known:
+        fixed.append("ended (dropped: not an outcome this copy knows)")
+    else:
+        for k in ("by", "byName"):
+            v = e.get(k)
+            if v is None:
+                continue
+            if not isinstance(v, str):
+                fixed.append("ended." + k + " (dropped: not text)")
+            elif js_len(v) > 80:
+                fixed.append("ended." + k + " (cut to 80 characters)")
+    if fixed:
+        parts.append("Records this copy dropped or changed: " + ", ".join(fixed) + ".")
+    return ("malformed", " ".join(parts) + " The run is shown as the app shows it, without them.") if parts else None
+
+
+def end_problem(r):
+    """PF.run.endProblem: the one end validation every reader applies to a run file's ended record (a receipt named without an
+    end, an unknown field, an outcome this copy doesn't know; then the time badTimes() can't read and what repairs() drops or
+    cuts), as (kind, why), or None when the end is read as written."""
+    if not isinstance(r, dict):
+        return None
+    return _no_end(r) or _end_newer(r) or _end_malformed(r)
+
+
+# PF.run's KNOWN.run: every top-level field a run/2 file holds.
+RUN2_FIELDS = frozenset(("format id process version folder mapHash title category snapshot types details roles recorder followUps shotsFrozen "
+                         "jira pauses paused lineage state created createdBy tz steps gates fields log ended rev savedAt savedBy marksFrom "
+                         "marks parent").split())
+
+
+def _envelope_problem(r):
+    """Living work needs run/3: a run/2 naming the living-runs feature or holding a living record has a field run/2 doesn't
+    know, so it is newer, worded as newer() words it (the first such field in JavaScript's key order)."""
+    if r.get("format") != "preflight-run/2" or not living_work(r):
+        return None
+    extra = next((k for k in js_keys(r) if k not in RUN2_FIELDS and not k.startswith("_")), None)
+    return None if extra is None else ("newer", RUN_NEWER + ' The run has "' + js_slice(str(extra), 40) + '".')
+
+
+def raw_problem(r):
+    """PF.run.rawProblem: a raw run file's envelope and end and living record in newer()'s order (a run/2 with living work,
+    the end's fields, the living record, a receipt named without an end), then what the readers drop or can't read; applied
+    before any "no living work" gate."""
+    if not isinstance(r, dict):
+        return None
+    return _envelope_problem(r) or _end_newer(r) or living_problem(r) or _no_end(r) or _end_malformed(r)
+
+
+def living_work(r):
+    """Whether a raw run file says anything about living work: a living record (any value) or the living-runs feature."""
+    return isinstance(r, dict) and ("living" in r or (isinstance(r.get("features"), list) and TODO_FEATURE in r["features"]))
+
+
+def run_problem(r, key=None):
+    """The readers' verdict on a parsed run.json (repo.judgeRunFile), as (kind, why), or None: the end and the living record
+    in the readers' own words (raw_problem), and everything else any reader refuses in the file (run_verdict.reader_problem,
+    the whole port of R.sanitize and PF.appjson.judgeRun's run problems), for the folder it is in (key: <process>/<run id>).
+    The whole port decides the kind; the readers' own
+    words are used when they name the same kind."""
+    own = raw_problem(r)
+    try:
+        import run_verdict  # noqa: PLC0415 - the whole run port, loaded only for a living run's receipt
+        whole = run_verdict.reader_problem(key or (str(r.get("process")) + "/" + str(r.get("id"))), r)
+    except Exception as e:  # noqa: BLE001 - a run the port can't judge is never confirmed
+        whole = ("malformed", "it can't be judged here (" + type(e).__name__ + ")")
+    if whole:
+        return own if own and own[0] == whole[0] else whole
+    return own
+
+
+def receipt_verdict(text, read, unread, key=None):
+    """PF.receipts.verdict for an ended living run.json: its state, the receipt's path, the problem's kind and why (same order
+    and words), or None for a run that isn't an ended living run. text: run.json as the app decodes it (None when it couldn't
+    be read); key: the folder it is in, <process>/<run id>."""
+    if text is None:
+        return None
+    import run_verdict  # noqa: PLC0415 - the readers' own parse and run port
+    return receipt_verdict_of(run_verdict.parse(text), read, unread, key)
+
+
+def receipt_verdict_of(r, read, unread, key=None):
+    """receipt_verdict on run.json already parsed as every reader parses it (run_verdict.parse: nothing nested past 64 levels,
+    numbers as doubles, so an integer past Python's digit limit reads as JSON.parse reads it; MISSING when it can't be read as
+    JSON)."""
+    import run_verdict  # noqa: PLC0415 - the readers' own run port
+    # Text no reader can read as JSON, or JSON that is no run at all, is named at run.json as the readers name it: which run
+    # it is, living or not, can't be told.
+    if r is run_verdict.MISSING:
+        return {"state": "unread", "path": "runs/" + key + "/run.json", "kind": "malformed", "why": "This file isn't complete JSON (it may still be arriving)."} if key else None
+    if not isinstance(r, dict):
+        return {"state": "unread", "path": "runs/" + key + "/run.json", "kind": "malformed", "why": "It isn't a run this copy can read."} if key else None
+    if not living_work(r):
+        return None
+    # The readers' verdict on run.json as written (run_problem), before any receipt verdict or living gate: a run any reader
+    # refuses leaves run.json named, with the readers' path and kind, and its receipt is never confirmed.
+    key = key or (str(r.get("process")) + "/" + str(r.get("id")))
+    ep = run_problem(r, key)
+    if ep:
+        # The title as the readers keep it (R.sanitize: str(o.title, 100), cut in UTF-16 units, else Untitled run).
+        title = (js_slice(r["title"], 100) if isinstance(r.get("title"), str) else "") or "Untitled run"
+        return {"state": "unread", "path": "runs/" + key + "/run.json", "kind": ep[0],
+                "why": ('"' + title + '" (' + key + "): " + ep[1]) if ep[0] == "newer" else ep[1]}
+    lv = clean_living(r.get("living"))
+    if not isinstance(r.get("ended"), dict) or not lv:
+        return None
+    rid = lv.get("receipt")
+    if not rid:
+        return {"state": "none", "path": "", "kind": "", "why": "It ended without a receipt record."}
+    path, own = "proposals/" + rid + ".json", rid + ".json"
+    # Everything under the receipt's id, before its kind or its run is looked at (PF.receipts.stateOf): every unread entry and
+    # every checked to-do record, whatever run it names. The one named first is the receipt's own file, else the first by name.
+    first = lambda xs: sorted(xs, key=lambda x: (x[0] != own, x[0]))[0]
+    uns = [u for u in unread if todo_request_file(u[0], rid)]
+    if uns:
+        name, kind, why = first(uns)
+        said = "Its receipt (" + rid + ") can't be read: " if name == own else "Its receipt (" + rid + ") has a copy that can't be read (proposals/" + name + "): "
+        return {"state": "unread", "path": path, "kind": kind, "why": said + why}
+    every = read.get(rid) or []
+    odd = [x for x in every if x[1].get("kind") != "receipt"]
+    if odd:
+        name, o = first(odd)
+        return {"state": "mismatch", "path": path, "kind": "malformed", "why": "Its receipt (" + rid + ") has a copy that is another kind of record (proposals/" + name + ", a " + str(o.get("kind")) + "), so which is meant isn't known."}
+    mine = [x[1] for x in every]
+    if not mine:
+        return {"state": "missing", "path": path, "kind": "nofile", "why": "Its receipt (" + rid + ") isn't in the folder, so what it ended with can't be confirmed."}
+    rec = mine[0]
+    # Compared as the app compares copies (PF.todos.fingerprint of bodyOf): object keys sorted, arrays in order, a key it
+    # doesn't hold left out.
+    body = lambda x: _tsha({k: x[k] for k in ("head", "outcome", "seen", "counts", "coverage", "evidence", "keeps") if k in x})
+    if any(body(x) != body(rec) for x in mine):
+        return {"state": "mismatch", "path": path, "kind": "malformed", "why": "Its receipt (" + rid + ") has two different copies in the folder."}
+    if rec.get("run") != {"process": r.get("process"), "id": r.get("id")}:
+        return {"state": "mismatch", "path": path, "kind": "malformed", "why": "Its receipt (" + rid + ") is another run's."}
+    if rec.get("head") != lv["head"] or rec.get("outcome") != r["ended"].get("outcome"):
+        return {"state": "mismatch", "path": path, "kind": "malformed", "why": "Its receipt (" + rid + ") doesn't say what the run ended with (its work head or outcome differs)."}
+    if rec.get("by") != r["ended"].get("by"):
+        return {"state": "mismatch", "path": path, "kind": "malformed", "why": "Its receipt (" + rid + ") was written by another person than the one who ended the run."}
+    me = {"process": r.get("process"), "id": r.get("id")}
+    work, keeps, copies = {}, set(), {}
+    for k, xs in read.items():
+        for nm, x in xs:
+            if not isinstance(x, dict) or not isinstance(k, str):
+                continue
+            # Copies are told apart as the app reads them (PF.loop.splitIds over checked records).
+            copies.setdefault(k, []).append(todo_checked(x, nm))
+            if x.get("run") != me:
+                continue
+            if x.get("kind") == "keep":
+                keeps.add(k)
+            if x.get("kind") not in ("fact", "keep", "receipt"):
+                work.setdefault(k, []).append(x)
+    cw = receipt_claims_why(run_verdict.sanitize(r), rec, work, keeps, copies)
+    if cw and cw[0] == "missing":
+        return {"state": "missing", "path": path, "kind": "nofile", "why": "Its receipt (" + rid + ") rests on proposals/" + cw[1] + ".json, which isn't in the folder as read, so what it ended with can't be confirmed."}
+    if cw:
+        return {"state": "mismatch", "path": path, "kind": "malformed", "why": "Its receipt (" + rid + ") says something its run's work doesn't: " + cw[1] + "."}
+    return {"state": "confirmed", "path": path, "kind": "", "why": ""}
+
+
+def _jnum(v):
+    """A whole number as JavaScript writes it (3, never 3.0)."""
+    return str(int(v)) if isinstance(v, float) and v.is_integer() else str(v)
+
+
+RECEIPT_COUNTS = ["steps", "answered", "items", "cleared", "abandoned", "todos", "resolved", "done", "wont", "moved", "ticket", "toRun", "link",
+                  "asked", "added", "queued", "waiting", "held", "disputed", "declined", "applied", "pending", "refused", "owed", "covered"]
+CLAIM_CAP = 5000
+
+
+# What the app's reader leaves out of a checked to-do record when it tells copies apart (PF.loop.copyBody): its envelope, the
+# tool's key its id already holds, and when it was written.
+TODO_ENVELOPE = ("format", "features", "app", "created", "key")
+
+
+def _js_canon(v):
+    """PF.loop's canon: object keys sorted as JavaScript sorts strings (by UTF-16 code unit), lists in order."""
+    if isinstance(v, list):
+        return [_js_canon(x) for x in v]
+    if isinstance(v, dict):
+        return {k: _js_canon(v[k]) for k in sorted(v, key=lambda s: s.encode("utf-16-be"))}
+    return v
+
+
+def todo_checked(o, name):
+    """A to-do record as the app's reader returns it (PF.todos.cleanFile, a fact's PF.facts.cleanFile and a keep's
+    PF.learn.cleanFile), the form copies are compared in, or the record as it is when it is a receipt (compared by its own
+    body) or isn't one the app reads.
+    name: its file name in proposals/ (a decision or an application takes its id from it)."""
+    rec = []
+    if isinstance(o, dict) and todo_claims(o) and not todo_why(o, name, record=rec) and rec:
+        return rec[0]
+    return o
+
+
+def todo_copy_body(o):
+    """A to-do record as PF.loop.copyBody compares its copies: the checked record (todo_checked), its envelope and the
+    reader's own fields left out, keys sorted, written as JSON.stringify writes it (a number 1.0 is 1)."""
+    if not isinstance(o, dict):
+        return js_json(_js_canon(o))
+    return js_json(_js_canon({k: v for k, v in o.items() if k not in TODO_ENVELOPE and not k.startswith("_")}))
+
+
+def receipt_claims_why(r, rec, work, keeps, copies=None):
+    """PF.receipts.claimsWhy, check for check: what a receipt claims, held to the work it froze (its id is its own content,
+    never proof of it). r: the run as the readers sanitize it. work: the run's own to-do records (never a fact, keep or
+    receipt), id -> every copy read; keeps: the ids of the run's keeps; copies: every checked to-do record read, whatever
+    its kind or run, id -> every copy (PF.loop.splitIds; work when not given). None, ("missing", id) or ("why", text)."""
+    import run_verdict  # noqa: PLC0415 - the readers' own run port
+
+    def dct(v):
+        return v if isinstance(v, dict) else None
+
+    copies = work if copies is None else copies
+    past, order, seen_by, q, i = {}, [], set(), list(rec.get("seen") or []), 0
+    while i < len(q):
+        rid = q[i]
+        i += 1
+        if rid in past:
+            continue
+        xs = work.get(rid)
+        if not xs:
+            return ("missing", rid)
+        every = copies.get(rid) or xs
+        if any(todo_copy_body(x) != todo_copy_body(every[0]) for x in every):
+            return ("why", "the folder has two different copies of " + rid + ", a record it rests on")
+        if len(order) >= CLAIM_CAP:
+            return ("why", "it rests on more than " + str(CLAIM_CAP) + " records")
+        past[rid] = xs[0]
+        order.append(xs[0])
+        for y in xs[0].get("seen") if isinstance(xs[0].get("seen"), list) else []:
+            seen_by.add(y)
+            q.append(y)
+    settled = [y for y in rec.get("seen") or [] if y in seen_by]
+    if settled:
+        return ("why", "it names " + settled[0] + " as unsettled, but a record it saw had seen it")
+    chain, at, visited, landed = [], rec.get("head") or "", set(), set()
+    while at:
+        if at in visited:
+            return ("why", "its applications go round in a circle at " + at)
+        visited.add(at)
+        a = past.get(at)
+        ap = (a if a.get("kind") == "application" else dct(a.get("application")) if a.get("kind") == "compound" else None) if a else None
+        if not ap:
+            return ("why", "its work head's chain names " + at + ", which isn't an application it saw")
+        landed.add(a.get("id") if a.get("kind") == "compound" else str(a.get("proposal")))
+        chain.insert(0, ap)
+        at = ap.get("previous") if isinstance(ap.get("previous"), str) else ""
+    c = {k: 0 for k in RECEIPT_COUNTS}
+    todos, by_todo, spreads = [], {}, []
+    for ap in chain:
+        e = dct(ap.get("effect")) or {}
+        td, op = e.get("todo"), e.get("op")
+        x = by_todo.get(td) if isinstance(td, str) else None
+        if op == "spread-add":
+            if e.get("spread") not in spreads:
+                spreads.append(e.get("spread"))
+            continue
+        if op == "add":
+            c["added"] += 1
+            if x is None and isinstance(td, str):
+                x = {"id": td, "state": "open", "to": None, "support": None, "evidence": None}
+                by_todo[td] = x
+                todos.append(x)
+            continue
+        if x is None:
+            continue
+        if op == "done":
+            x.update({"state": "done", "support": e.get("support") if run_verdict.truthy(e.get("support")) else None,
+                      "evidence": e.get("evidence") if run_verdict.truthy(e.get("evidence")) else None})
+        elif op == "wont":
+            x["state"] = "wont"
+        elif op == "move":
+            x.update({"state": "moved", "to": e.get("to") if run_verdict.truthy(e.get("to")) else None})
+        elif op == "reopen":
+            x.update({"state": "open", "to": None, "support": None, "evidence": None})
+    for x in todos:
+        c["todos"] += 1
+        if x["state"] == "open":
+            continue
+        c["resolved"] += 1
+        c[x["state"]] += 1
+        to = dct(x["to"]) or {}
+        if x["state"] == "moved" and x["to"]:
+            if run_verdict.truthy(to.get("ticket")):
+                c["ticket"] += 1
+            elif run_verdict.truthy(to.get("run")):
+                c["toRun"] += 1
+            elif run_verdict.truthy(to.get("link")):
+                c["link"] += 1
+    reqs = [x for x in order if x.get("kind") in ("proposal", "compound")]
+    n = rec.get("counts") or {}
+    c["asked"], c["applied"] = len([x for x in reqs if x.get("op") == "add"]), len(chain)
+    try:
+        mp = parse_map(r["snapshot"]) if r and isinstance(r.get("snapshot"), str) else None
+    except Exception:
+        mp = None
+    if not mp:
+        return ("why", "its run's checklist can't be read")
+    room = 0
+    for st in mp["steps"]:
+        ap_ = run_verdict.applies(r, mp, st)
+        a = r["steps"].get(st["id"]) if isinstance(r.get("steps"), dict) else None
+        s_ = a.get("s") if isinstance(a, dict) else None
+        if ap_ is not False:
+            c["steps"] += 1
+        if ap_ is True and s_ in ("done", "na"):
+            room += 1
+    for k in ("steps", "todos", "resolved", "done", "wont", "moved", "ticket", "toRun", "link", "asked", "added", "applied"):
+        if n.get(k) != c[k]:
+            return ("why", "it counts " + _jnum(n.get(k)) + " for \"" + k + "\", but its run's work gives " + str(c[k]))
+    if n["answered"] > room:
+        return ("why", "it counts " + _jnum(n["answered"]) + " steps answered, but the run has " + str(room) + " answered")
+    if n["applied"] + n["pending"] + n["refused"] != len(reqs):
+        return ("why", "its requests don't add up to the " + str(len(reqs)) + " it saw")
+    if n["queued"] + n["waiting"] + n["held"] + n["disputed"] + n["declined"] != n["asked"] - n["added"] or n["declined"] > n["refused"]:
+        return ("why", "its additions not applied don't add up")
+    # What each request not applied could be, from the decisions and applications on it in that past.
+    dec, apps, may = {}, {}, {"add": 0, "other": 0, "disputed": 0}
+    for x in order:
+        if x.get("kind") == "decision":
+            dec.setdefault(x.get("proposal"), []).append(x.get("op"))
+        elif x.get("kind") == "application":
+            apps[x.get("proposal")] = apps.get(x.get("proposal"), 0) + 1
+    for x in reqs:
+        if x.get("id") in landed:
+            continue
+        ds = dec.get(x.get("id")) or []
+        if "decline" in ds:
+            may["add" if x.get("op") == "add" else "other"] += 1
+        if x.get("op") == "add" and (len(ds) > 1 or apps.get(x.get("id"), 0) > 1):
+            may["disputed"] += 1
+    if n["declined"] > may["add"]:
+        return ("why", "it counts " + _jnum(n["declined"]) + " additions declined, but " + str(may["add"]) + " of the additions it saw not applied have a decline decision")
+    if n["refused"] - n["declined"] > may["other"]:
+        return ("why", "it counts " + _jnum(n["refused"] - n["declined"]) + " other requests declined, but " + str(may["other"]) + " of the other requests it saw not applied have a decline decision")
+    if n["disputed"] > may["disputed"]:
+        return ("why", "it counts " + _jnum(n["disputed"]) + " additions disputed, but " + str(may["disputed"]) + " of the additions it saw not applied were decided or applied more than once")
+    if n["cleared"] + n["abandoned"] > n["items"] or (n["items"] and not any(st.get("type") == "for.each" for st in mp["steps"])):
+        return ("why", "its loop items don't add up")
+    cv = rec.get("coverage") or []
+    if sorted(x.get("spread") for x in cv) != sorted(spreads):
+        return ("why", "its coverage doesn't name the spreads its run's work holds")
+    if any(x.get("resolved") > x.get("owed") for x in cv) or sum(x.get("owed") for x in cv) != n["owed"] or sum(x.get("resolved") for x in cv) != n["covered"]:
+        return ("why", "its coverage doesn't add up")
+    ev = []
+    for x in todos:
+        if x["state"] != "done":
+            continue
+        s_, e_ = dct(x["support"]), dct(x["evidence"])
+        if s_ is not None:
+            ev.append({"todo": x["id"], "fact": s_.get("fact"), "content": s_.get("content")})
+        elif e_ is not None:
+            ru = dct(e_.get("run")) or {}
+            ev.append({"todo": x["id"], "plan": e_.get("plan"), "run": {"process": ru.get("process"), "id": ru.get("id")}, "answer": e_.get("answer"), "result": e_.get("result")})
+    said = rec.get("evidence") or []
+    want = {e["todo"]: e for e in ev}
+    wrong = [e for e in said if want.get(e.get("todo")) != e]
+    if wrong:
+        return ("why", "the evidence it names for " + str(wrong[0].get("todo")) + " isn't the evidence that to-do was checked off on")
+    left = [e for e in ev if not any(y.get("todo") == e["todo"] for y in said)]
+    if left:
+        return ("why", "it doesn't name the evidence " + left[0]["todo"] + " was checked off on")
+    if ev != said:
+        return ("why", "the evidence it names isn't in the order its run's to-dos were checked off")
+    lost = [k for k in rec.get("keeps") or [] if k not in keeps]
+    if lost:
+        return ("missing", lost[0])
+    return None
+
+
+def run_entry(out, rdir, key, rcpt_read, unread):
+    """What main() says of one run folder (key: <process>/<run id>): its receipt verdict, its conflict copies and its save
+    receipts. run.json is read once and parsed once, as every reader parses it (run_verdict.parse), before anything in it is
+    read: a run.json that isn't JSON, isn't a run or is nested past what any reader reads is named, never a crash."""
+    import run_verdict  # noqa: PLC0415 - the readers' own parse
+    names = sorted(os.listdir(rdir))
+    copies = [n for n in names if re.match(r"^run.*\.json\Z", n, re.I | re.A) and n != "run.json"]
+    text = read_app_text(os.path.join(rdir, "run.json"))
+    r = run_verdict.parse(text) if text is not None else None
+    lineage = r.get("lineage") if isinstance(r, dict) else None
+    lineage = [x for x in lineage if isinstance(x, str)] if isinstance(lineage, list) else []
+    # A save's candidate file that run.json doesn't list was overwritten by another window or computer.
+    for n in names:
+        m = re.match(r"^candidate-(.+)-([a-z0-9]{8})\.json\Z", n)
+        if m and (m.group(1) + "." + m.group(2)) not in lineage and time.time() - os.path.getmtime(os.path.join(rdir, n)) >= 60:
+            copies.append(n)
+    receipts = [n for n in names if n.startswith("candidate-")]
+    v = receipt_verdict_of(r, rcpt_read, unread, key) if text is not None else None
+    if v:
+        out.setdefault("runReceipts", []).append(dict({"run": key}, **v))
+    if copies:
+        out["conflicts"].append({"run": key, "copies": copies})
+    if len(receipts) > 1:
+        out.setdefault("receipts", []).append({"run": key, "count": len(receipts), "note": "Save receipts beyond the newest one are cleaned up by the next save; many here means unresolved conflicts or failed cleanups."})
 
 
 def main():
@@ -4194,7 +4986,8 @@ def main():
         versions = []
         for name in sorted(os.listdir(pdir)):
             if os.path.isdir(os.path.join(pdir, name)) and re.match(r"^v\d+-", name, re.A):
-                status, why, info = check_publication(os.path.join(pdir, name), name)
+                # Read as the app reads a version's files (its replacement decoder); the payload is still over the raw bytes.
+                status, why, info = check_publication(os.path.join(pdir, name), name, read_app_text)
                 versions.append({"folder": name, "version": info.get("version") if info else None, "status": status, "why": why,
                                  "publishedBy": info.get("publishedBy") if info else None, "publishedAt": info.get("publishedAt") if info else None})
         # Same choice as the app: versions published twice under one number are set aside, and the highest of the rest is current.
@@ -4213,14 +5006,20 @@ def main():
     plans, decisions, torn, refused_decisions = {}, {}, [], []
     out["scopes"] = []
     todo_unchecked = []
+    rcpt_read, rcpt_unread, id_families, good_reads = {}, [], {}, []
     for name in sorted(os.listdir(prop_dir)) if os.path.isdir(prop_dir) else []:
-        if not name.lower().endswith(".json") or not os.path.isfile(os.path.join(prop_dir, name)):
+        if not json_name(name) or not os.path.isfile(os.path.join(prop_dir, name)):
             continue
-        text = read_text(os.path.join(prop_dir, name))
+        # Read as the app reads a record (its replacement decoding), so a byte it replaces is read the same way here.
+        text = read_app_text(os.path.join(prop_dir, name))
+        if text is None and name.startswith("req-"):
+            rcpt_unread.append((name, "unreadable", "couldn't be read"))
         # PF.util.jsonTooDeep: nested past the bound, refused by name before anything parses it, as the app refuses it.
         if text and json_too_deep(text):
             out["refused"].append({"file": "proposals/" + name, "why": DEEP_WHY})
             refused_decisions.append((name, "malformed", ""))
+            if name.startswith("req-"):
+                rcpt_unread.append((name, "malformed", DEEP_WHY))
             continue
         try:
             # Numbers are read as JavaScript reads them (all doubles), so 9007199254740993 becomes ...992 here too.
@@ -4231,8 +5030,16 @@ def main():
         if not parsed:
             # Not complete JSON (it may still be arriving): named, and whether its name says which plan it's for.
             torn.append(name)
+            # As the app's loader names it: an empty file is one still arriving, too.
+            if text is not None and name.startswith("req-"):
+                rcpt_unread.append((name, "malformed", "isn't complete JSON"))
+        # JSON that isn't a proposals/ file (null, a list, a number, an object of no kind): ignored, and named, as the app does.
+        if parsed and name.startswith("req-") and not (isinstance(obj, dict) and (obj.get("kind") in ("plan", "status") or isinstance(obj.get("format"), str))):
+            rcpt_unread.append((name, "malformed", "isn't a file Flightdeck reads here, so it's ignored"))
         if not isinstance(obj, dict):
             continue
+        if _tstr(obj.get("id")) and (obj.get("kind") in ("plan", "status") or isinstance(obj.get("format"), str)):
+            id_families.setdefault(obj["id"], []).append((name, todo_claims(obj)))
         # A loop's scope record (a living run's is flightdeck-plan/4 with loops) goes to its own reader first, before the to-do
         # reader, and never reaches the plan reader (repo.readPlans).
         # A fact by its kind goes to the to-do reader before any scope dispatch (PB), as repo.readPlans does.
@@ -4242,6 +5049,7 @@ def main():
                 out["refused"].append(dict({"file": "proposals/" + name, "why": why}, **({"linkUnchecked": unchecked} if unchecked else {})))
                 refused_decisions.append((name, kind, needs))
             else:
+                good_reads.append((name, "scope", obj.get("id")))
                 out["scopes"].append(dict({"file": "proposals/" + name, "type": "decision" if obj["format"].startswith("flightdeck-plan-status/") else "request", "loop": obj.get("loop")}, **({"linkUnchecked": unchecked} if unchecked else {})))
             continue
         # A to-do record (4.0, PF.todos.claims): read by its own reader first, as the app does, and never a plan or a decision.
@@ -4249,6 +5057,12 @@ def main():
         if todo_claims(obj):
             un = []
             bad = todo_why(obj, name, os.path.getsize(os.path.join(prop_dir, name)), un)
+            if not bad:
+                # A status record (a decision or an application) is named by its file, as the app names it.
+                rcpt_read.setdefault(todo_status_file(name)[:-5] if obj.get("format") == TODO_STATUS else obj.get("id"), []).append((name, obj))
+                good_reads.append((name, "todo", obj.get("id")))
+            elif bad:
+                rcpt_unread.append((name, "newer" if " newer Flightdeck" in bad else "malformed", bad))
             note = (un[0] + ": an international domain name; Flightdeck decides whether it reads") if un else ""
             if bad:
                 out["refused"].append(dict({"file": "proposals/" + name, "why": bad}, **({"linkUnchecked": note} if note else {})))
@@ -4284,6 +5098,7 @@ def main():
             if isinstance(obj.get("id"), str) and isinstance(obj.get("process"), str):
                 plain = {k: v for k, v in obj.items() if not k.startswith("_")}
                 plans.setdefault(obj["id"], []).append((name, text_hash(js_json(plain)), plain))
+                good_reads.append((name, "plan", obj["id"]))
         else:
             # A decision not in its format (a switch without its version among them) is refused and named, as the app does,
             # and decides nothing. A plan/2 switched to another version (plan-status/2, retargeted) is a switch, not a decision.
@@ -4291,8 +5106,10 @@ def main():
             if bad:
                 out["refused"].append({"file": "proposals/" + name, "why": bad})
                 refused_decisions.append((name, "malformed", ""))
-            elif obj.get("status") != "retargeted":
-                decisions.setdefault(obj.get("proposal"), []).append(obj)
+            else:
+                good_reads.append((name, "status", obj.get("id")))
+                if obj.get("status") != "retargeted":
+                    decisions.setdefault(obj.get("proposal"), []).append(obj)
     for pid, copies in sorted(plans.items()):
         # OneDrive can keep two files of one plan (written on two computers while disconnected). Copies that say the same
         # thing (apart from when each was written, and which version of the same tool wrote a request) are one plan; copies
@@ -4350,28 +5167,46 @@ def main():
     if out["scopes"] or any(n.startswith("req-") for n in torn):
         out["scopeNote"] = SCOPE_NOTE
 
+    # Copies under one id that are different families of record (a to-do record and a plan, say): the loader holds every one
+    # of them as a record that can't be read (PF.loop.splitIds), so a receipt among them is unread, with the loader's reason.
+    split_unread = []
+    for sid, fams in sorted(id_families.items()):
+        if any(t for _, t in fams) and any(not t for _, t in fams):
+            why = "has copies under one id (" + sid + ") that are different kinds of record, so which is meant isn't known. Keep one of them"
+            split_unread.extend((n, "malformed", why) for n, _ in fams)
+
+    # DA: every file under proposals/ by its file-name id, whatever family read it: one any reader refused (a plan, a scope
+    # record, a file of no family) is unread under that id too, so a witness with such a copy is never confirmed.
+    have = {n for n, _, _ in split_unread + rcpt_unread}
+    kinds = {n: k for n, k, _ in refused_decisions}
+    named_unread = []
+    for x in out["refused"]:
+        n = x["file"][len("proposals/"):] if x["file"].startswith("proposals/") else ""
+        if n and n not in have:
+            have.add(n)
+            named_unread.append((n, "newer" if kinds.get(n) == "newer" else "malformed", x["why"]))
+    # EA: successful reads too. A file read whole (any family) under a witness's name (a to-do record, a scope record or a
+    # plan) that isn't the same family and id is a copy that differs, unless its name is its own (its id is its whole stem).
+    wit = {}
+    for n, fam, i in good_reads:
+        if fam != "status":
+            for k in name_keys(n):
+                wit.setdefault(k, []).append((n, fam, i))
+    for n, fam, i in good_reads:
+        ks = name_keys(n)
+        if n in have or (isinstance(i, str) and i == ks[0]):
+            continue
+        if any(wn != n and (wf != fam or wi != i) for k in ks for wn, wf, wi in wit.get(k, [])):
+            have.add(n)
+            named_unread.append((n, "malformed", OTHER_COPY))
+
     runs_dir = os.path.join(root, "runs")
     for proc in sorted(os.listdir(runs_dir)) if os.path.isdir(runs_dir) else []:
         pdir = os.path.join(runs_dir, proc)
         for rid in sorted(os.listdir(pdir)) if os.path.isdir(pdir) else []:
             rdir = os.path.join(pdir, rid)
             if os.path.isdir(rdir):
-                names = sorted(os.listdir(rdir))
-                copies = [n for n in names if re.match(r"^run.*\.json\Z", n, re.I | re.A) and n != "run.json"]
-                # A save's candidate file that run.json doesn't list was overwritten by another window or computer.
-                try:
-                    lineage = json.loads(read_text(os.path.join(rdir, "run.json")) or "{}", parse_constant=_no_constant).get("lineage") or []
-                except ValueError:
-                    lineage = []
-                for n in names:
-                    m = re.match(r"^candidate-(.+)-([a-z0-9]{8})\.json\Z", n)
-                    if m and (m.group(1) + "." + m.group(2)) not in lineage and time.time() - os.path.getmtime(os.path.join(rdir, n)) >= 60:
-                        copies.append(n)
-                receipts = [n for n in names if n.startswith("candidate-")]
-                if copies:
-                    out["conflicts"].append({"run": proc + "/" + rid, "copies": copies})
-                if len(receipts) > 1:
-                    out.setdefault("receipts", []).append({"run": proc + "/" + rid, "count": len(receipts), "note": "Save receipts beyond the newest one are cleaned up by the next save; many here means unresolved conflicts or failed cleanups."})
+                run_entry(out, rdir, proc + "/" + rid, rcpt_read, split_unread + rcpt_unread + named_unread)
 
     out["teamFiles"] = team_files(root)
     # Team values (2.9): a team-values.json the app can't use is named, as are steps that pass a value it doesn't have.
@@ -4381,7 +5216,7 @@ def main():
         out["teamFiles"]["problems"].append({"file": TEAM_FILE, "problem": tv["why"]})
     out["teamMissing"] = team_missing(root, out["publications"], tv)
     out["skills"] = skill_registrations(root)
-    json.dump(json_safe(out), sys.stdout, indent=2, ensure_ascii=False, allow_nan=False)
+    json.dump(json_safe(out), sys.stdout, indent=2, ensure_ascii=True, allow_nan=False)
     sys.stdout.write("\n")
 
 

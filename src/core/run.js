@@ -1561,7 +1561,9 @@ PF.run = (function () {
        applications this run never landed are still authorized; '' keeps none). */
     var lv = cur.format !== FORMAT3 ? null : o && typeof o.head === 'string' ? (o.head ? { head: o.head } : null) : copy.living || cur.living;
     if (!lv) { delete cur.living; if (cur.features) cur.features = cur.features.filter(function (f) { return f !== PF.todos.FEATURE; }); dropCuts(cur, who, now); }
-    if (lv) { cur.living = { head: lv.head }; addFeature(cur, PF.todos.FEATURE); var lo = order3(cur); Object.keys(cur).forEach(function (k) { delete cur[k]; }); Object.keys(lo).forEach(function (k) { cur[k] = lo[k]; }); }
+    /* A receipt (4.0 slice 6) stays with the head it was written on, and only on a run kept ended. */
+    var rcpt = lv && lv.receipt ? lv.receipt : lv && o && typeof o.head === 'string' && copy.living && copy.living.head === lv.head ? copy.living.receipt : '';
+    if (lv) { cur.living = rcpt && cur.ended ? { head: lv.head, receipt: rcpt } : { head: lv.head }; addFeature(cur, PF.todos.FEATURE); var lo = order3(cur); Object.keys(cur).forEach(function (k) { delete cur[k]; }); Object.keys(lo).forEach(function (k) { cur[k] = lo[k]; }); }
     if (cur.format === FORMAT3) { var re = withPins(cur); Object.keys(cur).forEach(function (k) { delete cur[k]; }); Object.keys(re).forEach(function (k) { cur[k] = re[k]; }); }
     /* Deviation marks record what happened in this run in either version, so keeping a copy keeps both versions' marks;
        they're complete only if both versions' were. */
@@ -2062,10 +2064,15 @@ PF.run = (function () {
       deviated: deviated, steps: deviated.slice(0, 10), notes: res.notes, excluded: res.excluded.map(function (e) { return e.text; }), final: res.final };
   }
 
-  function end(r, map, outcome, who, whoName, now) {
+  /* o.receipt (4.0 slice 6): a living run ends with the receipt record its recorder wrote (PF.receipts), named in living in
+     the same save that sets ended. Everything is checked before anything is set. */
+  function end(r, map, outcome, who, whoName, now, o) {
     if (outcome === 'Completed' && !allGatesOk(r, map)) throw new Error('Pass or waive every gate before ending as Completed.');
     if (['Completed', 'Stopped early', 'Cancelled'].indexOf(outcome) < 0) throw new Error('Unknown outcome.');
+    var rc = o && o.receipt != null ? o.receipt : null;
+    if (rc != null && !(r.living && PF.todos.cleanLiving({ head: r.living.head, receipt: rc }))) throw new Error('That receipt can\'t be named by this run, so it wasn\'t ended.');
     if (r.paused) resume(r, who, now);
+    if (rc != null) r.living = { head: r.living.head, receipt: rc };
     r.ended = { outcome: outcome, by: who, byName: whoName, at: now };
     r.state = outcome === 'Completed' ? 'completed' : outcome === 'Cancelled' ? 'cancelled' : 'stopped';
     addLog(r, who, now, 'Ended the run: ' + outcome);
@@ -2191,8 +2198,14 @@ PF.run = (function () {
   /* Without a prototype, so a state named like an inherited property (constructor, toString) is never a state. */
   var STEP_STATES = Object.assign(Object.create(null), { done: 1, na: 1, blocked: 1, recheck: 1, open: 1 }), GATE_STATES = Object.assign(Object.create(null), { passed: 1, waived: 1, failed: 1, review: 1 });
   var RUN_STATES = { running: 1, completed: 1, stopped: 1, cancelled: 1 }, OUTCOMES = { Completed: 1, 'Stopped early': 1, Cancelled: 1 };
+  /* An outcome is exactly one of these as text: a list or a number that reads as one when made into text isn't. */
+  function outcomeOk(v) { return typeof v === 'string' && Object.prototype.hasOwnProperty.call(OUTCOMES, v); }
   function str(v, max) { return typeof v === 'string' ? v.slice(0, max || 200) : ''; }
-  function isoOrNull(v) { return typeof v === 'string' && !isNaN(new Date(v)) ? v : null; }
+  /* A time in a run: exactly the form Flightdeck writes (toISOString: YYYY-MM-DDTHH:mm:ss.sssZ, a six-digit signed year
+     outside 0000-9999), a real calendar time within the date range. Every copy since 1.10 writes only this; anything else
+     (a bare number, a date alone, an offset, no milliseconds) is no time, as the pack reader reads it too (4.0, NB). */
+  var ISO_TIME = /^(\d{4}|[+-]\d{6})-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+  function isoOrNull(v) { if (typeof v !== 'string' || !ISO_TIME.test(v)) return null; var d = new Date(v); return !isNaN(d) && d.toISOString() === v ? v : null; }
   /* A child's input snapshot keeps every run-detail name a map can declare, so nothing it was started for is lost on reload. */
   function inputsOf(o) { var c = {}; if (o && typeof o === 'object') Object.keys(o).slice(0, 60).forEach(function (k) { if (/^[\w-]{1,120}$/.test(k)) c[k] = str(o[k], 300); }); return c; }
   function values(o) { var c = {}; if (o && typeof o === 'object') Object.keys(o).slice(0, 120).forEach(function (k) { if (/^[\w-]{1,40}$/.test(k)) c[k] = str(o[k], 300); }); return c; }
@@ -2260,7 +2273,7 @@ PF.run = (function () {
     look(o, three ? 'run3' : 'run', 'The run');
     state(RUN_STATES, o.state, 'Its state');
     look(o.recorder, 'recorder', 'Its recorder'); look(o.recorder && o.recorder.handoff, 'handoff', 'Its hand-off');
-    look(o.ended, 'ended', 'How it ended'); if (obj(o.ended)) state(OUTCOMES, o.ended.outcome, 'How it ended');
+    look(o.ended, 'ended', 'How it ended'); if (obj(o.ended) && !why && o.ended.outcome != null && !outcomeOk(o.ended.outcome)) why = 'How it ended is "' + String(o.ended.outcome).slice(0, 40) + '".';
     look(o.paused, 'paused', 'Its pause'); each(o.pauses, 'pause', 'A pause'); each(o.followUps, 'followUp', 'A follow-up'); each(o.log, 'log', 'A log entry');
     look(o.parent, three ? 'parent3' : 'parent', 'Its parent run');
     if (!why && three && obj(o.parent) && o.parent.item !== undefined && !PF.loop.itemRef(o.parent.item)) why = 'Its parent run\'s item isn\'t one this copy reads.';
@@ -2276,6 +2289,8 @@ PF.run = (function () {
       var lf = Array.isArray(o.features) && o.features.indexOf(PF.todos.FEATURE) >= 0;
       if (!why && o.living !== undefined && !PF.todos.cleanLiving(o.living)) why = 'Its record of its to-dos isn\'t one this copy reads.';
       if (!why && (o.living !== undefined) !== lf) why = lf ? 'It names the living-runs feature without its record of its to-dos.' : 'It records to-dos without naming the living-runs feature.';
+      /* Its receipt (4.0 slice 6) is named only by a run that has ended. */
+      if (!why && obj(o.living) && o.living.receipt !== undefined && !obj(o.ended)) why = 'It names the receipt it ended with, but it hasn\'t ended.';
     }
     if (three && obj(o.pins)) look(o.pins, 'pins', 'Its pins'); if (obj(o.parent)) text(o.parent.inputs, 'Its parent run\'s details', 300);
     /* Maps of text (details, roles, answers, approvals): anything else in them is dropped on load. */
@@ -2398,12 +2413,68 @@ PF.run = (function () {
   function badTimes(o, r) {
     var b = {}, n = 0, bad = function (v) { return v != null && !isoOrNull(v); };
     if (bad(o.created)) { b.created = true; n++; }
-    if (o.ended && typeof o.ended === 'object' && OUTCOMES[o.ended.outcome] && !r.ended) { b.ended = o.ended.outcome; n++; }
+    if (o.ended && typeof o.ended === 'object' && outcomeOk(o.ended.outcome) && !r.ended) { b.ended = o.ended.outcome; n++; }
     if (Array.isArray(o.pauses) && o.pauses.slice(0, 500).some(function (p) { return p && (!isoOrNull(p.from) || !isoOrNull(p.to)); })) { b.pauses = true; n++; }
     if (o.paused && typeof o.paused === 'object' && r.state === 'running' && !r.paused) { b.paused = true; n++; }
     var lost = (Array.isArray(o.log) ? o.log.slice(-LOG_MAX) : []).filter(function (l) { return l && typeof l === 'object' && !isoOrNull(l.at); });
     if (lost.length) { b.log = lost.map(function (l) { return { what: str(l.what, 300) }; }); n++; }
     return n ? b : null;
+  }
+  /* The one end validation (DB): how every reader judges a run file's ended record, as newer() (an unknown field, an outcome
+     this copy doesn't know, a receipt named without an end), badTimes() (a time it can't read) and repairs() (an end it drops,
+     a who or name that isn't text or is over 80 characters) judge it, in that order and those words. null when the end is
+     read as written. { kind: 'newer' | 'malformed', why }: a newer why is newer()'s (NEWER and the place); a malformed one is
+     the reader's sentence for the file. The export keeps it for the run it packs; check_folder.py ports it. */
+  /* The living record (4.0) as newer() judges it on a run/3 file: one cleanLiving refuses, or the living-runs feature without
+     it (or it without the feature), is newer. Shared by the export and mirrored by the checker (living_problem). */
+  function livingProblem(o) {
+    if (!o || typeof o !== 'object' || o.format !== FORMAT3) return null;
+    var lf = Array.isArray(o.features) && o.features.indexOf(PF.todos.FEATURE) >= 0;
+    if (o.living !== undefined && !PF.todos.cleanLiving(o.living)) return { kind: 'newer', why: NEWER + ' Its record of its to-dos isn\'t one this copy reads.' };
+    if ((o.living !== undefined) !== lf) return { kind: 'newer', why: NEWER + ' ' + (lf ? 'It names the living-runs feature without its record of its to-dos.' : 'It records to-dos without naming the living-runs feature.') };
+    return null;
+  }
+  function endObj(o) { var e = o.ended; return !!e && typeof e === 'object' && !Array.isArray(e); }
+  /* A receipt named without an end (no end, null, or an end that isn't a record). */
+  function noEnd(o) { return !endObj(o) && o.living && typeof o.living === 'object' && o.living.receipt !== undefined ? { kind: 'newer', why: NEWER + ' It names the receipt it ended with, but it hasn\'t ended.' } : null; }
+  /* An end field this copy doesn't know, or an outcome that isn't exactly one it knows as text. */
+  function endNewer(o) {
+    if (!endObj(o)) return null;
+    var e = o.ended, extra = Object.keys(e).filter(function (f) { return !Object.prototype.hasOwnProperty.call(KNOWN.ended, f); })[0];
+    if (extra != null) return { kind: 'newer', why: NEWER + ' How it ended has "' + String(extra).slice(0, 40) + '".' };
+    if (e.outcome != null && !outcomeOk(e.outcome)) return { kind: 'newer', why: NEWER + ' How it ended is "' + String(e.outcome).slice(0, 40) + '".' };
+    return null;
+  }
+  /* A time badTimes() can't read, and what repairs() drops or cuts. */
+  function endMalformed(o) {
+    var e = o.ended, isObj = endObj(o);
+    if (e == null) return null;
+    var parts = [], fixed = [];
+    if (isObj && outcomeOk(e.outcome) && !isoOrNull(e.at)) parts.push('Some times in this file couldn\'t be read (the end).');
+    if (!isObj || !outcomeOk(e.outcome)) fixed.push('ended (dropped: not an outcome this copy knows)');
+    else ['by', 'byName'].forEach(function (k) { var v = e[k]; if (v == null) return; if (typeof v !== 'string') fixed.push('ended.' + k + ' (dropped: not text)'); else if (v.length > 80) fixed.push('ended.' + k + ' (cut to 80 characters)'); });
+    if (fixed.length) parts.push('Records this copy dropped or changed: ' + fixed.join(', ') + '.');
+    return parts.length ? { kind: 'malformed', why: parts.join(' ') + ' The run is shown as the app shows it, without them.' } : null;
+  }
+  function endProblem(o) {
+    if (!o || typeof o !== 'object') return null;
+    return noEnd(o) || endNewer(o) || endMalformed(o);
+  }
+  /* FA: the one validation of a raw run file's end and living record, in newer()'s order (a run/2 with living work, the
+     end's fields, then the living record, then a receipt named without an end), then what the readers drop or can't read. Applied to the file as written,
+     before any "no living work" gate, by the export and both Python checkers (raw_problem), so sanitizing never hides it. */
+  /* Whether a raw run file says anything about living work: a living record (any value) or the living-runs feature. */
+  function livingWork(o) { return !!o && typeof o === 'object' && (o.living !== undefined || (Array.isArray(o.features) && o.features.indexOf(PF.todos.FEATURE) >= 0)); }
+  /* FD: living work needs run/3. A run/2 that names the living-runs feature or holds a living record has a field run/2 doesn't
+     know, so it is newer, worded as newer() words it (the first such field, in the file's order). */
+  function envelopeProblem(o) {
+    if (o.format !== FORMAT || !livingWork(o)) return null;
+    var extra = Object.keys(o).filter(function (f) { return !Object.prototype.hasOwnProperty.call(KNOWN.run, f) && f[0] !== '_'; })[0];
+    return extra == null ? null : { kind: 'newer', why: NEWER + ' The run has "' + String(extra).slice(0, 40) + '".' };
+  }
+  function rawProblem(o) {
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return null;
+    return envelopeProblem(o) || endNewer(o) || livingProblem(o) || noEnd(o) || endMalformed(o);
   }
   /* Reading for other apps: every record in a run file that sanitize drops, cuts short or replaces, by where it is
      (gates.ready, followUps[2], steps.tests.values.url, log[40]…), worked out from the file as parsed. Pure, never saved, and
@@ -2530,7 +2601,7 @@ PF.run = (function () {
       text(l.by, 80, at + '.by'); text(l.what, 300, at + '.what');
     });
     if (o.ended != null) {
-      if (!obj(o.ended) || !OUTCOMES[o.ended.outcome]) add('ended', 'dropped: not an outcome this copy knows');
+      if (!obj(o.ended) || !outcomeOk(o.ended.outcome)) add('ended', 'dropped: not an outcome this copy knows');
       else { text(o.ended.by, 80, 'ended.by'); text(o.ended.byName, 80, 'ended.byName'); }
     }
     /* A typed value (run/3) that isn't exactly canonical is kept as written and named here, never changed. */
@@ -2568,6 +2639,44 @@ PF.run = (function () {
     var map = mapOf(r), pre = sx.rebuilt.slice();
     sx.reopened.forEach(function (x) { pre.push('steps.' + x.id); var f = M.findStep(map, x.id); if (f) pre.push('gates.' + f.phase.gate.id); });
     return d.filter(function (p) { return !pre.some(function (q) { return p === q || p.indexOf(q + '.') === 0 || p.indexOf(q + '[') === 0; }); });
+  }
+  /* A dependency run as the export confirms it (4.0 slice 6): exactly what the cleaner keeps, read as its JSON. The first
+     place it isn't, or ''. Two allowances, and DRIFT_ALLOW's documented ones: a key the file leaves out where the cleaner
+     fills in an empty value ('', null, {} or []), and a null the cleaner leaves out. Nothing else is coerced, trimmed, cut,
+     repaired or dropped, numbers are finite, and a value the cleaner keeps as written after looking it up in a table (the
+     run's state, a step's and an earlier answer's s, a gate's s and was, the outcome) is a string. The app's own reading of
+     a run is unchanged. */
+  function canonical(o) {
+    var r = sanitize(o);
+    if (!r || !o || typeof o !== 'object') return '';
+    var c = JSON.parse(JSON.stringify(r)), first = '';
+    var segs = function (p) { return String(p).replace(/\[(\d+|\*)\]/g, '.$1').split('.'); };
+    var added = DRIFT_ALLOW.added.map(segs), dropped = DRIFT_ALLOW.dropped.map(segs);
+    var allowed = function (list, path) { var x = segs(path); return list.some(function (q) { return q.length === x.length && q.every(function (y, i) { return y === '*' || y === x[i]; }); }); };
+    var kind = function (v) { return Array.isArray(v) ? 'list' : v === null ? 'null' : typeof v; };
+    var bare = function (v) { return v === '' || v === null || (Array.isArray(v) && !v.length) || (kind(v) === 'object' && !Object.keys(v).length); };
+    var plain = function (v) { return kind(v) === 'object' ? Object.keys(v).filter(function (k) { return k.charAt(0) !== '_'; }) : []; };
+    /* A key the file names is read as its own, never an inherited name (constructor, toString). */
+    var ownAt = function (x, k) { return Object.prototype.hasOwnProperty.call(x, k) ? x[k] : undefined; };
+    var walk = function (a, b, path) {
+      if (first) return;
+      if (a === undefined) { if (b !== undefined && !bare(b) && !allowed(added, path)) first = path; return; }
+      if (b === undefined) { if (a !== null && !allowed(dropped, path)) first = path; return; }
+      /* A documented drop the cleaner writes as null (a pause left on an ended run). */
+      if (b === null && a !== null && allowed(dropped, path)) return;
+      if (kind(a) !== kind(b)) { first = path; return; }
+      if (Array.isArray(a)) { for (var i = 0; i < Math.max(a.length, b.length) && !first; i++) walk(ownAt(a, i), ownAt(b, i), path + '[' + i + ']'); return; }
+      if (kind(a) === 'object') { Object.keys(a).concat(plain(b).filter(function (k) { return !Object.prototype.hasOwnProperty.call(a, k); })).forEach(function (k) { walk(ownAt(a, k), ownAt(b, k), path ? path + '.' + k : k); }); return; }
+      if (a !== b) first = path;
+    };
+    var str = function (v, path) { if (!first && v != null && typeof v !== 'string') first = path; };
+    var isObj = function (v) { return kind(v) === 'object'; };
+    str(o.state, 'state');
+    if (isObj(o.steps)) Object.keys(o.steps).forEach(function (k) { var a = o.steps[k]; if (!isObj(a)) return; str(a.s, 'steps.' + k + '.s'); if (Array.isArray(a.history)) a.history.forEach(function (h, i) { if (isObj(h)) str(h.s, 'steps.' + k + '.history[' + i + '].s'); }); });
+    if (isObj(o.gates)) Object.keys(o.gates).forEach(function (k) { var g = o.gates[k]; if (!isObj(g)) return; str(g.s, 'gates.' + k + '.s'); str(g.was, 'gates.' + k + '.was'); });
+    if (isObj(o.ended)) str(o.ended.outcome, 'ended.outcome');
+    walk(o, c, '');
+    return first;
   }
   function sanitize(o) {
     if (!valid(o)) return newerFormat(o);
@@ -2625,7 +2734,7 @@ PF.run = (function () {
       r.gates[k] = c;
     });
     (Array.isArray(o.log) ? o.log.slice(-LOG_MAX) : []).forEach(function (l) { if (l && isoOrNull(l.at)) r.log.push({ at: l.at, by: str(l.by, 80), what: str(l.what, 300) }); });
-    if (o.ended && OUTCOMES[o.ended.outcome] && isoOrNull(o.ended.at)) r.ended = { outcome: o.ended.outcome, by: str(o.ended.by, 80), byName: str(o.ended.byName, 80), at: o.ended.at };
+    if (o.ended && outcomeOk(o.ended.outcome) && isoOrNull(o.ended.at)) r.ended = { outcome: o.ended.outcome, by: str(o.ended.by, 80), byName: str(o.ended.byName, 80), at: o.ended.at };
     var bt = badTimes(o, r); if (bt) r._badTimes = bt;
     /* A run on a version this copy can't fully read, or with fields or states it doesn't know (a newer Flightdeck saved it), is
        shown but never recorded or saved here: sanitizing just dropped what this copy doesn't know, so saving would erase it.
@@ -2672,7 +2781,7 @@ PF.run = (function () {
   return { answerable: answerable, reopenIds: reopenIds, gateInputs: gateInputs, detailValueDef: detailValueDef, detailUnit: detailUnit,
     childCheck: childCheck, childMarks: childMarks, edgeHolds: edgeHolds, linkShape: linkShape, CHILD_HEIGHT: CHILD_HEIGHT, CHILD_LINKS: CHILD_LINKS, isSearchStep: isSearchStep, searchSteps: searchSteps, searchState: searchState, searchProblem: searchProblem, reopenNotice: reopenNotice, searchId: searchId, searchCheck: searchCheck, genDamaged: genDamaged, refreshSearch: refreshSearch, rereadable: rereadable, mergeOverflow: mergeOverflow, SEARCH_PREFIX: SEARCH_PREFIX,
     RUN_ID: RUN_ID, isTest: isTest, pubDir: pubDir, testProblem: testProblem, testLast: testLast,
-    FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk, phaseHeld: phaseHeld,
+    FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, endProblem: endProblem, livingProblem: livingProblem, rawProblem: rawProblem, livingWork: livingWork, repairs: repairs, unexplained: unexplained, canonical: canonical, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk, phaseHeld: phaseHeld,
     phaseOpen: phaseOpen, applies: applies, held: held, stepNeeded: stepNeeded, canStartChild: canStartChild, phaseSkipped: phaseSkipped, condFields: condFields, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, fillOffered: fillOffered, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence, checkFill: checkFill,
     pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, resultMoved: resultMoved, resultChanged: resultChanged, resultMarks: resultMarks, RESULT_CHANGED: RESULT_CHANGED, unsettleResult: unsettleResult, todoLand: todoLand, unsettleLoop: unsettleLoop, resultFit: resultFit, answerOf: answerOf, resultOf: resultOf, outcomeText: outcomeText, resultHeld: resultHeld, acceptsOf: acceptsOf, boundSource: boundSource, teamUnrecorded: teamUnrecorded, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, jiraFor: jiraFor, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, effStep: effStep, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,

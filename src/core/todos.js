@@ -28,8 +28,15 @@ PF.todos = (function () {
     var m = typeof name === 'string' && name.length <= 240 ? DCOPY.exec(name) : null;
     return m && copyMark(m[4]) ? m[1] + '.status-' + m[2] + '-' + m[3] + '.json' : '';
   }
-  /* Whether a request's file name is its id's, or a synced copy of it. */
-  function requestFile(name, id) { return typeof name === 'string' && name.length <= 240 && name.indexOf(id) === 0 && /\.json$/.test(name) && copyMark(name.slice(id.length, -5) || undefined); }
+  /* The ids a file in proposals/ may stand for by its name alone (DA): its stem, and the stem without each suffix that is a
+     synced copy's mark (" (n)", or a dash suffix with a capital letter). Read before any family reads the file. */
+  function nameKeys(name) {
+    var s = String(name || '').replace(/\.json$/i, ''), out = [s];
+    for (var i = 1; i < s.length && i < 240; i++) if ((s.charAt(i) === ' ' || s.charAt(i) === '-') && copyMark(s.slice(i))) out.push(s.slice(0, i));
+    return out;
+  }
+  /* Whether a request's file name is its id's, or a synced copy of it, by the loader's selection (.json in any case). */
+  function requestFile(name, id) { return typeof name === 'string' && name.length <= 240 && name.indexOf(id) === 0 && /\.json$/i.test(name) && copyMark(name.slice(id.length, -5) || undefined); }
   var UID = /^[a-z][a-z0-9.-]{0,19}:(key:)?[A-Za-z0-9_-]{1,40}$/, TICKET = /^[A-Za-z][A-Za-z0-9_]{0,19}-[1-9][0-9]{0,8}$/;
   var ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/, CONTROL = /[\u0000-\u001f\u007f\u2028\u2029]/;
   var WORDS = { waiting: 'Waiting for approval', queued: 'Queued for the recorder', applied: 'Applied', declined: 'Declined', held: 'Held', disputed: 'Disputed' };
@@ -416,7 +423,9 @@ PF.todos = (function () {
     if (o.kind === 'fact') return PF.facts.cleanFile(o, name, mal);
     /* A keep (4.0 slice 5) suggests a step for next time: its own reader (PF.learn), never a request, never in the chain. */
     if (o.kind === 'keep') return PF.learn.cleanFile(o, name, mal);
-    if (PKINDS.indexOf(o.kind) < 0) return mal('is a to-do record that isn\'t a proposal, a compound, a grant, a revoke, a fact or a keep');
+    /* A receipt (4.0 slice 6) is what a living run ended with: its own reader (PF.receipts), never a request, never in the chain. */
+    if (o.kind === 'receipt') return PF.receipts.cleanFile(o, name, mal);
+    if (PKINDS.indexOf(o.kind) < 0) return mal('is a to-do record that isn\'t a proposal, a compound, a grant, a revoke, a fact, a keep or a receipt');
     if (typeof o.id !== 'string' || !REQ.test(o.id)) return mal('is a to-do record without a request id');
     if (typeof name === 'string' && !requestFile(name, o.id)) return mal('is a to-do record whose name isn\'t its id');
     var r = { id: o.id, kind: o.kind, run: cleanRun(o.run, errors), seen: cleanSeen(o.seen, errors), by: cleanBy(o, errors), at: '' };
@@ -505,8 +514,8 @@ PF.todos = (function () {
   /* The run a record names, when it says one plainly, even when it isn't in its format; null otherwise. */
   function runOf(o) { var v = isMap(o) && isMap(o.run) ? o.run : null; return v && typeof v.process === 'string' && typeof v.id === 'string' ? { process: v.process, id: v.id } : null; }
   function recordsFor(records, r) { return (records || []).filter(function (x) { return x.run && x.run.process === r.process && x.run.id === r.id; }); }
-  /* Informational records (facts, keeps) never enter the to-do order or the chain of applications. */
-  function notFact(x) { return !x || (x.kind !== 'fact' && x.kind !== 'keep'); }
+  /* Informational records (facts, keeps, receipts) never enter the to-do order or the chain of applications. */
+  function notFact(x) { return !x || (x.kind !== 'fact' && x.kind !== 'keep' && x.kind !== 'receipt'); }
   /* Whether a file in proposals/ may be a to-do or fact record (req-*.json, in any case): the one test for both noticing a
      file that can't be read (a link, one cut short) and holding on it, so no name is noticed and then dropped. */
   function recordName(name) { return /^req-[^/]*\.json$/i.test(String(name || '')); }
@@ -1019,8 +1028,16 @@ PF.todos = (function () {
     return { cut: v.cut.slice() };
   }
   var HEAD = /^(req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})(\.status-[a-z0-9][a-z0-9-]{0,39}-[0-9a-f]{8})?$/;
-  /* head '' is a living run with nothing landed yet: an approval made before its first application recorded a cut. */
-  function cleanLiving(v) { return isMap(v) && Object.keys(v).length === 1 && typeof v.head === 'string' && (v.head === '' || HEAD.test(v.head)) ? { head: v.head } : null; }
+  /* living: { head } and, once the run has ended with one (4.0 slice 6), { head, receipt }: the receipt record it ended with.
+     head '' is a living run with nothing landed yet: an approval made before its first application recorded a cut. */
+  function cleanLiving(v) {
+    if (!isMap(v) || typeof v.head !== 'string' || !(v.head === '' || HEAD.test(v.head))) return null;
+    /* The keys allowed, whatever order they were written in: head alone, or head and receipt. */
+    var ks = Object.keys(v).sort();
+    if (ks.length === 1) return { head: v.head };
+    if (ks.length === 2 && ks[0] === 'head' && ks[1] === 'receipt' && typeof v.receipt === 'string' && REQ.test(v.receipt)) return { head: v.head, receipt: v.receipt };
+    return null;
+  }
 
   /* ---- Application (slice 1, commit 3). The recorder's window carries out a queued request in two writes: the application
      record first (in proposals/, guarded), then the run, whose living.head moves to it. Recovery reads what is there before
@@ -1471,6 +1488,6 @@ PF.todos = (function () {
   return { SOPS: SOPS, ALL_OPS: ALL_OPS, isSpreadOp: isSpreadOp, missingOf: missingOf, hasPair: hasPair, loopWhy: loopWhy, FORMAT: FORMAT, STATUS: STATUS, FEATURE: FEATURE, LIMITS: LIMITS, OPS: OPS, WORDS: WORDS, STATE_WORDS: STATE_WORDS, idFor: idFor, todoIdFor: todoIdFor, statusName: statusName, isTodo: isTodo, claims: claims, familyOf: familyOf,
     targetKey: targetKey, placeOf: placeOf, placementWhy: placementWhy, placementFor: placementFor, effectOf: effectOf, fingerprint: fp, text: text,
     buildProposal: buildProposal, buildGrant: buildGrant, buildStatus: buildStatus, cleanFile: cleanFile, fileWhy: fileWhy, filed: filed, runOf: runOf, recordsFor: recordsFor,
-    requestFile: requestFile, recordName: recordName, decideStill: decideStill, notFact: notFact, reduce: reduce, seenFor: seenFor, requestsOf: requestsOf,
+    requestFile: requestFile, nameKeys: nameKeys, recordName: recordName, decideStill: decideStill, notFact: notFact, reduce: reduce, seenFor: seenFor, requestsOf: requestsOf,
     personWhy: personWhy, mayFor: mayFor, consequenceOf: consequenceOf, authorityFor: authorityFor, view: view, holds: holds, markHolds: markHolds, cutFor: cutFor, cleanCut: cleanCut, cleanLiving: cleanLiving, applyPlan: applyPlan, nextQueued: nextQueued, nextToCarry: nextToCarry, keepHead: keepHead, prepare: prepare, gateTitle: gateTitle, toOf: toOf, inbox: inbox, delegations: delegations, decide: decide, revokeOf: revokeOf, grantOf: grantOf, whatWords: whatWords, askDiffers: askDiffers };
 })();
