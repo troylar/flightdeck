@@ -134,6 +134,34 @@ def js_string(s):
     return "".join("\\u%04x" % ord(c) if 0xD800 <= ord(c) <= 0xDFFF else c for c in out)
 
 
+# PF.util.JSON_DEPTH: no file Flightdeck writes nests past 12; a file nested past 64 isn't read (strings skipped).
+JSON_DEPTH = 64
+DEEP_WHY = "is nested more than " + str(JSON_DEPTH) + " levels deep, deeper than any Flightdeck file, so it isn't read"
+
+
+def json_too_deep(text):
+    """PF.util.jsonTooDeep: whether JSON text nests past JSON_DEPTH, strings skipped."""
+    d, in_str, esc = 0, False, False
+    for c in text:
+        if in_str:
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = False
+            continue
+        if c == '"':
+            in_str = True
+        elif c in "[{":
+            d += 1
+            if d > JSON_DEPTH:
+                return True
+        elif c in "]}":
+            d -= 1
+    return False
+
+
 def js_keys(obj):
     """Object keys in JavaScript's order: array-index keys ascending first, then the rest as written."""
     idx = sorted((k for k in obj if re.fullmatch(r"0|[1-9][0-9]*", k) and int(k) < 4294967295), key=int)
@@ -1600,8 +1628,8 @@ def read_text(path):
 FAMILIES = {
     "preflight-publication": {"majors": {1: [], 2: ["phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "typed-details", "typed-evidence", "conditions", "passed-details", "team-values", "jira-search", "detail-patterns", "module-results", "loops", "staged"]}, "future": {2: "2.0"}, "unmarked": False},
     "flightdeck-step-type": {"majors": {1: [], 2: ["typed-evidence"]}, "future": {2: "2.0"}, "unmarked": True},
-    "flightdeck-plan": {"majors": {1: [], 2: [], 3: ["loops"]}, "future": {}, "unmarked": False, "kinds": ["plan"]},
-    "flightdeck-plan-status": {"majors": {1: [], 2: [], 3: ["loops"]}, "future": {}, "unmarked": False, "kinds": ["status"]},
+    "flightdeck-plan": {"majors": {1: [], 2: [], 3: ["loops"], 4: ["living-runs", "loops"]}, "future": {}, "unmarked": False, "kinds": ["plan"]},
+    "flightdeck-plan-status": {"majors": {1: [], 2: [], 3: ["loops"], 4: ["living-runs"]}, "future": {}, "unmarked": False, "kinds": ["status"]},
     "flightdeck-skill": {"majors": {1: [], 2: []}, "future": {2: "2.0"}, "unmarked": True},
     "flightdeck-team-values": {"majors": {1: []}, "future": {1: "2.9"}, "unmarked": False},
 }
@@ -1611,9 +1639,9 @@ FAMILY_NAMES = ["flightdeck-checklist", "preflight-publication", "preflight-run"
                 "flightdeck-presence", "flightdeck-connection", "flightdeck-people", "flightdeck-team-values", "flightdeck-skill", "flightdeck-editor-history", "flightdeck-installed", "flightdeck-stage-decision",
                 "flightdeck-extension", "flightdeck-report", "flightdeck-report-decision"]
 FROZEN = ["typed-details", "typed-evidence", "phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "staged", "test-run", "extensions", "conditions", "passed-details", "team-values",
-          "jira-search", "detail-patterns", "module-results", "loops"]
+          "jira-search", "detail-patterns", "module-results", "loops", "living-runs"]
 # The first release that reads a feature, where it isn't 2.0 (PF.envelope.SINCE).
-SINCE = {"conditions": "2.1", "staged": "2.1", "test-run": "2.1", "passed-details": "2.8", "team-values": "2.9", "jira-search": "2.16", "detail-patterns": "2.16", "module-results": "3.0", "loops": "3.0"}
+SINCE = {"conditions": "2.1", "staged": "2.1", "test-run": "2.1", "passed-details": "2.8", "team-values": "2.9", "jira-search": "2.16", "detail-patterns": "2.16", "module-results": "3.0", "loops": "3.0", "living-runs": "4.0"}
 
 
 def _minimum(features):
@@ -1771,9 +1799,985 @@ def held_why(pid, torn, refused):
     return "A decision on this plan (" + path + ") can't be read, so it isn't known whether someone already started it. It may still be arriving; if it stays this way, restore it from a backup or delete it." + held
 
 
+# ---------- Living runs (4.0): to-do records in proposals/, read as the app reads them (PF.todos.cleanFile) ----------
+# Any record in a to-do format (flightdeck-plan/4, flightdeck-plan-status/4), or any record naming the living-runs feature,
+# goes to this reader. One it refuses is named in "refused", exactly as the app refuses it: test/checker-todos.test.js runs
+# the same records through both and fails when they disagree.
+TODO_FORMAT, TODO_STATUS, TODO_FEATURE = "flightdeck-plan/4", "flightdeck-plan-status/4", "living-runs"
+TODO_LIMITS = {"text": 200, "reason": 300, "link": 2048, "bytes": 262144, "seen": 50, "targets": 50, "grantAdds": 500, "items": 500}
+TODO_OPS, TODO_DOPS = ["add", "done", "wont", "move", "reopen"], ["accept", "decline"]
+# Spreads (4.0 slice 3, PF.todos): a standing requirement on a loop, asked, decided and applied like a to-do.
+TODO_SOPS = ["spread-add", "spread-include", "spread-bind", "spread-stop"]
+TODO_ALL_OPS = TODO_OPS + TODO_SOPS
+T_SFIELDS = ["spread", "loopStep", "child", "scope", "item", "dest", "owed", "cut"]
+T_SP = re.compile(r"^sp-[0-9a-f]{24}\Z")
+TODO_PKINDS, TODO_SKINDS = ["proposal", "compound", "grant", "revoke"], ["decision", "application"]
+T_PROC = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}\Z")
+T_RUN = re.compile(r"^[a-z0-9-]{1,40}\Z", re.I | re.A)
+T_STEP = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}\Z", re.I | re.A)
+T_PERSON = re.compile(r"^[A-Za-z0-9_.-]{1,80}\Z")
+T_TOOL = re.compile(r"^[a-z0-9][a-z0-9-]{0,29}\Z")
+T_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,39}\Z")
+T_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}\Z")
+T_REQ = re.compile(r"^req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24}\Z")
+T_TD = re.compile(r"^td-[0-9a-f]{24}\Z")
+T_FP = re.compile(r"^[0-9a-f]{16}\Z")
+T_DNAME = re.compile(r"^(req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})\.status-([a-z0-9][a-z0-9-]{0,39})-([0-9a-f]{8})\.json\Z")
+T_DCOPY = re.compile(r"^(req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})\.status-([a-z0-9][a-z0-9-]{0,39})-([0-9a-f]{8})( \([0-9]{1,3}\)|-[A-Za-z0-9-]{1,63})?\.json\Z")
+T_UID = re.compile(r"^[a-z][a-z0-9.-]{0,19}:(key:)?[A-Za-z0-9_-]{1,40}\Z")
+T_TICKET = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,19}-[1-9][0-9]{0,8}\Z")
+T_ISO = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(?::[0-9]{2}(?:\.[0-9]{1,3})?)?(?:Z|[+-][0-9]{2}:[0-9]{2})\Z")
+T_CONTROL = re.compile("[\u0000-\u001f\u007f  ]")
+T_RUNKEY = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}/[a-z0-9-]{1,40}\Z", re.I | re.A)
+T_COMMON = ["format", "features", "app", "kind", "id", "run", "seen", "producer", "key", "by", "at"]
+T_BODY = ["op", "todo", "target", "placement", "text", "owner", "reason", "origin", "to", "requester", "spread", "loopStep", "child", "scope", "item", "dest", "owed", "cut", "fulfills", "support"]
+# Facts (4.0 slice 4, PF.facts): what a tool observed about a loop item, one record per item, source and domain.
+F_DOMAINS = {"prs": ("state", ["open", "draft", "merged", "closed"], 100), "commits": (None, None, 100),
+             "status": ("category", ["todo", "doing", "done"], 1), "blockers": ("state", ["open", "resolved"], 100)}
+F_NAMES = ["prs", "commits", "status", "blockers"]
+F_LIMITS = {"entries": 100, "errors": 20, "error": 300, "ageMin": 1, "ageMax": 604800, "reported": 1000000000, "text": 200}
+F_SRC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@-]{0,59}\Z")
+F_ENTRY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:#/-]{0,119}\Z")
+F_MOMENT = re.compile(r"^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2})(?::([0-9]{2})(?:\.[0-9]{1,3})?)?(?:Z|[+-]([0-9]{2}):([0-9]{2}))\Z")
+F_FIELDS = ["loopStep", "uid", "attempt", "source", "domain", "observedAt", "maxAgeSeconds", "complete", "reported", "fetched", "errors", "entries"]
+F_COMMON = ["format", "features", "app", "kind", "id", "run", "seen", "producer", "key", "at"]
+T_EFIELDS = {"add": ["op", "todo", "text", "target", "placement", "owner", "reason", "origin", "fulfills"], "done": ["op", "todo", "reason", "support"],
+             "spread-add": ["op", "spread", "loopStep", "text", "child", "scope", "owner", "reason"], "spread-include": ["op", "spread", "item", "reason"],
+             "spread-bind": ["op", "spread", "item", "dest", "reason"], "spread-stop": ["op", "spread", "reason", "owed", "cut"],
+             "reopen": ["op", "todo", "reason"], "wont": ["op", "todo", "reason"], "move": ["op", "todo", "to", "reason"]}
+
+
+class _TodoBad(Exception):
+    pass
+
+
+def _tstr(v):
+    return isinstance(v, str)
+
+
+def _tnum(v):
+    """A JSON number a double holds: never infinite (1e999 reads as infinity) or NaN, so int() after it never raises."""
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def _twhole(v, lo, hi):
+    """A whole number from lo to hi, as JavaScript's typeof, % 1 and range checks read it."""
+    return _tnum(v) and float(v).is_integer() and lo <= v <= hi
+
+
+def _tsha(v):
+    import hashlib
+    def canon(x):
+        if isinstance(x, list):
+            return [canon(y) for y in x]
+        if isinstance(x, dict):
+            return {k: canon(x[k]) for k in sorted(x, key=lambda s: s.encode("utf-16-be", "surrogatepass"))}
+        return x
+    def ser(x):
+        # JSON.stringify of canon(): keys as canon ordered them (no index-key reordering: canon builds a map with no
+        # prototype whose keys come back in insertion order, apart from array-index keys, which JS puts first).
+        if isinstance(x, dict):
+            return "{" + ",".join(js_string(k) + ":" + ser(x[k]) for k in js_keys(x)) + "}"
+        if isinstance(x, list):
+            return "[" + ",".join(ser(y) for y in x) + "]"
+        return js_json(x)
+    return hashlib.sha256(ser(canon(v)).encode("utf-8")).hexdigest()[:16]
+
+
+def todo_http_link(v):
+    """PF.loop.httpLink: its pattern, then what new URL() does with the ASCII host it lets through (_url_host_ok). A host
+    with an xn-- label gives SCOPE_IDN, as a scope record's link does (3.0.1): this check doesn't judge it."""
+    if not _tstr(v) or js_len(v) > 2048 or T_CONTROL.search(v) or re.search(r"[\s\ufeff]", v):
+        return False
+    m = re.match(r"^https?://([A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?)(?::([0-9]{1,5}))?(?:[/?#][\x21-\x7e]*)?\Z", v)
+    if not m or re.search(r"[<>\"'`\\]", v):
+        return False
+    if m.group(2) is not None and not (1 <= int(m.group(2)) <= 65535):
+        return False
+    if re.match(r"^[0-9.]+\Z", m.group(1)) and not re.match(r"^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\Z", m.group(1)):
+        return False
+    return _url_host_ok(m.group(1))
+
+
+def _ipv4_number(p):
+    """The URL Standard's IPv4 number parser: 0x hex, a leading 0 octal, else decimal; None on failure."""
+    if re.match(r"^0[xX]", p):
+        t, digits, base = p[2:], r"[0-9A-Fa-f]", 16
+    elif len(p) > 1 and p[0] == "0":
+        t, digits, base = p[1:], r"[0-7]", 8
+    else:
+        t, digits, base = p, r"[0-9]", 10
+    if t == "":
+        return 0
+    return int(t, base) if re.fullmatch(digits + "+", t) else None
+
+
+def _url_host_ok(host):
+    """What new URL() does with an ASCII host the pattern let through: one ending in a number (all digits, or one the IPv4
+    number parser reads) must be a whole IPv4 address, or the URL is refused, as the app's link check is."""
+    parts = host.split(".")
+    last = parts[-1]
+    if not (last != "" and (re.fullmatch(r"[0-9]+", last) or _ipv4_number(last) is not None)):
+        return SCOPE_IDN if any(x[:4].lower() == "xn--" for x in parts) else True
+    if len(parts) > 4 or any(x == "" for x in parts):
+        return False
+    nums = [_ipv4_number(x) for x in parts]
+    if any(n is None for n in nums) or any(n > 255 for n in nums[:-1]):
+        return False
+    return nums[-1] < 256 ** (5 - len(nums))
+
+
+def _tcopy_mark(m):
+    return m is None or m == "" or bool(re.match(r"^ \([0-9]{1,3}\)\Z", m)) or (bool(re.match(r"^-[A-Za-z0-9-]{1,63}\Z", m)) and bool(re.search("[A-Z]", m)))
+
+
+def todo_status_file(name):
+    m = T_DCOPY.match(name) if _tstr(name) and js_len(name) <= 240 else None
+    return m.group(1) + ".status-" + m.group(2) + "-" + m.group(3) + ".json" if m and _tcopy_mark(m.group(4)) else ""
+
+
+def todo_request_file(name, rid):
+    return _tstr(name) and js_len(name) <= 240 and name.startswith(rid) and name.endswith(".json") and _tcopy_mark(name[len(rid):-5] or None)
+
+
+def todo_claims(o):
+    # A fact by its kind, whatever its envelope says (JC), as PF.todos.claims takes it.
+    return isinstance(o, dict) and (o.get("format") in (TODO_FORMAT, TODO_STATUS) or (isinstance(o.get("features"), list) and TODO_FEATURE in o["features"]) or o.get("kind") == "fact")
+
+
+def _todo_id(tool, key):
+    import hashlib
+    return "req-" + tool + "-" + hashlib.sha256(js_json(["todo", tool, key]).encode("utf-8")).hexdigest()[:24]
+
+
+def _thash(v, n):
+    import hashlib
+    return hashlib.sha256(js_json(v).encode("utf-8")).hexdigest()[:n]
+
+
+def _spread_id(request):
+    return "sp-" + _thash(["sp", request], 24)
+
+
+def _obligation_id(spread, uid, attempt):
+    return "ob-" + _thash(["ob", spread, uid, attempt], 24)
+
+
+def _spread_child_id(spread, uid, attempt, run):
+    return "req-spread-" + _thash(["spread", spread, uid, attempt, run["process"], run["id"]], 24)
+
+
+def _todo_td(proposal):
+    import hashlib
+    return "td-" + hashlib.sha256(js_json(["td", proposal]).encode("utf-8")).hexdigest()[:24]
+
+
+def _fact_id(tool, key):
+    return "req-" + tool + "-" + _thash(["fact", tool, key], 24)
+
+
+def _suggest_hash(todo, inc, source, domain, content):
+    def orv(v):
+        return v if (v is not None and v is not False and v != "" and not (_tnum(v) and v == 0)) else ""
+    src = [source.get("feed"), orv(source.get("site")), orv(source.get("account"))]
+    return _thash(["suggest", todo, inc, src, domain, content], 24)
+
+
+def fact_moment_ok(v):
+    """PF.facts momentOk: the date-time format with every part in range."""
+    m = F_MOMENT.match(v) if _tstr(v) else None
+    if not m:
+        return False
+    rng = [(2, 1, 12), (3, 1, 31), (4, 0, 23), (5, 0, 59), (6, 0, 59), (7, 0, 23), (8, 0, 59)]
+    return all(m.group(i) is None or lo <= int(m.group(i)) <= hi for i, lo, hi in rng)
+
+
+def fact_clean_source(v, err, what):
+    if not isinstance(v, dict):
+        err(what)
+        return None
+    n = [0]
+
+    def e(w):
+        n[0] += 1
+        err(w)
+    for k in js_keys(v):
+        if k not in ("feed", "site", "account"):
+            e(what + " has " + k)
+    out = {}
+    if not _tstr(v.get("feed")) or not F_SRC.match(v["feed"]):
+        e(what + " feed")
+    else:
+        out["feed"] = v["feed"]
+    for k in ("site", "account"):
+        if v.get(k) is None:
+            continue
+        if not _tstr(v[k]) or not F_SRC.match(v[k]):
+            e(what + " " + k)
+        else:
+            out[k] = v[k]
+    return None if n[0] else out
+
+
+def fact_clean_support(v, err):
+    """PF.facts.cleanSupport."""
+    if not isinstance(v, dict):
+        err("support")
+        return None
+    errs = []
+    for k in js_keys(v):
+        if k not in ("fact", "content", "incarnation", "source", "domain"):
+            errs.append("support has " + k)
+    if not _tstr(v.get("fact")) or not T_REQ.match(v["fact"]):
+        errs.append("support fact")
+    if not _tstr(v.get("content")) or not T_FP.match(v["content"]):
+        errs.append("support content")
+    inc = v.get("incarnation")
+    if not _tstr(inc) or not (T_REQ.match(inc) or T_DNAME.match(inc + ".json")):
+        errs.append("support incarnation")
+    src = fact_clean_source(v.get("source"), errs.append, "support source")
+    if not _tstr(v.get("domain")) or v["domain"] not in F_NAMES:
+        errs.append("support domain")
+    for w in errs:
+        err(w)
+    if errs:
+        return None
+    return {"fact": v["fact"], "content": v["content"], "incarnation": inc, "source": src, "domain": v["domain"]}
+
+
+def fact_why(o, name, unchecked=None):
+    """PF.facts.cleanFile: '' when the app reads this fact, else why it refuses it."""
+    if not _tstr(o.get("id")) or not T_REQ.match(o["id"]):
+        return "is a fact without a request id"
+    if _tstr(name) and not todo_request_file(name, o["id"]):
+        return "is a fact whose name isn't its id"
+    errors = []
+    err = errors.append
+    for k in js_keys(o):
+        if k not in F_COMMON + F_FIELDS:
+            err("It has " + k)
+    run = o.get("run")
+    if not isinstance(run, dict) or len(run) != 2 or not _tstr(run.get("process")) or not T_PROC.match(run["process"]) or not _tstr(run.get("id")) or not T_RUN.match(run["id"]):
+        err("run")
+    sn = o.get("seen")
+    if not isinstance(sn, list) or len(sn) > 50 or not all(_tstr(x) and T_REQ.match(x) for x in sn):
+        err("seen")
+    elif len(set(sn)) != len(sn):
+        err("seen twice")
+    pr = o.get("producer")
+    if not isinstance(pr, dict) or len(pr) != 2 or not _tstr(pr.get("name")) or not T_TOOL.match(pr["name"]) or not _tstr(pr.get("version")) or not T_VERSION.match(pr["version"]):
+        err("producer")
+    elif not _tstr(o.get("key")) or not T_KEY.match(o["key"]):
+        err("key")
+    elif o["id"] != _fact_id(pr["name"], o["key"]):
+        err("Its id isn't the one its tool and key give")
+    if not _tstr(o.get("at")) or not T_ISO.match(o["at"]):
+        err("at")
+    # The observation (PF.facts.cleanObservation).
+    n0 = len(errors)
+    if not _tstr(o.get("loopStep")) or not T_STEP.match(o["loopStep"]):
+        err("loopStep")
+    if not _tstr(o.get("uid")) or not T_UID.match(o["uid"]):
+        err("uid")
+    if not _twhole(o.get("attempt"), 1, 999):
+        err("attempt")
+    fact_clean_source(o.get("source"), err, "source")
+    dom = o.get("domain")
+    if not _tstr(dom) or dom not in F_NAMES:
+        err("domain")
+        return "is a fact that isn't in its format: " + errors[0]
+    if not fact_moment_ok(o.get("observedAt")):
+        err("observedAt")
+    if not _twhole(o.get("maxAgeSeconds"), F_LIMITS["ageMin"], F_LIMITS["ageMax"]):
+        err("maxAgeSeconds")
+    if not isinstance(o.get("complete"), bool):
+        err("complete")
+    if not ("reported" in o and (o["reported"] is None or _twhole(o["reported"], 0, F_LIMITS["reported"]))):
+        err("reported")
+    field, values, mx = F_DOMAINS[dom]
+    ents = o.get("entries")
+    if not isinstance(ents, list) or len(ents) > mx:
+        err("entries")
+    else:
+        have = set()
+        for i, e in enumerate(ents):
+            what = "entries " + str(i + 1)
+            if not isinstance(e, dict):
+                err(what)
+                break
+            k0 = len(errors)
+            for k in js_keys(e):
+                if k not in ["id", "text", "link"] + ([field] if field else []):
+                    err(what + " has " + k)
+            if not _tstr(e.get("id")) or not F_ENTRY.match(e["id"]):
+                err(what + " id")
+            t = e.get("text")
+            if not _tstr(t) or not js_trim(t) or js_len(t) > F_LIMITS["text"] or T_CONTROL.search(t):
+                err(what + " text")
+            if field and (not _tstr(e.get(field)) or e[field] not in values):
+                err(what + " " + field)
+            if e.get("link") is not None:
+                ok = todo_http_link(e["link"])
+                if ok == SCOPE_IDN:
+                    if unchecked is not None:
+                        unchecked.append('"entries" "link"')
+                elif not ok:
+                    err(what + " link")
+            if len(errors) > k0:
+                break
+            if e["id"] in have:
+                err("entries twice")
+                break
+            have.add(e["id"])
+    fe = o.get("fetched")
+    if not _twhole(fe, 0, F_LIMITS["entries"]) or (isinstance(ents, list) and fe != len(ents)):
+        err("fetched")
+    ers = o.get("errors")
+    if not isinstance(ers, list) or len(ers) > F_LIMITS["errors"]:
+        err("errors")
+    else:
+        for x in ers:
+            if not _tstr(x) or not js_trim(x) or js_len(x) > F_LIMITS["error"] or T_CONTROL.search(x):
+                err("errors entry")
+    if len(errors) == n0 and o["complete"] and (o["reported"] != o["fetched"] or ers):
+        err("complete is true only when reported equals fetched and there are no errors")
+    return "is a fact that isn't in its format: " + errors[0] if errors else ""
+
+
+def todo_why(o, name, nbytes=None, unchecked=None):
+    """'' when the app reads this to-do record, else why it refuses it (PF.todos.cleanFile's reason). A link on an
+    international domain name isn't judged (todo_http_link gives SCOPE_IDN): its place is added to unchecked, never a reason."""
+    if nbytes is not None and nbytes > TODO_LIMITS["bytes"]:
+        return "is " + str(nbytes) + " bytes; a to-do record is at most " + str(TODO_LIMITS["bytes"])
+    st = isinstance(o, dict) and o.get("format") == TODO_STATUS
+    fam = "flightdeck-plan-status" if isinstance(o, dict) and _tstr(o.get("format")) and o["format"].startswith("flightdeck-plan-status/") else "flightdeck-plan"
+    v = judge(fam, o)
+    if not v["ok"]:
+        if v["kind"] == "newer":
+            return "is a to-do record made with a newer Flightdeck. " + ("Needs Flightdeck " + v["needs"] + "." if v["needs"] else "Needs a newer Flightdeck.")
+        return v["why"]
+    if v["major"] != 4 or TODO_FEATURE not in (o.get("features") or []):
+        return "isn't a to-do record (it doesn't name the living-runs feature)"
+    errors = []
+
+    def err(w):
+        errors.append(w)
+
+    def only(d, keys, what):
+        for k in js_keys(d):
+            if k not in keys:
+                err(what + " has " + k + ".")
+
+    def line(val, mx, what, opt=False):
+        if val is None and opt:
+            return ""
+        if not _tstr(val) or not js_trim(val):
+            err(what + " is text.")
+            return None
+        if js_len(val) > mx:
+            err(what + " is too long.")
+            return None
+        if T_CONTROL.search(val):
+            err(what + " has a control character.")
+            return None
+        return val
+
+    def clean_target(t, where):
+        if not isinstance(t, dict) or len(t) != 1:
+            err(where + " is one target.")
+            return None
+        if "phase" in t:
+            if not _tstr(t["phase"]) or not T_STEP.match(t["phase"]):
+                err(where + ": phase")
+                return None
+            return {"phase": t["phase"]}
+        if "step" in t:
+            if not _tstr(t["step"]) or not T_STEP.match(t["step"]):
+                err(where + ": step")
+                return None
+            return {"step": t["step"]}
+        if "item" in t:
+            it = t["item"]
+            if (not isinstance(it, dict) or len(it) != 3 or not _tstr(it.get("loopStep")) or not T_STEP.match(it["loopStep"]) or not _tstr(it.get("uid")) or not T_UID.match(it["uid"])
+                    or not _twhole(it.get("attempt"), 1, 999)):
+                err(where + ": item")
+                return None
+            return {"item": {"loopStep": it["loopStep"], "uid": it["uid"], "attempt": it["attempt"]}}
+        err(where + " is one target.")
+        return None
+
+    def clean_placement(p):
+        if not isinstance(p, dict):
+            err("placement")
+            return None
+        only(p, ["beforeGate", "governingLoop"], "placement")
+        if not _tstr(p.get("beforeGate")) or not T_STEP.match(p["beforeGate"]):
+            err("placement beforeGate")
+            return None
+        out = {"beforeGate": p["beforeGate"]}
+        if p.get("governingLoop") is not None:
+            if not _tstr(p["governingLoop"]) or not T_STEP.match(p["governingLoop"]):
+                err("placement governingLoop")
+                return None
+            out["governingLoop"] = p["governingLoop"]
+        return out
+
+    def clean_to(to):
+        if not isinstance(to, dict) or len(to) != 1:
+            err("to")
+            return None
+        if "ticket" in to:
+            if not _tstr(to["ticket"]) or not T_TICKET.match(to["ticket"]):
+                err("to ticket")
+                return None
+            return {"ticket": to["ticket"]}
+        if "link" in to:
+            ok = todo_http_link(to["link"])
+            if ok == SCOPE_IDN:
+                if unchecked is not None:
+                    unchecked.append('"to" "link"')
+            elif not ok:
+                err("to link")
+                return None
+            return {"link": to["link"]}
+        if "run" in to:
+            if not _tstr(to["run"]) or not T_RUNKEY.match(to["run"]):
+                err("to run")
+                return None
+            return {"run": to["run"]}
+        err("to")
+        return None
+
+    def self_move(run, to):
+        if run and to and _tstr(to.get("run")) and to["run"].lower() == (run["process"] + "/" + run["id"]).lower():
+            err("to names this run itself")
+
+    def clean_origin(og):
+        if not isinstance(og, dict):
+            err("origin")
+            return None
+        only(og, ["step", "link"], "origin")
+        out = {}
+        if og.get("step") is not None:
+            if not _tstr(og["step"]) or not T_STEP.match(og["step"]):
+                err("origin step")
+            else:
+                out["step"] = og["step"]
+        if og.get("link") is not None:
+            ok = todo_http_link(og["link"])
+            if ok == SCOPE_IDN and unchecked is not None:
+                unchecked.append('"origin" "link"')
+            if not ok:
+                err("origin link")
+            else:
+                out["link"] = og["link"]
+        if not out:
+            err("origin names nothing")
+            return None
+        return out
+
+    def clean_run(val):
+        if not isinstance(val, dict) or len(val) != 2 or not _tstr(val.get("process")) or not T_PROC.match(val["process"]) or not _tstr(val.get("id")) or not T_RUN.match(val["id"]):
+            err("run")
+            return None
+        return {"process": val["process"], "id": val["id"]}
+
+    def clean_seen(val):
+        if not isinstance(val, list) or len(val) > TODO_LIMITS["seen"] or not all(_tstr(x) and (T_REQ.match(x) or T_DNAME.match(x + ".json")) for x in val):
+            err("seen")
+            return None
+        if len(set(val)) != len(val):
+            err("seen twice")
+            return None
+        return list(val)
+
+    def clean_pair(v, what):
+        if not isinstance(v, dict) or len(v) != 2 or not _tstr(v.get("uid")) or not T_UID.match(v["uid"]) or not _twhole(v.get("attempt"), 1, 999):
+            err(what)
+            return None
+        return {"uid": v["uid"], "attempt": v["attempt"]}
+
+    def clean_pairs(v, mx, what):
+        if not isinstance(v, list) or len(v) > mx:
+            err(what)
+            return None
+        out, have = [], set()
+        for i, x in enumerate(v):
+            p = clean_pair(x, what + " " + str(i + 1))
+            if not p:
+                return None
+            k = (p["uid"], float(p["attempt"]))
+            if k in have:
+                err(what + " twice")
+                return None
+            have.add(k)
+            out.append(p)
+        return out
+
+    def clean_scope(v):
+        if not isinstance(v, dict):
+            err("scope")
+            return None
+        n0 = len(errors)
+        only(v, ["open", "cleared", "fingerprint", "seen"], "scope")
+        op_, cl = clean_pairs(v.get("open"), TODO_LIMITS["items"], "scope open"), clean_pairs(v.get("cleared"), TODO_LIMITS["items"], "scope cleared")
+        if not _tstr(v.get("fingerprint")) or not T_FP.match(v["fingerprint"]):
+            err("scope fingerprint")
+        sn = v.get("seen")
+        if not isinstance(sn, list) or len(sn) > TODO_LIMITS["items"] or not all(_tstr(x) and (T_REQ.match(x) or T_DNAME.match(x + ".json")) for x in sn):
+            err("scope seen")
+        if len(errors) > n0 or op_ is None or cl is None:
+            return None
+        if len(op_) + len(cl) > TODO_LIMITS["items"]:
+            err("scope over the limit")
+            return None
+        cs = set((p["uid"], float(p["attempt"])) for p in cl)
+        if any((p["uid"], float(p["attempt"])) in cs for p in op_):
+            err("scope both open and cleared")
+            return None
+        return {"open": op_, "cleared": cl, "fingerprint": v["fingerprint"], "seen": list(sn)}
+
+    def clean_child(v):
+        if not isinstance(v, dict) or len(v) != 1 or not _tstr(v.get("beforeGate")) or not T_STEP.match(v["beforeGate"]):
+            err("child")
+            return None
+        return {"beforeGate": v["beforeGate"]}
+
+    def clean_dest(v):
+        if not isinstance(v, dict) or len(v) != 2 or not _tstr(v.get("process")) or not T_PROC.match(v["process"]) or not _tstr(v.get("id")) or not T_RUN.match(v["id"]):
+            err("dest")
+            return None
+        return {"process": v["process"], "id": v["id"]}
+
+    def clean_fulfills(v):
+        if not isinstance(v, dict) or len(v) != 4:
+            err("fulfills")
+            return None
+        n0 = len(errors)
+        rn = clean_run(v.get("run"))
+        pr = clean_pair({"uid": v.get("uid"), "attempt": v.get("attempt")}, "fulfills")
+        if not _tstr(v.get("spread")) or not T_SP.match(v["spread"]):
+            err("fulfills spread")
+        if len(errors) > n0:
+            return None
+        return {"run": rn, "spread": v["spread"], "uid": pr["uid"], "attempt": pr["attempt"]}
+
+    def clean_owner(v, what):
+        if not _tstr(v) or not T_PERSON.match(v):
+            err(what)
+            return None
+        return v
+
+    def clean_spread_body(oo, rid):
+        b = {"op": oo["op"]}
+        for k in ("todo", "target", "placement", "origin", "to", "fulfills", "support"):
+            if oo.get(k) is not None:
+                err("A spread request has no " + k)
+        if oo["op"] == "spread-add":
+            sid = _spread_id(rid)
+            if oo.get("spread") is not None and oo["spread"] != sid:
+                err("spread of a spread-add")
+            b["spread"] = sid
+            if not _tstr(oo.get("loopStep")) or not T_STEP.match(oo["loopStep"]):
+                err("loopStep")
+            else:
+                b["loopStep"] = oo["loopStep"]
+            b["text"] = line(oo.get("text"), TODO_LIMITS["text"], "text")
+            b["child"] = clean_child(oo.get("child"))
+            b["scope"] = clean_scope(oo.get("scope"))
+            if oo.get("owner") is not None:
+                ow = clean_owner(oo["owner"], "owner")
+                if ow:
+                    b["owner"] = ow
+            for k in ("item", "dest", "owed", "cut"):
+                if oo.get(k) is not None:
+                    err("A spread-add has no " + k)
+        else:
+            if not _tstr(oo.get("spread")) or not T_SP.match(oo["spread"]):
+                err("spread")
+            else:
+                b["spread"] = oo["spread"]
+            for k in ("loopStep", "text", "child", "scope", "owner"):
+                if oo.get(k) is not None:
+                    err("Only a spread-add has " + k)
+            if oo["op"] in ("spread-include", "spread-bind"):
+                b["item"] = clean_pair(oo.get("item"), "item")
+            elif oo.get("item") is not None:
+                err("A stop has no item")
+            if oo["op"] == "spread-bind":
+                b["dest"] = clean_dest(oo.get("dest"))
+            elif oo.get("dest") is not None:
+                err("Only a binding has dest")
+            if oo["op"] == "spread-stop":
+                b["owed"] = clean_pairs(oo.get("owed"), TODO_LIMITS["items"], "owed")
+                b["cut"] = clean_stop_cut(oo.get("cut"), "cut")
+            else:
+                if oo.get("owed") is not None:
+                    err("Only a stop has owed")
+                if oo.get("cut") is not None:
+                    err("Only a stop has cut")
+        if oo["op"] == "spread-stop":
+            b["reason"] = line(oo.get("reason"), TODO_LIMITS["reason"], "reason")
+        elif oo.get("reason") is not None:
+            rr = line(oo["reason"], TODO_LIMITS["reason"], "reason")
+            if rr:
+                b["reason"] = rr
+        if oo.get("requester") is not None and (not _tstr(oo["requester"]) or not T_PERSON.match(oo["requester"])):
+            err("requester")
+        return b
+
+    # A stop's scope cut (round 7, PF.todos cleanStopCut): the loop's scope heads it saw, at most 500 record ids.
+    def clean_stop_cut(v, what):
+        if not isinstance(v, list) or len(v) > TODO_LIMITS["items"] or not all(_tstr(x) and (T_REQ.match(x) or T_DNAME.match(x + ".json")) for x in v):
+            err(what)
+            return None
+        return sorted(v)
+
+    def clean_effect(e):
+        if not isinstance(e, dict):
+            err("effect")
+            return None
+        if not _tstr(e.get("op")) or e["op"] not in TODO_ALL_OPS:
+            err("effect op")
+            return None
+        n0 = len(errors)
+        only(e, T_EFIELDS[e["op"]], "effect")
+        if len(errors) > n0:
+            return None
+        out = {"op": e["op"]}
+        if e["op"] in TODO_SOPS:
+            if not _tstr(e.get("spread")) or not T_SP.match(e["spread"]):
+                err("effect spread")
+                return None
+            out["spread"] = e["spread"]
+            if e["op"] == "spread-add":
+                if not _tstr(e.get("loopStep")) or not T_STEP.match(e["loopStep"]):
+                    err("effect loopStep")
+                else:
+                    out["loopStep"] = e["loopStep"]
+                out["text"] = line(e.get("text"), TODO_LIMITS["text"], "effect text")
+                out["child"] = clean_child(e.get("child"))
+                out["scope"] = clean_scope(e.get("scope"))
+                if e.get("owner") is not None:
+                    ow = clean_owner(e["owner"], "effect owner")
+                    if ow:
+                        out["owner"] = ow
+            if e["op"] in ("spread-include", "spread-bind"):
+                out["item"] = clean_pair(e.get("item"), "effect item")
+            if e["op"] == "spread-bind":
+                out["dest"] = clean_dest(e.get("dest"))
+            if e["op"] == "spread-stop":
+                out["owed"] = clean_pairs(e.get("owed"), TODO_LIMITS["items"], "effect owed")
+                out["cut"] = clean_stop_cut(e.get("cut"), "effect cut")
+                out["reason"] = line(e.get("reason"), TODO_LIMITS["reason"], "effect reason")
+            elif e.get("reason") is not None:
+                sr = line(e["reason"], TODO_LIMITS["reason"], "effect reason")
+                if sr:
+                    out["reason"] = sr
+            return out
+        if not _tstr(e.get("todo")) or not T_TD.match(e["todo"]):
+            err("effect todo")
+            return None
+        out["todo"] = e["todo"]
+        if e["op"] == "add":
+            out["text"] = line(e.get("text"), TODO_LIMITS["text"], "effect text")
+            out["target"] = clean_target(e.get("target"), "effect target")
+            out["placement"] = clean_placement(e.get("placement"))
+            if e.get("owner") is not None:
+                if not _tstr(e["owner"]) or not T_PERSON.match(e["owner"]):
+                    err("effect owner")
+                else:
+                    out["owner"] = e["owner"]
+            if e.get("origin") is not None:
+                out["origin"] = clean_origin(e["origin"])
+            if e.get("fulfills") is not None:
+                out["fulfills"] = clean_fulfills(e["fulfills"])
+        if e.get("reason") is not None:
+            rr = line(e["reason"], TODO_LIMITS["reason"], "effect reason")
+            if rr:
+                out["reason"] = rr
+        if e["op"] == "wont" and not out.get("reason"):
+            err("effect of a won't-do says why")
+        if e["op"] == "move":
+            out["to"] = clean_to(e.get("to"))
+        if e.get("support") is not None:
+            out["support"] = fact_clean_support(e["support"], err)
+        return out
+
+    def effect_of(p):
+        if p["op"] in TODO_SOPS:
+            e = {"op": p["op"], "spread": p.get("spread")}
+            if p["op"] == "spread-add":
+                e["loopStep"], e["text"], e["child"], e["scope"] = p.get("loopStep"), p.get("text"), p.get("child"), p.get("scope")
+                if p.get("owner"):
+                    e["owner"] = p["owner"]
+            if p.get("item"):
+                e["item"] = p["item"]
+            if p.get("dest"):
+                e["dest"] = p["dest"]
+            if p["op"] == "spread-stop":
+                e["owed"] = p.get("owed")
+                e["cut"] = p.get("cut")
+            if p.get("reason"):
+                e["reason"] = p["reason"]
+            return e
+        e = {"op": p["op"], "todo": p.get("todo")}
+        if p["op"] == "add":
+            e["text"] = p.get("text")
+            e["target"] = p.get("target")
+            e["placement"] = p.get("placement")
+            for k in ("owner", "reason", "origin", "fulfills"):
+                if p.get(k):
+                    e[k] = p[k]
+        if p["op"] == "wont" or (p["op"] in ("reopen", "done", "move") and p.get("reason")):
+            e["reason"] = p.get("reason")
+        if p["op"] == "move":
+            e["to"] = p.get("to")
+        if p["op"] == "done" and p.get("support"):
+            e["support"] = p["support"]
+        return e
+
+    def clean_authority(a):
+        if isinstance(a, dict) and len(a) == 1:
+            k = list(a)[0]
+            if k == "decision" and _tstr(a[k]) and T_DNAME.match(a[k] + ".json"):
+                return a
+            if k in ("grant", "compound") and _tstr(a[k]) and T_REQ.match(a[k]):
+                return a
+        err("authority")
+        return None
+
+    def prev_ok(p):
+        return _tstr(p) and (p == "" or T_REQ.match(p) or T_DNAME.match(p + ".json"))
+
+    if st:
+        sname = todo_status_file(name)
+        m = T_DNAME.match(sname) if sname else None
+        if not m or m.group(1) != o.get("proposal"):
+            return "is a to-do decision or application whose name doesn't say its request"
+        if o.get("kind") not in TODO_SKINDS:
+            return "is a to-do status that isn't a decision or an application"
+        only(o, [k for k in T_COMMON + ["proposal", "op", "consequence", "reason", "authority", "previous", "effect", "fingerprint"] if k not in ("id", "producer", "key")], "It")
+        run = clean_run(o.get("run"))
+        clean_seen(o.get("seen"))
+        if not _tstr(o.get("by")) or not T_PERSON.match(o["by"]):
+            err("by")
+        if not _tstr(o.get("at")) or not T_ISO.match(o["at"]):
+            err("at")
+        if o["kind"] == "decision":
+            if o.get("op") not in TODO_DOPS:
+                err("op")
+            if not _tstr(o.get("consequence")) or not T_FP.match(o["consequence"]):
+                err("consequence")
+            if o.get("reason") is not None:
+                line(o["reason"], TODO_LIMITS["reason"], "reason")
+            for k in ("authority", "previous", "effect", "fingerprint"):
+                if o.get(k) is not None:
+                    err("A decision has no " + k)
+        else:
+            clean_authority(o.get("authority"))
+            if not prev_ok(o.get("previous")):
+                err("previous")
+            eff = clean_effect(o.get("effect"))
+            if eff:
+                self_move(run, eff.get("to"))
+            fpv = o.get("fingerprint")
+            if not _tstr(fpv) or not T_FP.match(fpv):
+                err("fingerprint")
+            elif eff and not errors and fpv != _tsha(eff):
+                err("fingerprint doesn't match its effect")
+            for k in ("op", "consequence", "reason"):
+                if o.get(k) is not None:
+                    err("An application has no " + k)
+        return "is a to-do " + o["kind"] + " that isn't in its format: " + errors[0] if errors else ""
+    kind = o.get("kind")
+    if kind == "fact":
+        return fact_why(o, name, unchecked)
+    if kind not in TODO_PKINDS:
+        return "is a to-do record that isn't a proposal, a compound, a grant, a revoke or a fact"
+    if not _tstr(o.get("id")) or not T_REQ.match(o["id"]):
+        return "is a to-do record without a request id"
+    if _tstr(name) and not todo_request_file(name, o["id"]):
+        return "is a to-do record whose name isn't its id"
+    run = clean_run(o.get("run"))
+    clean_seen(o.get("seen"))
+    by = None
+    if o.get("producer") is not None:
+        pr = o["producer"]
+        if not isinstance(pr, dict) or len(pr) != 2 or not _tstr(pr.get("name")) or not T_TOOL.match(pr["name"]) or not _tstr(pr.get("version")) or not T_VERSION.match(pr["version"]):
+            err("producer")
+        elif not _tstr(o.get("key")) or not T_KEY.match(o["key"]):
+            err("key")
+        else:
+            by = {"tool": pr["name"]}
+    else:
+        if o.get("key") is not None:
+            err("Only a tool's request has a key")
+        if not _tstr(o.get("by")) or not T_PERSON.match(o["by"]):
+            err("by")
+        else:
+            by = {"person": o["by"]}
+    if not _tstr(o.get("at")) or not T_ISO.match(o["at"]):
+        err("at")
+    ful = o.get("fulfills") if isinstance(o.get("fulfills"), dict) and _tstr(o["fulfills"].get("spread")) and _tstr(o["fulfills"].get("uid")) and run else None
+    if ful:
+        # Compared as given, as the app does: a malformed attempt is named where "fulfills" is checked, never as an id mismatch.
+        if o["id"] != _spread_child_id(ful["spread"], ful["uid"], ful.get("attempt"), run):
+            err("Its id isn't the one its spread, item, attempt and run give")
+        if by and by.get("tool") and o.get("key") != _obligation_id(ful["spread"], ful["uid"], ful.get("attempt")):
+            err("Its key isn't its obligation's")
+        fr = ful.get("run")
+        if isinstance(fr, dict) and fr.get("process") == run["process"] and fr.get("id") == run["id"]:
+            err("fulfills names this run itself")
+    elif isinstance(o.get("support"), dict) and o.get("op") == "done":
+        sp = o["support"]
+        ok = _tstr(o.get("todo")) and _tstr(sp.get("incarnation")) and isinstance(sp.get("source"), dict) and _tstr(sp.get("domain")) and _tstr(sp.get("content"))
+        if not by or not by.get("tool") or kind != "proposal":
+            err("A suggestion with support is a tool's request")
+        elif not ok or o["id"] != "req-suggest-" + _suggest_hash(o["todo"], sp["incarnation"], sp["source"], sp["domain"], sp["content"]):
+            err("Its id isn't the one its to-do and support give")
+        elif o.get("key") != "sg-" + _suggest_hash(o["todo"], sp["incarnation"], sp["source"], sp["domain"], sp["content"]):
+            err("Its key isn't its suggestion's")
+    elif by and by.get("tool") and o["id"] != _todo_id(by["tool"], o.get("key")):
+        err("Its id isn't the one its tool and key give")
+    if kind in ("proposal", "compound"):
+        only(o, T_COMMON + T_BODY + (["decision", "application"] if kind == "compound" else []), "It")
+        b = None
+        op = o.get("op")
+        if not _tstr(op) or op not in TODO_ALL_OPS:
+            err("op")
+        elif op in TODO_SOPS:
+            b = clean_spread_body(o, o["id"])
+        else:
+            for k in T_SFIELDS:
+                if o.get(k) is not None:
+                    err("Only a spread request has " + k)
+            if op != "add" and o.get("fulfills") is not None:
+                err("Only an addition has fulfills")
+            b = {"op": op}
+            if op == "add":
+                if o.get("fulfills") is not None:
+                    b["fulfills"] = clean_fulfills(o["fulfills"])
+                if o.get("todo") is not None and o["todo"] != _todo_td(o["id"]):
+                    err("todo of an addition")
+                b["todo"] = _todo_td(o["id"])
+                b["target"] = clean_target(o.get("target"), "target")
+                b["placement"] = clean_placement(o.get("placement"))
+                b["text"] = line(o.get("text"), TODO_LIMITS["text"], "text")
+                if o.get("origin") is not None:
+                    b["origin"] = clean_origin(o["origin"])
+                if o.get("to") is not None:
+                    err("An addition has no to")
+            else:
+                if not _tstr(o.get("todo")) or not T_TD.match(o["todo"]):
+                    err("todo")
+                else:
+                    b["todo"] = o["todo"]
+                for k in ("target", "placement", "text", "origin", "owner"):
+                    if o.get(k) is not None:
+                        err("Only an addition has " + k)
+                if op == "move":
+                    b["to"] = clean_to(o.get("to"))
+                elif o.get("to") is not None:
+                    err("Only a move has to")
+            # PF.todos.cleanBody's order: support before owner, reason and requester, so the first refusal is the app's.
+            if o.get("support") is not None:
+                if op != "done":
+                    err("Only a done request has support")
+                else:
+                    b["support"] = fact_clean_support(o["support"], err)
+            if op == "add" and o.get("owner") is not None:
+                if not _tstr(o["owner"]) or not T_PERSON.match(o["owner"]):
+                    err("owner")
+                else:
+                    b["owner"] = o["owner"]
+            if op == "wont":
+                b["reason"] = line(o.get("reason"), TODO_LIMITS["reason"], "reason")
+            elif o.get("reason") is not None:
+                rr = line(o["reason"], TODO_LIMITS["reason"], "reason")
+                if rr:
+                    b["reason"] = rr
+            if o.get("requester") is not None and (not _tstr(o["requester"]) or not T_PERSON.match(o["requester"])):
+                err("requester")
+            self_move(run, b.get("to"))
+        if kind == "compound":
+            if not by or not by.get("person"):
+                err("A compound is one person's gesture")
+            d, a = o.get("decision"), o.get("application")
+            if not isinstance(d, dict) or d.get("op") != "accept" or d.get("by") != o.get("by") or not _tstr(d.get("consequence")) or not T_FP.match(d["consequence"]):
+                err("decision")
+            else:
+                only(d, ["op", "by", "consequence", "reason"], "decision")
+                if d.get("reason") is not None:
+                    line(d["reason"], TODO_LIMITS["reason"], "decision reason")
+            if not isinstance(a, dict):
+                err("application")
+            else:
+                only(a, ["previous", "effect", "fingerprint"], "application")
+                eff = clean_effect(a.get("effect"))
+                if eff:
+                    self_move(run, eff.get("to"))
+                if not prev_ok(a.get("previous")):
+                    err("application previous")
+                n_ok = not errors
+                if not _tstr(a.get("fingerprint")) or not T_FP.match(a["fingerprint"]) or (eff and n_ok and a["fingerprint"] != _tsha(eff)):
+                    err("application fingerprint")
+                if b and eff and not errors and _tsha({k: v for k, v in effect_of(b).items() if v is not None}) != _tsha(eff):
+                    err("application effect isn't what the compound asks for")
+    elif kind == "grant":
+        only(o, T_COMMON + ["subject", "ops", "targets", "limits"], "It")
+        if not by or not by.get("person"):
+            err("A grant is issued by a person")
+        s = o.get("subject")
+        if not (isinstance(s, dict) and len(s) == 1 and ((_tstr(s.get("tool")) and T_TOOL.match(s["tool"])) or (_tstr(s.get("person")) and T_PERSON.match(s["person"])))):
+            err("subject")
+        ops = o.get("ops")
+        if not isinstance(ops, list) or not ops or len(ops) > 3 or not all(_tstr(x) and x in ("add", "done", "reopen") and ops.index(x) == i for i, x in enumerate(ops)):
+            err("ops")
+        tg = o.get("targets")
+        if not isinstance(tg, list) or not tg or len(tg) > TODO_LIMITS["targets"]:
+            err("targets")
+        else:
+            keys = []
+            for i, t in enumerate(tg):
+                c = clean_target(t, "targets " + str(i + 1))
+                if c:
+                    k = js_json(c)
+                    if k in keys:
+                        err("targets twice")
+                    keys.append(k)
+        lim = o.get("limits")
+        if not isinstance(lim, dict) or any(k != "adds" for k in lim) or not _twhole(lim.get("adds"), 0, TODO_LIMITS["grantAdds"]):
+            err("limits")
+    else:
+        only(o, T_COMMON + ["grant", "reason"], "It")
+        if not by or not by.get("person"):
+            err("A revoke is a person's")
+        if not _tstr(o.get("grant")) or not T_REQ.match(o["grant"]):
+            err("grant")
+        if o.get("reason") is not None:
+            line(o["reason"], TODO_LIMITS["reason"], "reason")
+    return "is a to-do " + kind + " that isn't in its format: " + errors[0] if errors else ""
+
+
 # A loop's scope records (3.0, PF.loop): requests (flightdeck-plan/3) and decisions on them (flightdeck-plan-status/3). The
 # folder reader dispatches them before the plan reader (repo.readPlans), so one is never a plan or a plan decision.
 SCOPE_REQUEST, SCOPE_DECISION = "flightdeck-plan/3", "flightdeck-plan-status/3"
+# A living run's scope request (4.0, round 7): flightdeck-plan/4 with loops and living-runs, naming the parent's to-do head it
+# saw (head: an application id, or "" before the first).
+SCOPE_REQUEST4, SCOPE_HEAD = "flightdeck-plan/4", re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._-]{0,159}\Z")
+_SCOPE_FMT = re.compile(r"\Aflightdeck-plan(-status)?/([0-9]{1,6})\Z")
+
+
+def scope_claims(o):
+    """PF.loop.claims: this copy's scope formats, or a later plan or plan-status format naming the loops feature (refused by
+    the scope reader, never read as a plan or a to-do record)."""
+    if not isinstance(o, dict) or not isinstance(o.get("format"), str):
+        return False
+    if o["format"] in (SCOPE_REQUEST, SCOPE_DECISION):
+        return True
+    m = _SCOPE_FMT.match(o["format"])
+    return bool(m) and int(m.group(2)) > 3 and isinstance(o.get("features"), list) and "loops" in o["features"]
 SCOPE_REQ = re.compile(r"^req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24}\Z", re.A)
 SCOPE_DNAME = re.compile(r"^(req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})\.status-([a-z0-9][a-z0-9-]{0,39})-([0-9a-f]{8})\.json\Z", re.A)
 SCOPE_PERSON = re.compile(r"^[A-Za-z0-9_.-]{1,80}\Z", re.A)
@@ -2104,13 +3108,15 @@ def scope_why(o, name, unchecked=None):
     """Why a scope record can't be read (PF.loop.cleanFile), or "": its envelope, id, name and loop, and a request's
     observation, changes and planned children (3.0.1), in the app's words and order. What they ask isn't worked out here
     (see SCOPE_NOTE)."""
-    dec = o.get("format") == SCOPE_DECISION
+    dec = isinstance(o.get("format"), str) and o["format"].startswith("flightdeck-plan-status/")
     what, fam = ("decision", "flightdeck-plan-status") if dec else ("request", "flightdeck-plan")
     v = judge(fam, o)
     if not v["ok"]:
         return v["kind"], v.get("needs") or "", ("is a scope " + what + " made with a newer Flightdeck. " + ("Needs Flightdeck " + v["needs"] + "." if v["needs"] else "Needs a newer Flightdeck.")) if v["kind"] == "newer" else v["why"]
-    if v["major"] != 3 or "loops" not in (o.get("features") or []):
+    if (v["major"] != 3 and not (v["major"] == 4 and not dec)) or "loops" not in (o.get("features") or []):
         return "malformed", "", "isn't a scope " + what + " (it doesn't name the loops feature)"
+    if v["major"] == 4 and "living-runs" not in (o.get("features") or []):
+        return "malformed", "", "isn't a 4.0 scope request (it doesn't name the living-runs feature)"
     seen = o.get("seen")
     seen_ok = isinstance(seen, list) and len(seen) <= 50
     if dec:
@@ -2136,6 +3142,8 @@ def scope_why(o, name, unchecked=None):
         return "malformed", "", "is a scope request without a request id"
     if not name.startswith(o["id"]):
         return "malformed", "", "is a scope request whose name isn't its id"
+    if o.get("format") == SCOPE_REQUEST4 and (not isinstance(o.get("head"), str) or (o["head"] != "" and not SCOPE_HEAD.match(o["head"]))):
+        return "malformed", "", "is a 4.0 scope request without the parent head it saw (head is an application id, or \"\" before the first)"
     if o.get("kind") is not None and o.get("kind") not in ("jira.issue", "item"):
         return "malformed", "", "is a scope request for items of kind " + js_string(js_slice(js_String(o["kind"]), 40)) + ", which this copy of Flightdeck doesn't know"
     kind = "jira.issue" if o.get("kind") is None else o["kind"]
@@ -2938,10 +3946,16 @@ def main():
     prop_dir = os.path.join(root, "proposals")
     plans, decisions, torn, refused_decisions = {}, {}, [], []
     out["scopes"] = []
+    todo_unchecked = []
     for name in sorted(os.listdir(prop_dir)) if os.path.isdir(prop_dir) else []:
         if not name.lower().endswith(".json") or not os.path.isfile(os.path.join(prop_dir, name)):
             continue
         text = read_text(os.path.join(prop_dir, name))
+        # PF.util.jsonTooDeep: nested past the bound, refused by name before anything parses it, as the app refuses it.
+        if text and json_too_deep(text):
+            out["refused"].append({"file": "proposals/" + name, "why": DEEP_WHY})
+            refused_decisions.append((name, "malformed", ""))
+            continue
         try:
             # Numbers are read as JavaScript reads them (all doubles), so 9007199254740993 becomes ...992 here too.
             obj = json.loads(text, parse_int=float, parse_constant=_no_constant) if text else None
@@ -2953,14 +3967,29 @@ def main():
             torn.append(name)
         if not isinstance(obj, dict):
             continue
-        # A loop's scope record goes to its own reader first and never reaches the plan reader (repo.readPlans).
-        if obj.get("format") in (SCOPE_REQUEST, SCOPE_DECISION):
+        # A loop's scope record (a living run's is flightdeck-plan/4 with loops) goes to its own reader first, before the to-do
+        # reader, and never reaches the plan reader (repo.readPlans).
+        # A fact by its kind goes to the to-do reader before any scope dispatch (PB), as repo.readPlans does.
+        if scope_claims(obj) and obj.get("kind") != "fact":
             kind, needs, why, unchecked = scope_verdict(obj, name)
             if kind:
                 out["refused"].append(dict({"file": "proposals/" + name, "why": why}, **({"linkUnchecked": unchecked} if unchecked else {})))
                 refused_decisions.append((name, kind, needs))
             else:
-                out["scopes"].append(dict({"file": "proposals/" + name, "type": "decision" if obj["format"] == SCOPE_DECISION else "request", "loop": obj.get("loop")}, **({"linkUnchecked": unchecked} if unchecked else {})))
+                out["scopes"].append(dict({"file": "proposals/" + name, "type": "decision" if obj["format"].startswith("flightdeck-plan-status/") else "request", "loop": obj.get("loop")}, **({"linkUnchecked": unchecked} if unchecked else {})))
+            continue
+        # A to-do record (4.0, PF.todos.claims): read by its own reader first, as the app does, and never a plan or a decision.
+        # One it refuses is named with the app's reason; one it reads is a living run's record, not this checker's to report.
+        if todo_claims(obj):
+            un = []
+            bad = todo_why(obj, name, os.path.getsize(os.path.join(prop_dir, name)), un)
+            note = (un[0] + ": an international domain name; Flightdeck decides whether it reads") if un else ""
+            if bad:
+                out["refused"].append(dict({"file": "proposals/" + name, "why": bad}, **({"linkUnchecked": note} if note else {})))
+                refused_decisions.append((name, "newer" if " newer Flightdeck" in bad else "malformed", ""))
+            elif note:
+                # Read by this check apart from a link it doesn't judge: named, so whether Flightdeck reads it is left to Flightdeck.
+                todo_unchecked.append({"file": "proposals/" + name, "linkUnchecked": note})
             continue
         # The app's one reader of plans and plan decisions (PF.plans.clean): a file from a newer Flightdeck (flightdeck-plan/2,
         # a feature this copy doesn't know) is refused and named, never a plan or a decision; one it can't read is left out.
@@ -3050,6 +4079,8 @@ def main():
             return True
         return any(n.startswith(pid) and n[len(pid):len(pid) + 1] in (".", " ", "-", "(") for pid in plans if isinstance(pid, str) and pid)
     out["unreadablePlans"] = [{"file": "proposals/" + n, "unnamed": not named(n)} for n in torn]
+    if todo_unchecked:
+        out["uncheckedLinks"] = todo_unchecked
     if out["scopes"] or any(n.startswith("req-") for n in torn):
         out["scopeNote"] = SCOPE_NOTE
 

@@ -361,4 +361,23 @@ rule('Round 11 (3): resolving a request recorded more ways than one record can n
   const out = cli('loop', 'resolve', root, 'release-readiness/r-41', 'each', ...T);
   assert.ok(/This settles the first 50 decisions made at once; 1 is left\./.test(out.out), out.out);
 });
+rule('run and next on a loop run read proposals/ once, for the loop and its to-dos alike', async () => {
+  const { root, d, kid } = await folder(), f = path.join(root, '..', path.basename(root) + '-obs-once.json');
+  await kid(101, 'cleared');
+  fs.writeFileSync(f, JSON.stringify(obs([101])));
+  json('loop', 'sync', root, 'release-readiness/r-41', 'each', '--from', f, '--json', '--tool', 'release-helper@1.0', '--key', 'g1');
+  const all = await PF.repo.loadAll(d, {}), r = all.runs.find(x => x.id === 'r-41'), map = R.mapOf(r);
+  const V = PF.loop.view(r, 'each', { records: all.scopes, runs: all.runs });
+  R.done(r, map, 'each', 'person-morgan', AT, { _loop: { ok: true, snapshot: PF.loop.approval(V.ledger, V.rollup, { by: 'person-morgan', at: AT }) } });
+  await d.write('runs/release-readiness/r-41/run.json', JSON.stringify(JSON.parse(JSON.stringify(r, (k, v) => (k[0] === '_' ? undefined : v))), null, 2));
+  assert.ok(JSON.parse(fs.readFileSync(path.join(root, 'runs/release-readiness/r-41/run.json'), 'utf8')).steps.each.loop, 'set-up: a loop step');
+  const FD = require('../bin/flightdeck.js'), eng = FD.loadEngine();
+  for (const cmd of ['run', 'next']) {
+    let lists = 0;
+    const counting = Object.assign(Object.create(Object.getPrototypeOf(d)), d, { list(rel) { if (/^proposals\/?$/.test(rel)) lists++; return DiskFS.prototype.list.call(this, rel); } });
+    const r = await FD.readData(eng, counting, { cmd, key: 'release-readiness/r-41', contract: '2', person: cmd === 'next' ? 'person-morgan' : undefined });
+    assert.ok(r.json && !r.json.error, cmd + ': ' + JSON.stringify(r.json).slice(0, 300));
+    assert.strictEqual(lists, 1, cmd + ' listed proposals/ ' + lists + ' times');
+  }
+});
 run();

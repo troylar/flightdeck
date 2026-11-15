@@ -1,0 +1,15 @@
+{
+  "format": "preflight-publication/1",
+  "process": "backup",
+  "title": "Backup check",
+  "version": 1,
+  "folder": "v1-ab9ysnqh",
+  "publishedBy": "person-avery",
+  "publishedAt": "2026-03-02T09:01:00.000Z",
+  "changes": "First version",
+  "mapHash": "c2780532",
+  "typesHash": "c4143e9d",
+  "images": {
+    "images/restore.png": "9823f2a8"
+  }
+}

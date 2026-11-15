@@ -520,9 +520,9 @@ rule('Run screen: Finish the run is in the header for the recorder, muted until 
   assert.ok(!/\bgo\b/.test((/class="([^"]*)"/.exec(f[0].attrs) || [])[1]), 'muted while the run is not complete');
   assert.ok(!/End run…/.test(app.html()), 'no End run…');
   const items = menu(app).filter(t => t !== 'Plan another like this');
-  assert.deepStrictEqual(items.filter(t => !/^(Search|Appearance) /.test(t)), ['Details', 'Screen share', 'Receipt', 'Copy run key', 'Export evidence…', 'Folder health', 'Check the folder now', 'Keyboard shortcuts'], 'the static items, exactly');
+  assert.deepStrictEqual(items.filter(t => !/^(Search|Appearance) /.test(t)), ['Details', 'Screen share', 'Receipt', 'Delegate to-dos…', 'Copy run key', 'Export evidence…', 'Folder health', 'Check the folder now', 'Keyboard shortcuts'], 'the static items, exactly (4.0: the recorder may delegate to-dos on any run, before a tool first asks)');
   assert.deepStrictEqual(items.filter(t => /^(Search|Appearance) /.test(t)), ['Search Ctrl+K', 'Appearance Match this computer'], 'Search and Appearance with their current values');
-  assert.strictEqual(items.length, 10, 'and nothing else: ' + JSON.stringify(items));
+  assert.strictEqual(items.length, 11, 'and nothing else: ' + JSON.stringify(items));
   assert.match(rhead(app), /<div class="ro">You: <b>/, 'who you are is text in More, not a control');
   app.click('finish'); await app.tick();
   assert.match(app.html(), /Finish /, 'it opens the Finish page');

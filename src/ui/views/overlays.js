@@ -321,4 +321,77 @@
   V.historyDrawer = historyDrawer;
   V.linkConfirm = linkConfirm;
   V.search = search; V.releases = releases; V.textPreview = textPreview; V.semverCmp = semverCmp; V.help = help; V.tabOnlyHelp = tabOnlyHelp; V.lightbox = lightbox; V.childStart = childStart; V.childVersionWords = childVersionWords;
+
+  /* ---------- Living runs (4.0 slice 2): to-do requests that need you, and delegations ----------
+     Exactly the list Home and the run screen count (PF.todos.inbox), once each, 10 at a time. Accept carries the
+     consequence shown with it (data-fp): when what it would do changed since, nothing is written and the request is shown
+     again as it is now, for consent again. Decline takes an optional reason. Delegations on runs you may decide can be
+     revoked here; what a revoked one covered and hasn't been applied waits for a person again. Paging, the open decline and
+     what was said belong to this folder (ctx.loopMem). */
+  /* Unsent to-do typing's key and what is kept under it (app.js tdDrafts); a host without them keeps none. */
+  function tdKeyOf(ctx, run, at, op) { return ctx.tdDraftKey ? ctx.tdDraftKey(run, at, op) : ''; }
+  function tdDraftOf(ctx, key) { return key && ctx.tdDraft ? ctx.tdDraft(key) : null; }
+  function tdWho(ctx, by) { return !by ? '' : by.tool ? by.tool + ' (a tool)' : nameOf(ctx, by.person); }
+  function todoInbox(ctx) {
+    var mem = ctx.loopMem(), only = mem.tdInboxRun || '', all = ctx.todoInbox ? ctx.todoInbox() : [];
+    var items = only ? all.filter(function (x) { return x.run.process + '/' + x.run.id === only; }) : all;
+    var gs = (ctx.todoGrants ? ctx.todoGrants() : []).filter(function (g) { return !only || g.run.process + '/' + g.run.id === only; });
+    /* A spread's plain additions on its stories' runs (4.0 slice 3) are accepted together, at most 50 a click; each is still its
+       own decision on what it shows. Anything else (a dispute, one that reopens an approval or releases work) is an exception,
+       listed and decided on its own. */
+    var opening = mem.tdDec, plain = function (x) { return !(opening && opening.run === x.run.process + '/' + x.run.id && opening.id === x.id) && !!x.fulfills && x.op === 'add' && !x.dispute && !x.landed && !x.consequence.reopens.length && !x.consequence.releases; };
+    var groups = [], gOf = Object.create(null);
+    items.forEach(function (x) { if (!plain(x)) return; var k = x.fulfills.spread; if (!gOf[k]) groups.push(gOf[k] = { spread: k, text: x.text, list: [] }); gOf[k].list.push(x); });
+    groups = groups.filter(function (g) { return g.list.length >= 2; });
+    var batched = Object.create(null); groups.forEach(function (g) { g.list.slice(0, 50).forEach(function (x) { batched[x.run.process + '/' + x.run.id + '|' + x.id] = true; }); });
+    var dec = mem.tdDec, rows = items.map(function (x) { return { x: x, key: x.run.process + '/' + x.run.id + '|' + x.id }; }).filter(function (y) { return !batched[y.key]; });
+    var h = '<div class="overlay" data-act="close-overlay"><div class="help tdi" role="dialog" aria-modal="true" aria-labelledby="tdi-h"><h2 id="tdi-h" tabindex="-1">To-do requests that need you</h2>';
+    h += '<p class="small">' + (items.length ? items.length + ' request' + (items.length === 1 ? '' : 's') + ' wait' + (items.length === 1 ? 's' : '') + ' for your decision' + (only ? ' on this run' : '') + '. Accepting queues it for the run\'s recorder; their window applies it.' : 'Nothing waits for your decision' + (only ? ' on this run' : '') + '.') + '</p>';
+    if (mem.tdSaid) h += '<p class="small" role="status">' + esc(mem.tdSaid) + '</p>';
+    /* A decline reason typed and not sent whose form isn't open (its request decided elsewhere, or another one open):
+       shown until it is sent or discarded, and the dialog doesn't close over it (held). */
+    var keptDec = (ctx.tdKept ? ctx.tdKept('', true) : []).filter(function (d) { return !(dec && dec.run === d.run && dec.id === d.at && rows.some(function (y) { return y.key === d.run + '|' + d.at; })); });
+    if (keptDec.length) h += '<ul class="todos">' + keptDec.map(function (d) {
+      return '<li class="small td-kept" role="note">Not sent: your reason to decline a request on ' + esc(d.run) + ': <q>' + esc(d.why) + '</q> <button type="button" class="mini" id="tdk-' + K.domKey(d.key) + '" data-act="td-kept-drop" data-key="' + esc(d.key) + '">Discard</button></li>';
+    }).join('') + '</ul>';
+    groups.forEach(function (g) {
+      var now = g.list.slice(0, 50), ids = now.map(function (x) { return x.run.process + '/' + x.run.id + '|' + x.id + '|' + x.consequence.fingerprint; }).join(' ');
+      h += '<div class="td-batch"><p><b>' + esc(g.text) + '</b>: ' + g.list.length + ' addition' + (g.list.length === 1 ? '' : 's') + ' asked of ' + (g.list.length === 1 ? 'a run' : 'their own runs') + ' by a spread. Each is its own decision; none reopens an approval.' + (g.list.length > 50 ? ' 50 at a time; ' + (g.list.length - 50) + ' more after.' : '') + '</p>' +
+        '<ul class="todos small">' + now.map(function (x) { var rk = x.run.process + '/' + x.run.id; return '<li class="todo"><div>' + esc(x.title) + ': ' + esc(x.words) + '</div><button type="button" class="mini" data-act="td-decline-pick" data-id="' + esc(x.id) + '" data-run="' + esc(rk) + '">Decline…</button></li>'; }).join('') + '</ul>' +
+        '<span class="row"><button type="button" class="btn go" data-act="td-accept-all" data-id="' + esc(g.spread) + '" data-ids="' + esc(ids) + '">Accept ' + now.length + ' additions</button></span></div>';
+    });
+    if (rows.length) h += K.list(ctx.state, 'td-inbox:' + mem.g, rows, { page: 10, keyOf: function (y) { return y.key; }, focusOf: function (k) { return '#tdi-' + K.domKey(k); }, draw: function (shown) {
+      return '<ul class="todos">' + shown.map(function (y) {
+        var x = y.x, rk = x.run.process + '/' + x.run.id, open = dec && dec.run === rk && dec.id === x.id;
+        var b = '<li class="todo" id="tdi-' + K.domKey(y.key) + '" tabindex="-1"><div><b>' + esc(x.title) + '</b>: ' + esc(x.words) +
+          '<div class="small">Asked by ' + esc(tdWho(ctx, x.by)) + (x.reason ? ' · ' + esc(x.reason) : '') + (x.dispute ? ' · <b>Decided two ways at once</b>: your decision settles it.' : x.why ? ' · ' + esc(x.why) : '') + '</div></div>';
+        var dk = tdKeyOf(ctx, rk, x.id, 'decline');
+        if (open) b += '<div class="td-form" data-scope="tdd:' + esc(K.domKey(rk + '|' + x.id)) + '"><label class="small" for="td-dec-why">Why decline it (optional)</label><input id="td-dec-why" class="rw-in" maxlength="300" data-enter="td-decline" data-id="' + esc(x.id) + '" data-draft="' + esc(dk) + '" autocomplete="off">' +
+          '<span class="row"><button type="button" class="btn" data-act="td-decline" data-id="' + esc(x.id) + '" data-run="' + esc(rk) + '">Decline</button><button type="button" class="mini" data-act="td-decline-cancel">Cancel</button></span></div>';
+        else b += '<span class="row"><button type="button" class="btn go" data-act="td-accept" data-id="' + esc(x.id) + '" data-run="' + esc(rk) + '" data-fp="' + esc(x.consequence.fingerprint) + '">Accept</button><button type="button" class="mini" data-act="td-decline-pick" data-id="' + esc(x.id) + '" data-run="' + esc(rk) + '">Decline…</button></span>';
+        return b + '</li>';
+      }).join('') + '</ul>';
+    } });
+    if (gs.length) h += '<h3 id="tdi-g" tabindex="-1">Delegations you can end</h3><ul class="todos">' + gs.map(function (g) {
+      return '<li class="todo"><div><b>' + esc(g.title) + '</b>: ' + esc(tdWho(ctx, g.subject)) + ' may ' + esc(K.capJoin(g.ops)) + ' on ' + g.targets.length + ' place' + (g.targets.length === 1 ? '' : 's') + (g.ops.indexOf('add') >= 0 ? ', up to ' + g.adds + ' addition' + (g.adds === 1 ? '' : 's') : '') + '</div>' +
+        '<button type="button" class="mini" data-act="td-revoke" data-id="' + esc(g.id) + '" data-run="' + esc(g.run.process + '/' + g.run.id) + '">Revoke</button></li>';
+    }).join('') + '</ul>';
+    return h + '<div class="row"><button type="button" class="mini" data-act="close-overlay">Close</button></div></div></div>';
+  }
+  /* Delegate on the open run: a tool or a person may add, check off or reopen to-dos in the current phase. Never Won't do,
+     Moved or a gate (PF.todos.grantOf). */
+  function todoDelegate(ctx) {
+    /* What was chosen lives in the dialog's state (mem.tdDelegate: who, ops, adds), so a redraw (a refused save, a refresh)
+       draws exactly it, checkboxes included. */
+    var r = ctx.run(), mem = ctx.loopMem(), dg = mem.tdDelegate || {}, ops = dg.ops || { add: true }, ph = dg.phase, map = r ? R.mapOf(r) : null, p = map ? map.phases.filter(function (x) { return x.id === ph; })[0] : null;
+    var h = '<div class="overlay" data-act="close-overlay"><div class="help tdi" role="dialog" aria-modal="true" aria-labelledby="tdg-h"><h2 id="tdg-h" tabindex="-1">Delegate to-dos' + (p ? ' in ' + esc(p.title) : '') + '</h2>';
+    if (mem.tdSaid) h += '<p class="small" role="status">' + esc(mem.tdSaid) + '</p>';
+    h += '<p class="small">A tool or a person may then add, check off or reopen to-dos here without asking each time. Dropping or moving work, and every gate, stay with people. You can revoke it from To-do requests.</p>' +
+      '<label for="tdg-who">Who: a tool\'s name, or a person\'s ID from people.json</label><input id="tdg-who" class="rw-in" maxlength="80" autocomplete="off" value="' + esc(dg.who || '') + '">' +
+      '<fieldset><legend class="small">May</legend>' + [['add', 'Add'], ['done', 'Check off'], ['reopen', 'Reopen']].map(function (o) { return '<label class="check-label small"><input type="checkbox" id="tdg-' + o[0] + '"' + (ops[o[0]] ? ' checked' : '') + '> ' + o[1] + '</label>'; }).join('') + '</fieldset>' +
+      '<label for="tdg-adds">At most this many additions</label><input id="tdg-adds" class="rw-in" type="number" min="0" max="500" value="' + esc(dg.adds == null ? '10' : dg.adds) + '">' +
+      '<div class="row"><button type="button" class="btn" data-act="td-delegate-save">Delegate</button><button type="button" class="mini" data-act="close-overlay">Cancel</button></div></div></div>';
+    return h;
+  }
+  V.todoInbox = todoInbox; V.todoDelegate = todoDelegate;
 })();

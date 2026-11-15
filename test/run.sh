@@ -118,7 +118,18 @@ test/links.test.js -
 test/jira-search.test.js -
 test/results.test.js -
 test/loops.test.js -
+test/todos.test.js -
+test/todos-rules.test.js -
+test/spreads.test.js -
+test/facts.test.js -
 test/loop-cli.test.js -
+test/todo-cli.test.js -
+test/spread-cli.test.js -
+test/spread-deps.test.js 0/4
+test/spread-deps.test.js 1/4
+test/spread-deps.test.js 2/4
+test/spread-deps.test.js 3/4
+test/fact-cli.test.js -
 test/patterns.test.js -
 test/link-fields.test.js -
 test/library.test.js -
@@ -139,10 +150,20 @@ test/guide-editor.test.js 0/2
 test/guide-editor.test.js 1/2
 test/docs.test.js -
 test/checker.test.js -
+test/checker-todos.test.js -
 test/app-reports.test.js -
 test/app-teamvalues.test.js -
 test/app-results.test.js -
 test/app-loops.test.js -
+test/app-todos.test.js -
+test/app-todos-ui.test.js -
+test/app-todos-inbox.test.js -
+test/app-spreads.test.js -
+test/app-spread-deps.test.js 0/4
+test/app-spread-deps.test.js 1/4
+test/app-spread-deps.test.js 2/4
+test/app-spread-deps.test.js 3/4
+test/app-facts.test.js -
 test/staging-app.test.js -
 test/test-runs-app.test.js -
 test/readiness-stage-app.test.js -
@@ -159,6 +180,7 @@ test/compat-staging.test.js -
 test/compat-pass.test.js -
 test/compat-results.test.js -
 test/compat-loops.test.js -
+test/compat-todos.test.js -
 test/compat-teamvalues.test.js -
 test/compat-typesave.test.js -
 test/skills-parity.test.js -
@@ -186,7 +208,7 @@ test/views.test.js -
 JOBS_LIST
 )"
 # Files with budget() rules; test/build.test.js checks this against the files.
-export BUDGET_FILES="test/perf.test.js test/practice.test.js test/practice-app.test.js test/timeline.test.js test/views.test.js test/find-runs.test.js"
+export BUDGET_FILES="test/todos.test.js test/perf.test.js test/practice.test.js test/practice-app.test.js test/timeline.test.js test/views.test.js test/find-runs.test.js"
 # What TIER=fast leaves out, the slowest files by TIMES=1. test/build.test.js checks each is a file with a job.
 FAST_LEAVES_OUT="bounds-app find-runs find-process find-notes compat perf scale-app"
 

@@ -3,7 +3,8 @@ PF.repo = (function () {
   'use strict';
   var U = PF.util, P = PF.publish, R = PF.run;
 
-  function json(text) { try { return JSON.parse(text); } catch (e) { return undefined; } }
+  /* Every file this reads is parsed here: text nested past PF.util.JSON_DEPTH reads as not JSON, never as a stack overflow. */
+  function json(text) { if (PF.util.jsonTooDeep(text)) return undefined; try { return JSON.parse(text); } catch (e) { return undefined; } }
   /* A run.json's fingerprint, compared before every save of it: SHA-256 of its exact text. */
   function fileHash(text) { return PF.sha256.hex(text); }
   function readJson(fs, path) { return fs.read(path).then(function (f) { return f ? json(f.text) : null; }); }
@@ -605,28 +606,53 @@ PF.repo = (function () {
      the part. torn (the app): each file left out that way is named there ({ path, _file, why }), never just dropped: one
      still arriving could be the record that decides something. perFile (with torn): a read that's refused is named there
      too, by itself, instead of failing the part; only a folder that can't be listed fails it. */
+  /* Each object read carries its file's size in UTF-8 bytes as _bytes (not enumerable, so it never travels with the record),
+     for a reader whose limit is in bytes of the file as it is. */
+  function sized(o, f) { try { Object.defineProperty(o, '_bytes', { value: f.size != null ? f.size : U.utf8Bytes(f.text), enumerable: false }); } catch (e) { /* frozen: no size */ } return o; }
+  /* The loader's own fields (_file, then _bytes) go on the object read; a file that already has either keeps what it wrote,
+     as _supplied (not enumerable), so a reader that checks every field (PF.todos.cleanFile) reads the file as written. */
+  var LOADER_KEYS = ['_file', '_bytes'];
+  function tagged(o, name, f) {
+    var sup = null;
+    LOADER_KEYS.forEach(function (k) { if (Object.prototype.hasOwnProperty.call(o, k)) { sup = sup || Object.create(null); sup[k] = o[k]; } });
+    if (sup) { try { Object.defineProperty(o, '_supplied', { value: sup, enumerable: false }); } catch (e) { /* frozen */ } }
+    o._file = name;
+    return sized(o, f);
+  }
+  /* A record as its file wrote it, with no prototype: the loader's fields left out, the file's own put back. */
+  function asWritten(p) {
+    var raw = Object.create(null), sup = p._supplied || null;
+    Object.keys(p).forEach(function (k) { if (LOADER_KEYS.indexOf(k) < 0) raw[k] = p[k]; });
+    if (sup) Object.keys(sup).forEach(function (k) { raw[k] = sup[k]; });
+    return raw;
+  }
   function loadJsonDir(fs, dir, ok, bad, only, torn, perFile) {
     return fs.list(dir).then(function (items) {
+      /* A link where a to-do or fact record would be (4.0) is never read and never absent: it is named like one that can't be
+         read yet (readPlans). Other folders and kinds read links as 3.0 did: left out, named by the reader's adapter. */
+      if (torn && dir === 'proposals') items.forEach(function (i) { if (i && i.kind === 'link' && PF.todos.recordName(i.name) && (!only || only(i.name))) torn.push({ path: dir + '/' + i.name, _file: i.name, parsed: false, link: true, why: 'is a link, and Flightdeck never reads through links' }); });
       return Promise.all(items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name) && (!only || only(i.name)); }).map(function (i) {
         var path = dir + '/' + i.name;
         if (!bad) return fs.read(path).then(function (f) {
           /* Listed but gone when read: it may be moving, so it's named like one still arriving, never just left out. */
           if (!f) { if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: 'was listed but was gone when read' }); return null; }
+          if (PF.util.jsonTooDeep(f.text)) { if (torn) torn.push({ path: path, _file: i.name, parsed: false, deep: true, why: PF.util.DEEP_WHY }); return null; }
           var o = json(f.text);
-          if (o && typeof o === 'object' && ok(o)) { o._file = i.name; return o; }
+          if (o && typeof o === 'object' && ok(o)) return tagged(o, i.name, f);
           /* parsed: it's JSON, just not this folder's kind of file (ignored, only named); else it may still be arriving. */
           if (torn) torn.push({ path: path, _file: i.name, parsed: o !== undefined, why: o === undefined ? 'isn\'t complete JSON' : 'isn\'t a file Flightdeck reads here, so it\'s ignored' });
           return null;
-        }, function (e) { if (!torn || !perFile) throw e; torn.push({ path: path, _file: i.name, parsed: false, why: 'couldn\'t be read (' + why(e) + ')' }); return null; });
+        }, function (e) { if (!torn || !perFile || (typeof perFile === 'function' && !perFile(i.name))) throw e; torn.push({ path: path, _file: i.name, parsed: false, kind: errKind(e), why: 'couldn\'t be read (' + why(e) + ')' }); return null; });
         /* Reading for other apps names each of these in bad; with torn too (plans), they're also kept as the app keeps them,
            so a decision that can't be read holds its plan there as in the app. */
         return fs.read(path).then(function (f) {
           if (!f) { if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: 'was listed but was gone when read' }); return null; }
+          if (PF.util.jsonTooDeep(f.text)) { bad.push({ path: path, kind: 'malformed', why: PF.util.DEEP_WHY }); if (torn) torn.push({ path: path, _file: i.name, parsed: false, deep: true, why: PF.util.DEEP_WHY }); return null; }
           var o = json(f.text);
           if (o === undefined) { bad.push({ path: path, kind: 'malformed', why: 'isn\'t complete JSON (it may still be arriving)' }); if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: 'isn\'t complete JSON' }); return null; }
           if (!o || typeof o !== 'object' || Array.isArray(o) || !ok(o)) { bad.push({ path: path, kind: 'malformed', why: 'isn\'t a file this copy can read here' }); if (torn) torn.push({ path: path, _file: i.name, parsed: true, why: 'isn\'t a file Flightdeck reads here, so it\'s ignored' }); return null; }
-          o._file = i.name; return o;
-        }, function (e) { bad.push({ path: path, kind: errKind(e), why: why(e) }); if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: 'couldn\'t be read (' + why(e) + ')' }); return null; });
+          return tagged(o, i.name, f);
+        }, function (e) { bad.push({ path: path, kind: errKind(e), why: why(e) }); if (torn) torn.push({ path: path, _file: i.name, parsed: false, kind: errKind(e), why: 'couldn\'t be read (' + why(e) + ')' }); return null; });
       }));
     }).then(function (x) { return x.filter(Boolean); });
   }
@@ -750,7 +776,7 @@ PF.repo = (function () {
          readable plan's ID could be a renamed decision on any plan. It holds none, and Folder health names it on its own. */
       var planIds = (r[6].plans || []).map(function (p) { return p.id; });
       var named = function (n) { return PF.plans.namesPlan(String(n)) || planIds.some(function (id) { if (typeof id !== 'string' || !id || String(n).indexOf(id) !== 0) return false; var c = String(n).charAt(id.length); return c === '.' || c === ' ' || c === '-' || c === '('; }); };
-      var planUnread = 'proposals' in failed ? [] : (r[6].torn || []).map(function (u) { var x = { _unread: true, path: u.path, _file: u._file, why: u.why, kind: u.parsed ? 'ignored' : 'unreadable' }; if (!u.parsed && !named(u._file)) x.unnamed = true; return x; });
+      var planUnread = 'proposals' in failed ? [] : (r[6].torn || []).filter(function (u) { return !u.link && !u.deep; }).map(function (u) { var x = { _unread: true, path: u.path, _file: u._file, why: u.why, kind: u.parsed ? 'ignored' : 'unreadable' }; if (!u.parsed && !named(u._file)) x.unnamed = true; return x; });
       /* A file refused here (a newer Flightdeck's, not in its format, or a format that can't be read at all) holds its plan as
          one still arriving does, by its name alone (groupPlans: <plan>.status-…), whatever it says it is. A refused plan file
          isn't named so, and holds no plan. */
@@ -767,7 +793,7 @@ PF.repo = (function () {
         if (x.kind === 'cached') { var e = x.entry; x.sig = sigOf(e.fileHash, e.notesSig, e.conflicts, e.unrunnable || badFor(cache, e), e.recheckAt); delete x.entry; }
       });
       var out = { people: r[0], drafts: r[1], processes: r[2], reads: reads, runsComplete: complete, legacy: r[4], skills: r[5], validations: r[9], valUnread: valUnread, corrDecisions: r[10].filter(function (d) { return !d._unread; }), corrUnread: r[10].filter(function (d) { return d._unread; }),
-        fuDecisions: r[11].filter(function (d) { return !d._unread; }), fuUnread: r[11].filter(function (d) { return d._unread; }), plans: plans, scopes: r[6].scopes || [], scopesUnread: r[6].scopesUnread || [], stepTypes: r[7], jira: r[8],
+        fuDecisions: r[11].filter(function (d) { return !d._unread; }), fuUnread: r[11].filter(function (d) { return d._unread; }), plans: plans, scopes: r[6].scopes || [], scopesUnread: r[6].scopesUnread || [], todos: r[6].todos || [], todosUnread: r[6].todosUnread || [], stepTypes: r[7], jira: r[8],
         unreadable: unreadable, failed: failed, planUnread: planUnread, skillsSkipped: r[5].skipped || 0, readAt: new Date().toISOString(), proposed: r[12], presence: r[13],
         reports: r[14], repDecisions: r[15].filter(function (d) { return !d._unread; }), repUnread: r[15].filter(function (d) { return d._unread; }), stages: r[16], teamValues: r[17],
         /* Files from a newer Flightdeck this copy refused, by path, with the version each needs: shown by Folder health and
@@ -1228,6 +1254,14 @@ PF.repo = (function () {
       if (copy.test === true) { var tst = copy.stage; delete copy.test; delete copy.stage; copy.test = true; copy.stage = tst; }
       return { copy: copy, dir: dir, text: JSON.stringify(copy, null, 2), cand: dir + 'candidate-' + writer + '-' + saveId + '.json' };
     }
+    /* Asked right before every write of the save (the candidate, the history, a conflict copy, run.json): opts.fresh(fs)
+       (4.0) awaited first, a guard that reads the folder again there; then opts.still. Either refusing (false, or fresh
+       rejecting) writes nothing more (e.dropped; e.kept, the candidate already written, stays for recovery). */
+    function guard(kept) {
+      var drop = function () { var d = new Error('dropped'); d.dropped = true; if (kept) d.kept = kept; return d; };
+      var fresh = typeof opts.fresh === 'function' ? Promise.resolve().then(function () { return opts.fresh(fs); }).then(function (ok) { return ok !== false; }, function () { return false; }) : Promise.resolve(true);
+      return fresh.then(function (ok) { if (!ok || (typeof opts.still === 'function' && !opts.still())) throw drop(); });
+    }
     /* The publication record may have arrived (by sync) after the run was loaded; a newer format makes the run read-only. */
     function checkAndWrite() {
     return pubProblem(fs, run, null, opts.strict).then(function (why) {
@@ -1239,10 +1273,8 @@ PF.repo = (function () {
       if (typeof opts.prewrite !== 'function') return f;
       var drop = function () { var e = new Error('dropped'); e.dropped = true; return e; };
       return Promise.resolve().then(function () { return opts.prewrite(fs); }).then(function (ok) { if (ok === false) throw drop(); return f; }, function (err) { var e = drop(); e.cause = err; throw e; });
-    }).then(function (f) {
+    }).then(function (f) { return guard(null).then(function () { return f; }); }).then(function (f) {
       var e;
-      /* opts.still: asked after every read, right before the first write; false writes nothing (e.dropped). */
-      if (typeof opts.still === 'function' && !opts.still()) { e = new Error('dropped'); e.dropped = true; throw e; }
       if (f) {
         var disk = R.sanitize(json(f.text));
         if (!disk) { e = new Error('The run file is unreadable, so it wasn\'t overwritten.'); e.unreadable = true; throw e; }
@@ -1260,8 +1292,10 @@ PF.repo = (function () {
           e = new Error('changed'); e.disk = disk;
           var keep = 'runs/' + run.process + '/' + run.id + '/run.conflict-' + writer + '-' + Date.now() + '.json';
           /* Archived history is a record of what happened whichever version wins, so it's written first. */
-          return archiveOverflow(fs, run, writer).then(function () { if (typeof opts.still === 'function' && !opts.still()) { var d = new Error('dropped'); d.dropped = true; throw d; } return fs.write(keep, JSON.stringify(stripMeta(run), null, 2)); })
-            .then(function () { forgetRun(fs, run); e.keptAs = keep; throw e; }, function () { throw e; });
+          return guard(null).then(function () { return archiveOverflow(fs, run, writer); }).then(function () { return guard(null); }).then(function () { return fs.write(keep, JSON.stringify(stripMeta(run), null, 2)); })
+            /* A guard that refuses there stays a refusal; a write that fails is carried on the conflict (e.keepFailed), so the
+               caller knows no conflict copy holds this window's version. */
+            .then(function () { forgetRun(fs, run); e.keptAs = keep; throw e; }, function (err) { if (err && err.dropped) throw err; e.keepFailed = err || new Error('The conflict copy couldn\'t be written.'); throw e; });
         }
       }
       /* A run this window read from (or saved to) the folder whose file is gone now was deleted or moved by someone: it's
@@ -1269,12 +1303,11 @@ PF.repo = (function () {
       if (!f && run._fileHash && !opts.restoreMissing) { e = new Error('This run\'s file is gone from the team folder, so it wasn\'t written back. Someone may have deleted or moved it.'); e.missing = true; throw e; }
       var m = made || make(), copy = m.copy, dir = m.dir, text = m.text, cand = m.cand;
       wrote = true;
-      /* opts.still again before each further write: a switch after the candidate landed writes nothing more, and the
+      /* The guard again before each further write: a switch after the candidate landed writes nothing more, and the
          candidate stays where recovery finds it (a save not listed in run.json), never removed as a failed write. */
-      var again = function () { if (typeof opts.still === 'function' && !opts.still()) { var d = new Error('dropped'); d.dropped = true; d.kept = cand; throw d; } };
       return fs.write(cand, text)
-        .then(function () { again(); return archiveOverflow(fs, run, writer); })
-        .then(function () { again(); return fs.write(path, text); })
+        .then(function () { return guard(cand); }).then(function () { return archiveOverflow(fs, run, writer); })
+        .then(function () { return guard(cand); }).then(function () { return fs.write(path, text); })
         .then(function () {
           forgetRun(fs, run);
           run.rev = copy.rev; run.savedAt = copy.savedAt; run._fileHash = fileHash(text); run.lineage = copy.lineage;
@@ -1749,13 +1782,18 @@ PF.repo = (function () {
       return fs.read(path, rd).then(function (f) {
         var now = f ? U.hash(f.text) : null;
         if (now !== expect || (exact && (f ? f.text : null) !== opts.expectText)) return { conflict: true, theirs: f ? f.text : null, theirsHash: now };
-        /* opts.still: asked after the read, right before the write; false writes nothing ({ dropped: true }). */
-        if (opts && typeof opts.still === 'function' && !opts.still()) return { dropped: true };
-        /* A folder can't check and write in one step, so read it back: if anything else is there now, say so rather than
-           report a save that didn't stick. (Across computers, OneDrive keeps both copies of a file changed on two.) */
-        return fs.write(path, text).then(function () { return fs.read(path, rd); }).then(function (back) {
-          if (back && back.text === text) return { ok: true, hash: U.hash(text), text: text };
-          return { conflict: true, theirs: back ? back.text : null, theirsHash: back ? U.hash(back.text) : null, afterWrite: true };
+        /* opts.fresh(fs) (4.0): awaited after the read and before opts.still, for a guard that reads the folder again at the
+           write; false, or a rejection, writes nothing ({ dropped: true }). */
+        var fresh = opts && typeof opts.fresh === 'function' ? Promise.resolve().then(function () { return opts.fresh(fs); }).then(function (ok) { return ok !== false; }, function () { return false; }) : Promise.resolve(true);
+        return fresh.then(function (ok) {
+          /* opts.still: asked after the read, right before the write; false writes nothing ({ dropped: true }). */
+          if (!ok || (opts && typeof opts.still === 'function' && !opts.still())) return { dropped: true };
+          /* A folder can't check and write in one step, so read it back: if anything else is there now, say so rather than
+             report a save that didn't stick. (Across computers, OneDrive keeps both copies of a file changed on two.) */
+          return fs.write(path, text).then(function () { return fs.read(path, rd); }).then(function (back) {
+            if (back && back.text === text) return { ok: true, hash: U.hash(text), text: text };
+            return { conflict: true, theirs: back ? back.text : null, theirsHash: back ? U.hash(back.text) : null, afterWrite: true };
+          });
         });
       });
     };
@@ -2573,16 +2611,57 @@ PF.repo = (function () {
      a plan or decision from a newer Flightdeck is named newer. Without bad (the app) those are left out too, and the newer
      ones are kept in refused, so Folder health names them. only(name): just those files (plan request reads its own request's). */
   /* two: reading for other apps with contract 2, which reads plan/2 and its decisions as the app does. */
+  /* The to-do records and people.json as they are now (4.0), for a to-do write guard asked at the write rather than on what
+     the window read last: { records, unread, people }. people.json that won't read is an unread entry, as loadAll has it; a
+     proposals/ that can't be listed rejects, and the write it guards is dropped. */
+  function readTodos(fs) {
+    return Promise.all([readPlans(fs, []), loadPeople(fs).then(null, function (e) { return { failed: why(e) }; })]).then(function (r) {
+      var unread = (r[0].todosUnread || []).slice(), people = r[1];
+      if (people.failed) { unread.push({ file: 'people.json', why: 'people.json couldn\'t be read, so no one\'s authority over to-dos can be checked.', run: null }); people = null; }
+      return { records: r[0].todos || [], unread: unread, people: people };
+    });
+  }
   function readPlans(fs, bad, only, two) {
     var refused = [], torn = [];
-    return loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status' || typeof o.format === 'string'; }, bad, only, torn).then(function (props) {
-      var plans = [], statuses = [], scopes = [], scopesUnread = [];
+    /* A to-do, fact or scope record that fails to read is named by its path (torn, with its kind), never the whole folder
+       refused: run and next name proposals/<id>.json. Any other file failing still refuses the read, as in 3.0. */
+    return loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status' || typeof o.format === 'string'; }, bad, only, torn, PF.todos.recordName).then(function (props) {
+      var plans = [], statuses = [], scopes = [], scopesUnread = [], todos = [], todosUnread = [];
+      /* Copies of one id that differ are compared over every file read here, before any family reads its own (PF.loop.splitIds):
+         one that is a to-do or fact record while another copy is a plan or a scope record would escape every reducer, so each
+         copy is held as a record that can't be read, on the run a to-do copy names (or every living run) and its loop. */
+      var split = PF.loop.splitIds(props), across = Object.create(null);
+      props.forEach(function (p) { if (typeof p.id !== 'string' || !split[p.id]) return; var a = across[p.id] = across[p.id] || { todo: [], other: [] }; (PF.todos.claims(p) ? a.todo : a.other).push(p); });
+      Object.keys(across).forEach(function (id) {
+        var a = across[id];
+        if (!a.todo.length || !a.other.length) return;
+        var runs = a.todo.map(function (p) { var r = PF.todos.runOf(p); return r ? r.process + '/' + r.id : ''; }), one = runs.every(function (k) { return k && k === runs[0]; }) ? PF.todos.runOf(a.todo[0]) : null;
+        var why = 'has copies under one id (' + id + ') that are different kinds of record, so which is meant isn\'t known. Keep one of them';
+        a.todo.concat(a.other).forEach(function (p) {
+          todosUnread.push({ file: p._file, why: why, kind: 'malformed', run: one });
+          if (PF.loop.isScope(p)) scopesUnread.push({ file: p._file, why: why, loop: PF.loop.loopOf(p) });
+        });
+      });
       props.forEach(function (p) {
-        /* A scope request or decision (3.0, PF.loop) goes to its own reader first and never reaches the plan reader. */
-        if (PF.loop.isScope(p)) {
-          var sv = PF.loop.cleanFile(p, p._file), sp = 'proposals/' + p._file, sf = p.format === PF.loop.STATUS ? 'flightdeck-plan-status' : 'flightdeck-plan';
+        /* A scope request or decision (3.0, PF.loop; a living run's scope request is flightdeck-plan/4 with loops) goes to its own
+           reader first, before the to-do reader, and never reaches the plan reader. */
+        /* A fact by its kind goes to the to-do reader before any loop or scope dispatch (PB), whatever envelope it carries. */
+        if (PF.loop.claims(p) && !(p && p.kind === 'fact')) {
+          var sv = PF.loop.cleanFile(asWritten(p), p._file), sp = 'proposals/' + p._file, sf = /^flightdeck-plan-status\//.test(p.format) ? 'flightdeck-plan-status' : 'flightdeck-plan';
           if (!sv.ok) { if (bad) bad.push({ path: sp, kind: sv.kind, why: sv.why }); refused.push(PF.envelope.refusal(sp, sf, sv)); scopesUnread.push({ file: p._file, why: sv.why, loop: PF.loop.loopOf(p) }); return; }
           sv.record._file = p._file; scopes.push(sv.record); return;
+        }
+        /* A to-do record (4.0, PF.todos), or any record naming living-runs, goes to its own reader first; one that can't be
+           read (newer, malformed) holds its run (or, when which run it is for can't be told, every living run). */
+        if (PF.todos.claims(p)) {
+          /* Copied into a map with no prototype, so a "__proto__" key in the file is a field the checks refuse, never the copy's prototype. */
+          var raw = asWritten(p);
+          /* A record the checks can't even look at (a value that can't be turned into text) is one unread file, never a read
+             that fails. */
+          var tv; try { tv = PF.todos.cleanFile(raw, p._file, p._bytes); } catch (e) { tv = { ok: false, kind: 'malformed', why: 'is a to-do record that isn\'t in its format', needs: '' }; }
+          var tp = 'proposals/' + p._file, tf = PF.todos.familyOf(p);
+          if (!tv.ok) { if (bad) bad.push({ path: tp, kind: tv.kind, why: tv.why }); refused.push(PF.envelope.refusal(tp, tf, tv)); todosUnread.push({ file: p._file, why: tv.why, kind: tv.kind, run: PF.todos.runOf(p) }); return; }
+          tv.record._file = p._file; todos.push(tv.record); return;
         }
         var v = PF.plans.clean(p, p._file, !!bad && !two), path = 'proposals/' + p._file, fam = PF.plans.familyOf(p, p._file) === 'status' ? 'flightdeck-plan-status' : 'flightdeck-plan';
         if (!v.ok) { if (bad) bad.push({ path: path, kind: v.kind, why: v.why }); refused.push(PF.envelope.refusal(path, fam, v)); return; }
@@ -2597,8 +2676,14 @@ PF.repo = (function () {
         else if (typeof p.id === 'string' && typeof p.process === 'string') plans.push(p);
       });
       /* A scope record that can't be read (cut short, still syncing) holds every loop, since which loop it is for can't be known. */
-      (torn || []).forEach(function (t) { if (/^req-/.test(String(t._file || ''))) scopesUnread.push({ file: t._file, why: t.why, loop: null }); });
-      return { plans: plans, statuses: statuses, scopes: scopes, scopesUnread: scopesUnread, refused: refused, torn: torn || [] };
+      /* A link holds every living run's to-dos and facts (which run it is for can't be told); loops read as in 3.0. */
+      (torn || []).forEach(function (t) {
+        /* Nested past the bound: refused by name (Folder health), as every reader refuses it, before anything parses it. */
+        if (t.deep) refused.push(PF.envelope.refusal(t.path, 'flightdeck-plan', { kind: 'malformed', why: t.why }));
+        if (PF.todos.recordName(t._file)) todosUnread.push(t.kind ? { file: t._file, why: t.why, kind: t.kind, run: null } : { file: t._file, why: t.why, run: null });
+        if (!t.link && /^req-/.test(String(t._file || ''))) scopesUnread.push({ file: t._file, why: t.why, loop: null });
+      });
+      return { plans: plans, statuses: statuses, scopes: scopes, scopesUnread: scopesUnread, todos: todos, todosUnread: todosUnread, refused: refused, torn: torn || [] };
     });
   }
   /* Reading for other apps: a view of a folder that writes down, by path, every list, read, stat or blob that failed (as
@@ -3303,5 +3388,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, saveScope: saveScope, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readTodos: readTodos, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, saveScope: saveScope, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

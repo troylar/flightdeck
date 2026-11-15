@@ -1268,6 +1268,48 @@ rule('The checker refuses a malformed scope request\'s observation, changes and 
 });
 
 
+/* Review round 7 (YA): a living run's scope request is flightdeck-plan/4 with loops and living-runs and names the parent head it
+   saw; the checker routes it to the scope reader before the to-do reader and refuses exactly what the app refuses, with the
+   app's first reason. */
+rule('The checker reads a living run\'s 4.0 scope requests (flightdeck-plan/4, head) as the app does, with the app\'s first reason', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const LP = PF.loop, root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-scope4-'));
+  try {
+    const d = new DiskFS(root);
+    await d.write('people.json', JSON.stringify(people));
+    const loop = { process: 'release-readiness', run: 'r-41', step: 'each' }, tool = { name: 'release-helper', version: '1.0' };
+    const obs = { source: { system: 'jira' }, generation: 'g1', query: 'fixVersion = 4.1', observedAt: '2026-11-07T09:00:00Z', items: [{ id: '10101', key: 'ABC-101', title: 'One' }], reported: 1, fetched: 1, complete: true, errors: [] };
+    const c = LP.cleanIntent({ loop, observation: obs, changes: [] }, 'k4', tool);
+    const H = 'req-release-helper-' + 'a'.repeat(24) + '.status-w1-0000abcd', F = LP.buildRequest(c.intent, { seen: [], children: [], now: NOW, app: '4.0.0', head: H });
+    assert.strictEqual(F.format, 'flightdeck-plan/4', 'set-up: a 4.0 scope request');
+    const cases = [
+      ['valid', () => {}], ['empty head', (f) => { f.head = ''; }], ['no head', (f) => { delete f.head; }], ['head number', (f) => { f.head = 7; }],
+      ['head with a space', (f) => { f.head = 'req x'; }], ['head too long', (f) => { f.head = 'a'.repeat(161); }], ['head starts with a dot', (f) => { f.head = '.x'; }],
+      ['loops only', (f) => { f.features = ['loops']; }], ['living-runs only', (f) => { f.features = ['living-runs']; }],
+      ['a plan-status/4 with loops', (f) => { f.format = 'flightdeck-plan-status/4'; }], ['plan/5 with loops', (f) => { f.format = 'flightdeck-plan/5'; }],
+      ['plan/3 with a head', (f) => { f.format = 'flightdeck-plan/3'; f.features = ['loops']; }], ['no head, bad seen', (f) => { delete f.head; f.seen = 'x'; }],
+      ['bad name, no head', (f) => { delete f.head; f.id = 'req-other-' + 'b'.repeat(24); }]
+    ];
+    const ids = [];
+    for (let i = 0; i < cases.length; i++) {
+      const [what, edit] = cases[i], f = JSON.parse(JSON.stringify(F));
+      f.id = 'req-release-helper-' + (0x200000 + i).toString(16).padStart(24, '0');
+      const name = f.id + '.json';
+      edit(f); ids.push([name, what]);
+      await d.write('proposals/' + name, JSON.stringify(f, null, 2) + '\n');
+    }
+    const app = await repo.loadAll(d, { deep: true }), out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8', maxBuffer: 64 << 20 }));
+    const appSays = Object.fromEntries(ids.map(([n]) => [n, 'read'])), mine = Object.fromEntries(ids.map(([n]) => [n, 'missing']));
+    JSON.parse(JSON.stringify(app.refused)).forEach(r => { const n = r.path.replace(/^proposals\//, ''); if (n in appSays) appSays[n] = 'refused: ' + r.why; });
+    (out.scopes || []).forEach(s => { const n = s.file.replace(/^proposals\//, ''); if (n in mine) mine[n] = 'read'; });
+    (out.refused || []).forEach(r => { const n = r.file.replace(/^proposals\//, ''); if (n in mine) mine[n] = 'refused: ' + r.why; });
+    const label = Object.fromEntries(ids);
+    assert.deepStrictEqual(ids.filter(([n]) => appSays[n] !== mine[n]).map(([n]) => label[n] + '\n    app:     ' + appSays[n] + '\n    checker: ' + mine[n]), [], 'the checker reads each as the app does');
+    assert.deepStrictEqual(['valid', 'empty head', 'plan/3 with a head'].map(w => appSays[ids.find(x => x[1] === w)[0]]), ['read', 'read', 'read'], 'set-up: valid ones read');
+    assert.ok(/parent head/.test(appSays[ids.find(x => x[1] === 'no head')[0]]), 'a 4.0 scope request without its head is refused: ' + appSays[ids.find(x => x[1] === 'no head')[0]]);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
 /* 3.0.1 (recheck): the scope validators read text as JavaScript does: ASCII regex classes (no Unicode digits, no case folding
    to ſ or K), lengths in UTF-16 units, every name a plain object keeps for itself (prototype too), String() on a value
    that isn't text, and the URL parser's numeric last label. Each case beside a sibling the app reads. */

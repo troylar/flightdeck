@@ -720,11 +720,11 @@ rule('A registration with any revision this copy can\'t read (newer, malformed o
   assert.ok(named(list, 'other-skill').length === 1 && !named(list, 'other-skill')[0].unmatched);
 });
 
-rule('Slice 2 part 2 registers pinned-children and pinned-skills (checklist/2, publication/2, run/3), plan/2 and its status, and skill/2; slice 3 adds typed data; 2.1 adds conditions, staged versions and test runs; 2.8 adds passed details; 2.9 adds team values; 2.16 adds Jira searches and detail patterns; 3.0 adds module results; every later feature stays refused', () => {
+rule('Slice 2 part 2 registers pinned-children and pinned-skills (checklist/2, publication/2, run/3), plan/2 and its status, and skill/2; slice 3 adds typed data; 2.1 adds conditions, staged versions and test runs; 2.8 adds passed details; 2.9 adds team values; 4.0 adds living runs; 2.16 adds Jira searches and detail patterns; 3.0 adds module results; every later feature stays refused', () => {
   const want = ['phase-notes', 'phase-shots', 'gate-shots', 'pinned-children', 'pinned-skills', 'typed-details', 'typed-evidence', 'conditions', 'passed-details', 'team-values', 'jira-search', 'detail-patterns', 'module-results', 'loops'];
   assert.deepStrictEqual(plain(E.FAMILIES['flightdeck-checklist'].majors[2]), want);
   assert.deepStrictEqual(plain(E.FAMILIES['preflight-publication'].majors[2]), want.concat(['staged']));
-  assert.deepStrictEqual(plain(E.FAMILIES['preflight-run'].majors[3]), want.concat(['staged', 'test-run']));
+  assert.deepStrictEqual(plain(E.FAMILIES['preflight-run'].majors[3]), want.concat(['staged', 'test-run', 'living-runs']));
   assert.ok(E.judge('flightdeck-plan', { format: 'flightdeck-plan/2' }).ok);
   assert.ok(E.judge('flightdeck-plan-status', { format: 'flightdeck-plan-status/2' }).ok);
   assert.ok(E.judge('flightdeck-skill', { format: 'flightdeck-skill/2' }).ok);
@@ -732,7 +732,26 @@ rule('Slice 2 part 2 registers pinned-children and pinned-skills (checklist/2, p
   assert.ok(!E.judge('preflight-publication', { format: 'preflight-publication/2', features: ['test-run'] }).ok);
   assert.ok(!E.judge('preflight-publication', { format: 'preflight-publication/2', features: ['extensions'] }).ok);
   assert.ok(!E.judge('preflight-run', { format: 'preflight-run/3', features: ['extensions'] }).ok);
-  assert.ok(!E.judge('flightdeck-plan', { format: 'flightdeck-plan/4' }).ok);
+  assert.ok(!E.judge('flightdeck-plan', { format: 'flightdeck-plan/5' }).ok);
 });
 
+rule('Keeping a copy a to-do made a run/3, with a child pinned since, over its run/2 keeps the head, the pins and their feature', () => {
+  const T = PF.todos, parent = linked(childProc(['A']), [], {});
+  const cur = R.create(parent, { id: 'r-9', by: 'person-avery', session: 'w', now: AT, app: '2.0.0', details: { ticket: 'ABC-1' } });
+  assert.strictEqual(cur.format, 'preflight-run/2', 'set-up: a run/2');
+  const map = R.mapOf(cur), RUN = { process: cur.process, id: cur.id }, tgt = { phase: map.phases[0].id };
+  const pv = T.cleanFile(JSON.parse(T.text(T.buildProposal({ run: RUN, id: T.idFor('flightdeck', 'q1'), by: 'person-avery', seen: [], at: AT, body: { op: 'add', text: 'One', target: tgt, placement: T.placementFor(map, tgt) } }))), T.idFor('flightdeck', 'q1') + '.json').record;
+  const s = T.buildStatus({ kind: 'application', proposal: pv.id, run: RUN, seen: [pv.id], by: 'person-avery', at: AT, authority: { decision: pv.id + '.status-w1-00000000' }, previous: '', effect: T.effectOf(pv), writer: 'rec', rev: '0000abcd' });
+  const a = T.cleanFile(JSON.parse(T.text(s.file)), s.name).record;
+  const copy = plain(cur), types = parent.info.typesHash;
+  R.todoLand(copy, map, a, { who: 'person-avery', now: AT, typesHash: types, app: '4.0.0' });
+  const kids = childProc(['A']), procs = { verify: proc(kids) };
+  const kid1 = R.create(kids[0], { id: 'kid1', by: 'a', session: 'w', now: AT, details: { ticket: 'ABC-1' } });
+  R.linkChild(copy, R.mapOf(copy), 'verify', { process: 'verify', id: 'kid1', inputs: { ticket: 'ABC-1' }, folder: kids[0].info.folder, format: 'preflight-run/2' }, 'person-avery', AT, { run: kid1, procOf: (id) => procs[id] || null });
+  assert.ok(copy.pins && copy.pins.children.verify, 'set-up: pinned');
+  const kept = plain(cur);
+  R.adopt(kept, R.sanitize(plain(copy)), 'person-avery', AT, { typesHash: types });
+  assert.deepStrictEqual(plain([kept.living, kept.pins || null, kept.features.indexOf('pinned-children') >= 0, kept.features.indexOf("living-runs") >= 0]), plain([{ head: a.id }, copy.pins, true, true]));
+  const back = R.sanitize(plain(kept)); assert.ok(!back._unrunnable, back._unrunnable);
+});
 run();

@@ -44,11 +44,39 @@ PF.loop = (function () {
   function uidOf(source, it) { return it && it.id ? source + ':' + it.id : source + ':key:' + String((it && it.key) || ''); }
   /* Each record's ancestors (every record it saw, transitively), and the causal order. A record that names one this copy
      can't read is held, with everything after it that saw it: nothing of theirs is applied. */
+  /* What a copy of a record says, for telling copies apart: its fields, without the reader's own (_file, created). */
+  function copyBody(r) { var o = Object.create(null); Object.keys(r).forEach(function (k) { if (k[0] !== '_' && k !== 'created') o[k] = r[k]; }); return JSON.stringify(canon(o)); }
+  /* The ids whose copies differ (OneDrive's "<id> (1).json"), over every checked record given, whatever its kind or run, so a
+     fact and a request under one id are caught before either reducer picks out its own. Kept per list (and its length), so
+     every reducer of one read asks once. */
+  var splitMemo = typeof WeakMap === 'function' ? new WeakMap() : null;
+  function splitIds(records) {
+    var list = records || [], m = splitMemo && splitMemo.get(list);
+    if (m && m.n === list.length) return m.split;
+    var first = Object.create(null), split = Object.create(null);
+    list.forEach(function (x) {
+      if (!x || typeof x.id !== 'string') return;
+      var b = copyBody(x);
+      if (!(x.id in first)) first[x.id] = b; else if (first[x.id] !== b) split[x.id] = true;
+    });
+    if (splitMemo) splitMemo.set(list, { n: list.length, split: split });
+    return split;
+  }
+  /* mine (one reducer's records) with every other copy, from all, of an id in mine whose copies differ: causal then holds that
+     id, and everything that saw it, wherever the other copy is and whatever it is. */
+  function withCopies(mine, all) {
+    var split = splitIds(all), ids = Object.keys(split);
+    if (!ids.length) return mine;
+    var has = Object.create(null), own = typeof Set === 'function' ? new Set(mine) : null;
+    mine.forEach(function (x) { if (x && typeof x.id === 'string' && split[x.id]) has[x.id] = true; });
+    var away = (all || []).filter(function (x) { return x && typeof x.id === 'string' && has[x.id] && !(own ? own.has(x) : mine.indexOf(x) >= 0); });
+    return away.length ? mine.concat(away) : mine;
+  }
   function causal(records) {
     var by = Object.create(null), order = [], held = [], anc = Object.create(null), split = Object.create(null);
     /* OneDrive copies of one record (the same id): counted once when they say the same thing; when they differ, which is
        meant isn't known, so the record is held, with everything after it. */
-    function body(r) { var o = Object.create(null); Object.keys(r).forEach(function (k) { if (k[0] !== '_' && k !== 'created') o[k] = r[k]; }); return JSON.stringify(canon(o)); }
+    var body = copyBody;
     records.forEach(function (r) {
       if (!r || typeof r.id !== 'string') return;
       if (!by[r.id]) by[r.id] = r; else if (body(by[r.id]) !== body(r)) split[r.id] = true;
@@ -101,6 +129,36 @@ PF.loop = (function () {
     var heads = order.filter(function (r) { return !seenBy[idx[r.id]]; }).map(function (r) { return r.id; });
     return { order: order, saw: saw, held: held, heads: heads };
   }
+  /* The one causal rule for a decision kept in slot, shared by loops and living runs (PF.todos): c is PF.loop.causal's result. */
+  function settleIn(c, x, slot, rv, rec, val, same, why) {
+    /* Round 10: one deduplicated set per slot. slot+'All' is every decision in the slot, slot+'Front' its frontier
+       (those no later one in the slot saw: what a record must see to have seen them all);
+       slot+'Out' the participants of its unresolved conflict still outstanding; slot+'Part' every participant since the
+       conflict began (the plans offered). A record settles the conflict only once it has seen every one outstanding (S1,
+       docs/design.md 44); one that saw only some takes their place, so a conflict wider than one record can name settles a
+       page at a time, and approval waits for the last page. */
+    var saw = function (id) { return c.saw(rec.id, id); }, all = x[slot + 'All'] || (x[slot + 'All'] = []), out = x[slot + 'Out'] || [], part = x[slot + 'Part'] || [];
+    var against = all.filter(function (e) { return !saw(e.record) && !same(e.val, val); });
+    all.push({ record: rec.id, val: val });
+    x[slot + 'Front'] = (x[slot + 'Front'] || []).filter(function (id) { return !saw(id); }).concat([rec.id]);
+    var join = function (ids) { var have = Object.create(null); part.forEach(function (id) { have[id] = true; }); ids.forEach(function (id) { if (!have[id]) { have[id] = true; part.push(id); } }); x[slot + 'Part'] = part; };
+    var left = out.filter(function (id) { return !saw(id); });
+    if (out.length && left.length) {
+      x[slot + 'Out'] = left.concat([rec.id]); join([rec.id]);
+      x[rv].push({ records: [rec.id], ops: [val.op], why: why.again });
+      return 'held';
+    }
+    if (against.length) {
+      against.forEach(function (e) { x[rv].push({ records: [e.record, rec.id], ops: [e.val.op, val.op], why: why.both(Object.assign({}, e.val, { record: e.record }), val) }); });
+      var ids = against.map(function (e) { return e.record; }).concat([rec.id]);
+      x[slot + 'Out'] = ids; join(ids);
+      x[slot] = Object.assign({}, val, { record: rec.id, contrary: against[0].record });
+      return 'contrary';
+    }
+    x[rv] = []; x[slot + 'Out'] = []; x[slot + 'Part'] = [];
+    x[slot] = Object.assign({}, val, { record: rec.id });
+    return 'settled';
+  }
   /* The items of a loop from its records. o: { source ('jira'), max }. Returns { items, pending, held, duplicates, overLimit,
      heads, observation }. items keep every one ever in scope, in the order they first arrived. */
   function reduce(records, o) {
@@ -133,35 +191,7 @@ PF.loop = (function () {
     /* The one causal rule for a decision kept in slot (the scope verdict, a run choice): a record that didn't see the
        decision before it and disagrees makes them contrary (held, in rv); a later one settles it only once it has seen
        both. Returns 'contrary', 'held' or 'settled'. same(prev, val): whether they agree. why: { both(prev, val), again }. */
-    function settle(x, slot, rv, rec, val, same, why) {
-      /* Round 10: one deduplicated set per slot. slot+'All' is every decision in the slot, slot+'Front' its frontier
-         (those no later one in the slot saw: what a record must see to have seen them all);
-         slot+'Out' the participants of its unresolved conflict still outstanding; slot+'Part' every participant since the
-         conflict began (the plans offered). A record settles the conflict only once it has seen every one outstanding (S1,
-         docs/design.md 44); one that saw only some takes their place, so a conflict wider than one record can name settles a
-         page at a time, and approval waits for the last page. */
-      var saw = function (id) { return c.saw(rec.id, id); }, all = x[slot + 'All'] || (x[slot + 'All'] = []), out = x[slot + 'Out'] || [], part = x[slot + 'Part'] || [];
-      var against = all.filter(function (e) { return !saw(e.record) && !same(e.val, val); });
-      all.push({ record: rec.id, val: val });
-      x[slot + 'Front'] = (x[slot + 'Front'] || []).filter(function (id) { return !saw(id); }).concat([rec.id]);
-      var join = function (ids) { var have = Object.create(null); part.forEach(function (id) { have[id] = true; }); ids.forEach(function (id) { if (!have[id]) { have[id] = true; part.push(id); } }); x[slot + 'Part'] = part; };
-      var left = out.filter(function (id) { return !saw(id); });
-      if (out.length && left.length) {
-        x[slot + 'Out'] = left.concat([rec.id]); join([rec.id]);
-        x[rv].push({ records: [rec.id], ops: [val.op], why: why.again });
-        return 'held';
-      }
-      if (against.length) {
-        against.forEach(function (e) { x[rv].push({ records: [e.record, rec.id], ops: [e.val.op, val.op], why: why.both(Object.assign({}, e.val, { record: e.record }), val) }); });
-        var ids = against.map(function (e) { return e.record; }).concat([rec.id]);
-        x[slot + 'Out'] = ids; join(ids);
-        x[slot] = Object.assign({}, val, { record: rec.id, contrary: against[0].record });
-        return 'contrary';
-      }
-      x[rv] = []; x[slot + 'Out'] = []; x[slot + 'Part'] = [];
-      x[slot] = Object.assign({}, val, { record: rec.id });
-      return 'settled';
-    }
+    function settle(x, slot, rv, rec, val, same, why) { return settleIn(c, x, slot, rv, rec, val, same, why); }
     function verdict(x, rec, op, reason) {
       var to = VERDICT[op];
       var s = settle(x, 'verdict', 'review', rec, { to: to, op: op }, function (p, v) { return p.to === v.to; },
@@ -284,7 +314,7 @@ PF.loop = (function () {
     });
     var inScope = items.filter(function (x) { return x.state !== 'removed'; }).length;
     var heads = c.heads;
-    return { items: items, held: c.held, duplicates: duplicates, heads: heads, requests: asks, observation: lastObs, applied: c.order.map(function (r) { return r.id; }),
+    return { items: items, held: c.held, duplicates: duplicates, heads: heads, saw: c.saw, requests: asks, observation: lastObs, applied: c.order.map(function (r) { return r.id; }),
       pending: items.filter(function (x) { return x.state === 'proposed'; }).map(function (x) { return { uid: x.uid, key: x.key, proposal: x.proposal }; }),
       overLimit: inScope > max ? { count: inScope, max: max } : null };
   }
@@ -311,7 +341,12 @@ PF.loop = (function () {
     (slots || []).forEach(function (sl) { xs.forEach(function (x) { (x[sl + 'Front'] || []).forEach(add); }); });
     first = need.sort(cmpStr).slice(); need = []; have = Object.create(null); first.forEach(function (id) { have[id] = true; });
     xs.forEach(function (x) { SLOTS.forEach(function (sl) { (x[sl[0] + 'Front'] || []).forEach(add); }); });
-    need = first.concat(need.sort(cmpStr));
+    return page(heads, first, need.sort(cmpStr));
+  }
+  /* A page of at most LIMITS.seen records to name as seen: first (what must come first), then rest, then other heads. left:
+     how many of first the page leaves for the next one (or, with none, how many of rest). Shared with living runs (PF.todos). */
+  function page(heads, first, rest) {
+    var need = first.concat(rest);
     var seen = need.slice(0, LIMITS.seen), left = Math.max(0, first.length - LIMITS.seen) || (first.length ? 0 : need.length - seen.length), in_ = Object.create(null);
     seen.forEach(function (id) { in_[id] = true; });
     for (var i = 0; i < heads.length && seen.length < LIMITS.seen; i++) if (!in_[heads[i]]) { in_[heads[i]] = true; seen.push(heads[i]); }
@@ -754,6 +789,10 @@ PF.loop = (function () {
      Flightdeck and never offers it; this copy dispatches it here before the plan reader. A decision is
      flightdeck-plan-status/3, named <request>.status-<writer>-<rev>.json, written once and never changed. */
   var FORMAT = 'flightdeck-plan/3', STATUS = 'flightdeck-plan-status/3', FEATURES = ['loops'];
+  /* A living run's scope request (4.0, round 7): flightdeck-plan/4 with loops and living-runs, naming the parent's to-do head
+     it saw (head: an application id, or '' before the first), so a stop can tell an item that arrived after it from one it
+     couldn't see. Every other scope request stays flightdeck-plan/3. */
+  var FORMAT4 = 'flightdeck-plan/4', FEATURES4 = ['loops', 'living-runs'], HEAD = /^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/;
   var ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
   var PROC = /^[a-z0-9][a-z0-9-]{0,59}$/, RUN = /^[a-z0-9-]{1,40}$/i, STEP = /^[a-z0-9][a-z0-9-]{0,59}$/i, PERSON = /^[A-Za-z0-9_.-]{1,80}$/;
   var REQ = /^req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24}$/, WRITER = /^[a-z0-9][a-z0-9-]{0,39}$/, REV = /^[0-9a-f]{8}$/, DNAME = /^(req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})\.status-([a-z0-9][a-z0-9-]{0,39})-([0-9a-f]{8})\.json$/;
@@ -774,7 +813,10 @@ PF.loop = (function () {
   /* The request's id and file stem: like a plan request's (PF.requests.idFor), from the tool's name and the key, but over
      ['scope', tool, key], so a scope request and a plan request with the same key never share a name. */
   function idFor(tool, key) { return 'req-' + tool + '-' + PF.sha256.hex(JSON.stringify(['scope', tool, key])).slice(0, 24); }
-  function isScope(o) { return isMap(o) && typeof o.format === 'string' && (o.format === FORMAT || o.format === STATUS); }
+  function isScope(o) { return isMap(o) && typeof o.format === 'string' && (o.format === FORMAT || o.format === STATUS || (o.format === FORMAT4 && Array.isArray(o.features) && o.features.indexOf('loops') >= 0)); }
+  /* A scope record of any version: this copy's format, or a later plan or plan-status format naming the loops feature, so a
+     newer one is refused by the scope reader (and holds its loop), never read as a plan. */
+  function claims(o) { if (isScope(o)) return true; var m = isMap(o) && typeof o.format === 'string' ? /^flightdeck-plan(-status)?\/([0-9]{1,6})$/.exec(o.format) : null; return !!m && +m[2] > 3 && Array.isArray(o.features) && o.features.indexOf('loops') >= 0; }
   function line(v, max, what, errors, opt) {
     if (v == null && opt) return '';
     if (typeof v !== 'string' || (!opt && !v.trim())) { errors.push(what + ' is text.'); return null; }
@@ -947,14 +989,15 @@ PF.loop = (function () {
   function wire(obs) { if (!obs) return null; var o = Object.create(null); Object.keys(obs).forEach(function (k) { if (k !== 'why') o[k] = obs[k]; }); return o; }
   function canonical(intent) { return canon({ loop: intent.loop, producer: intent.producer ? intent.producer.name : null, observation: wire(intent.observation), changes: intent.changes }); }
   function differs(intent, file) {
-    if (!isMap(file) || file.format !== FORMAT) return ['kind'];
+    if (!isMap(file) || (file.format !== FORMAT && file.format !== FORMAT4)) return ['kind'];
     var a = canonical(intent), b = canon({ loop: file.loop, producer: file.producer ? file.producer.name : null, observation: wire(file.observation || null), changes: file.changes || [] }), out = [];
     ['producer', 'loop', 'observation', 'changes'].forEach(function (k) { if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) out.push(k === 'producer' ? 'tool' : k); });
     return out;
   }
-  /* The file written. o: { seen (the records it saw), children (planned child intents), now, app, by (a person, when no tool), id }. */
+  /* The file written. o: { seen (the records it saw), children (planned child intents), now, app, by (a person, when no tool), id,
+     head (a living parent's to-do head, '' before its first application: a flightdeck-plan/4 record that names it) }. */
   function buildRequest(intent, o) {
-    var tool = intent.producer, f = { format: FORMAT, features: FEATURES.slice() };
+    var tool = intent.producer, four = typeof o.head === 'string', f = { format: four ? FORMAT4 : FORMAT, features: (four ? FEATURES4 : FEATURES).slice() };
     if (PF.envelope.semver(o.app)) f.app = o.app;
     f.id = o.id || idFor(tool.name, intent.key);
     f.loop = intent.loop;
@@ -962,19 +1005,24 @@ PF.loop = (function () {
     if (tool) { f.producer = { name: tool.name, version: tool.version }; f.key = intent.key; f.by = tool.name + ' ' + tool.version + ' (a tool)'; }
     else f.by = o.by;
     f.created = o.now;
+    if (four) f.head = o.head;
     f.seen = (o.seen || []).slice().sort();
     f.observation = wire(intent.observation);
     f.changes = intent.changes;
     f.children = (o.children || []).map(function (k) { return { item: intent.kind && intent.kind !== 'jira.issue' ? { key: k.item.key } : { id: k.item.id || '', key: k.item.key }, attempt: k.attempt, inputs: sorted(k.inputs || {}), owner: k.owner || '' }; });
     return f;
   }
+  /* What a scope request names as the parent's to-do head it saw (round 7): a living run's head ('' before its first
+     application), or undefined for any other run, which keeps flightdeck-plan/3. */
+  function headFor(r) { return r && r.living ? (typeof r.living.head === 'string' ? r.living.head : '') : undefined; }
   /* The same, against a request as the folder reader cleaned it. */
   function differsRecord(intent, rec) { return differs(intent, { format: FORMAT, loop: rec.loop, producer: rec.by && rec.by.tool ? { name: rec.by.tool } : null, observation: rec.observation, changes: rec.changes }); }
   function text(f) { return JSON.stringify(f, null, 2) + '\n'; }
   function verdictOf(o, family) {
     var v = PF.envelope.judge(family, o);
     if (!v.ok) return { ok: false, kind: v.kind, why: v.kind === 'newer' ? 'is a scope ' + (family === 'flightdeck-plan' ? 'request' : 'decision') + ' made with a newer Flightdeck. ' + PF.envelope.needsText(v.needs) : v.why, needs: v.needs || '' };
-    if (v.major !== 3 || v.features.indexOf('loops') < 0) return { ok: false, kind: 'malformed', why: 'isn\'t a scope ' + (family === 'flightdeck-plan' ? 'request' : 'decision') + ' (it doesn\'t name the loops feature)', needs: '' };
+    if ((v.major !== 3 && !(v.major === 4 && family === 'flightdeck-plan')) || v.features.indexOf('loops') < 0) return { ok: false, kind: 'malformed', why: 'isn\'t a scope ' + (family === 'flightdeck-plan' ? 'request' : 'decision') + ' (it doesn\'t name the loops feature)', needs: '' };
+    if (v.major === 4 && v.features.indexOf('living-runs') < 0) return { ok: false, kind: 'malformed', why: 'isn\'t a 4.0 scope request (it doesn\'t name the living-runs feature)', needs: '' };
     return null;
   }
   function byOf(f) {
@@ -988,6 +1036,8 @@ PF.loop = (function () {
     var errors = [], mal = function (why) { return { ok: false, kind: 'malformed', why: why, needs: '' }; };
     if (typeof o.id !== 'string' || !REQ.test(o.id)) return mal('is a scope request without a request id');
     if (typeof name === 'string' && name.indexOf(o.id) !== 0) return mal('is a scope request whose name isn\'t its id');
+    var four = o.format === FORMAT4;
+    if (four && (typeof o.head !== 'string' || (o.head !== '' && !HEAD.test(o.head)))) return mal('is a 4.0 scope request without the parent head it saw (head is an application id, or "" before the first)');
     /* The kind of item it's about (jira.issue when it doesn't say): one this copy doesn't know is refused, never read as another. */
     if (o.kind != null && !kindOf(o.kind)) return mal('is a scope request for items of kind ' + JSON.stringify(String(o.kind).slice(0, 40)) + ', which this copy of Flightdeck doesn\'t know');
     var kind = o.kind == null ? 'jira.issue' : o.kind;
@@ -1001,7 +1051,7 @@ PF.loop = (function () {
       children.push({ item: it, attempt: k.attempt, inputs: k.inputs, owner: k.owner });
     });
     if (errors.length) return mal('is a scope request that isn\'t in its format: ' + errors[0]);
-    return { ok: true, record: { id: o.id, type: 'request', kind: kind, loop: loop, seen: o.seen.slice(), by: byOf(o), observation: obs, changes: changes, children: children, created: typeof o.created === 'string' ? o.created : '', key: typeof o.key === 'string' ? o.key : '' } };
+    return { ok: true, record: { id: o.id, type: 'request', kind: kind, head: four ? o.head : null, loop: loop, seen: o.seen.slice(), by: byOf(o), observation: obs, changes: changes, children: children, created: typeof o.created === 'string' ? o.created : '', key: typeof o.key === 'string' ? o.key : '' } };
   }
   /* A decision on a scope request's proposed removals: accept (remove them) or keep. Its id is its file stem. */
   function buildDecision(d) {
@@ -1035,11 +1085,11 @@ PF.loop = (function () {
     return v.ok ? '' : 'It wouldn\'t read back: it ' + v.why + '.';
   }
   /* A file of either kind, as the folder reader dispatches it before the plan reader. */
-  function cleanFile(o, name) { return o.format === STATUS ? cleanDecision(o, name) : cleanRequest(o, name); }
+  function cleanFile(o, name) { return /^flightdeck-plan-status\//.test(String(o.format)) ? cleanDecision(o, name) : cleanRequest(o, name); }
   /* The records about one loop instance. */
   function recordsFor(records, loop) { return (records || []).filter(function (r) { return r.loop && r.loop.process === loop.process && r.loop.run === loop.run && r.loop.step === loop.step; }); }
 
-  return { askerWhy: askerWhy, seenFor: seenFor, pageWords: pageWords, fileWhy: fileWhy, KINDS: KINDS, kindOf: kindOf, nounOf: nounOf, count: count, feedWhy: feedWhy, httpLink: httpLink, cleanItem: cleanItem, cleanChanges: cleanChanges, FEED: FEED, NOUN: NOUN, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
-    idFor: idFor, isScope: isScope, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
+  return { splitIds: splitIds, withCopies: withCopies, headFor: headFor, askerWhy: askerWhy, seenFor: seenFor, page: page, settleIn: settleIn, pageWords: pageWords, fileWhy: fileWhy, KINDS: KINDS, kindOf: kindOf, nounOf: nounOf, count: count, feedWhy: feedWhy, httpLink: httpLink, cleanItem: cleanItem, cleanChanges: cleanChanges, FEED: FEED, NOUN: NOUN, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
+    idFor: idFor, isScope: isScope, claims: claims, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
     rollup: rollup, view: view, markStale: markStale, rowId: rowId, choiceWhy: choiceWhy, resolveWhy: resolveWhy, resolvedBy: resolvedBy, planWhy: planWhy, sendBackWhy: sendBackWhy, again: again, appliedIn: appliedIn, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();

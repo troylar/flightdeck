@@ -802,7 +802,8 @@ const D10_OK = [
   { file: 'run.js', has: '\'<option value="\' + esc(cid) + \'">\' + esc(cid)', why: 'a story\'s competing runs to choose among, at most the 50 a choice records, with how many more' },
   { file: 'run.js', has: 'nmMe(p)', why: PERSON }, { file: 'run.js', has: '\'<option value="\' + esc(p.id) + \'">\' + esc(p.name || p.id)', why: PERSON }, { file: 'run.js', has: 'nmTo(p)', why: PERSON }, { file: 'run.js', has: 'nmRole(p)', why: PERSON },
   { file: 'setup.js', has: 'esc(k[1]) + \'</p>\' + list([p])', why: 'a fixed pair: the person being changed and the one just added, each drawn once' },
-  { file: 'setup.js', has: 'nmBk(', why: PERSON }, { file: 'setup.js', has: 'nmTo(p)', why: PERSON }
+  { file: 'setup.js', has: 'nmBk(', why: PERSON }, { file: 'setup.js', has: 'nmTo(p)', why: PERSON },
+  { file: 'run.js', has: 'var owed = C.items.filter(function (i) { return i.owed; })', why: 'one row per spread on this loop, at most the 50 a run takes; its notice names at most 10 arrivals, with "And N more"' }
 ];
 /* Helpers that draw a notice for one thing at a time, never once per row (code review round 12): a call to one of these in a
    row or a loop isn't a repeated notice. Every other function that builds a notice, itself or through another, counts as one
@@ -948,7 +949,12 @@ const D10_JOIN_OK = [
   { file: 'app.js', has: 'typeChange(\'tag removal\'', why: FORMVAL }, { file: 'app.js', has: 'sigN = names.join', why: NOT_TEXT },
   { file: 'app.js', has: 'return { text: out.join', why: FILE },
   { file: 'app.js', has: 'cx.renamed.concat(rl.renamed)', why: 'names typed in New checklist\'s boxes, each at most 120 characters' },
-  { file: 'manage.js', has: 'return \'Old copy from \' + afWaiting(', why: 'the versions go through afWaiting, which shows the first 3 and "and N more"' }
+  { file: 'manage.js', has: 'return \'Old copy from \' + afWaiting(', why: 'the versions go through afWaiting, which shows the first 3 and "and N more"' },
+  { file: 'overlays.js', has: 'ids = now.map(function (x) { return x.run.process', why: NOT_TEXT + ': a batch\'s request ids, at most the 50 one click accepts' },
+  { file: 'run.js', has: 'C.notices.slice(0, 10).map(esc).join', why: 'the first 10 and "And N more"' },
+  { file: 'app.js', has: 'failed.slice(0, 5).map(function (f) { return f.why; }).join', why: 'the first 5 reasons; how many couldn\'t be saved is said in full' },
+  { file: 'app.js', has: 'left.slice(0, 5).map(function (u) { return u.x.run', why: 'the first 5, with "and N more"' },
+  { file: 'app.js', has: 'alone.slice(0, 5).map(function (a) { return a.x.run', why: 'the first 5 left for their own decision, with "and N more"' }
 ];
 /* Every .join( in the views and app.js whose separator isn't '', with its line number and file. */
 function joins(src) {

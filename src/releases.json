@@ -1,5 +1,69 @@
 [
   {
+    "version": "4.0.0",
+    "date": "2026-11-09",
+    "headline": "Living runs: to-dos a run takes on while it runs",
+    "changes": [
+      {
+        "kind": "improved",
+        "area": "Updating",
+        "title": "Move every computer to 4.0 before anyone adds to-dos to a run",
+        "now": "A run that has taken on to-dos, and the to-do records in proposals/, use a format only Flightdeck 4.0 reads. Copies before 4.0 show them by name and never change them, and check_folder.py names the version they need. A run without to-dos reads and saves as before.",
+        "where": "Runs, proposals/, check_folder.py"
+      },
+      {
+        "kind": "new",
+        "area": "Runs",
+        "title": "Add, check off, drop or move to-dos on the run screen",
+        "now": "Under the current phase, Add something to do says the gate it comes before. Check a to-do off, say why it won't be done, move or defer it, or reopen it. Each says Queued for the recorder or Waiting for approval, and shows Done only once the recorder's window applies it. Steps, items and to-dos are each counted on their own line.",
+        "where": "A run's screen"
+      },
+      {
+        "kind": "new",
+        "area": "Home",
+        "title": "Decide to-do requests that need you",
+        "now": "Home says how many to-do requests wait for your decision and opens exactly those, ten at a time. Accept or decline each; if what it would do changed since you saw it, it asks again. Delegate adding, checking off and reopening to a tool or a person, and end a delegation any time.",
+        "where": "Home, a run's screen"
+      },
+      {
+        "kind": "new",
+        "area": "Command line",
+        "title": "Read and ask for to-dos from the command line",
+        "now": "flightdeck todo list shows a run's to-dos and the requests on them. flightdeck todo add, done, wont, move and reopen preview with --dry-run, then file one request for a person to decide; the recorder's window applies it. flightdeck run, next and runs show a run's to-dos and what holds its gates. The new living-run skill does this for an assistant.",
+        "where": "flightdeck todo, the assistants' skills"
+      },
+      {
+        "kind": "new",
+        "area": "Loops",
+        "title": "Require something of every story in a loop",
+        "now": "A spread asks for one requirement, such as a security sign-off, on every open story of a loop, and on every story or attempt that joins later. Each story's own run decides its part. The loop shows one row per spread with a chip per story, and holds its approval until every story's part is resolved. Accept a spread's plain additions together from the inbox.",
+        "where": "A run's loop, Home's inbox"
+      },
+      {
+        "kind": "new",
+        "area": "Command line",
+        "title": "Add, sync and stop spreads from the command line",
+        "now": "flightdeck spread list shows a run's spreads and each story's state. flightdeck spread add, include and stop preview with --dry-run, then file one request for a person to decide. flightdeck spread sync asks each story's run for its part, one request per story, and names any addition that would send an approval back.",
+        "where": "flightdeck spread, the living-run skill"
+      },
+      {
+        "kind": "improved",
+        "area": "Loops",
+        "title": "A loop's approval stays put while a story's run can't be read",
+        "before": "In 3.0, when a story's run or the version it runs on couldn't be read, the loop read that story's result as none and sent its approval back for review.",
+        "now": "The approval stays as it is and the loop's gate waits until the run and its version read again. If nothing changed, it stays approved; if the result changed, it goes back for review then. This applies to every loop, with or without spreads or to-dos.",
+        "where": "A run's loop"
+      },
+      {
+        "kind": "new",
+        "area": "Loops",
+        "title": "See what is known about each story, and check a to-do off on its evidence",
+        "now": "A tool can record what it found about a loop's items (PRs, commits, status, blockers), how complete and when. The loop shows it under each item; anything not checked says so, never \"no blockers\". Facts never change work: a to-do is checked off on their evidence only when a person accepts the suggestion, or a delegation covers it, and only if the evidence still holds when applied.",
+        "where": "A run's loop, flightdeck fact, the living-run skill"
+      }
+    ]
+  },
+  {
     "version": "3.0.1",
     "date": "2026-11-09",
     "headline": "AI assistant files that match 3.0, and a folder check that reads loops",
