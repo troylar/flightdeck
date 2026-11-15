@@ -4,11 +4,66 @@
   var U = PF.util, R = PF.run, M = PF.map, T = PF.types, V = PF.views, repo = PF.repo;
   /* Round 10: keeping a conflict copy of a loop's parent or child first writes a backup of the version it replaces; that
      backup asks the guard captured at the click (state.recoverCx) too, so nothing is written for another folder or person. */
-  repo = Object.assign(Object.create(PF.repo), { keepDisplaced: function (fs, run, session, check) {
-    var rc = state.recoverCx;
-    if (rc && rc.key === run.process + '/' + run.id && !guardOk(rc.cx)) return Promise.reject(Object.assign(new Error('the folder, the person or the run changed, so nothing was kept'), { dropped: true }));
-    return PF.repo.keepDisplaced(fs, run, session, check);
-  } });
+  /* Round 22 (AB): every guard this window hands a writer is bound, as it is handed over, to the write(s) it was made for:
+     their kind, path, run and revision, and their bytes (the exact hash when it is known then; a run's save, whose bytes
+     are made inside the writer, by the very run object it was asked to save, its hash pinned at its first write, which the
+     run.json write then shares). A descriptor outside that binding is answered false before the guard is asked, so no
+     token is ever made for it. */
+  var bindGuard = function (fn, fits) {
+    if (typeof fn !== 'function') return fn;
+    var pins = Object.create(null);
+    return function (fs, phase, w) {
+      if (!w || typeof w !== 'object' || typeof w.path !== 'string' || typeof w.hash !== 'string') return Promise.resolve(false);
+      var cls = fits(w);
+      if (!cls) return Promise.resolve(false);
+      if (cls !== true) { if (pins[cls] && pins[cls] !== w.hash) return Promise.resolve(false); pins[cls] = w.hash; }
+      return fn.call(this, fs, phase, w);
+    };
+  };
+  /* A run's own files: run.json and a candidate (one class, the same bytes) or a conflict copy, by this run object, at the
+     revision it had when it was handed over. */
+  var runFits = function (run, kinds) {
+    var key = run.process + '/' + run.id, rev = run.rev || 0, dir = 'runs/' + key + '/';
+    return function (w) {
+      if (kinds.indexOf(w.kind) < 0 || w.key !== key || w.rev !== rev || PF.repo.originOf(w) !== run || w.path.indexOf(dir) !== 0) return false;
+      var n = w.path.slice(dir.length);
+      if (n === 'run.json' || /^candidate-[^/]+\.json$/.test(n)) return 'save';
+      return /^run\.conflict-[^/]+\.json$/.test(n) ? 'conflict' : false;
+    };
+  };
+  var exactFits = function (kind, path, text) { var h = PF.repo.fileHash(text); return function (w) { return w.kind === kind && w.path === path && w.hash === h; }; };
+  repo = Object.assign(Object.create(PF.repo), {
+    keepDisplaced: function (fs, run, session, check) {
+      var rc = state.recoverCx;
+      if (rc && rc.key === run.process + '/' + run.id && !guardOk(rc.cx)) return Promise.reject(Object.assign(new Error('the folder, the person or the run changed, so nothing was kept'), { dropped: true }));
+      var key = run.process + '/' + run.id, rev = run.rev || 0, at = 'runs/' + key + '/replaced-' + session + '-';
+      return PF.repo.keepDisplaced(fs, run, session, bindGuard(check, function (w) { return w.kind === 'backup' && w.key === key && w.rev === rev && PF.repo.originOf(w) === run && w.path.indexOf(at) === 0 && /^\d+\.json$/.test(w.path.slice(at.length)) ? 'backup' : false; }));
+    },
+    saveRun: function (fs, run, session, opts) {
+      var o = Object.assign({}, opts), kinds = [run._fileHash ? 'run' : 'create'];
+      if (o.recheck) o.recheck = bindGuard(o.recheck, runFits(run, kinds));
+      if (o.create) o.create = bindGuard(o.create, runFits(run, kinds));
+      return PF.repo.saveRun(fs, run, session, o);
+    },
+    saveScope: function (fs, name, file, opts) {
+      var o = Object.assign({}, opts);
+      if (o.recheck) o.recheck = bindGuard(o.recheck, exactFits('scope', 'proposals/' + name, PF.loop.text(file)));
+      return PF.repo.saveScope(fs, name, file, o);
+    },
+    resumeStart: function (fs, planId, k, opts) {
+      var o = Object.assign({}, opts);
+      if (o.create && k && typeof k.path === 'string' && typeof k.text === 'string') { var ex = exactFits('create', k.path, k.text), key = k.process + '/' + k.id; o.create = bindGuard(o.create, function (w) { return w.key === key && ex(w); }); }
+      else delete o.create;
+      return PF.repo.resumeStart(fs, planId, k, o);
+    },
+    /* A test run's run is made inside the writer (o.make): its guard is bound to the run made, once it is made. */
+    startTestRun: function (fs, proc, folder, opts) {
+      var o = Object.assign({}, opts), made = null, mk = o.make;
+      if (typeof mk === 'function') o.make = function (st) { made = mk(st); return made; };
+      if (o.create) o.create = bindGuard(o.create, function (w) { return !!made && runFits(made, ['create'])(w); });
+      return PF.repo.startTestRun(fs, proc, folder, o);
+    }
+  });
   var EXAMPLES = /*@EXAMPLES@*/{};
   /* src/releases.json, checked and embedded by build.py, newest first. The app's version is the newest release; "dev" means
      this is the unbuilt source, not a copy people should use. */

@@ -1237,7 +1237,11 @@ PF.repo = (function () {
   function unguarded() { var e = new Error('This write has no write-time check, so nothing was written.'); e.dropped = true; e.unguarded = true; return e; }
   function notAdmitted() { var e = new Error('This write wasn\'t admitted by its check, so nothing was written.'); e.dropped = true; e.unguarded = true; return e; }
   /* What a write is: { kind: 'run' | 'create' | 'scope', path, expect: 'absent' | <fingerprint>, key, rev }, with its bytes' hash. */
-  function writeAs(what, text) { return Object.freeze(Object.assign({}, what, { hash: fileHash(text) })); }
+  /* Round 22 (AB): each run or backup write remembers the run object it was made from (originOf), so a guard bound to one
+     run's save mints nothing for another's. */
+  var ORIGIN = typeof WeakMap === 'function' ? new WeakMap() : null;
+  function writeAs(what, text, src) { var w = Object.freeze(Object.assign({}, what, { hash: fileHash(text) })); if (src && ORIGIN) ORIGIN.set(w, src); return w; }
+  function originOf(w) { return ORIGIN && w && typeof w === 'object' ? ORIGIN.get(w) || null : null; }
   /* One gated write: the destination read again, then the token, then the write, with nothing awaited between the last two. */
   function gatedWrite(fs, w, text, tok) {
     if (!GATE) return fs.write(w.path, text);
@@ -1306,7 +1310,7 @@ PF.repo = (function () {
         return tok;
       }, function (err) { var e = drop(); e.cause = err; throw e; });
     }
-    function asWrite(path, expect, text) { return writeAs({ kind: wkind, path: path, expect: expect, key: rkey, rev: run.rev || 0 }, text); }
+    function asWrite(path, expect, text) { return writeAs({ kind: wkind, path: path, expect: expect, key: rkey, rev: run.rev || 0 }, text, run); }
     /* The publication record may have arrived (by sync) after the run was loaded; a newer format makes the run read-only. */
     function checkAndWrite() {
     return pubProblem(fs, run, null, opts.strict).then(function (why) {
@@ -1451,7 +1455,7 @@ PF.repo = (function () {
     forgetRun(fs, run);
     var path = 'runs/' + key + '/replaced-' + session + '-' + Date.now() + '.json', text = JSON.stringify(stripMeta(run), null, 2);
     if (typeof check !== 'function') return fs.write(path, text).then(function () { return path; });
-    var w = writeAs({ kind: 'backup', path: path, expect: 'absent', key: key, rev: run.rev || 0 }, text);
+    var w = writeAs({ kind: 'backup', path: path, expect: 'absent', key: key, rev: run.rev || 0 }, text, run);
     return Promise.resolve().then(function () { return check(fs, 'backup', w); }).then(function (tok) {
       if (tok === false) return null;
       if (GATE && (tok == null || typeof tok !== 'object')) { GATE(null, w); throw notAdmitted(); }
@@ -3460,5 +3464,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, gateWrites: gateWrites, readPeopleOnly: function (fs) { return loadPeople(readOnlyView(fs, 'Reading for other apps')); }, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, saveScope: saveScope, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, gateWrites: gateWrites, originOf: originOf, readPeopleOnly: function (fs) { return loadPeople(readOnlyView(fs, 'Reading for other apps')); }, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, saveScope: saveScope, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

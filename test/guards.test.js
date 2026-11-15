@@ -211,6 +211,35 @@ rule('Round 21 (ZD): a backup with a token made by hand, or a guard that answers
     assert.deepStrictEqual([refused(o), o.wrote], [true, false], JSON.stringify(o));
   }
 });
+/* Round 22 (AB): a guard is bound, when it is made, to the write it was made for: its kind, its run and that run's
+   revision, its paths and its bytes. A genuine save's guard (not its token), used for another run, the same run read
+   again and changed, a scope record or a backup, mints nothing. */
+rule('Round 22 (AB): a genuine save\'s guard, reused for another run, changed bytes, a scope record or a backup, writes nothing', async () => {
+  const app = await opened(), key = await startAndCheck(app);
+  assert.ok(key, 'set-up: a run started');
+  app.click('open-run', key); await app.tick(60);
+  const step = (/data-act="toggle" data-id="([^"]+)"/.exec(app.html()) || [])[1];
+  const R = app.PF.repo, sr = R.saveRun, got = [];
+  R.saveRun = function (f, r, s, o) { if (o && typeof o.recheck === 'function') got.push(o.recheck); return sr.apply(this, arguments); };
+  app.click('toggle', step); await app.tick(200);
+  R.saveRun = sr;
+  const rc = got[0];
+  assert.ok(rc, 'set-up: the save asked its guard');
+  const mine = () => aRun(app, f => f.indexOf('runs/' + key + '/') === 0);
+  const before = mine().text;
+  const cases = {
+    'another run': () => { const o = aRun(app, f => f.indexOf('runs/' + key + '/') !== 0 && /^runs\/check-in\//.test(f)).r; o.title = 'Another run'; return R.saveRun(app.fs, o, 'mutant', { recheck: rc }); },
+    'the same run read again, changed': () => { const x = mine().r; x.title = 'Changed bytes'; x.recorder = Object.assign({}, x.recorder, { person: 'person-blake' }); return R.saveRun(app.fs, x, 'mutant', { recheck: rc }); },
+    'a scope record': () => R.saveScope(app.fs, SCOPE, scopeFile(), { recheck: rc }),
+    'a backup': () => R.keepDisplaced(app.fs, mine().r, 'mutant', rc)
+  };
+  for (const k of Object.keys(cases)) {
+    const o = await outcome(app, cases[k]);
+    /* A backup's writer answers null when its guard refuses (nothing kept). */
+    assert.deepStrictEqual([k, refused(o) || (k === 'a backup' && o.value === null), o.wrote], [k, true, false], JSON.stringify(o));
+  }
+  assert.strictEqual(mine().text, before, 'the run is as it was');
+});
 /* The same mutants made in the app's own source: a click handler that aliases, wraps or calls the writer through a property,
    or through a Proxy of the folder, built into the page. Each click throws in the test build and writes nothing. */
 const HTML = fs.readFileSync(path.join(__dirname, '..', 'dist', 'flightdeck.html'), 'utf8');

@@ -25,8 +25,8 @@
       "reviewed": "round 17 VD: only add and bind can be delegated"
     },
     "docs/design.md": {
-      "sha256": "38e303a74026de3f8e9a012049deab90953f0a7313ebe7c1db71b7d7b8c428d7",
-      "reviewed": "AA: a loop refusal records its request's files at take-up and its fresh guard judges only those; checked for direct writes and unconditional deletes"
+      "sha256": "3e4d06e157d65e26998cfeb1c1fa1f18b6ffdfab51f0ea9d3b7f075826663335",
+      "reviewed": "AB: every guard the app hands a writer is bound to the writes it was made for (kind, path, run, revision, bytes); checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -405,12 +405,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "b4692189f09d0a0da08b8347d98a562ab8cf06b319f7d99025234e0f030d447e",
-      "reviewed": "Round 21 (ZD): a recovery's backup (replaced-*.json) is written only through the write gate, with the approval snapshot's single-use token for its folder, path, absence, run revision and bytes. Checked for direct writes and unconditional deletes."
+      "sha256": "881286b261066f789a81a35240ee6a50d5ddd763c4c022d1f6caa6fb4a37a93a",
+      "reviewed": "AB: every guard the app hands a writer is bound to the writes it was made for (kind, path, run, revision, bytes); checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "d798c2a1dfb1b6fda730f3db682eaa5d841226254447bdf5b13ef4a583c77ec7",
-      "reviewed": "AA: a loop refusal records its request's files at take-up and its fresh guard judges only those; checked for direct writes and unconditional deletes"
+      "sha256": "6bd38365d6c727b0cf480d91d70155eaa4f25206c456ded06040cf49497b58e9",
+      "reviewed": "AB: every guard the app hands a writer is bound to the writes it was made for (kind, path, run, revision, bytes); checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "7db943140369906843961189dc3f34c8ec9430164cca3cb0f3a9f5bdd6ab946f",

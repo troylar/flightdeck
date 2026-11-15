@@ -1037,6 +1037,9 @@ rule('Round 10 (1, 2): every save, backup or archive of a run.json in the app go
     const call = src.slice(m.index, i), line = src.slice(0, m.index).split('\n').length, around = src.slice(Math.max(0, m.index - 400), m.index);
     if (m[1] === 'keepDisplaced') { if (!/keepDisplaced: function/.test(src) || !/state\.recoverCx/.test(src)) bad.push('app.js:' + line + ' backup without the guard'); continue; }
     if (/function save\(r, opts\)/.test(around) || /still/.test(call)) continue;
+    /* Round 22 (AB): the repo override at the top of app.js binds a caller's guards and hands every option on unchanged;
+       it is not a write site of its own. Each caller of repo.saveRun is still checked here. */
+    if (call === 'repo.saveRun(fs, run, session, o)' && src.slice(m.index - 3, m.index) === 'PF.' && /saveRun: function \(fs, run, session, opts\) \{\s*var o = Object\.assign\(\{\}, opts\)/.test(src.slice(Math.max(0, m.index - 600), m.index))) continue;
     if (/saveOpts\)$/.test(call) && /if \(loopy\(child\)\)[^\n]*saveOpts\.still/.test(src)) continue;
     bad.push('app.js:' + line + ': ' + call.slice(0, 80));
   }
@@ -1324,6 +1327,30 @@ rule('Round 20 (YA): a genuine scope token writes neither other bytes at its pat
   }
   await app.tick(100);
   assert.strictEqual(JSON.stringify(app.files('').map(f => [f, app.fs.files[f].t])), before, 'nothing written');
+});
+/* Round 22 (AB): a guard is bound, when it is made, to the write it was made for. Add's genuine guard (not its token), handed
+   to the run writer for the loop's parent with the recorder changed to Blake, or to another scope record, mints nothing. */
+rule('Round 22 (AB): Add\'s genuine guard handed to the run writer or another record\'s writer writes nothing', async () => {
+  const app = await setup(), R = app.PF.repo, ss = R.saveScope, got = [];
+  R.saveScope = function (f, n, file, o) { got.push({ rc: o && o.recheck, n, file }); return ss.apply(this, arguments); };
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(200);
+  R.saveScope = ss;
+  const one = got.find(x => typeof x.rc === 'function');
+  assert.ok(one, 'set-up: Add asked its guard');
+  const runAt = () => app.files('runs/release-readiness/').find(f => /run\.json$/.test(f));
+  const before = JSON.stringify(app.files('').map(f => [f, app.fs.files[f].t]));
+  const other = JSON.parse(JSON.stringify(one.file)); other.changes[0].item.key = 'ABC-998';
+  const tries = {
+    'the loop\'s run, its recorder Blake': () => { const t = app.fs.files[runAt()].t, r = app.PF.run.sanitize(JSON.parse(t)); r._fileHash = R.fileHash(t); r.recorder = Object.assign({}, r.recorder, { person: 'person-blake' }); return R.saveRun(app.fs, r, 'unapproved-session', { writer: 'unapproved', recheck: one.rc }); },
+    'other bytes under another name': () => R.saveScope(app.fs, one.n.replace(/[0-9a-f]{4}\.json$/, 'abce.json'), other, { recheck: one.rc })
+  };
+  for (const k of Object.keys(tries)) {
+    let how = 'resolved', v;
+    try { await Promise.resolve(tries[k]()).then(x => { v = x; }, () => { how = 'rejected'; }); } catch (e) { how = 'threw'; }
+    await app.tick(100);
+    assert.ok(how !== 'resolved' || (v && v.dropped), k + ': ' + how + ' ' + JSON.stringify(v));
+    assert.ok(JSON.stringify(app.files('').map(f => [f, app.fs.files[f].t])) === before, k + ': nothing written');
+  }
 });
 /* Round 20 (YC): a new run is started only past the fresh guard: the person starting it read again in people.json, active.
    The start form for a second release run; while its run.json read waits, Avery is marked inactive. Nothing is written. */
