@@ -2627,11 +2627,13 @@ def receipt_why(o, name):
     return "is a receipt that isn't in its format: " + errors[0] if errors else ""
 
 
-def todo_why(o, name, nbytes=None, unchecked=None, body=None):
+def todo_why(o, name, nbytes=None, unchecked=None, body=None, record=None):
     """'' when the app reads this to-do record, else why it refuses it (PF.todos.cleanFile's reason). A link on an
     international domain name isn't judged (todo_http_link gives SCOPE_IDN): its place is added to unchecked, never a reason.
     body, a list: a request or compound the app reads gets its checked body appended (what todo_effect_of reads), with the
-    fields readers derive from its id filled in."""
+    fields readers derive from its id filled in. record, a list: a proposal, compound, grant, revoke, decision or application
+    the app reads gets the record PF.todos.cleanFile returns appended (derived fields filled in, a field written as null left
+    out, the envelope dropped), the form copies are compared in."""
     if nbytes is not None and nbytes > TODO_LIMITS["bytes"]:
         return "is " + str(nbytes) + " bytes; a to-do record is at most " + str(TODO_LIMITS["bytes"])
     st = isinstance(o, dict) and o.get("format") == TODO_STATUS
@@ -3003,28 +3005,33 @@ def todo_why(o, name, nbytes=None, unchecked=None, body=None):
             return "is a to-do status that isn't a decision or an application"
         only(o, [k for k in T_COMMON + ["proposal", "op", "consequence", "reason", "authority", "previous", "effect", "fingerprint"] if k not in ("id", "producer", "key")], "It")
         run = clean_run(o.get("run"))
-        clean_seen(o.get("seen"))
+        seen = clean_seen(o.get("seen"))
         if not _tstr(o.get("by")) or not T_PERSON.match(o["by"]):
             err("by")
         if not _tstr(o.get("at")) or not T_ISO.match(o["at"]):
             err("at")
+        srec = {"id": sname[:-5], "kind": o["kind"], "proposal": o.get("proposal"), "run": run, "seen": seen, "by": {"person": o.get("by")}, "at": o.get("at")}
         if o["kind"] == "decision":
             if o.get("op") not in TODO_DOPS:
                 err("op")
             if not _tstr(o.get("consequence")) or not T_FP.match(o["consequence"]):
                 err("consequence")
+            srec.update(op=o.get("op"), consequence=o.get("consequence"))
             if o.get("reason") is not None:
-                line(o["reason"], TODO_LIMITS["reason"], "reason")
+                dr = line(o["reason"], TODO_LIMITS["reason"], "reason")
+                if dr:
+                    srec["reason"] = dr
             for k in ("authority", "previous", "effect", "fingerprint"):
                 if o.get(k) is not None:
                     err("A decision has no " + k)
         else:
-            clean_authority(o.get("authority"))
+            srec["authority"] = clean_authority(o.get("authority"))
             if not prev_ok(o.get("previous")):
                 err("previous")
             eff = clean_effect(o.get("effect"))
             if eff:
                 self_move(run, eff.get("to"))
+            srec.update(previous=o.get("previous"), effect=eff, fingerprint=o.get("fingerprint"))
             fpv = o.get("fingerprint")
             if not _tstr(fpv) or not T_FP.match(fpv):
                 err("fingerprint")
@@ -3033,7 +3040,11 @@ def todo_why(o, name, nbytes=None, unchecked=None, body=None):
             for k in ("op", "consequence", "reason"):
                 if o.get(k) is not None:
                     err("An application has no " + k)
-        return "is a to-do " + o["kind"] + " that isn't in its format: " + errors[0] if errors else ""
+        if errors:
+            return "is a to-do " + o["kind"] + " that isn't in its format: " + errors[0]
+        if record is not None:
+            record.append(srec)
+        return ""
     kind = o.get("kind")
     if kind == "fact":
         return fact_why(o, name, unchecked)
@@ -3048,7 +3059,7 @@ def todo_why(o, name, nbytes=None, unchecked=None, body=None):
     if _tstr(name) and not todo_request_file(name, o["id"]):
         return "is a to-do record whose name isn't its id"
     run = clean_run(o.get("run"))
-    clean_seen(o.get("seen"))
+    seen = clean_seen(o.get("seen"))
     by = None
     if o.get("producer") is not None:
         pr = o["producer"]
@@ -3058,6 +3069,7 @@ def todo_why(o, name, nbytes=None, unchecked=None, body=None):
             err("key")
         else:
             by = {"tool": pr["name"]}
+            by_rec = {"tool": pr["name"], "version": pr["version"]}
     else:
         if o.get("key") is not None:
             err("Only a tool's request has a key")
@@ -3229,6 +3241,27 @@ def todo_why(o, name, nbytes=None, unchecked=None, body=None):
         return "is a to-do " + kind + " that isn't in its format: " + errors[0]
     if body is not None and kind in ("proposal", "compound") and b:
         body.append(b)
+    if record is not None:
+        r = {"id": o["id"], "kind": kind, "run": run, "seen": seen, "by": by_rec if by.get("tool") else by, "at": o["at"]}
+        if kind in ("proposal", "compound"):
+            r.update({k: v for k, v in b.items() if v is not None})
+            if o.get("requester") is not None:
+                r["requester"] = o["requester"]
+        if kind == "compound":
+            d, a = o["decision"], o["application"]
+            r["decision"] = {"op": "accept", "by": d["by"], "consequence": d["consequence"]}
+            if d.get("reason") is not None:
+                r["decision"]["reason"] = d["reason"]
+            r["application"] = {"previous": a["previous"], "effect": clean_effect(a["effect"]), "fingerprint": a["fingerprint"]}
+        elif kind == "grant":
+            s = o["subject"]
+            r.update(subject={"tool": s["tool"]} if "tool" in s else {"person": s["person"]}, ops=list(o["ops"]),
+                     targets=[clean_target(x, "targets") for x in o["targets"]], limits={"adds": o["limits"]["adds"]})
+        elif kind == "revoke":
+            r["grant"] = o["grant"]
+            if o.get("reason") is not None:
+                r["reason"] = o["reason"]
+        record.append(r)
     return ""
 
 
@@ -4606,10 +4639,11 @@ def receipt_verdict_of(r, read, unread, key=None):
     me = {"process": r.get("process"), "id": r.get("id")}
     work, keeps, copies = {}, set(), {}
     for k, xs in read.items():
-        for _, x in xs:
+        for nm, x in xs:
             if not isinstance(x, dict) or not isinstance(k, str):
                 continue
-            copies.setdefault(k, []).append(x)
+            # Copies are told apart as the app reads them (PF.loop.splitIds over checked records).
+            copies.setdefault(k, []).append(todo_checked(x, nm))
             if x.get("run") != me:
                 continue
             if x.get("kind") == "keep":
@@ -4639,11 +4673,31 @@ CLAIM_CAP = 5000
 TODO_ENVELOPE = ("format", "features", "app", "created", "key")
 
 
+def _js_canon(v):
+    """PF.loop's canon: object keys sorted as JavaScript sorts strings (by UTF-16 code unit), lists in order."""
+    if isinstance(v, list):
+        return [_js_canon(x) for x in v]
+    if isinstance(v, dict):
+        return {k: _js_canon(v[k]) for k in sorted(v, key=lambda s: s.encode("utf-16-be"))}
+    return v
+
+
+def todo_checked(o, name):
+    """A to-do record as the app's reader returns it (PF.todos.cleanFile), the form copies are compared in, or the record as
+    it is when it is of a family whose reader this doesn't port (a fact, a keep or a receipt) or isn't one the app reads.
+    name: its file name in proposals/ (a decision or an application takes its id from it)."""
+    rec = []
+    if isinstance(o, dict) and todo_claims(o) and not todo_why(o, name, record=rec) and rec:
+        return rec[0]
+    return o
+
+
 def todo_copy_body(o):
-    """A to-do record as PF.loop.copyBody compares its copies: its own fields, the envelope left out, keys in any order."""
+    """A to-do record as PF.loop.copyBody compares its copies: the checked record (todo_checked), its envelope and the
+    reader's own fields left out, keys sorted, written as JSON.stringify writes it (a number 1.0 is 1)."""
     if not isinstance(o, dict):
-        return json.dumps(o, sort_keys=True)
-    return json.dumps({k: v for k, v in o.items() if k not in TODO_ENVELOPE and not k.startswith("_")}, sort_keys=True)
+        return js_json(_js_canon(o))
+    return js_json(_js_canon({k: v for k, v in o.items() if k not in TODO_ENVELOPE and not k.startswith("_")}))
 
 
 def receipt_claims_why(r, rec, work, keeps, copies=None):

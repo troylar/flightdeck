@@ -1156,6 +1156,35 @@ rule('A synced copy of a record that differs only in the app that wrote it is th
     assert.ok(c.ok, k + ': Python reads it: ' + c.out);
   }
 });
+/* The Validator (PR #114 round 2): a copy is compared as the app reads it (PF.todos.cleanFile, then PF.loop.copyBody), so one
+   that leaves out what readers derive, writes an optional field as null, or carries a "by" a tool's record doesn't read, is
+   the same record for the export and for Python, every family. */
+rule('A synced copy that leaves out a derived field, or writes an optional one as null, is the same record for the export and for Python, every family', async () => {
+  const W = await made({ todos: 1, requested: true, keep: true }), { zip } = await pack(W.PF, new BytesFS(W.files), W.key);
+  const man = manifestOf(zip), edits = [];
+  man.files.filter((f) => /^proposals\//.test(f.path) && f.role === 'living').forEach((f) => {
+    let o; try { o = JSON.parse(String(W.files[f.path])); } catch (e) { return; }
+    const k = o.kind || o.format;
+    if ((k === 'proposal' || k === 'compound') && o.op === 'add' && 'todo' in o) edits.push([k + ' without its derived to-do id', f.path, (x) => { delete x.todo; }]);
+    if ((k === 'proposal' || k === 'compound') && o.op !== 'wont' && !('reason' in o)) edits.push([k + ' with "reason": null', f.path, (x) => { x.reason = null; }]);
+    if (k === 'compound' && o.decision && !('reason' in o.decision)) edits.push(['compound with its decision\'s "reason": null', f.path, (x) => { x.decision.reason = null; }]);
+    if (k === 'decision' && !('reason' in o)) edits.push(['decision with "reason": null', f.path, (x) => { x.reason = null; }]);
+    if ((k === 'proposal' || k === 'fact') && o.producer && !('by' in o)) edits.push([k + ' of a tool with a "by" it doesn\'t read', f.path, (x) => { x.by = 'person-avery'; }]);
+  });
+  const kinds = edits.map((e) => e[0].split(' ')[0]);
+  assert.ok(['proposal', 'compound'].every((k) => kinds.indexOf(k) >= 0), 'set-up: ' + JSON.stringify(edits.map((e) => e[0])));
+  const off = [];
+  for (const [what, p, edit] of edits) {
+    const o = JSON.parse(String(W.files[p])); edit(o);
+    const files = Object.assign({}, W.files, { [copyOf(p)]: JSON.stringify(o, null, 2) + '\n' });
+    const r = await pack(W.PF, new BytesFS(files), W.key);
+    if (r.res.status !== 'complete') { off.push(what + ': the export ' + r.res.status + ' ' + JSON.stringify(r.res.col.unresolved).slice(0, 300)); continue; }
+    if (!PY) continue;
+    const c = checkPack(r.zip);
+    if (!c.ok) off.push(what + ': Python: ' + c.out.slice(0, 300));
+  }
+  assert.deepStrictEqual(off, []);
+});
 /* AB: every record the work rests on is held to its copies, a pending request and a loop's scope record included: a copy
    that says something else is named, the pack partial, and Python refuses a complete claim. */
 rule('A pending request or a loop scope record with a copy that says something else makes the pack partial, named, and Python refuses it as complete', async () => {

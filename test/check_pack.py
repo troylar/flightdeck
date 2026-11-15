@@ -851,7 +851,13 @@ def copy_body(o):
         return json.dumps(o, sort_keys=True)
     if o.get("kind") == "receipt":
         return "receipt " + json.dumps({k: o[k] for k in RECEIPT_BODY if k in o}, sort_keys=True)
-    return json.dumps({k: v for k, v in o.items() if k not in ENVELOPE and not k.startswith("_")}, sort_keys=True)
+    return CF.todo_copy_body(o)
+
+
+def copy_of(path, o):
+    """A packed record's copy body, from the record as the app reads it (CF.todo_checked: PF.todos.cleanFile's record, so a
+    copy leaving out a derived field or writing an optional one as null is the same record)."""
+    return copy_body(CF.todo_checked(o, path[len("proposals/"):]) if path.startswith("proposals/") else o)
 def check_living(z, man):
     by_path = {f["path"]: f["pack"] for f in man["files"]}
 
@@ -987,7 +993,7 @@ def check_living(z, man):
             recs = [load(p) for p in paths]
         except (ValueError, UnicodeDecodeError):
             return None, False
-        if any(copy_body(r) != copy_body(recs[0]) for r in recs):
+        if any(copy_of(p, r) != copy_of(paths[0], recs[0]) for p, r in zip(paths, recs)):
             return None, True
         return recs[0], False
 
@@ -1048,7 +1054,7 @@ def check_living(z, man):
         # reads them, YA): only records the app reads as this run's to-do records, by the record each name stands for (a status
         # record's id is its name), never a fact, keep or receipt. Copies of one id that differ, a record that saw one outside
         # that set or in a circle (itself included), and everything after either, are held; only records read in order replay.
-        mine, split = {}, set()
+        mine, mine_body, split = {}, {}, set()
         for path in sorted(reached):
             rid = record_name(path)
             if not rid:
@@ -1056,9 +1062,10 @@ def check_living(z, man):
             d, o = dispatch(path), packed(path)
             if d["fam"] != "todo" or d["bad"] or d["run"] != me or not isinstance(o, dict) or o.get("kind") in ("fact", "keep", "receipt"):
                 continue
-            if rid in mine and copy_body(mine[rid]) != copy_body(o):
+            if rid in mine and mine_body[rid] != copy_of(path, o):
                 split.add(rid)
-            mine.setdefault(rid, o)
+            if rid not in mine:
+                mine[rid], mine_body[rid] = o, copy_of(path, o)
         state, anc, held = {}, {}, set()
 
         def finish(i):
@@ -1306,7 +1313,7 @@ def check_living(z, man):
                     if d["fam"] != "todo" or d["bad"] or not isinstance(o, dict):
                         continue
                     # Every packed copy under the id, whatever run it names, as the app tells copies apart (PF.loop.splitIds).
-                    every.setdefault(rid, []).append(o)
+                    every.setdefault(rid, []).append(CF.todo_checked(o, path[len("proposals/"):]))
                     if d["run"] != me:
                         continue
                     if o.get("kind") == "keep":

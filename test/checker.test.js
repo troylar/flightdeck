@@ -982,6 +982,16 @@ rule('The checker reads a key of thousands of digits, and keys at the array-inde
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+rule('The checker writes a to-do copy as JSON.stringify writes the app\'s canonical record: 1.0 is 1, keys sorted by UTF-16 code unit', () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const src = 'import json,sys\nsys.path.insert(0,sys.argv[1])\nimport check_folder as CF\n' +
+    'a=json.loads(sys.stdin.read())\nprint(json.dumps([CF.todo_copy_body(x) for x in a]))';
+  const recs = ['{"id":"x","n":1.0,"m":[2.50]}', '{"\\ud83d\\ude00":1,"\\uffff":2,"b":{"z":1,"a":0.0}}'];
+  const out = JSON.parse(cp.execFileSync(py, ['-I', '-c', src, path.dirname(CHECKER)], { input: '[' + recs.join(',') + ']', encoding: 'utf8' }));
+  assert.deepStrictEqual(out, recs.map((t) => PF.loop.copyBody(JSON.parse(t))));
+});
+
 rule('The checker reads a number of thousands of digits in a team file as JSON, as the app does: never "isn\'t valid JSON", and the same verdict for a publication and team-values.json', async () => {
   const py = python();
   if (!py) { console.log('  (skipped: no Python on this computer)'); return; }

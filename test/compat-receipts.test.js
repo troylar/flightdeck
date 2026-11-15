@@ -347,7 +347,9 @@ rule('This version: a receipt resting on a record with a different copy, or call
   const { files, receipt, waiting } = await folder(true), NEW = H.loadMain(), rp = 'runs/release-notes/run-l/run.json', wp = 'proposals/' + waiting + '.json';
   const rc = JSON.parse(files['proposals/' + receipt]);
   same([rc.counts.waiting, rc.counts.pending, rc.counts.declined, rc.counts.refused], [1, 1, 0, 0], 'set-up: the request was waiting at the end');
-  const copy = (edit) => { const o = JSON.parse(files[wp]); edit(o); return { f: Object.assign({}, files, { ['proposals/' + waiting + ' (1).json']: JSON.stringify(o, null, 2) + '\n' }), name: receipt }; };
+  const copyAt = (p, edit) => { const o = JSON.parse(files[p]); edit(o); return { f: Object.assign({}, files, { [p.replace(/\.json$/, ' (1).json')]: JSON.stringify(o, null, 2) + '\n' }), name: receipt }; };
+  const copy = (edit) => copyAt(wp, edit), cp0 = 'proposals/' + JSON.parse(files['proposals/' + receipt]).head + '.json';
+  assert.ok(files[cp0] && JSON.parse(files[cp0]).kind === 'compound' && 'todo' in JSON.parse(files[wp]), 'set-up: the head is a compound, the waiting request writes its to-do id');
   const forge = (edit) => {
     const o = JSON.parse(files['proposals/' + receipt]); edit(o);
     o.id = NEW.receipts.idFor(o.run, o, o.by);
@@ -357,6 +359,14 @@ rule('This version: a receipt resting on a record with a different copy, or call
     return { f, name: o.id + '.json' };
   };
   const cases = [['the control', { f: files, name: receipt }, '', null],
+    /* The Validator (PR #114 round 2): copies are compared as the app reads them (PF.todos.cleanFile, then PF.loop.copyBody), so
+       a copy leaving out what readers derive, or writing an optional field as null, is the same record. */
+    ['a copy leaving out its derived to-do id', copy((o) => { delete o.todo; }), '', null],
+    ['a copy with "reason": null', copy((o) => { o.reason = null; }), '', null],
+    ['a copy with "owner" and "origin" null', copy((o) => { o.owner = null; o.origin = null; }), '', null],
+    ['a copy of the tool\'s request with a "by" its reader doesn\'t read', copy((o) => { assert.ok(o.producer && !('by' in o), 'set-up: a tool\'s request'); o.by = 'person-avery'; }), '', null],
+    ['a copy of the head compound leaving out its derived to-do id', copyAt(cp0, (o) => { delete o.todo; }), '', null],
+    ['a copy of the head compound with its decision\'s "reason": null', copyAt(cp0, (o) => { o.decision.reason = null; }), '', null],
     ['a copy with other text', copy((o) => { o.text = 'A different task'; }), 'malformed', /two different copies of req-/],
     ['a copy naming another run', copy((o) => { o.run = { process: 'release-notes', id: 'run-q' }; }), 'malformed', /two different copies of req-/],
     ['waiting called declined', forge((o) => { o.counts.waiting = 0; o.counts.declined = 1; o.counts.pending = 0; o.counts.refused = 1; }), 'malformed', /additions declined, but 0 of/]];
