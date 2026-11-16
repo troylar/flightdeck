@@ -83,10 +83,11 @@ PF.spreads = (function () {
       var mine = Object.create(null), owe = function (p) { C.items.push(itemOf(r, s, V, rows[p.uid], p, o, deps, childView, mine, C)); };
       var exempt = function (i, a) { return hasPair(s.scope.cleared, i.uid, a) && !hasPair(s.included, i.uid, a); };
       if (s.state === 'stopped') {
-        var listed = Object.create(null); (s.stop.owed || []).forEach(function (p) { listed[p.uid] = true; });
+        /* Keyed by the pair, never the uid alone: a listed attempt says nothing of another. */
+        var listed = Object.create(null); (s.stop.owed || []).forEach(function (p) { listed[pairKey(p.uid, p.attempt)] = true; });
         (s.stop.owed || []).forEach(function (p) { var w = rows[p.uid]; if (w && w.required && (w.attempt || 1) === p.attempt) owe({ uid: p.uid, attempt: p.attempt }); });
-        var after = stoppedOwes(s, V, T, o);
-        V.rollup.items.forEach(function (i) { var a = i.attempt || 1; if (i.required && !listed[i.uid] && !exempt(i, a) && after(i.uid)) owe({ uid: i.uid, attempt: a }); });
+        var owes = stoppedOwes(s, V, T, o);
+        V.rollup.items.forEach(function (i) { var a = i.attempt || 1; if (i.required && !listed[pairKey(i.uid, a)] && !exempt(i, a) && owes(i.uid, a)) owe({ uid: i.uid, attempt: a }); });
       } else V.rollup.items.forEach(function (i) {
         if (!i.required) return;
         var a = i.attempt || 1;
@@ -102,25 +103,33 @@ PF.spreads = (function () {
   }
   /* What a spread's coverage expects to find (the expected-dependency manifest), checked against what was read: '' when all
      of it is here, else why not, with each missing file named in C.missing ({ path, kind: 'nofile', why }). */
-  /* Whether a stopped spread owes an item it didn't list (round 7, docs/design.md 45.1): the scope record that last brought the
-     item into scope (an add or a restore) is looked at. One in the past of the stop's scope cut was seen by the stop, which
-     listed what it owed then: nothing more. Otherwise it owes unless that record is a 4.0 scope record whose parent head is
-     the stop's application or later on this run's chain; a record with no head (a 3.0 writer), an empty head, or a head not on
-     the chain, owes, since the stop couldn't have seen it. */
+  /* Whether a stopped spread owes a pair {uid, attempt} it didn't list (rounds 10 and 11, docs/design.md 45.1): monotone and
+     order-free. Its witnesses are every record of its loop that refers to any alias the item ever had (PF.loop.witnessRefs):
+     with no attempt, for every attempt (x.witness), or naming this attempt (x.witnessAt); and the spread's own snapshot when
+     it names the pair. A record the schema can't fully read (x.witnessDoubt) owes. It is
+     exempt only when there is at least one and every one is a 4.0 scope record whose parent head is the stop's application
+     or later on this run's chain; anything else (before the stop, concurrent with it, missing when it was made, no head, any
+     doubt) owes. */
   function stoppedOwes(s, V, T, o) {
-    var cut = s.stop.cut || [], saw = V.ledger.saw || function () { return false; }, chain = T.chain || [];
-    var at = chain.indexOf(s.stop.application), by = Object.create(null);
-    ((o.loops && o.loops.records) || []).forEach(function (x) { if (x && x.id) by[x.id] = x; });
+    /* Only this loop's records (round 11, EA): another loop's record sharing an id never stands in for one of these. Two
+       copies of one that differ hold the loop (PF.loop.causal) and owe here; identical copies (round 13, GC) are one record,
+       by the same rule (PF.loop.sameRecord). */
+    var chain = T.chain || [], at = chain.indexOf(s.stop.application), by = Object.create(null), twice = Object.create(null);
+    (V.records || []).forEach(function (x) { if (!x || !x.id) return; if (by[x.id] && !PF.loop.sameRecord(by[x.id], x)) twice[x.id] = true; by[x.id] = x; });
     var items = Object.create(null); (V.ledger.items || []).forEach(function (x) { items[x.uid] = x; });
-    return function (uid) {
-      var x = items[uid]; if (!x) return true;
-      var rec = ''; (x.provenance || []).forEach(function (p) { if (p.op === 'add' || p.op === 'restore') rec = p.record; });
-      rec = rec || x.since || '';
-      if (rec && cut.some(function (h) { return h === rec || saw(h, rec); })) return false;
+    var after = function (rec) {
+      if (twice[rec]) return false;
       var R0 = by[rec], h = R0 && typeof R0.head === 'string' ? R0.head : null;
-      if (h === null || h === '' || at < 0) return true;
+      if (h === null || h === '' || at < 0) return false;
       var hi = chain.indexOf(h);
-      return hi < 0 || hi < at;
+      return hi >= 0 && hi >= at;
+    };
+    return function (uid, attempt) {
+      var x = items[uid]; if (!x) return true;
+      if (hasPair(s.scope.open, uid, attempt) || hasPair(s.scope.cleared, uid, attempt)) return true;
+      if (x.witnessDoubt && x.witnessDoubt.length) return true;
+      var W = (x.witness || []).concat((x.witnessAt && x.witnessAt[attempt]) || []);
+      return !(W.length && W.every(after));
     };
   }
   function unreadAt(o, id) { return ((o.loops && o.loops.unread) || []).some(function (u) { return String(u.file || '').indexOf(id) === 0; }); }
@@ -284,7 +293,7 @@ PF.spreads = (function () {
       if (i.resolved) n.resolved++;
       if (i.arrival) n.arrivals++;
       if (!i.resolved) C.unresolved.push('Spread "' + C.text + '" on ' + (i.key || i.uid) + ': ' + i.words.toLowerCase() + (i.why ? ' (' + i.why + ')' : '') + '.');
-      if (i.arrival) C.notices.push((i.key || i.uid) + (i.attempt > 1 ? ' started attempt ' + i.attempt + '.' : ' joined.') + ' ' + C.text + (i.requested ? ' requested.' : ' is owed; not requested yet.'));
+      if (i.arrival) C.notices.push((i.key || i.uid) + (i.attempt > 1 ? ' started attempt ' + i.attempt + '.' : ' joined.') + ' ' + C.text + (i.state === 'excepted' || (i.resolved && !i.requested) ? ': ' + i.words.toLowerCase() + '.' : i.requested ? ' requested.' : ' is owed; not requested yet.'));
     });
     C.counts = n;
     var N = C.noun || { one: 'item', many: 'items' }, word = function (k) { return k === 1 ? N.one : N.many; };

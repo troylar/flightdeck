@@ -12,7 +12,8 @@ const PARENT = ['---', 'process: release-readiness', 'title: Release 4.1', 'owne
 
 async function setup(o) {
   o = o || {};
-  const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(80); app.choose('person-avery'); await app.tick();
+  /* o.boot: more for boot (the approval harness clones a prepared app: shared files, Web Locks, its session store). */
+  const app = boot(Object.assign({ localStore: { 'preflight:builder': 'false' } }, o.boot || {})); await app.tick(80); app.choose('person-avery'); await app.tick();
   const PF = app.PF, people = JSON.parse(app.fs.files['people.json'].t), now = new Date().toISOString();
   const put = (md, id, rand) => {
     const b = PF.publish.build(md, { people, ...require('./harness').exampleSetup(PF), by: 'person-avery', changes: 'First', existing: [], now, rand, app: '4.0.0' });

@@ -227,7 +227,7 @@ async function withSigned(out) {
   const st = await app.PF.repo.readStage(app.fs, 'release', folder);
   for (let i = 1; i <= 3; i++) {
     const r = completeRun(app.PF, app.PF.run.create(st, { test: true, title: 'Try ' + i, id: 'run-try' + i, details: { ticket: 'T', commit: 'c', environment: 'p', tag: 'v1' }, roles: { 'release-lead': 'person-avery', qa: 'person-blake', backend: 'person-casey' }, by: 'person-avery', session: 'w', now: '2026-10-22T09:00:00.000Z', app: '2.1.0' }), '2026-10-22T09:00:00.000Z');
-    await app.PF.repo.saveRun(app.fs, r, 'w');
+    await app.otherRepo().saveRun(app.fs, r, 'w');
   }
   app.click('refresh'); await app.tick(120);
   app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();

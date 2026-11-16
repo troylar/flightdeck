@@ -1,8 +1,8 @@
 {
   "texts": {
     "CHANGELOG.md": {
-      "sha256": "a309425365b2483cd8800632320fc65535066eec89c9ce05dcfcd17dbb551384",
-      "reviewed": "release 4.0.0 fold of slice 6 (ee1ec1b3) onto facts and slice 5: both sides' reviewed text merged; hand resolutions only read and name problems (one problem formatter, proposals/ listing named as a part, receipt ownership, cleanLiving union, effect_of cut, duplicate run verdict removed); checked for direct writes and unconditional deletes"
+      "sha256": "0e9b2b66174497d14692000c0f9baa0a3c16a28d0ab6df47697b1a2feefb4782",
+      "reviewed": "4.0.0 release fold of slice 3 (b365f237): guard order in saveRun and checkedWith (4.0 fresh, then slice 3's recheck, then still), stillSame rereads people.json last, todoStill on the fresh snapshot, recovery backup rechecked on the to-dos; checked for direct writes and unconditional deletes: every write goes through the gated write path"
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
@@ -13,20 +13,20 @@
       "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
     },
     "bin/flightdeck.js": {
-      "sha256": "472dfe3faf4d5d0b3e2d82bf7d0cd79f2ab079e572be42a3b3ee2132bb98666c",
-      "reviewed": "release 4.0.0 fold, slice 6 parity: readDeps names to-do records with unreadProblem; run and next count a failed proposals/ listing as the ledger names it; runs judges no missing record against a proposals/ it couldn't list; living.head '' read by run_verdict.py and check_folder.py as the app reads it; read-only, checked for direct writes and unconditional deletes"
+      "sha256": "5eb7ce812fc489f0ddaa1f29fe9aac7d078266a6ef52f864663eacfe7b5f7d8f",
+      "reviewed": "release 4.0.0 fold of slice 3 (b365f237): its reviewed write gate merged with facts', slice 5's and slice 6's guards; every record and run write keeps its 4.0 guard (fresh, still) and asks slice 3's fresh guard last for its token (keeps, receipts and the end included); facts' raw writes moved to putFile; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "4930aee232c7766241927d231c2eb0729443450de507161a3f0e85b7e7f5fb8e",
       "reviewed": "release 4.0.0 fold of slice 6 (ee1ec1b3) onto facts and slice 5: both sides' reviewed text merged; hand resolutions only read and name problems (one problem formatter, proposals/ listing named as a part, receipt ownership, cleanLiving union, effect_of cut, duplicate run verdict removed); checked for direct writes and unconditional deletes"
     },
     "docs/apps.md": {
-      "sha256": "799ac450d00f961f8f4c8911f3d0d935566f00df93f5cb31396ba662ec9b2ae1",
-      "reviewed": "release 4.0.0 fold of slice 6 (ee1ec1b3) onto facts and slice 5: both sides' reviewed text merged; hand resolutions only read and name problems (one problem formatter, proposals/ listing named as a part, receipt ownership, cleanLiving union, effect_of cut, duplicate run verdict removed); checked for direct writes and unconditional deletes"
+      "sha256": "d4f64de952ad03f1ca7630844828119c9f50b307fbed43f82803a13cba96105d",
+      "reviewed": "release 4.0.0 fold of slice 3 (b365f237): its reviewed write gate merged with facts', slice 5's and slice 6's guards; every record and run write keeps its 4.0 guard (fresh, still) and asks slice 3's fresh guard last for its token (keeps, receipts and the end included); facts' raw writes moved to putFile; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "888fbcbac7f271a2365c2b16fc76e7f42a494ab381ed5dff4317a9ccd8472dfe",
-      "reviewed": "release 4.0.0 fold of slice 6 (ee1ec1b3) onto facts and slice 5: both sides' reviewed text merged; hand resolutions only read and name problems (one problem formatter, proposals/ listing named as a part, receipt ownership, cleanLiving union, effect_of cut, duplicate run verdict removed); checked for direct writes and unconditional deletes"
+      "sha256": "b5fa1a3f491274c11dc7d2190513ad7f67fbb86b9a793389da2edafdec2cacde",
+      "reviewed": "release 4.0.0 fold of slice 3 (b365f237): its reviewed write gate merged with facts', slice 5's and slice 6's guards; every record and run write keeps its 4.0 guard (fresh, still) and asks slice 3's fresh guard last for its token (keeps, receipts and the end included); facts' raw writes moved to putFile; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "f6aa6267ae03a0401aff464615ca57b4930fee28f0acf338d4ea295c23650ecc",
@@ -61,8 +61,8 @@
       "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
     },
     "example-folder/.flightdeck/skills/_flightdeck/command-guide.md": {
-      "sha256": "79d694d3af4d66a804484c325b61e55f4d464d60426694bc926781efe532a609",
-      "reviewed": "release 4.0.0 fold of slice 6 (ee1ec1b3) onto facts and slice 5: both sides' reviewed text merged; hand resolutions only read and name problems (one problem formatter, proposals/ listing named as a part, receipt ownership, cleanLiving union, effect_of cut, duplicate run verdict removed); checked for direct writes and unconditional deletes"
+      "sha256": "8e284adf5ba57a75d4941e911b6768231187c16e3b31818d9be8b7189e5c2d32",
+      "reviewed": "release 4.0.0 fold of slice 3 (b365f237): its reviewed write gate merged with facts', slice 5's and slice 6's guards; every record and run write keeps its 4.0 guard (fresh, still) and asks slice 3's fresh guard last for its token (keeps, receipts and the end included); facts' raw writes moved to putFile; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/file-formats.md": {
       "sha256": "3e696299bc5971a578831ad4c25330bcb87a4036c10666469e39b794a9a1bba3",
@@ -89,8 +89,8 @@
       "reviewed": "release 4.0.0 fold of slice 6 (ee1ec1b3) onto facts and slice 5: both sides' reviewed text merged; hand resolutions only read and name problems (one problem formatter, proposals/ listing named as a part, receipt ownership, cleanLiving union, effect_of cut, duplicate run verdict removed); checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/flightdeck-living-run/SKILL.md": {
-      "sha256": "8f2bfdb5325713d23501b4c14693b520c843848cb7f8a87244e1704ff22a4f3b",
-      "reviewed": "release 4.0.0 fold of slice 6 (ee1ec1b3) onto facts and slice 5: both sides' reviewed text merged; hand resolutions only read and name problems (one problem formatter, proposals/ listing named as a part, receipt ownership, cleanLiving union, effect_of cut, duplicate run verdict removed); checked for direct writes and unconditional deletes"
+      "sha256": "261abef0ef6e104cac26b79c30a7e03c5f59df321b85b4cee0f2c2200b0fc3e9",
+      "reviewed": "release 4.0.0 fold of slice 3 (b365f237): its reviewed write gate merged with facts', slice 5's and slice 6's guards; every record and run write keeps its 4.0 guard (fresh, still) and asks slice 3's fresh guard last for its token (keeps, receipts and the end included); facts' raw writes moved to putFile; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/flightdeck-new-checklist/SKILL.md": {
       "sha256": "3a6eb58e264583f36fb072835912f61bbb9a3fcf619f5932b2f0bdea2cfa6099",
@@ -201,8 +201,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "ebee36c9f47be6ebe6ddde7c5c2e46ba6f5a06bded6ae3185e28075212e40d48",
-      "reviewed": "release 4.0.0 fold, slice 6 parity: readDeps names to-do records with unreadProblem; run and next count a failed proposals/ listing as the ledger names it; runs judges no missing record against a proposals/ it couldn't list; living.head '' read by run_verdict.py and check_folder.py as the app reads it; read-only, checked for direct writes and unconditional deletes"
+      "sha256": "20119d73d3983ee82eb87afd3e155b368f6c21d291b133c9dbd5111173846a17",
+      "reviewed": "release 4.0.0 fold of slice 3 (b365f237): its reviewed write gate merged with facts', slice 5's and slice 6's guards; every record and run write keeps its 4.0 guard (fresh, still) and asks slice 3's fresh guard last for its token (keeps, receipts and the end included); facts' raw writes moved to putFile; checked for direct writes and unconditional deletes"
     },
     "src/core/appjson.js": {
       "sha256": "4a3cc8c52dbe89cf222e6d0df99e23d95bbc9b3858696d791de19b93340674fc",
@@ -273,8 +273,8 @@
       "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
     },
     "src/core/loop.js": {
-      "sha256": "878647444cc5d4d2bc589f5d8e6dad5a3759f1148ce867424f45875ea22013ce",
-      "reviewed": "release 4.0.0 fold of slice 6 (ee1ec1b3) onto facts and slice 5: both sides' reviewed text merged; hand resolutions only read and name problems (one problem formatter, proposals/ listing named as a part, receipt ownership, cleanLiving union, effect_of cut, duplicate run verdict removed); checked for direct writes and unconditional deletes"
+      "sha256": "cc40260a331fb03453c30f86b1b940df6c4c0a6e8ca3a243c5ee45eb9e7c44fe",
+      "reviewed": "release 4.0.0 fold of slice 3 (b365f237): its reviewed write gate merged with facts', slice 5's and slice 6's guards; every record and run write keeps its 4.0 guard (fresh, still) and asks slice 3's fresh guard last for its token (keeps, receipts and the end included); facts' raw writes moved to putFile; checked for direct writes and unconditional deletes"
     },
     "src/core/map.js": {
       "sha256": "f9eae33f6635cd1b3983fc1c71eb7a3b3c8dc1c70ca3ef8ce8807d5228165d2f",
@@ -329,8 +329,8 @@
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "src/core/run.js": {
-      "sha256": "35aafe7216fd5400af8f6e95bdcd4389117de44ee731cd9c20fd596856bbc879",
-      "reviewed": "release 4.0.0 fold of slice 6 (ee1ec1b3) onto facts and slice 5: both sides' reviewed text merged; hand resolutions only read and name problems (one problem formatter, proposals/ listing named as a part, receipt ownership, cleanLiving union, effect_of cut, duplicate run verdict removed); checked for direct writes and unconditional deletes"
+      "sha256": "4514ce5cb9a9f62e6ed91b0e037227f1bcafc7cc58f1faa3686fbb0f3c885d90",
+      "reviewed": "release 4.0.0 fold of slice 3 (b365f237): its reviewed write gate merged with facts', slice 5's and slice 6's guards; every record and run write keeps its 4.0 guard (fresh, still) and asks slice 3's fresh guard last for its token (keeps, receipts and the end included); facts' raw writes moved to putFile; checked for direct writes and unconditional deletes"
     },
     "src/core/save.js": {
       "sha256": "096b8282d8dd62623b608ad2a9ae6a8f78e5a8260615eaf74aa9c9fb9c3a3f26",
@@ -357,8 +357,8 @@
       "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
     },
     "src/core/spreads.js": {
-      "sha256": "9adf59256762c93ce9638f7877a47455369c678499c1496d1c000498990c4ab1",
-      "reviewed": "Merge of feat/4.0-learn (slice 5 at 7e339902) into release/4.0.0 on feat/4.0-facts: both sides' texts kept, facts' readDeps and slice 5's evidence read combined (ev and evd), tdFresh rereads through one reader; checked for direct writes and unconditional deletes"
+      "sha256": "face81f90bed0289a76c0ee55ac8a2117d3f27e30c2fa1c5c907bd96def949b4",
+      "reviewed": "release 4.0.0 fold of slice 3 (b365f237): its reviewed write gate merged with facts', slice 5's and slice 6's guards; every record and run write keeps its 4.0 guard (fresh, still) and asks slice 3's fresh guard last for its token (keeps, receipts and the end included); facts' raw writes moved to putFile; checked for direct writes and unconditional deletes"
     },
     "src/core/staging.js": {
       "sha256": "d01a3204178bd0b055c05524916f55774c4404cca10f86fbb10a2ca675bd6b07",
@@ -373,8 +373,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/todos.js": {
-      "sha256": "00a989b9a7462d92824ab085fe0f6f7709d85043447caa72aa431a7c26ed1256",
-      "reviewed": "release 4.0.0 fold of slice 6 (ee1ec1b3) onto facts and slice 5: both sides' reviewed text merged; hand resolutions only read and name problems (one problem formatter, proposals/ listing named as a part, receipt ownership, cleanLiving union, effect_of cut, duplicate run verdict removed); checked for direct writes and unconditional deletes"
+      "sha256": "e9fe721d2b08fb6fb86297eb6ba766ea3f74869e6a9ebd9bd5c4a528030bc618",
+      "reviewed": "release 4.0.0 fold of slice 3 (b365f237): its reviewed write gate merged with facts', slice 5's and slice 6's guards; every record and run write keeps its 4.0 guard (fresh, still) and asks slice 3's fresh guard last for its token (keeps, receipts and the end included); facts' raw writes moved to putFile; checked for direct writes and unconditional deletes"
     },
     "src/core/types.js": {
       "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",
@@ -417,24 +417,24 @@
       "reviewed": "FD: every fact line reachable on the run screen (count left out, Show all), contrary lines first; checked for direct writes and unconditional deletes"
     },
     "src/releases.json": {
-      "sha256": "36d13d4888f3179e2608e701cab2419bfc2766042993d849205a4a94a01ca750",
-      "reviewed": "release 4.0.0 fold of slice 6 (ee1ec1b3) onto facts and slice 5: both sides' reviewed text merged; hand resolutions only read and name problems (one problem formatter, proposals/ listing named as a part, receipt ownership, cleanLiving union, effect_of cut, duplicate run verdict removed); checked for direct writes and unconditional deletes"
+      "sha256": "d69642ad72ca292c1f3fe6fe5c0775a52cb7d105a11f9aac545e8c89282380e9",
+      "reviewed": "4.0.0 release fold of slice 3 (b365f237): guard order in saveRun and checkedWith (4.0 fresh, then slice 3's recheck, then still), stillSame rereads people.json last, todoStill on the fresh snapshot, recovery backup rechecked on the to-dos; checked for direct writes and unconditional deletes: every write goes through the gated write path"
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "f86916542b7d80df3d1bbd78b1a131fd77a8a3566411f1e8c53cc774512387c4",
-      "reviewed": "release 4.0.0 fold of slice 6 (ee1ec1b3) onto facts and slice 5: both sides' reviewed text merged; hand resolutions only read and name problems (one problem formatter, proposals/ listing named as a part, receipt ownership, cleanLiving union, effect_of cut, duplicate run verdict removed); checked for direct writes and unconditional deletes"
+      "sha256": "8e6baa8f7f7f37971a57d6f9c33c6f273a24bcf42e2fed25d2dd81d2da1d699a",
+      "reviewed": "4.0.0 release fold of slice 3 (b365f237): guard order in saveRun and checkedWith (4.0 fresh, then slice 3's recheck, then still), stillSame rereads people.json last, todoStill on the fresh snapshot, recovery backup rechecked on the to-dos; the 4.0.0 entry; checked for direct writes and unconditional deletes: every write goes through the gated write path"
     },
     "src/ui/app.js": {
-      "sha256": "a052effd5587ced8901b09365d3a9fe459fe99485ccac5a4176fcc741d5fc0ee",
-      "reviewed": "release 4.0.0 fold of slice 6 (ee1ec1b3) onto facts and slice 5: both sides' reviewed text merged; hand resolutions only read and name problems (one problem formatter, proposals/ listing named as a part, receipt ownership, cleanLiving union, effect_of cut, duplicate run verdict removed); checked for direct writes and unconditional deletes"
+      "sha256": "d936d1c4bf27293aa1963099a620486bad44336d119a299a295ec60c4a0eed57",
+      "reviewed": "4.0.0 release fold of slice 3 (b365f237): guard order in saveRun and checkedWith (4.0 fresh, then slice 3's recheck, then still), stillSame rereads people.json last, todoStill on the fresh snapshot, recovery backup rechecked on the to-dos; the 4.0.0 entry; checked for direct writes and unconditional deletes: every write goes through the gated write path"
     },
     "src/ui/examples.js": {
-      "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
-      "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
+      "sha256": "7db943140369906843961189dc3f34c8ec9430164cca3cb0f3a9f5bdd6ab946f",
+      "reviewed": "release 4.0.0 fold of slice 3 (b365f237): its reviewed write gate merged with facts', slice 5's and slice 6's guards; every record and run write keeps its 4.0 guard (fresh, still) and asks slice 3's fresh guard last for its token (keeps, receipts and the end included); facts' raw writes moved to putFile; checked for direct writes and unconditional deletes"
     },
     "src/ui/exporter.js": {
       "sha256": "34ce0bba932e2272dba19be20cdea63b055198f9c8fac8f698bfd733d37cfc3b",
@@ -529,8 +529,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. A maintainer tool, not shipped. Not read line by line."
     },
     "tools/readers.js": {
-      "sha256": "d07370bc74761d2fa936e986173eb0b75db38ee38bd47e83608d955050385b33",
-      "reviewed": "release 4.0.0 fold of slice 6 (ee1ec1b3) onto facts and slice 5: both sides' reviewed text merged; hand resolutions only read and name problems (one problem formatter, proposals/ listing named as a part, receipt ownership, cleanLiving union, effect_of cut, duplicate run verdict removed); checked for direct writes and unconditional deletes"
+      "sha256": "889f4aa2a1e47c6e991fbf27a3f84af72e669ac1c263b08b7d69ade14ea2b105",
+      "reviewed": "release 4.0.0 fold of slice 3 (b365f237): its reviewed write gate merged with facts', slice 5's and slice 6's guards; every record and run write keeps its 4.0 guard (fresh, still) and asks slice 3's fresh guard last for its token (keeps, receipts and the end included); facts' raw writes moved to putFile; checked for direct writes and unconditional deletes"
     },
     "tools/scale-limits.js": {
       "sha256": "23e06ee46d6b4ff44216f92c530578f714aa05bcecd7a2b0458515287d554ec1",

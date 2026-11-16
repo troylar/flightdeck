@@ -475,8 +475,8 @@ rule('Use copy whose save fails at the candidate, the history or run.json keeps 
   }
 });
 
-/* NA: the save meets a run changed on disk, and the conflict copy it keeps fails to write. */
-rule('A landing or a copy kept whose conflict copy fails to write keeps nothing in this window: after a blocker, a later Pause or Resume persists no unsupported head in run.json or any conflict copy', async () => {
+/* NA: the save meets a run another window saved meanwhile (the conflict copy's write is held to fail, should it start). */
+rule('A landing or a copy kept on a run another window saved meanwhile is refused before any conflict copy, and after a blocker no run file or conflict copy holds the unsupported head', async () => {
   for (const caller of ['landing', 'use copy']) {
     const app = await setup(), x = await todo(app), f = await fact(app, 'prs-1', { observedAt: ago(30000), maxAgeSeconds: 120 }), g = await grant(app), tag = caller;
     const S = await suggest(app, x, f.id);
@@ -505,20 +505,15 @@ rule('A landing or a copy kept whose conflict copy fails to write keeps nothing 
     /* The conflict copy's write waits, then fails; the blocker is filed while it waits, after the guard let it start. */
     const w = app.fs.write.bind(app.fs), cw = gate(); let n = 0;
     app.fs.write = (p, t) => n === 0 && /run\.conflict-[^/]*\.json$/.test(p) ? (n++, cw.p.then(() => Promise.reject(new Error('EIO: the folder answered an error')))) : w(p, t);
-    /* The person pauses while the conflict copy is written (a landing): an edit of their own, so the run as this window has
-       it stays on screen rather than replaced by the other window's. A copy being kept holds every edit until it is done. */
-    const pause = async () => { app.click('pick', 'run', { kind: 'pause' }); await app.tick(); app.set('pick-input', 'Waiting'); app.click('pause', 'run'); await app.tick(5); };
     h.hold.open(); await app.tick(300);
-    assert.strictEqual(n, 1, tag + ' set-up: the conflict copy is being written');
+    /* Slice 3's guards refuse both on a run changed on disk before any write (a landing: loopEdit's fresh guard; Use copy:
+       the approval snapshot), so neither keeps a conflict copy at all: the landing is put back, the copy stays. The facts
+       rule's point holds on that: no run file or conflict copy holds the unsupported head. */
+    assert.strictEqual(n, 0, tag + ' set-up: refused before any conflict copy');
     await blocker(app);
-    if (caller === 'landing') { await pause(); assert.ok(/data-act="resume"/.test(app.html()), tag + ' set-up: paused while the conflict copy is written'); }
-    cw.open(); await app.tick(500);
-    /* Then the next edits save the run as this window has it (a Resume, a Pause again). */
-    app.click('resume', 'run'); await app.tick(400);
-    if (caller === 'landing') { await pause(); await app.tick(400); }
-    await refresh(app, 300);
-    const id = head(), holders = app.files('runs/release-readiness/').filter((p) => p !== cp && /(run|run\.conflict-[^/]*)\.json$/.test(p) && /^runs\/release-readiness\/[^/]+\/run[.a-z0-9-]*\.json$/.test(p) && app.fs.files[p].t.includes(id));
-    assert.deepStrictEqual(holders, [], tag + ': no run file or conflict copy holds the unsupported head ' + id);
+    cw.open(); await app.tick(500); await refresh(app, 300);
+    const id0 = head(), held = app.files('runs/release-readiness/').filter((p) => p !== cp && /^runs\/release-readiness\/[^/]+\/run[.a-z0-9-]*\.json$/.test(p) && app.fs.files[p].t.includes(id0));
+    assert.deepStrictEqual(held, [], tag + ': no run file or conflict copy holds the unsupported head ' + id0);
     if (cp) assert.ok(app.fs.files[cp], tag + ': the copy stays');
     assert.ok(g);
   }

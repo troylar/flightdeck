@@ -217,6 +217,17 @@ rule('A story that joins later owes it at once, before any sync, and is announce
   W.request(k5, spreadOf(W));
   same(W.one().notices, ['ABC-105 joined. Security sign-off requested.']);
 });
+/* Round 19 (XD): an arrival's notice says how it stands: one approved without a run never reads as work still to request. */
+rule('XD: a story that joins and is approved without a run is announced as approved without a run, never as not requested', () => {
+  const W = world([101]); const k1 = W.kid(101);
+  W.spreadAdd(); W.land(W.r);
+  W.fulfil(k1, spreadOf(W));
+  W.scopes.push(scope('s2', [101, 105], [W.scopes[0].id])); W.kid(105);
+  loopChange(W, 'ex-xd', { op: 'exception', item: { key: 'ABC-105' }, reason: 'Docs only', approver: 'person-morgan' });
+  const C = W.one(), late = C.items.filter(i => i.key === 'ABC-105')[0];
+  same([late.state, late.resolved, late.arrival], ['excepted', true, true], 'set-up: excepted, resolved, an arrival');
+  same(C.notices, ['ABC-105 joined. Security sign-off: approved without a run.']);
+});
 rule('A cleared story stays unchanged, but its new attempt owes the requirement; becoming cleared while waiting never erases it', () => {
   const W = world([101, 102]); W.kid(101, { cleared: true }); const k2 = W.kid(102);
   W.spreadAdd(); W.land(W.r);
@@ -246,6 +257,36 @@ rule('Including a cleared story is one opt-in; on an approved loop it reopens ap
   const inc = W2.ask(W2.r, { op: 'spread-include', spread: s2.id, item: { uid: uid(101), attempt: 1 } }, { tool: 'release-helper', version: '1.0', key: 'inc-1' });
   same(inc.preview.consequence.reopens, ['loop:each']);
   same(inc.preview.status, 'waiting', 'a delegation never reopens an approval');
+});
+/* Review round 16 (UC): opting a cleared item in turns it from exempt to owing, so it always needs a person: no delegation
+   covers spread-include, whatever its scope, whether or not an approval reopens. Stopping (which releases work) and a
+   reopened approval follow the same rule. */
+rule('Round 16 (UC): no delegation covers spread-include, spread-stop or a reopened approval, whatever its scope', () => {
+  const scopes = [
+    { subject: { tool: 'release-helper' }, ops: ['add'], by: { tool: 'release-helper', version: '1.0' } },
+    { subject: { tool: 'release-helper' }, ops: ['add', 'done'], by: { tool: 'release-helper', version: '1.0' } },
+    { subject: { tool: 'release-helper' }, ops: ['add', 'done', 'reopen'], by: { tool: 'release-helper', version: '1.0' } },
+    { subject: { person: 'person-blake' }, ops: ['add', 'done', 'reopen'], by: { person: 'person-blake' } }
+  ];
+  const off = [];
+  scopes.forEach((sc, n) => {
+    for (const approved of [false, true]) for (const op of ['spread-include', 'spread-stop']) {
+      const W = world([101]); W.kid(101, { cleared: true }); W.spreadAdd(); W.land(W.r);
+      if (approved) { const V = W.loopView(); W.mark(); R.done(W.r, R.mapOf(W.r), 'each', 'person-morgan', AT, { _loop: { ok: true, snapshot: LP.approval(V.ledger, V.rollup, { by: 'person-morgan', at: AT }) } }); }
+      const g = T.grantOf(W.r, { subject: sc.subject, ops: sc.ops, targets: [{ step: 'each' }], adds: 10, by: 'person-morgan', key: 'g-uc' + n, records: W.recs, people: PEOPLE, at: AT });
+      if (g.why) { off.push('grant ' + n + ': ' + g.why); continue; }
+      W.push(g.record, g.name);
+      const sp = spreadOf(W), before = W.one().items.map(i => i.state).join(',');
+      const body = op === 'spread-include' ? { op, spread: sp.id, item: { uid: uid(101), attempt: 1 } } : { op, spread: sp.id, reason: 'Covered elsewhere', owed: W.one().items.filter(i => i.owed).map(i => ({ uid: i.uid, attempt: i.attempt })) };
+      const q = W.ask(W.r, body, Object.assign({ key: 'uc-' + n + '-' + op + '-' + approved }, sc.by));
+      W.land(W.r);
+      const tag = op + ' by ' + JSON.stringify(sc.subject) + ' ' + sc.ops.join('+') + (approved ? ', loop approved' : ', loop not approved');
+      if (q.preview.status !== 'waiting') off.push(tag + ': ' + q.preview.status + ' (' + (q.preview.why || '') + ')');
+      if (W.one().items.map(i => i.state).join(',') !== before) off.push(tag + ': landed without a person (' + before + ' -> ' + W.one().items.map(i => i.state).join(',') + ')');
+      if (op === 'spread-stop' && spreadOf(W).state === 'stopped') off.push(tag + ': stopped without a person');
+    }
+  });
+  same(off, []);
 });
 rule('Stopping needs a person, ends future inheritance only, and keeps every obligation it had', () => {
   const W = world([101, 102]); W.kid(101); W.kid(102);
@@ -603,14 +644,15 @@ rule('TC: a stopped spread owes nothing on an item removed from scope after it s
   assert.ok(!(W.mark().loops.each || []).some(x => /ABC-102/.test(x)), JSON.stringify(W.r._todos.loops.each));
   same(spreadOf(W).stop.owed.length, 2, 'the stop record itself is unchanged');
 });
-rule('TC: a stopped spread owes nothing on an earlier attempt, and its new attempt inherits nothing', () => {
+/* Regression since round 10 (BA): a new attempt with no plan has no witness to show it came after the stop, so it owes. */
+rule('TC: a stopped spread\'s listed attempt says nothing of a new one, which owes with no plan made after the stop', () => {
   const W = world([101, 102]); W.kid(101, { cleared: false }); W.kid(102);
   W.spreadAdd(); W.land(W.r);
   W.ask(W.r, stopBody(W, [101, 102]), { person: 'person-morgan' }); W.land(W.r);
   same(spreadOf(W).state, 'stopped', 'set-up: stopped');
   W.kid(101, { attempt: 2 });
   same(W.loopView().rollup.items.filter(i => i.key === 'ABC-101').map(i => i.attempt), [2], 'set-up: attempt 2');
-  same(W.one().items.filter(i => i.owed).map(i => i.key + '#' + i.attempt), ['ABC-102#1']);
+  same(W.one().items.filter(i => i.owed).map(i => i.key + '#' + i.attempt), ['ABC-102#1', 'ABC-101#2']);
 });
 /* Review round 2 (TD): a settled exception for the current attempt resolves coverage whatever the loop shows as its status. */
 rule('TD: an exception settled for the current attempt resolves coverage even when the item\'s run already cleared', () => {
@@ -989,12 +1031,14 @@ rule('YA: an item that arrives after a stop, by a record that saw the stop\'s ap
   W.scopes.push(scope4('s4', [101, 102, 106], [W.scopes[0].id], W.view().chain[W.view().chain.length - 2]));
   same(W.one().items.filter(i => i.owed).map(i => i.key), ['ABC-101', 'ABC-102', 'ABC-106'], 'a head before the stop\'s application: owed');
 });
-rule('YA: an item the stop saw and didn\'t list owes nothing, whatever its attempt', () => {
+/* Regression since round 10 (BA): attempt 1, seen and unlisted, owes nothing; attempt 2, with no plan, owes. */
+rule('YA: an item the stop saw and didn\'t list owes nothing on that attempt; a later one with no plan owes', () => {
   const W = world([101, 102]); W.kid(101, { cleared: true }); W.kid(102);
   W.spreadAdd(); W.land(W.r);
   W.ask(W.r, stopBody(W, [102]), { person: 'person-morgan' }); W.land(W.r);
+  same(W.one().items.filter(i => i.owed).map(i => i.key + '#' + i.attempt), ['ABC-102#1'], 'attempt 1: seen, not listed');
   W.kid(101, { attempt: 2 });
-  same(W.one().items.filter(i => i.owed).map(i => i.key + '#' + i.attempt), ['ABC-102#1']);
+  same(W.one().items.filter(i => i.owed).map(i => i.key + '#' + i.attempt), ['ABC-102#1', 'ABC-101#2']);
 });
 /* Review round 7 (YB): a binding names the run that counts, so that run is expected whether or not a request was filed on it. */
 rule('YB: an explicitly bound run that isn\'t here makes coverage incomplete and is named, with no request filed on it', () => {
@@ -1008,5 +1052,362 @@ rule('YB: an explicitly bound run that isn\'t here makes coverage incomplete and
   assert.ok(T.missingOf(W.view(), cov).some(x => x.path === 'runs/validate-story/k103/run.json' && x.kind === 'nofile'), JSON.stringify(T.missingOf(W.view(), cov)));
   W.kids.push(k3);
   same(W.one().complete, true, 'back');
+});
+/* Review round 8 (ZA): every introduction of an item in its current incarnation counts. A stopped spread exempts an item only
+   when every one of them came after the stop; a repeat observation or a restore of an item already required never starts a new
+   incarnation. Each case is run in both id orders. */
+/* Two keys whose scope request ids sort as asked: a before b when first, else b before a. */
+const keysIn = (first, tag) => { for (let i = 0; i < 400; i++) { const a = tag + '-a' + i, b = tag + '-b' + i, ia = scope4(a, [101], [], '').id, ib = scope4(b, [101], [], '').id; if ((ia < ib) === first) return [a, b]; } throw new Error('no keys'); };
+function hiddenBeforeStop(tag, first) {
+  const W = world([101]); W.kid(101, { cleared: true });
+  W.spreadAdd(); W.land(W.r);
+  const [kp, kq] = keysIn(first, tag);
+  const pre = scope4(kp, [101, 104], [W.scopes[0].id], W.r.living.head);
+  W.ask(W.r, stopBody(W, []), { person: 'person-morgan' }); W.land(W.r);
+  same(spreadOf(W).state, 'stopped', 'set-up: stopped on nothing while the record that added ABC-104 was hidden');
+  return { W, pre, kq, stopApp: W.r.living.head };
+}
+const owedOf = (W) => { const C = W.one(); return [C.complete, C.items.filter(i => i.owed).map(i => i.key + '#' + i.attempt)]; };
+for (const first of [true, false]) {
+  const ord = first ? ' (the earlier introduction sorts first)' : ' (the later introduction sorts first)';
+  rule('ZA: a concurrent observation after the stop never replaces the hidden one before it' + ord, () => {
+    const { W, pre, kq, stopApp } = hiddenBeforeStop('za1', first);
+    W.scopes.push(pre, scope4(kq, [101, 104], [W.scopes[0].id], stopApp));
+    same(owedOf(W), [true, ['ABC-104#1']]);
+  });
+  rule('ZA: a repeat observation that saw the hidden one never makes it a later arrival' + ord, () => {
+    const { W, pre, kq, stopApp } = hiddenBeforeStop('za2', first);
+    W.scopes.push(pre);
+    same(owedOf(W), [true, ['ABC-104#1']], 'set-up: restored, owed');
+    W.scopes.push(scope4(kq, [101, 104], [pre.id], stopApp));
+    same(owedOf(W), [true, ['ABC-104#1']]);
+  });
+  rule('ZA: a restore of an item already required changes nothing, and never makes it a later arrival' + ord, () => {
+    const { W, pre, kq, stopApp } = hiddenBeforeStop('za3', first);
+    W.scopes.push(pre);
+    W.scopes.push(scope4(kq, null, [pre.id], stopApp, [{ op: 'restore', item: { key: 'ABC-104', id: '10104' }, reason: 'Back in' }]));
+    same(owedOf(W), [true, ['ABC-104#1']]);
+  });
+}
+/* Regression since round 10 (BA): the accepted consequence. An item in the loop before the stop still owes it when it comes back. */
+rule('ZA: an item added before the stop, then removed and restored after it, still owes', () => {
+  const { W, pre, kq, stopApp } = hiddenBeforeStop('za4', true);
+  W.scopes.push(pre);
+  const ex = scope4(kq + 'x', null, [pre.id], stopApp, [{ op: 'exclude', item: { key: 'ABC-104', id: '10104' }, reason: 'Out' }]);
+  W.scopes.push(ex);
+  same(owedOf(W), [true, []], 'a recorded removal still removes');
+  W.scopes.push(scope4(kq + 'r', null, [ex.id], stopApp, [{ op: 'restore', item: { key: 'ABC-104', id: '10104' }, reason: 'Back in' }]));
+  same(owedOf(W), [true, ['ABC-104#1']], 'restored after the stop: its addition before the stop is still a witness');
+});
+/* Review round 8 (ZC): an attempt made after the stop inherits nothing, even of an item whose earlier attempt still owes it. */
+function plan4(key, n, attempt, seen, head) {
+  const c = LP.cleanIntent({ loop: LOOPT, observation: null, changes: [] }, key, { name: 'release-helper', version: '1.0' });
+  const f = LP.buildRequest(c.intent, { seen, children: [{ item: { id: String(10000 + n), key: 'ABC-' + n }, attempt, inputs: { issue: 'ABC-' + n, fix_version: '4.1' }, owner: '' }], now: AT, app: '4.0.0', head });
+  const v = LP.cleanRequest(JSON.parse(LP.text(f)), f.id + '.json'); assert.ok(v.ok, v.why); return v.record;
+}
+/* Regression since round 11 (EA): the item's addition before the stop names no attempt, so it counts for every attempt:
+   attempt 2 planned after the stop still owes. */
+rule('ZC: a later attempt planned after the stop still owes when the item was in the loop before it; one with no head owes too', () => {
+  const { W, pre, stopApp } = hiddenBeforeStop('zc1', true);
+  W.scopes.push(pre);
+  same(owedOf(W), [true, ['ABC-104#1']], 'set-up: attempt 1 owes');
+  W.kid(104, { cleared: true });
+  const p2 = plan4('zc-p2', 104, 2, [pre.id], stopApp);
+  W.scopes.push(p2);
+  same(W.loopView().rollup.items.filter(i => i.key === 'ABC-104')[0].attempt, 2, 'set-up: attempt 2 is planned');
+  same(owedOf(W), [true, ['ABC-104#2']], 'attempt 2 came after the stop, but the item\'s addition before it counts for every attempt');
+  W.scopes.pop();
+  const c3 = LP.cleanIntent({ loop: LOOPT, observation: null, changes: [] }, 'zc-p3', { name: 'release-helper', version: '1.0' });
+  const f3 = LP.buildRequest(c3.intent, { seen: [pre.id], children: [{ item: { id: '10104', key: 'ABC-104' }, attempt: 2, inputs: { issue: 'ABC-104', fix_version: '4.1' }, owner: '' }], now: AT, app: '3.0.0' });
+  W.scopes.push(LP.cleanRequest(JSON.parse(LP.text(f3)), f3.id + '.json').record);
+  same(owedOf(W), [true, ['ABC-104#2']], 'a 3.0 plan can\'t say it came after the stop: owed');
+});
+/* Review round 9 (AA): no single witness chosen by id order anywhere a stop's obligation is decided. Generated: every way an
+   item or attempt comes in (an addition, a restore after a removal, an attempt's plan) made before the stop and hidden when it
+   lands, then revealed with every combination of later records (a concurrent one that didn't see it, a repeat that did, a
+   redundant restore), in both id orders: the obligation always stands. The same with the first record made after the stop
+   instead (a genuine later arrival or attempt): always exempt. 3 routes x 8 combinations x 2 orders x 2 = 96 cases. */
+const AA_ROUTES = {
+  addition: {
+    ns: [101], cleared: [101], before: () => {},
+    first: (W, k, seen, head) => scope4(k, [101, 104], seen, head),
+    repeat: (W, k, seen, head) => scope4(k, [101, 104], seen, head),
+    owes: 'ABC-104#1'
+  },
+  restore: {
+    ns: [101], cleared: [101],
+    before: (W) => { const A = scope4('aa-add', [101, 104], [W.scopes[0].id], W.r.living.head); W.scopes.push(A); W.scopes.push(scope4('aa-x', null, [A.id], W.r.living.head, [{ op: 'exclude', item: { key: 'ABC-104', id: '10104' }, reason: 'Out' }])); },
+    first: (W, k, seen, head) => scope4(k, null, seen, head, [{ op: 'restore', item: { key: 'ABC-104', id: '10104' }, reason: 'Back in' }]),
+    repeat: (W, k, seen, head) => scope4(k, [101, 104], seen, head),
+    owes: 'ABC-104#1'
+  },
+  'attempt creation': {
+    ns: [101, 104], cleared: [101, 104], before: () => {},
+    first: (W, k, seen, head) => plan4(k, 104, 2, seen, head),
+    repeat: (W, k, seen, head) => plan4(k, 104, 2, seen, head),
+    owes: 'ABC-104#2'
+  }
+};
+const AA_LATER = ['concurrent', 'repeat', 'redundant restore'];
+for (const route of Object.keys(AA_ROUTES)) for (const before of [true, false]) {
+  /* Since round 10 (BA) a restore made after the stop still owes: the addition and exclusion before the stop are witnesses. */
+  /* Since round 11 (EA) an attempt planned after the stop still owes: the item's records before it name no attempt. */
+  const exempt = !before && route === 'addition';
+  rule('AA: ' + route + ', first made ' + (before ? 'before the stop and hidden when it lands' : 'after the stop') + (exempt ? ': always exempt' : ': always owed') + ', with every combination of later records, both id orders', () => {
+    const R0 = AA_ROUTES[route], off = [];
+    let cases = 0;
+    for (let mask = 0; mask < 8; mask++) for (const first of [true, false]) {
+      cases++;
+      const W = world(R0.ns); R0.cleared.forEach(n => W.kid(n, { cleared: true }));
+      W.spreadAdd(); W.land(W.r);
+      R0.before(W);
+      const base = W.scopes[W.scopes.length - 1].id, tag = 'aa' + route.length + (before ? 'b' : 'l') + mask + (first ? 'f' : 's');
+      const [k1, kc] = keysIn(first, tag);
+      const preHead = W.r.living.head;
+      const one = before ? R0.first(W, k1, [base], preHead) : null;
+      W.ask(W.r, stopBody(W, []), { person: 'person-morgan' }); W.land(W.r);
+      if (spreadOf(W).state !== 'stopped') { off.push(tag + ': set-up: not stopped'); continue; }
+      const stopApp = W.r.living.head;
+      const H = one || R0.first(W, k1, [base], stopApp);
+      W.scopes.push(H);
+      const on = AA_LATER.filter((x, i) => mask & (1 << i));
+      if (on.includes('concurrent')) W.scopes.push(R0.first(W, kc, [base], stopApp));
+      if (on.includes('repeat')) W.scopes.push(R0.repeat(W, tag + '-rep', [H.id], stopApp));
+      if (on.includes('redundant restore')) W.scopes.push(scope4(tag + '-rr', null, [H.id], stopApp, [{ op: 'restore', item: { key: 'ABC-104', id: '10104' }, reason: 'Still in' }]));
+      const [complete, owed] = owedOf(W), want = exempt ? [] : [R0.owes];
+      if (!complete || JSON.stringify(owed) !== JSON.stringify(want)) off.push(tag + ' [' + on.join(', ') + '] ' + (first ? 'first-made sorts first' : 'later sorts first') + ': complete ' + complete + ', owed ' + JSON.stringify(owed));
+    }
+    same([cases, off], [16, []], '16 cases for each of 3 routes, made before or after the stop: 96');
+  });
+}
+/* Review round 10 (BA): the stop rule, by property. A pair {uid, attempt} is exempt from a stopped spread only when every
+   scope record that ever names it (for a later attempt, every plan for that attempt) saw the stop's application; otherwise
+   it is owed. Generated histories over ABC-104 from {add, observe, remove, exclude, restore, attempt plan} x {before the stop,
+   concurrent with it, made before it and hidden when it lands, after it}, every id order of their records. Two properties:
+   the result is the same in every id order, and it is exactly what the rule says. */
+/* Round 11 (EA) adds: a choice and a plan selection naming attempt 2, a key-only reference, a key change (the same id under
+   another key), and a record of another loop sharing the item and a record id. */
+const BA_KINDS = ['add', 'observe', 'remove', 'exclude', 'restore', 'plan', 'choose', 'select', 'keyonly', 'rekey', 'cross'];
+/* Round 12 (FA): keep and accept decisions naming the item by its uid, its key-only uid and its bare key. */
+const BA_DECS = ['keep:uid', 'keep:keyuid', 'keep:key', 'accept:uid', 'accept:keyuid', 'accept:key'];
+const BA_WHEN = ['before', 'concurrent', 'hidden', 'after'];
+const baRecord = (kind, key, seen, head) => {
+  const it = { key: 'ABC-104', id: '10104' };
+  if (kind === 'add') return scope4(key, null, seen, head, [{ op: 'add', item: it }]);
+  if (kind === 'observe') return scope4(key, [101, 104], seen, head);
+  if (kind === 'remove') { const c = LP.cleanIntent({ loop: LOOPT, observation: Object.assign(obs([101]), { complete: true }), changes: [] }, key, { name: 'release-helper', version: '1.0' }); const f = LP.buildRequest(c.intent, { seen, children: [], now: AT, app: '4.0.0', head }); return LP.cleanRequest(JSON.parse(LP.text(f)), f.id + '.json').record; }
+  if (kind === 'exclude' || kind === 'restore') return scope4(key, null, seen, head, [{ op: kind, item: it, reason: 'r' }]);
+  if (kind === 'choose') return scope4(key, null, seen, head, [{ op: 'choose', item: it, run: 'k104a', attempt: 2, candidates: ['k104a', 'k104b'] }]);
+  if (kind === 'select') return scope4(key, null, seen, head, [{ op: 'plan', item: it, attempt: 2, record: LP.idFor('release-helper', 'no-such-plan') }]);
+  if (kind === 'keyonly') return scope4(key, null, seen, head, [{ op: 'add', item: { key: 'ABC-104' } }]);
+  if (kind === 'rekey') return scope4(key, null, seen, head, [{ op: 'add', item: { key: 'ABC-904', id: '10104' } }]);
+  if (kind === 'cross') return scopeIn(LOOP_OTHER, key, seen, head, [{ op: 'add', item: it }]);
+  if (BA_DECS.includes(kind)) return baDecision(kind, key, seen);
+  return plan4(key, 104, 2, seen, head);
+};
+/* Another loop of the same run (round 11, EA): its records never count for this one, even one sharing a record id. */
+/* A decision has no parent head, so it is never after the stop. Its proposal is a record id that needn't be here. */
+const BA_REF = { uid: 'jira:10104', keyuid: 'jira:key:ABC-104', key: 'ABC-104' };
+function baDecision(kind, key, seen) {
+  const [op, ref] = kind.split(':'), d = LP.buildDecision({ proposal: LP.idFor('release-helper', 'dp-' + key), loop: LOOPT, op, items: [BA_REF[ref]], seen: seen || [], by: 'person-morgan', writer: 'w' + PF.sha256.hex(key).slice(0, 8), rev: PF.sha256.hex('r' + key).slice(0, 8), now: AT, app: '4.0.0' });
+  const v = LP.cleanDecision(JSON.parse(LP.text(d.file)), d.name); assert.ok(v.ok, v.why); return v.record;
+}
+const LOOP_OTHER = { process: 'release-readiness', run: 'r-41', step: 'other' };
+function scopeIn(loop, key, seen, head, changes) {
+  const c = LP.cleanIntent({ loop, observation: null, changes }, key, { name: 'release-helper', version: '1.0' });
+  same(c.errors, []);
+  const f = LP.buildRequest(c.intent, { seen: seen || [], children: [], now: AT, app: '4.0.0', head });
+  const v = LP.cleanRequest(JSON.parse(LP.text(f)), f.id + '.json'); assert.ok(v.ok, v.why); return v.record;
+}
+/* Which attempts a record names (round 11): one with no attempt names every attempt ('*'); a plan, a choice and a plan
+   selection name attempt 2 only; a removal by a complete observation and another loop's record name none. */
+const baNames = (kind) => kind === 'remove' || kind === 'cross' ? [] : ['plan', 'choose', 'select'].includes(kind) ? ['2'] : ['*'];
+/* Which issue a record names, as its aliases (round 11): the same item when any alias links them, through any record. */
+const baAliases = (kind) => BA_DECS.includes(kind) ? (({ uid: ['u:jira:10104', 'k:jira:10104'], keyuid: ['u:jira:key:ABC-104', 'k:jira:key:ABC-104', 'k:ABC-104'], key: ['u:ABC-104', 'k:ABC-104'] })[kind.split(':')[1]]) : kind === 'keyonly' ? ['k:ABC-104', 'u:jira:key:ABC-104'] : kind === 'rekey' ? ['u:jira:10104', 'k:ABC-904'] : kind === 'remove' || kind === 'cross' ? [] : ['u:jira:10104', 'k:ABC-104'];
+function baSame(events, kind, row) {
+  const up = {}, find = (x) => { while (up[x]) x = up[x]; return x; }, join = (x, y) => { x = find(x); y = find(y); if (x !== y) up[x] = y; };
+  events.forEach(([k]) => { const al = baAliases(k); for (let j = 1; j < al.length; j++) join(al[0], al[j]); });
+  join('u:' + row.uid, 'k:' + row.key);
+  return baAliases(kind).some(al => find(al) === find('u:' + row.uid));
+}
+const perms = (n) => n <= 1 ? [[0]] : perms(n - 1).reduce((out, p) => { for (let i = 0; i <= p.length; i++) out.push(p.slice(0, i).concat([n - 1], p.slice(i))); return out; }, []);
+function baCase(events, order, tag) {
+  const W = world([101]); W.kid(101, { cleared: true });
+  W.spreadAdd(); W.land(W.r);
+  const base = W.scopes[0].id, preHead = W.r.living.head;
+  /* Keys whose ids sort in the order asked: record i gets the key of rank order[i]. */
+  const pool = events.map((e, i) => tag + '-' + i).sort((a, b) => (LP.idFor('release-helper', a) < LP.idFor('release-helper', b) ? -1 : 1));
+  /* A record of another loop takes the key (so the record id) of the first other event, when there is one. */
+  const keyOf = (i) => events[i][0] === 'cross' && i > 0 ? pool[order[0]] : pool[order[i]];
+  /* Records follow one another as writers make them: one made before the stop (shown or hidden) saw those made before it;
+     one concurrent with the stop saw only what was shown then; one after it saw everything shown, never the hidden ones. */
+  const made = [], shown = [base], pre = [base];
+  events.forEach(([kind, when], i) => {
+    if (when !== 'before' && when !== 'hidden') return;
+    /* Another loop's record is never seen by this loop's writers. */
+    made[i] = baRecord(kind, keyOf(i), pre.slice(-50), preHead); if (kind !== 'cross') pre.push(made[i].id);
+    if (when === 'before') { W.scopes.push(made[i]); if (kind !== 'cross') shown.push(made[i].id); }
+  });
+  const C0 = W.one();
+  if (!C0.complete) return { skip: 'incomplete at the stop' };
+  const owed0 = C0.items.filter(i => i.owed).map(i => ({ uid: i.uid, attempt: i.attempt }));
+  try { W.ask(W.r, { op: 'spread-stop', spread: spreadOf(W).id, reason: 'Stopped', owed: owed0 }, { person: 'person-morgan' }); } catch (e) { return { skip: 'the stop wasn\'t asked: ' + e.message }; }
+  W.land(W.r);
+  if (spreadOf(W).state !== 'stopped') return { skip: 'not stopped' };
+  const stopApp = W.r.living.head;
+  const atStop = shown.slice(), later = shown.slice();
+  events.forEach(([kind, when], i) => {
+    if (when === 'hidden') W.scopes.push(made[i]);
+    if (when === 'concurrent') W.scopes.push(baRecord(kind, keyOf(i), atStop.slice(-50), preHead));
+    if (when === 'after') { const x = baRecord(kind, keyOf(i), later.slice(-50), stopApp); W.scopes.push(x); if (kind !== 'cross') later.push(x.id); }
+  });
+  const C = W.one(), got = C.items.filter(i => i.owed).map(i => i.key + '#' + i.attempt).sort(), req = [];
+  /* The rule, from the history alone. */
+  const listed = owed0.map(p => p.uid + '#' + p.attempt), want = [];
+  W.loopView().rollup.items.forEach(i => {
+    if (!i.required) return;
+    const a = i.attempt || 1, pk = i.uid + '#' + a;
+    req.push(i.key + '#' + a);
+    if (i.uid === uid(101) && a === 1) return;
+    if (listed.includes(pk)) { want.push(i.key + '#' + a); return; }
+    const wit = events.filter(([kind]) => (baNames(kind).includes(String(a)) || baNames(kind).includes('*')) && baSame(events, kind, i));
+    if (!(wit.length && wit.every(([k, when]) => when === 'after' && !BA_DECS.includes(k)))) want.push(i.key + '#' + a);
+  });
+  return { complete: C.complete, got, want: want.sort(), req };
+}
+/* Every single event and every pair of events in every id order, and a fixed sample of three-event histories in all six. */
+const BA_HISTORIES = [];
+BA_KINDS.forEach(k => BA_WHEN.forEach(w => BA_HISTORIES.push([[k, w]])));
+BA_KINDS.forEach(k1 => BA_WHEN.forEach(w1 => BA_KINDS.forEach(k2 => BA_WHEN.forEach(w2 => BA_HISTORIES.push([[k1, w1], [k2, w2]])))));
+let seed = 7; const rnd = (n) => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
+for (let i = 0; i < 160; i++) BA_HISTORIES.push([0, 1, 2].map(() => [BA_KINDS[rnd(6)], BA_WHEN[rnd(4)]]));
+/* Round 11 (EA): alias histories, choices, selections and other loops' records, in triples over every kind, all six orders. */
+/* Round 12 (FA): every decision kind at every time, alone and with every other kind at every time, both orders. */
+BA_DECS.forEach(k => BA_WHEN.forEach(w => { BA_HISTORIES.push([[k, w]]); BA_KINDS.forEach(k2 => BA_WHEN.forEach(w2 => BA_HISTORIES.push([[k, w], [k2, w2]]))); }));
+for (let i = 0; i < 120; i++) BA_HISTORIES.push([0, 1, 2].map((j) => [j === 0 ? ['choose', 'select', 'keyonly', 'rekey', 'cross'][rnd(5)] : BA_KINDS[rnd(BA_KINDS.length)], BA_WHEN[rnd(4)]]));
+const BA_CHUNK = 60;
+for (let c = 0; c * BA_CHUNK < BA_HISTORIES.length; c++) {
+  rule('BA: the stop rule holds, the same in every id order (histories ' + (c * BA_CHUNK + 1) + '-' + Math.min(BA_HISTORIES.length, (c + 1) * BA_CHUNK) + ')', () => {
+    const off = [];
+    BA_HISTORIES.slice(c * BA_CHUNK, (c + 1) * BA_CHUNK).forEach((ev, hi) => {
+      let first = null;
+      perms(ev.length).forEach((order) => {
+        const tag = 'ba' + (c * BA_CHUNK + hi) + 'o' + order.join('');
+        const res = baCase(ev, order, tag);
+        if (res.skip) { if (first === null) first = 'skip'; else if (first !== 'skip') off.push(tag + ': skipped in one order only: ' + res.skip); return; }
+        /* Whether a pair is required at all comes from the scope reduction (unchanged here), which two concurrent records
+           can decide by order: the stop rule's answer is compared on every pair required in both orders. */
+        if (first === null) first = res;
+        else if (first === 'skip') off.push(tag + ': skipped in another order only');
+        else {
+          const both = res.req.filter(k => first.req.includes(k)), d = (x) => both.filter(k => x.got.includes(k));
+          if (first.complete !== res.complete || JSON.stringify(d(first)) !== JSON.stringify(d(res))) off.push(tag + ' ' + JSON.stringify(ev) + ': differs by id order: ' + JSON.stringify(d(first)) + ' vs ' + JSON.stringify(d(res)));
+        }
+        /* A key-only item given its id after the stop leaves the stop's list naming a uid nothing explains: coverage is
+           incomplete, which exempts nothing (fail closed). Only those histories may be incomplete. */
+        if (!res.complete && ev.some(e => e[0] === 'keyonly')) return;
+        if (!res.complete || JSON.stringify(res.got) !== JSON.stringify(res.want)) off.push(tag + ' ' + JSON.stringify(ev) + ': complete ' + res.complete + ', owed ' + JSON.stringify(res.got) + ', the rule says ' + JSON.stringify(res.want));
+      });
+    });
+    same(off.slice(0, 12).concat(off.length > 12 ? ['and ' + (off.length - 12) + ' more'] : []), []);
+  });
+}
+/* 44 single events, 1,936 pairs in 2 orders, 280 triples in 6, and (round 12) 24 decisions alone and 1,056 decision pairs in 2:
+   44 + 3,872 + 1,680 + 24 + 2,112 = 7,732 cases. */
+rule('BA: the generated histories are at least 2,000 cases', () => { const n = BA_HISTORIES.reduce((t, ev) => t + perms(ev.length).length, 0); assert.ok(n >= 2000, String(n)); });
+/* Round 11 (EA): the reproductions, kept by name. */
+const eaAll = (ev, tag) => { const off = []; perms(ev.length).forEach((order) => { const res = baCase(ev, order, tag + order.join('')); if (res.skip) { off.push(order.join('') + ': skipped: ' + res.skip); return; } if (!res.complete || JSON.stringify(res.got) !== JSON.stringify(res.want)) off.push(order.join('') + ': owed ' + JSON.stringify(res.got) + ', the rule says ' + JSON.stringify(res.want)); }); return off; };
+rule('EA: a choice naming attempt 2 made before the stop and hidden keeps attempt 2 owed, in every id order', () => {
+  same(eaAll([['add', 'after'], ['plan', 'after'], ['choose', 'hidden']], 'ea1-'), []);
+});
+rule('EA: a plan selection naming attempt 2 concurrent with the stop keeps attempt 2 owed, in every id order', () => {
+  same(eaAll([['add', 'after'], ['plan', 'after'], ['select', 'concurrent']], 'ea2-'), []);
+});
+rule('EA: a key-only reference before the stop still counts after the key changes, in every id order', () => {
+  same(eaAll([['keyonly', 'hidden'], ['add', 'after'], ['rekey', 'after']], 'ea3-'), []);
+});
+rule('EA: another loop\'s record sharing a record id never decides this loop\'s coverage, in every id order', () => {
+  same(eaAll([['add', 'before'], ['cross', 'after']], 'ea4-'), []);
+  same(eaAll([['add', 'after'], ['cross', 'before']], 'ea5-'), []);
+});
+rule('EA: two copies of one scope record that differ hold the loop: coverage is incomplete, nothing exempted', () => {
+  const W = world([101]); W.kid(101, { cleared: true });
+  W.spreadAdd(); W.land(W.r);
+  const a = scope4('ea-dup', [101, 104], [W.scopes[0].id], W.r.living.head), b = JSON.parse(JSON.stringify(a)); b.observation.items = b.observation.items.slice(0, 1);
+  W.scopes.push(a, b);
+  same(W.one().complete, false);
+});
+/* Round 11 (EA): witnessRefs is driven by the scope record's schema. Every field a cleaned record can carry is classified,
+   and every one that can carry an item or an attempt contributes a reference when it is the only one used; a field the
+   schema doesn't know makes the record a doubt (it counts against every item), so a new field can't be missed quietly. */
+rule('EA: witnessRefs covers every field of the scope record schema that can carry an item or an attempt', () => {
+  const W0 = LP.WITNESS_SCHEMA, wr = LP.witnessRefs, src = 'jira', off = [], used = {};
+  assert.ok(W0 && typeof wr === 'function', 'PF.loop exports witnessRefs and WITNESS_SCHEMA');
+  same(Object.keys(W0.change).sort(), LP.CHANGE_FIELDS.slice().sort(), 'the cleaner\'s change fields are the schema\'s');
+  const it = { id: '10104', key: 'ABC-104' }, plan = LP.idFor('release-helper', 'p');
+  const ARGS = { add: {}, exclude: { reason: 'r' }, restore: {}, owner: { owner: '' }, exception: { reason: 'r', approver: 'person-morgan' }, withdraw: {}, choose: { run: 'k1', attempt: 2, candidates: ['k1', 'k2'] }, plan: { attempt: 2, record: plan }, start: { as: 'person-morgan' }, approve: { as: 'person-morgan' }, 'send-back': { as: 'person-morgan' }, resolve: { as: 'person-morgan', record: plan, outcome: 'applied' } };
+  same(Object.keys(ARGS).sort(), LP.OPS.slice().sort(), 'every op is exercised');
+  const check = (rec, where, wantAttempt, wantItem) => {
+    const v = wr(rec, src);
+    if (v.doubt) off.push(where + ': a doubt');
+    v.refs.forEach(r => { used[r.field] = true; (r.path || []).forEach(k => { used[k] = true; }); if (r.attempt) used[r.field.split('.')[0] + '.attempt'] = true; });
+    const hit = v.refs.filter(r => r.aliases.includes('u:jira:10104') && r.aliases.includes('k:ABC-104'));
+    if (wantItem && !hit.length) off.push(where + ': no reference to ABC-104 ' + JSON.stringify(v.refs));
+    if (!wantItem && v.refs.length) off.push(where + ': references ' + JSON.stringify(v.refs));
+    if (wantAttempt && !hit.some(r => r.attempt === wantAttempt)) off.push(where + ': no attempt ' + wantAttempt);
+    if (!wantAttempt && hit.some(r => r.attempt)) off.push(where + ': an attempt it doesn\'t name');
+  };
+  LP.OPS.forEach(op => {
+    const errs = [], takes = ['approve', 'send-back', 'resolve'].indexOf(op) < 0, ch = LP.cleanChanges([Object.assign({ op }, takes ? { item: it } : {}, ARGS[op])], errs, 'jira.issue');
+    if (errs.length || ch.length !== 1) { off.push(op + ': ' + errs.join(' ')); return; }
+    const f = LP.buildRequest({ key: 'k-' + op, producer: { name: 'release-helper', version: '1.0' }, loop: LOOPT, observation: null, changes: ch }, { seen: [], children: [], now: AT, app: '4.0.0', head: '' });
+    const v = LP.cleanRequest(JSON.parse(LP.text(f)), f.id + '.json'); if (!v.ok) { off.push(op + ': ' + v.why); return; }
+    check(v.record, 'change ' + op, ch[0].attempt || 0, takes);
+  });
+  check(scope4('k-obs', [104], [], ''), 'observation', 0, true);
+  check(plan4('k-child', 104, 2, [], ''), 'children', 2, true);
+  const d = LP.buildDecision({ proposal: plan, loop: LOOPT, op: 'keep', items: ['jira:10104'], seen: [], by: 'person-morgan', writer: 'w1', rev: 'abcdef01', now: AT, app: '4.0.0' });
+  const dv = LP.cleanDecision(JSON.parse(LP.text(d.file)), d.name); assert.ok(dv.ok, dv.why);
+  const dr = wr(dv.record, src); if (dr.doubt || !dr.refs.some(r => r.aliases.includes('u:jira:10104'))) off.push('decision items: ' + JSON.stringify(dr));
+  /* Round 12 (FA): keep and accept, naming the item by its uid, its key-only uid or its bare key: each reference has every
+     alias the reducer could resolve it by (byUid, then byKey). */
+  for (const op of ['keep', 'accept']) for (const [ref, want] of [['jira:10104', ['u:jira:10104']], ['jira:key:ABC-104', ['u:jira:key:ABC-104', 'k:ABC-104']], ['ABC-104', ['u:ABC-104', 'k:ABC-104']]]) {
+    const d2 = LP.buildDecision({ proposal: plan, loop: LOOPT, op, items: [ref], seen: [], by: 'person-morgan', writer: 'w1', rev: 'abcdef02', now: AT, app: '4.0.0' });
+    const v2 = LP.cleanDecision(JSON.parse(LP.text(d2.file)), d2.name); if (!v2.ok) { off.push(op + ' ' + ref + ': ' + v2.why); continue; }
+    const w2 = wr(v2.record, src), al = [].concat(...w2.refs.map(r => r.aliases));
+    if (w2.doubt || want.some(x => !al.includes(x)) || !al.includes('k:' + ref)) off.push(op + ' ' + ref + ': aliases ' + JSON.stringify(al));
+  }
+  dr.refs.forEach(r => { used[r.field] = true; (r.path || []).forEach(k => { used[k] = true; }); });
+  /* Every carrying field in the schema was used by some record above. */
+  const carrying = [];
+  Object.keys(W0).forEach(t => Object.keys(W0[t]).forEach(f => { if (W0[t][f]) carrying.push(t + '.' + f); }));
+  const want = carrying.filter(k => !/^item\./.test(k)).sort();
+  same(want.filter(k => !used[k]), [], 'every carrying field contributed: ' + JSON.stringify(Object.keys(used)));
+  /* A field the schema doesn't know: a doubt. */
+  const odd = Object.assign({}, scope4('k-odd', [104], [], ''), { associations: [{ key: 'ABC-104', id: '10104' }] });
+  if (!wr(odd, src).doubt) off.push('an unknown field isn\'t a doubt');
+  same(off, []);
+});
+/* Review round 13 (GC): a byte-identical copy of a scope record ("<request> (1).json") is the same record, as the causal
+   reducer counts it, in either order; a copy that says something else still holds the loop. */
+for (const copyFirst of [false, true]) rule('GC: an identical copy of a record made after the stop changes nothing' + (copyFirst ? ' (the copy read first)' : ' (the copy read second)'), () => {
+  const W = world([101]); W.kid(101, { cleared: true });
+  W.spreadAdd(); W.land(W.r);
+  W.ask(W.r, stopBody(W, []), { person: 'person-morgan' }); W.land(W.r);
+  same(spreadOf(W).state, 'stopped', 'set-up: stopped');
+  const A = scope4('gc-after', [101, 104], [W.scopes[0].id], W.r.living.head), B = JSON.parse(JSON.stringify(A)); B._file = A.id + ' (1).json';
+  W.scopes.push(A);
+  same(owedOf(W), [true, []], 'set-up: ABC-104 arrived after the stop');
+  W.scopes.pop();
+  if (copyFirst) W.scopes.push(B, A); else W.scopes.push(A, B);
+  same(owedOf(W), [true, []]);
+});
+rule('GC: a copy of a record made after the stop that says something else still holds the loop', () => {
+  const W = world([101]); W.kid(101, { cleared: true });
+  W.spreadAdd(); W.land(W.r);
+  W.ask(W.r, stopBody(W, []), { person: 'person-morgan' }); W.land(W.r);
+  const A = scope4('gc-differ', [101, 104], [W.scopes[0].id], W.r.living.head), B = JSON.parse(JSON.stringify(A)); B._file = A.id + ' (1).json'; B.observation.items = B.observation.items.slice(0, 1);
+  W.scopes.push(A, B);
+  same(W.one().complete, false);
 });
 run();

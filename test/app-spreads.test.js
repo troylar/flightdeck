@@ -7,6 +7,7 @@ const assert = require('assert');
 const { rule, run } = require('./harness');
 const F = require('./app-spread-fixture');
 const { KID, PARENT, setup, addStories, parentPath, parentRun, kidPaths, kidOf, backToParent, txt, ov, refresh, hex, finish, now, askSpread, sync, decisions, homeCount, accepts, landedSpread, fulfilled } = require('./app-spread-fixture');
+const { gate } = require('./app-harness');
 
 rule('The loop shows one spread row with a chip per story; a story that joins is announced as owed', async () => {
   const app = await setup();
@@ -24,6 +25,17 @@ rule('The loop shows one spread row with a chip per story; a story that joins is
   assert.ok(!/data-act="sp-/.test(app.html()), 'adding, including and stopping go through flightdeck spread, not buttons here');
 });
 
+rule('XD: a story that joins and is approved without a run is announced as approved without a run', async () => {
+  const app = await setup();
+  await landedSpread(app);
+  await addStories(app, 'ABC-104');
+  await refresh(app, 200);
+  app.set('loop-why-each', 'Docs only'); app.click('loop-exception', 'each', { item: 'ABC-104' }); await app.tick(200);
+  await refresh(app, 200);
+  const h = txt(app.html());
+  assert.ok(/ABC-104 joined\. Security sign-off: approved without a run\./.test(h), 'the arrival says how it stands: ' + (h.match(/ABC-104 joined[^\n]{0,80}/) || [])[0]);
+  assert.ok(!/ABC-104 joined\. Security sign-off is owed; not requested yet\./.test(h), 'never as not requested');
+});
 rule('Accept N additions decides each plain addition separately on what it showed; an exception is kept apart; counts are exact', async () => {
   const app = await setup();
   await landedSpread(app);
@@ -109,13 +121,18 @@ rule('SF: a batch decision that was written but couldn\'t be read back is read a
     bt[0].replace(/data-(ids)="([^"]*)"/g, (x, k, v) => { d[k] = v.replace(/&quot;/g, '"').replace(/&amp;/g, '&'); });
     app.click('td-accept-all', /data-id="([^"]*)"/.exec(bt[0])[1], d); await app.tick(300);
   };
-  /* Every read of the first decision written fails from its write on: it is there, but this window can't see it. */
-  const fs = app.fs, write = fs.write.bind(fs), read = fs.read.bind(fs); let first = null;
-  fs.write = (p, t, o) => { if (!first && /^proposals\/req-.*status-/.test(p)) first = p; return write(p, t, o); };
-  fs.read = (p, o) => p === first ? Promise.reject(new Error('EIO')) : read(p, o);
+  /* The batch's reads of the first decision written fail: it is there, but the batch can't see it. The fresh guard before the
+     second decision reads it as it is (a guard that can't read proposals/ refuses, which would stop the batch). */
+  const fs = app.fs, write = fs.write.bind(fs), read = fs.read.bind(fs); let first = null, second = false, reads = 0;
+  fs.write = (p, t, o) => { if (/^proposals\/req-.*status-/.test(p)) { if (!first) first = p; else if (p !== first) second = true; } return write(p, t, o); };
+  fs.read = (p, o) => {
+    if (p !== first) return read(p, o);
+    if (++reads === 1 || second) return Promise.reject(new Error('EIO'));
+    return read(p, o);
+  };
   await press();
   const said = txt(app.html() + ov(app)), which = ps.filter(q => first.indexOf(q.id) >= 0)[0];
-  assert.ok(which, 'set-up: a decision was written');
+  assert.ok(which && second, 'set-up: both decisions were written');
   assert.ok(!/couldn't be saved/.test(said), 'never "not saved": ' + said.slice(0, 500));
   assert.ok(/couldn't confirm/i.test(said) && said.indexOf(which.id) >= 0, 'named as unconfirmed: ' + said.slice(0, 500));
   fs.write = write; fs.read = read;
@@ -144,20 +161,23 @@ rule('TF: a batch decision\'s reread that finishes after the folder changed neve
   await landedSpread(app);
   const ps = await sync(app, ['ABC-102', 'ABC-103']);
   await refresh(app, 300);
-  const fs = app.fs, write = fs.write.bind(fs), read = fs.read.bind(fs); let first = null, firstText = null, reads = 0, release = null;
+  const fs = app.fs, write = fs.write.bind(fs), read = fs.read.bind(fs); let first = null, firstText = null, second = false, reads = 0, release = null;
   const held = new Promise((res) => { release = res; });
-  fs.write = (p, t, o) => { if (!first && /^proposals\/req-.*status-/.test(p)) { first = p; firstText = t; } return write(p, t, o); };
+  fs.write = (p, t, o) => { if (/^proposals\/req-.*status-/.test(p)) { if (!first) { first = p; firstText = t; } else if (p !== first) second = true; } return write(p, t, o); };
+  /* Its read-back fails; the fresh guard before the second decision lists it as it is; the batch's reread, once the second
+     is written, waits. */
   fs.read = (p, o) => {
     if (p !== first) return read(p, o);
     reads++;
     if (reads === 1) return Promise.reject(new Error('EIO'));
+    if (!second) return read(p, o);
     return held.then(() => ({ text: firstText }));
   };
   app.click('td-inbox', ''); await app.tick(20);
   const bt = /<button[^>]*data-act="td-accept-all"[^>]*>/.exec(ov(app)), d = {};
   bt[0].replace(/data-(ids)="([^"]*)"/g, (x, k, v) => { d[k] = v.replace(/&quot;/g, '"').replace(/&amp;/g, '&'); });
   app.click('td-accept-all', /data-id="([^"]*)"/.exec(bt[0])[1], d); await app.tick(300);
-  assert.ok(first && reads >= 2, 'set-up: the read-back failed and the reread waits (' + reads + ')');
+  assert.ok(first && second && reads >= 2, 'set-up: the read-back failed, the second was written and the reread waits (' + reads + ')');
   const which = ps.filter(q => first.indexOf(q.id) >= 0)[0];
   /* Another folder: a copy of this one without that acceptance. */
   app.click('close-overlay'); await app.tick();
@@ -229,5 +249,215 @@ rule('YA: the app files a living run\'s scope change as a 4.0 scope request nami
   await F.addStories(app, 'ABC-104');
   const j = JSON.parse(app.fs.files[F.scopes(app).slice(-1)[0]].t);
   assert.deepStrictEqual([j.format, j.features, j.head], ['flightdeck-plan/4', ['loops', 'living-runs'], head]);
+});
+/* Review round 9 (AB): Pass held at its write while a story's run of a fulfilled spread stops reading writes nothing. */
+rule('AB: Pass on a fulfilled spread\'s loop, held at its write while a story\'s run turns EIO, writes nothing, and is put back', async () => {
+  const app = await setup();
+  await landedSpread(app);
+  await fulfilled(app, ['ABC-102', 'ABC-103']);
+  backToParent(app); await app.tick(80);
+  app.click('loop-approve', 'each'); await app.tick(200);
+  assert.strictEqual(parentRun(app).steps.each.s, 'done', 'set-up: the loop is approved');
+  assert.ok(/data-act="pass"/.test(app.html()), 'set-up: the gate is Ready');
+  const before = JSON.stringify(app.files('runs/release-readiness/').map(f => [f, app.fs.files[f].t]));
+  const read0 = app.fs.read.bind(app.fs), p = parentPath(app), p102 = kidOf(app, 'ABC-102');
+  let open, n = 0; const held = new Promise(res => { open = res; });
+  app.fs.read = (q, o) => q === p && ++n === 1 ? held.then(() => read0(q, o)) : read0(q, o);
+  app.click('pass', '0'); await app.tick(60);
+  assert.ok(n > 0, 'set-up: the save reached its read');
+  const read1 = app.fs.read;
+  app.fs.read = (q, o) => q === p102 ? Promise.reject(new Error('EIO')) : read1(q, o);
+  await refresh(app, 400);
+  open(); await app.tick(500);
+  assert.strictEqual(JSON.stringify(app.files('runs/release-readiness/').map(f => [f, app.fs.files[f].t])), before, 'nothing written');
+  app.fs.read = read0;
+  for (let i = 0; i < 3; i++) await refresh(app, 300);
+  backToParent(app); await app.tick(80);
+  assert.ok(/data-act="pass"/.test(app.html()), 'read again: Ready, the tentative pass put back');
+});
+/* Review round 10 (BB): the same on a fulfilled spread's loop. */
+const BB = require('./app-approval-bb');
+const bbSpread = {
+  prep: async (bo) => { const app = await setup({ boot: bo }); await landedSpread(app); await fulfilled(app, ['ABC-102', 'ABC-103']); backToParent(app); await app.tick(80); return app; },
+  kid: (app) => kidOf(app, 'ABC-102'),
+  reread: async (app) => { for (let i = 0; i < 3; i++) await refresh(app, 300); backToParent(app); await app.tick(80); },
+  /* Round 17 (VB, VC): the to-do writers' set-ups. Stories that join after the spread landed, each started and asked for it
+     by the sync tool: plain additions waiting for the parent's recorder. */
+  waiting: async (app, keys) => {
+    await addStories(app, keys.join(', '));
+    for (const k of keys) { app.click('loop-start', 'each', { item: k }); await app.tick(150); backToParent(app); await app.tick(60); }
+    await sync(app, keys);
+    for (let i = 0; i < 2; i++) await refresh(app, 300);
+    backToParent(app); await app.tick(80);
+  },
+  storyOf: (app, key) => kidOf(app, key),
+  /* A delegation for add, by the recorder: to release-helper on the parent's loop step (what covers spread-add), or to sync-bot on a story's
+     assess phase (a story that joins and is started for it). Its revoke is built now and kept for the change that files it. */
+  grantTool: async (app, where) => {
+    const T = app.PF.todos, onParent = where === 'parent';
+    if (!onParent) { await addStories(app, where); app.click('loop-start', 'each', { item: where }); await app.tick(150); backToParent(app); await app.tick(60); }
+    const runOf = (W) => onParent ? W.parent : W.d.runs.find(x => x.process === 'validate-story' && x.parent && x.parent.item && x.parent.item.key === where);
+    const W = await now(app), r = runOf(W);
+    const G = T.grantOf(r, { subject: { tool: onParent ? 'release-helper' : 'sync-bot' }, ops: ['add'], targets: [onParent ? { step: 'each' } : { phase: 'assess' }], adds: 50, by: 'person-avery', key: 'gr-' + hex(6), records: W.d.todos, unread: W.d.todosUnread, people: W.people, at: new Date().toISOString(), app: '4.0.0' });
+    assert.ok(!G.why, G.why);
+    await app.fs.write('proposals/' + G.name, T.text(G.file));
+    const W2 = await now(app), r2 = runOf(W2);
+    const V = T.revokeOf(r2, { grant: G.record.id, by: 'person-avery', key: 'rv-' + hex(6), records: W2.d.todos, unread: W2.d.todosUnread, people: W2.people, at: new Date().toISOString(), app: '4.0.0' });
+    assert.ok(!V.why, V.why);
+    BB.REVOKES['proposals/' + G.name] = { name: V.name, text: T.text(V.file) };
+    for (let i = 0; i < 2; i++) await refresh(app, 300);
+    backToParent(app); await app.tick(80);
+  },
+  askTool: (app) => askSpread(app, 'Performance sign-off'),
+  syncTool: (app, key) => sync(app, [key])
+};
+for (const how of Object.keys(BB.WRITES)) rule('BB: ' + how + ' on a fulfilled spread\'s loop rereads its stories\' runs at every write: absent, EIO or version EIO writes nothing', async () => {
+  const { cases, off } = await BB.matrix(bbSpread, how);
+  assert.deepStrictEqual([cases, off], [6, []]);
+});
+rule('BB: Use copy of a fulfilled spread\'s parent after Refresh detected a story\'s run EIO keeps nothing, and the copy stays', async () => {
+  assert.deepStrictEqual(await BB.useCopyAfterEio(bbSpread), []);
+});
+/* Review round 12 (FB): the same writes reread what coverage reads besides the runs (the scope records, and the story's to-do records) with no Refresh
+   in between: nothing written, the change put back; Use copy too, with and without a Refresh first. */
+for (const how of Object.keys(BB.WRITES)) rule('FB: ' + how + ' on a fulfilled spread\'s loop rereads its scope records and to-do records at every write', async () => {
+  const deps = Object.keys(BB.DEPS), { cases, off } = await BB.matrix(bbSpread, how, deps);
+  assert.deepStrictEqual([cases, off], [deps.length * 2, []]);
+});
+for (const brk of Object.keys(BB.DEPS)) for (const noRefresh of [false, true]) rule('FB: Use copy on a fulfilled spread\'s loop with ' + brk + (noRefresh ? ', no Refresh first' : ', after Refresh') + ' keeps nothing, and the copy stays', async () => {
+  assert.deepStrictEqual(await BB.useCopyAfterEio(bbSpread, brk, noRefresh), []);
+});
+/* Review round 13 (GA, GB): a scope record that arrives, a conflicting copy of one, and the run's own version gone or
+   unreadable, while any approval write waits (at the parent read, after the candidate), on Try again, and on Use copy with
+   no Refresh first: nothing written, the change put back, the copy kept. */
+for (const how of Object.keys(BB.WRITES)) rule('GA/GB: ' + how + ' on a fulfilled spread\'s loop reads a fresh listing and its own version at every write', async () => {
+  const { cases, off } = await BB.matrix(bbSpread, how, BB.GA_GB);
+  assert.deepStrictEqual([cases, off], [BB.GA_GB.length * 2, []]);
+});
+for (const brk of BB.GA_GB) {
+  rule('GA/GB: Try again on a fulfilled spread\'s loop after ' + brk + ' writes nothing', async () => { assert.deepStrictEqual(await BB.retryAfter(bbSpread, brk), []); });
+  rule('GA/GB: Use copy on a fulfilled spread\'s loop after ' + brk + ', no Refresh first, keeps nothing, and the copy stays', async () => { assert.deepStrictEqual(await BB.useCopyAfterEio(bbSpread, brk, true), []); });
+}
+/* Review round 14 (HA): the suspension harness (app-approval-bb.js): every approval-writing path x every read inside its
+   guard x every input change made while that read waits. Where the guard reads the changed input at or after that point,
+   nothing more is written and any recovery source stays. Each rule prints its cell count. */
+const HA_CHANGES = BB.HOLD_CHANGES;
+for (const how of BB.holdPathsFor(bbSpread)) for (const ch of HA_CHANGES.filter(c => BB.holdApplies(how, c))) rule('HA: ' + how + ' on a fulfilled spread\'s loop, ' + ch + ' while a read of its guard waits, writes nothing', async () => {
+  const r = await BB.suspension(bbSpread, how, [ch]);
+  console.log('HA cells · a fulfilled spread\'s loop · ' + how + ' · ' + ch + ' · ran ' + r.applicable + ' of ' + r.cells + ' cells, none left out (' + r.required + ' judged, ' + r.limit + ' at the stated limit)');
+  assert.deepStrictEqual(r.off, []);
+});
+/* Round 15 (SD): a read inside the approval guard that never settles refuses at the guard's deadline, offers the click or
+   Try again again, keeps a recovery's source, and its late answer writes nothing. (Waits out the deadline in real time.) */
+for (const how of ['Pass', 'Use copy', 'Use copy, no approvals', 'Accept', 'Accept all', 'Delegate', 'Land a delegated spread', 'Land a delegated fulfillment']) rule('SD: ' + how + ' on a fulfilled spread\'s loop whose guard read never settles refuses at the deadline and ignores the late answer', async () => {
+  assert.deepStrictEqual(await BB.stalled(bbSpread, how, 16000), []);
+});
+/* Round 17 (VA-VC): the reviewers' race on every other writer of an authority-bearing record: its first step toward the
+   write paused (the record's or application's existence read; a recovery's backup), the person removed or made inactive,
+   the run handed off, the delegation revoked or the source replaced meanwhile. Nothing more is written; a source stays. */
+const OUT = 'the approver taken out of people.json', INACTIVE = 'the approver marked inactive', STORY = 'the story\'s run handed to another session', REVOKED = 'the delegation revoked';
+const RACES = {
+  'Use copy, no approvals': [OUT, INACTIVE, 'the copy replaced with a newer one'],
+  'Restore browser copy, no approvals': [OUT, INACTIVE, 'the browser copy replaced with a newer one'],
+  Accept: [OUT, INACTIVE, STORY], 'Accept all': [OUT, INACTIVE, STORY], Delegate: [OUT, INACTIVE],
+  'Land a delegated spread': [OUT, INACTIVE, REVOKED], 'Land a delegated fulfillment': [OUT, INACTIVE, STORY, REVOKED]
+};
+for (const how of Object.keys(RACES)) for (const ch of RACES[how]) rule('VA-VC: ' + how + ' on a fulfilled spread\'s loop, ' + ch + ' while its write waits, writes nothing more', async () => {
+  assert.deepStrictEqual(await BB.raced(bbSpread, how, ch), []);
+});
+/* Round 18 (WA): a send-back on a fulfilled spread's approved loop, by the button and by a request the recorder carries out,
+   paused at its save's read of the parent while the person acting is taken out of people.json or made inactive, or once its
+   candidate is written while the run is handed to another session: nothing more is written, and the request is never
+   recorded applied. */
+const WA18 = [['at the parent read', OUT], ['at the parent read', INACTIVE], ['after the candidate', 'the run handed to another session']];
+for (const how of ['Send back', 'Send back request']) for (const [wait, ch] of WA18) rule('Round 18 (WA): ' + how + ' on a fulfilled spread\'s approved loop, ' + ch + ' while it waits ' + wait + ', writes nothing more', async () => {
+  assert.deepStrictEqual(await BB.sendBackRace(bbSpread, how, wait, ch), []);
+});
+/* Round 19 (XA): the ordinary edits that change approval state or who records (X on the approved loop, Reopen on the passed
+   gate, Hand off) ask the fresh guard at every write: paused at the save's parent read while the recorder is removed or made
+   inactive, or after the candidate while the run is handed off, nothing more is written. */
+for (const how of ['X on the loop', 'Reopen', 'Hand off']) for (const [wait, ch] of WA18) rule('Round 19 (XA): ' + how + ' on a fulfilled spread\'s approved loop, ' + ch + ' while it waits ' + wait + ', writes nothing more', async () => {
+  assert.deepStrictEqual(await BB.writeRace(bbSpread, how, wait, ch), []);
+});
+/* Round 19 (XB): the fresh guard asks the run's version too: the parent's publication.json gone while the write waits. */
+rule('Round 19 (XB): Delegate on a fulfilled spread\'s loop, the run\'s version absent while its write waits, writes nothing more', async () => {
+  assert.deepStrictEqual(await BB.raced(bbSpread, 'Delegate', 'the run\'s version absent'), []);
+});
+for (const how of ['Send back', 'Send back request']) rule('Round 19 (XB): ' + how + ' on a fulfilled spread\'s approved loop, the run\'s version absent while it waits at the parent read, writes nothing more', async () => {
+  assert.deepStrictEqual(await BB.writeRace(bbSpread, how, 'at the parent read', 'the run\'s version absent'), []);
+});
+/* Round 20 (YE): a spread stop is decided and carried out on coverage, so its guard reads every story's run of the loop and
+   the version each is pinned to. A tool asks to stop "Security sign-off"; the recorder accepts it. While the decision's (or
+   the application's) existence read waits, ABC-102's pinned publication.json is removed: nothing more is written. */
+async function askStop(app) {
+  const PF = app.PF, T = PF.todos, S = PF.spreads, W = await now(app), r = W.parent;
+  const V = T.view(r, { records: W.d.todos, unread: W.d.todosUnread, people: W.people });
+  const covIn = S.inputs({ runs: W.d.runs, records: W.d.todos, unread: W.d.todosUnread, scopes: W.d.scopes, scopesUnread: W.d.scopesUnread, people: W.people, procOf: W.procOf, processes: W.d.processes, procsRead: () => true, partsFailed: {}, failed: [] });
+  const C = S.coverage(r, V, covIn).spreads[0];
+  assert.ok(C && C.complete, 'set-up: coverage is complete');
+  const body = { op: 'spread-stop', spread: C.id, owed: C.items.filter(i => i.owed).map(i => ({ uid: i.uid, attempt: i.attempt })), reason: 'Covered by the platform review' };
+  const P = T.prepare(r, { body, by: { tool: 'release-helper', version: '1.0', key: 'ye-' + hex(6) }, records: W.d.todos, unread: W.d.todosUnread, people: W.people, loops: covIn.loops, runs: W.d.runs, at: new Date().toISOString(), app: '4.0.0' });
+  assert.ok(!P.why, P.why);
+  await app.fs.write('proposals/' + P.name, T.text(P.file));
+  return P;
+}
+const pinnedPub = (app, key) => { const k = JSON.parse(app.fs.files[kidOf(app, key)].t); return 'publications/' + k.process + '/' + k.folder + '/publication.json'; };
+for (const [which, nth] of [['the decision', 1], ['the application', 2]]) rule('Round 20 (YE): a spread stop, a story\'s pinned version removed while ' + which + '\'s existence read waits, writes nothing more', async () => {
+  const app = await setup();
+  await landedSpread(app);
+  const P = await askStop(app);
+  await refresh(app, 300);
+  const fs0 = app.fs, read = fs0.read, write = fs0.write, hold = gate(), had = new Set(app.files('proposals/'));
+  /* The first read of the nth new record (its existence read; the decision is the first, the application the second). */
+  let hit = null; const late = [], paths = [];
+  fs0.read = function (q) { const a = arguments; if (!hit && /^proposals\/[^/]+\.json$/.test(q) && !had.has(q) && !fs0.files[q] && paths.indexOf(q) < 0) { paths.push(q); if (paths.length === nth) { hit = q; return hold.p.then(() => read.apply(fs0, a)); } } return read.apply(fs0, a); };
+  fs0.write = function (q) { if (hit) late.push(q); if (/^proposals\//.test(q)) had.add(q); return write.apply(fs0, arguments); };
+  app.click('td-inbox', ''); await app.tick(20);
+  const b = new RegExp('data-act="td-accept" data-id="(' + P.file.id + ')" data-run="([^"]+)" data-fp="([^"]+)"').exec(ov(app)) || /data-act="td-accept" data-id="([^"]+)" data-run="([^"]+)" data-fp="([^"]+)"/.exec(ov(app));
+  assert.ok(b, 'set-up: the stop is offered: ' + txt(ov(app)).slice(0, 300));
+  app.click('td-accept', b[1], { run: b[2], fp: b[3] });
+  for (let t = 0; t < 60 && !hit; t++) { await app.tick(50); if (t % 10 === 9) app.click('refresh'); }
+  assert.ok(hit, 'set-up: ' + which + ' reached its existence read');
+  const parent = fs0.files[parentPath(app)].t, pub = pinnedPub(app, 'ABC-102');
+  assert.ok(fs0.files[pub], 'set-up: ABC-102\'s pinned version is there');
+  delete fs0.files[pub];
+  hold.open();
+  for (let i = 0; i < 12; i++) await app.tick(50);
+  fs0.read = read; fs0.write = write;
+  /* A request the recorder couldn't carry out may be answered (op 'refused'): that is its outcome, not a write. */
+  const real = late.filter(q => !/^runs\/[^/]+\/[^/]+\/history-/.test(q)).filter(q => !(/^proposals\//.test(q) && (() => { try { return JSON.parse(fs0.files[q].t).op === 'refused'; } catch (e) { return false; } })()));
+  assert.deepStrictEqual(real.map(q => q + ' ' + ((() => { try { return JSON.parse(fs0.files[q].t).op; } catch (e) { return ''; } })())), [], 'nothing written after the change');
+  assert.strictEqual(fs0.files[parentPath(app)].t, parent, 'the run is as it was');
+});
+/* Round 21 (ZB): coverage is read fresh: the guard lists the loop's story runs again, so a story's run that arrives while
+   the write waits (its pinned version not there yet) refuses instead of going unread. */
+for (const [which, nth] of [['the decision', 1], ['the application', 2]]) rule('Round 21 (ZB): a spread stop, another story\'s run arriving (its version not yet there) while ' + which + '\'s existence read waits, writes nothing more', async () => {
+  const app = await setup();
+  await landedSpread(app);
+  const P = await askStop(app);
+  await refresh(app, 300);
+  const fs0 = app.fs, read = fs0.read, write = fs0.write, hold = gate(), had = new Set(app.files('proposals/'));
+  /* The first read of the nth new record (its existence read; the decision is the first, the application the second). */
+  let hit = null; const late = [], paths = [];
+  fs0.read = function (q) { const a = arguments; if (!hit && /^proposals\/[^/]+\.json$/.test(q) && !had.has(q) && !fs0.files[q] && paths.indexOf(q) < 0) { paths.push(q); if (paths.length === nth) { hit = q; return hold.p.then(() => read.apply(fs0, a)); } } return read.apply(fs0, a); };
+  fs0.write = function (q) { if (hit) late.push(q); if (/^proposals\//.test(q)) had.add(q); return write.apply(fs0, arguments); };
+  app.click('td-inbox', ''); await app.tick(20);
+  const b = new RegExp('data-act="td-accept" data-id="(' + P.file.id + ')" data-run="([^"]+)" data-fp="([^"]+)"').exec(ov(app)) || /data-act="td-accept" data-id="([^"]+)" data-run="([^"]+)" data-fp="([^"]+)"/.exec(ov(app));
+  assert.ok(b, 'set-up: the stop is offered: ' + txt(ov(app)).slice(0, 300));
+  app.click('td-accept', b[1], { run: b[2], fp: b[3] });
+  for (let t = 0; t < 60 && !hit; t++) { await app.tick(50); if (t % 10 === 9) app.click('refresh'); }
+  assert.ok(hit, 'set-up: ' + which + ' reached its existence read');
+  const parent = fs0.files[parentPath(app)].t, kp = kidOf(app, 'ABC-102'), k = JSON.parse(fs0.files[kp].t);
+  /* Another computer starts ABC-104's run (a copy of ABC-102's, renamed) on a version whose files haven't arrived yet. */
+  const nid = 'zb' + hex(6), dir = kp.split('/').slice(0, 2).join('/') + '/' + nid;
+  k.id = nid; k.folder = 'v9-zb000009'; k.parent = Object.assign({}, k.parent, { item: Object.assign({}, k.parent.item, { key: 'ABC-104' }) });
+  fs0.files[dir + '/run.json'] = { t: JSON.stringify(k, null, 2), m: Date.now() };
+  hold.open();
+  for (let i = 0; i < 12; i++) await app.tick(50);
+  fs0.read = read; fs0.write = write;
+  /* A request the recorder couldn't carry out may be answered (op 'refused'): that is its outcome, not a write. */
+  const real = late.filter(q => !/^runs\/[^/]+\/[^/]+\/history-/.test(q)).filter(q => !(/^proposals\//.test(q) && (() => { try { return JSON.parse(fs0.files[q].t).op === 'refused'; } catch (e) { return false; } })()));
+  assert.deepStrictEqual(real.map(q => q + ' ' + ((() => { try { return JSON.parse(fs0.files[q].t).op; } catch (e) { return ''; } })())), [], 'nothing written after the change');
+  assert.strictEqual(fs0.files[parentPath(app)].t, parent, 'the run is as it was');
 });
 run();

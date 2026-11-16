@@ -831,6 +831,15 @@ PF.todos = (function () {
   /* Whether a request is authorized now: { ok, via: { decision | grant | compound }, why }. Releasing work or reopening an
      approval needs a person's decision on exactly that consequence; a grant covers only add, done and reopen on its exact
      targets, within its limit, never a release, a reopened approval or a gate. */
+  /* Round 16 (UC): the one rule for what only a person decides, never a delegation: releasing work (a stop, a won't, a
+     move), reopening an approval, and opting a cleared item in (spread-include: it turns that item from exempt to owing),
+     whether or not an approval reopens. Why, or '' when a delegation may cover it. */
+  function onlyPersonWhy(q, C) {
+    if (C.releases) return 'It releases work, so a person approves it.';
+    if ((C.reopens || []).length) return 'It reopens an approval, so a person approves it.';
+    if (q.op === 'spread-include') return 'It opts a cleared item in, so it owes the spread: a person approves it.';
+    return '';
+  }
   function authorityFor(r, map, people) {
     var use = null;
     return function (q, T) {
@@ -840,14 +849,15 @@ PF.todos = (function () {
         var byId = Object.create(null); T.records.forEach(function (y) { byId[y.id] = y; });
         T.chain.forEach(function (id) { var a = byId[id], ap = a && (a.kind === 'compound' ? a.application : a); if (ap && (ap.effect.op === 'add' || ap.effect.op === 'spread-add') && ap.authority && ap.authority.grant) use[ap.authority.grant] = (use[ap.authority.grant] || 0) + 1; });
       }
-      var C = consequenceOf(r, map, q, T), human = C.releases || C.reopens.length > 0, d = q.dec;
+      var C = consequenceOf(r, map, q, T), wordsWhy = onlyPersonWhy(q, C), human = !!wordsWhy, d = q.dec;
       if (d && d.op === 'accept' && !d.contrary) {
         if (d.consequence === C.fingerprint) return { ok: true, via: q.kind === 'compound' && d.record === q.id ? { compound: q.id } : { decision: d.record }, why: '' };
         return { ok: false, why: 'What it would do changed after it was approved (' + (C.reopens.length ? 'it now reopens an approval' : 'its consequence is different') + '), so it needs approval again.' };
       }
-      var wordsWhy = C.releases ? 'It releases work, so a person approves it.' : C.reopens.length ? 'It reopens an approval, so a person approves it.' : 'It waits for a person\'s approval or a delegation that covers it.';
       if (human) return { ok: false, why: wordsWhy };
-      /* A delegation to add on a loop step covers asking for, including and binding a spread there (never stopping one). */
+      wordsWhy = 'It waits for a person\'s approval or a delegation that covers it.';
+      /* A delegation to add on a loop step covers asking for and binding a spread there (never including a cleared item or
+         stopping one: onlyPersonWhy). */
       var x = q.todo ? T.byTodo[q.todo] : null, sp = isSpreadOp(q.op) ? T.bySpread[q.spread] : null, gop = isSpreadOp(q.op) ? 'add' : q.op, adds = q.op === 'add' || q.op === 'spread-add';
       var tk = isSpreadOp(q.op) ? targetKey({ step: q.op === 'spread-add' ? q.loopStep : sp ? sp.loopStep : '' }) : targetKey(q.op === 'add' ? q.target : x ? x.target : null), sub = q.by || {};
       /* A delegate who is a person must be in people.json and active now for a delegation to cover what they ask. */

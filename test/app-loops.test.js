@@ -26,6 +26,7 @@ async function setup(o) {
   app.click('refresh'); await app.tick(80);
   app.click('start', 'release-readiness'); await app.settle();
   Object.keys(maps.details || {}).forEach(k => app.set('detail-' + k, maps.details[k]));
+  Object.keys(maps.roles || {}).forEach(k => app.set('role-' + k, maps.roles[k]));
   app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   assert.ok(/data-act="loop-add"/.test(app.html()), 'set-up: the loop step is shown with its list');
   return app;
@@ -1036,6 +1037,9 @@ rule('Round 10 (1, 2): every save, backup or archive of a run.json in the app go
     const call = src.slice(m.index, i), line = src.slice(0, m.index).split('\n').length, around = src.slice(Math.max(0, m.index - 400), m.index);
     if (m[1] === 'keepDisplaced') { if (!/keepDisplaced: function/.test(src) || !/state\.recoverCx/.test(src)) bad.push('app.js:' + line + ' backup without the guard'); continue; }
     if (/function save\(r, opts\)/.test(around) || /still/.test(call)) continue;
+    /* Round 22 (AB): the repo override at the top of app.js binds a caller's guards and hands every option on unchanged;
+       it is not a write site of its own. Each caller of repo.saveRun is still checked here. */
+    if (call === 'repo.saveRun(fs, run, session, o)' && src.slice(m.index - 3, m.index) === 'PF.' && /saveRun: function \(fs, run, session, opts\) \{\s*var o = Object\.assign\(\{\}, opts\)/.test(src.slice(Math.max(0, m.index - 600), m.index))) continue;
     if (/saveOpts\)$/.test(call) && /if \(loopy\(child\)\)[^\n]*saveOpts\.still/.test(src)) continue;
     bad.push('app.js:' + line + ': ' + call.slice(0, 80));
   }
@@ -1043,25 +1047,420 @@ rule('Round 10 (1, 2): every save, backup or archive of a run.json in the app go
 });
 /* Compat (a deliberate 4.0.0 change, named in its release notes): a plain 3.0 loop, with no spreads and no to-dos, keeps its
    approval while a run of the loop or its version can't be read. 3.0 read the story's result as none and sent the approval
-   back; 4.0 holds instead, and a fresh read that shows nothing changed leaves it approved. */
-rule('Compat (4.0.0 change): a 3.0 loop\'s approval stays put, never sent back, while a story\'s run or its version can\'t be read', async () => {
-  for (const what of ['the story\'s version', 'the story\'s run']) {
+   back; 4.0 holds instead: the phase's gate waits (never Ready), Pass and Waive write nothing, and a fresh read that shows
+   nothing changed leaves it approved and its gate passable again (round 8, ZB). */
+rule('Compat (4.0.0 change): a 3.0 loop\'s approval stays put and its gate waits, never passed or waived, while a story\'s run or its version can\'t be read', async () => {
+  const WAYS = {
+    'the story\'s version, absent': (app) => { const kept = {}; app.files('publications/validate-story/').forEach(p => { kept[p] = app.fs.files[p]; delete app.fs.files[p]; }); return () => Object.assign(app.fs.files, kept); },
+    'the story\'s run, absent': (app) => { const p = kidPaths(app)[0], kept = app.fs.files[p]; delete app.fs.files[p]; return () => { app.fs.files[p] = kept; }; },
+    'the story\'s run, EIO': (app) => { const p = kidPaths(app)[0], read = app.fs.read; app.fs.read = (q, o) => q === p ? Promise.reject(new Error('EIO')) : read.call(app.fs, q, o); return () => { app.fs.read = read; }; }
+  };
+  const off = [];
+  let n = 0;
+  for (const what of Object.keys(WAYS)) {
     const app = await setup();
     app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
     app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(150);
     await clear(app, kidPaths(app)[0]);
     app.click('refresh'); await app.tick(200);
     app.click('loop-approve', 'each'); await app.tick(150);
-    const r0 = parentRun(app);
+    const r0 = parentRun(app), gid = app.PF.run.mapOf(app.PF.run.sanitize(r0)).phases[0].gate.id;
     assert.strictEqual(r0.steps.each.s, 'done', what + ': set-up: approved');
     assert.ok(!r0.living && !(r0.features || []).includes('living-runs'), what + ': set-up: a plain 3.0 loop');
-    const gone = what === 'the story\'s run' ? [kidPaths(app)[0]] : app.files('publications/validate-story/');
-    const kept = {}; gone.forEach(p => { kept[p] = app.fs.files[p]; delete app.fs.files[p]; });
-    app.click('refresh'); await app.tick(400);
-    assert.strictEqual(parentRun(app).steps.each.s, 'done', what + ': unread: the approval stays put');
-    Object.assign(app.fs.files, kept);
-    app.click('refresh'); await app.tick(400);
-    assert.strictEqual(parentRun(app).steps.each.s, 'done', what + ': read again, nothing changed: still approved');
+    const gateOf = () => (parentRun(app).gates || {})[gid] || null, canPass = () => /data-act="pass"/.test(app.html());
+    assert.ok(canPass(), what + ': set-up: the gate is Ready');
+    const undo = WAYS[what](app);
+    for (let i = 0; i < 2; i++) { app.click('refresh'); await app.tick(400); }
+    if (parentRun(app).steps.each.s !== 'done') off.push(what + ': the approval was sent back');
+    if (canPass()) off.push(what + ': the gate is still Ready');
+    const before = app.fs.files[app.files('runs/release-readiness/').find(p => /run\.json$/.test(p))].t;
+    app.click('pass', '0'); await app.tick(150);
+    app.click('pick', gid, { kind: 'waive' }); await app.tick(); app.set('pick-input', 'Agreed with the team'); app.click('waive', '0'); await app.tick(150);
+    if (gateOf()) off.push(what + ': the gate was ' + gateOf().s + ' while the story couldn\'t be read');
+    if (app.fs.files[app.files('runs/release-readiness/').find(p => /run\.json$/.test(p))].t !== before) off.push(what + ': the run was written');
+    if (/id="pick-input"/.test(app.html())) { app.click('unpick'); await app.tick(); }
+    undo();
+    for (let i = 0; i < 2; i++) { app.click('refresh'); await app.tick(400); }
+    if (parentRun(app).steps.each.s !== 'done') off.push(what + ': read again, nothing changed: not approved');
+    if (!canPass()) off.push(what + ': read again: the gate isn\'t Ready');
+    /* Read again, it can be passed (or waived) as before. */
+    if (n++ % 2 === 0) { app.click('pass', '0'); await app.tick(150); }
+    else { app.click('pick', gid, { kind: 'waive' }); await app.tick(); app.set('pick-input', 'Agreed with the team'); app.click('waive', '0'); await app.tick(150); }
+    if (!gateOf() || ['passed', 'waived'].indexOf(gateOf().s) < 0) off.push(what + ': read again: the gate couldn\'t be ' + (n % 2 ? 'passed' : 'waived'));
   }
+  assert.deepStrictEqual(off, []);
+});
+/* Review round 9 (AB): an approval write (Pass, Waive, loop approve) rechecks the phase's dependency holds inside the shared
+   write guard, at the write: a story's run or its version that stops reading while the save waits holds it, the tentative
+   change is put back by identity, and nothing is written. */
+const firstHeld = (fs0, re) => { const read = fs0.read.bind(fs0), hold = gate(); let n = 0; fs0.read = (p, o) => re.test(p) && ++n === 1 ? hold.p.then(() => read(p, o)) : read(p, o); return { hold, seen: () => n, off: () => { fs0.read = read; } }; };
+const AB_BREAK = {
+  'its run absent': (app) => { const p = kidPaths(app)[0], kept = app.fs.files[p]; delete app.fs.files[p]; return () => { app.fs.files[p] = kept; }; },
+  'its run EIO': (app) => { const p = kidPaths(app)[0], read = app.fs.read; app.fs.read = (q, o) => q === p ? Promise.reject(new Error('EIO')) : read.call(app.fs, q, o); return () => { app.fs.read = read; }; },
+  'its version EIO': (app) => { const read = app.fs.read; app.fs.read = (q, o) => /^publications\/validate-story\//.test(q) ? Promise.reject(new Error('EIO')) : read.call(app.fs, q, o); return () => { app.fs.read = read; }; }
+};
+const AB_WRITES = {
+  Pass: async (app) => { app.click('pass', '0'); },
+  Waive: async (app, gid) => { app.click('pick', gid, { kind: 'waive' }); await app.tick(); app.set('pick-input', 'Agreed with the team'); app.click('waive', '0'); }
+};
+rule('AB: Pass or Waive held at its write while a story\'s run or its version stops reading writes nothing, and is put back', async () => {
+  const off = [];
+  for (const how of Object.keys(AB_WRITES)) for (const brk of Object.keys(AB_BREAK)) {
+    const tag = how + ', ' + brk;
+    const app = await setup(); await cleared(app);
+    app.click('refresh'); await app.tick(200);
+    app.click('loop-approve', 'each'); await app.tick(250);
+    const p = parentPath(app), gid = app.PF.run.mapOf(app.PF.run.sanitize(parentRun(app))).phases[0].gate.id;
+    if (parentRun(app).steps.each.s !== 'done' || !/data-act="pass"/.test(app.html())) { off.push(tag + ': set-up: not approved and Ready'); continue; }
+    const before = JSON.stringify(app.files('runs/release-readiness/').map(f => [f, app.fs.files[f].t]));
+    const h = firstHeld(app.fs, PARENT_RE);
+    await AB_WRITES[how](app, gid); await app.tick(60);
+    if (!h.seen()) { off.push(tag + ': set-up: the save never reached its read'); continue; }
+    const undo = AB_BREAK[brk](app);
+    app.click('refresh'); await app.tick(400);
+    h.hold.open(); await app.tick(500);
+    const after = JSON.stringify(app.files('runs/release-readiness/').map(f => [f, app.fs.files[f].t]));
+    if (after !== before) off.push(tag + ': written: ' + JSON.stringify((JSON.parse(app.fs.files[p].t).gates || {})[gid] || null));
+    undo(); h.off();
+    for (let i = 0; i < 2; i++) { app.click('refresh'); await app.tick(400); }
+    if (/id="pick-input"/.test(app.html())) { app.click('unpick'); await app.tick(); }
+    if (!/data-act="pass"/.test(app.html())) off.push(tag + ': read again: the gate isn\'t Ready (the tentative change wasn\'t put back)');
+  }
+  assert.deepStrictEqual(off, []);
+});
+/* Review round 10 (BB): an approval write reads its loop's runs again before every write, with no Refresh in between:
+   {Pass, Waive, loop approve} x {a story's run absent, EIO, its publication EIO} x {waiting at the parent read, after the
+   candidate}. Nothing is written and the tentative change is put back. Use copy after Refresh detected an EIO keeps nothing. */
+const BB = require('./app-approval-bb');
+const bbLoop = {
+  prep: async (bo) => { const app = await setup(bo); await cleared(app); app.click('refresh'); await app.tick(200); return app; },
+  kid: (app) => kidPaths(app)[0],
+  reread: async (app) => { for (let i = 0; i < 2; i++) { app.click('refresh'); await app.tick(400); } }
+};
+for (const how of Object.keys(BB.WRITES)) rule('BB: ' + how + ' on a plain loop rereads its stories\' runs at every write: absent, EIO or version EIO writes nothing', async () => {
+  const { cases, off } = await BB.matrix(bbLoop, how);
+  assert.deepStrictEqual([cases, off], [6, []]);
+});
+rule('BB: Use copy of a plain loop\'s parent after Refresh detected a story\'s run EIO keeps nothing, and the copy stays', async () => {
+  assert.deepStrictEqual(await BB.useCopyAfterEio(bbLoop), []);
+});
+/* Review round 12 (FB): the same writes reread what coverage reads besides the runs (the scope records) with no Refresh
+   in between: nothing written, the change put back; Use copy too, with and without a Refresh first. */
+for (const how of Object.keys(BB.WRITES)) rule('FB: ' + how + ' on a plain loop rereads its scope records at every write', async () => {
+  const deps = ['a scope record absent', 'a scope record EIO'], { cases, off } = await BB.matrix(bbLoop, how, deps);
+  assert.deepStrictEqual([cases, off], [deps.length * 2, []]);
+});
+for (const brk of ['a scope record absent', 'a scope record EIO']) for (const noRefresh of [false, true]) rule('FB: Use copy on a plain loop with ' + brk + (noRefresh ? ', no Refresh first' : ', after Refresh') + ' keeps nothing, and the copy stays', async () => {
+  assert.deepStrictEqual(await BB.useCopyAfterEio(bbLoop, brk, noRefresh), []);
+});
+/* Review round 13 (GA, GB): a scope record that arrives, a conflicting copy of one, and the run's own version gone or
+   unreadable, while any approval write waits (at the parent read, after the candidate), on Try again, and on Use copy with
+   no Refresh first: nothing written, the change put back, the copy kept. */
+for (const how of Object.keys(BB.WRITES)) rule('GA/GB: ' + how + ' on a plain loop reads a fresh listing and its own version at every write', async () => {
+  const { cases, off } = await BB.matrix(bbLoop, how, BB.GA_GB);
+  assert.deepStrictEqual([cases, off], [BB.GA_GB.length * 2, []]);
+});
+for (const brk of BB.GA_GB) {
+  rule('GA/GB: Try again on a plain loop after ' + brk + ' writes nothing', async () => { assert.deepStrictEqual(await BB.retryAfter(bbLoop, brk), []); });
+  rule('GA/GB: Use copy on a plain loop after ' + brk + ', no Refresh first, keeps nothing, and the copy stays', async () => { assert.deepStrictEqual(await BB.useCopyAfterEio(bbLoop, brk, true), []); });
+}
+/* Review round 14 (found by HA's harness): a request the recorder can't carry out while one of its loop's scope records
+   can't be read is answered once (refused), not again on every read after: answering again re-read the folder, found the
+   request still waiting (its answer counts only once the loop reads whole) and answered again, without end. */
+rule('HA: a request refused while a scope record can\'t be read is answered once, not on every read after', async () => {
+  const app = await bbLoop.prep();
+  const sf = app.files('proposals/').filter(p => /\/req-[^/]*\.json$/.test(p)).find(p => { try { return JSON.parse(app.fs.files[p].t).loop.step === 'each'; } catch (e) { return false; } });
+  assert.ok(sf, 'set-up: a scope record');
+  await BB.requestApprove(app);
+  /* The approval's candidate is written, then the scope record stops reading before its final write: the request is refused. */
+  const read = app.fs.read, write = app.fs.write, hold = gate(); let answers = 0, cand = 0, eio = false;
+  app.fs.read = (q, o) => eio && q === sf ? Promise.reject(new Error('EIO')) : read.call(app.fs, q, o);
+  /* Each answer is counted; past five the folder refuses them, so a loop ends here instead of running on. */
+  app.fs.write = (q, t, o) => {
+    if (/^proposals\/req-[^/]*\.status-/.test(q) && ++answers > 5) return Promise.reject(new Error('stop'));
+    if (/^runs\/release-readiness\/[^/]*\/candidate-/.test(q) && ++cand === 1) return write.call(app.fs, q, t, o).then(x => hold.p.then(() => x));
+    return write.call(app.fs, q, t, o);
+  };
+  app.click('refresh'); await app.tick(300);
+  assert.ok(cand === 1, 'set-up: the approval wrote its candidate');
+  eio = true; hold.open();
+  for (let i = 0; i < 4; i++) { await app.tick(300); app.click('refresh'); }
+  await app.tick(300);
+  app.fs.read = read; app.fs.write = write;
+  assert.ok(answers <= 1, 'answered ' + answers + ' times');
+});
+/* Review round 14 (HA): the suspension harness (app-approval-bb.js): every approval-writing path x every read inside its
+   guard x every input change made while that read waits. Where the guard reads the changed input at or after that point,
+   nothing more is written and any recovery source stays. Each rule prints its cell count. */
+const HA_CHANGES = BB.HOLD_CHANGES;
+for (const how of BB.holdPathsFor(bbLoop)) for (const ch of HA_CHANGES.filter(c => BB.holdApplies(how, c))) rule('HA: ' + how + ' on a plain loop, ' + ch + ' while a read of its guard waits, writes nothing', async () => {
+  const r = await BB.suspension(bbLoop, how, [ch]);
+  console.log('HA cells · a plain loop · ' + how + ' · ' + ch + ' · ran ' + r.applicable + ' of ' + r.cells + ' cells, none left out (' + r.required + ' judged, ' + r.limit + ' at the stated limit)');
+  assert.deepStrictEqual(r.off, []);
+});
+/* Round 15 (SD): a read inside the approval guard that never settles refuses at the guard's deadline, offers the click or
+   Try again again, keeps a recovery's source, and its late answer writes nothing. (Waits out the deadline in real time.) */
+for (const how of ['Pass', 'Use copy', 'Use copy, no approvals']) rule('SD: ' + how + ' on a plain loop whose guard read never settles refuses at the deadline and ignores the late answer', async () => {
+  assert.deepStrictEqual(await BB.stalled(bbLoop, how, 16000), []);
+});
+/* Round 17 (VA): a recovery of a copy that approves nothing, its backup paused while the person is removed or made inactive,
+   or the source replaced: nothing more is written and the source stays. */
+for (const [how, chs] of [['Use copy, no approvals', ['the approver taken out of people.json', 'the approver marked inactive', 'the copy replaced with a newer one']], ['Restore browser copy, no approvals', ['the approver taken out of people.json', 'the approver marked inactive', 'the browser copy replaced with a newer one']]])
+  for (const ch of chs) rule('VA: ' + how + ' on a plain loop, ' + ch + ' while its write waits, writes nothing more', async () => { assert.deepStrictEqual(await BB.raced(bbLoop, how, ch), []); });
+/* Round 18 (WB): a resolution is a new decision, so the fresh guard right before it is written rebuilds it from the folder as
+   read then: the requester (Blake, in the loop step's role; Avery records) asked again, and the request it resolves still
+   recorded both ways exactly as it was. The resolution's existence read (the first read of a status file not there yet) is
+   paused while the change is made. */
+const LEAD = PARENT.replace('owner: person-avery\n', 'owner: person-avery\nroles: lead\n').replace('Validate every release story {#each}', 'Validate every release story @lead {#each}');
+const holdNewStatus = (fs0) => {
+  const read = fs0.read, hold = gate(); let hit = null;
+  fs0.read = function (q) { const a = arguments; if (!hit && /^proposals\/[^/]*\.status-[^/]*\.json$/.test(q) && !fs0.files[q]) { hit = q; return hold.p.then(() => read.apply(fs0, a)); } return read.apply(fs0, a); };
+  return { hold, hit: () => hit, off: () => { fs0.read = read; } };
+};
+/* A decision on the disputed request besides the two twoWays wrote (writers wa and wb): a resolution. */
+const resolutionOf = (app, id) => app.files('proposals/').filter(p => p.indexOf(id + '.status-') >= 0 && !/\.status-w[ab]-/.test(p)).map(p => JSON.parse(app.fs.files[p].t));
+async function disputed(app) {
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  const id = await ask(app, [{ op: 'approve', as: 'person-avery' }], 'wb-' + Math.random().toString(36).slice(2, 8));
+  await app.tick(300);
+  app.files('proposals/').filter(p => p.indexOf(id + '.status-') >= 0).forEach(p => { delete app.fs.files[p]; });
+  await twoWays(app, id);
+  assert.ok(new RegExp('data-act="loop-resolve"[^>]*data-request="' + id + '"').test(app.html()), 'set-up: recorded both ways');
+  return id;
+}
+const people = (app, fn) => { const kept = app.fs.files['people.json'], doc = JSON.parse(kept.t), list = Array.isArray(doc) ? doc : doc.people, next = fn(list.map(x => Object.assign({}, x))); app.fs.files['people.json'] = { t: JSON.stringify(Array.isArray(doc) ? next : Object.assign({}, doc, { people: next }), null, 2), m: Date.now() }; };
+/* The refused outcome of the disputed request (written by twoWays as writer wb) rewritten as applied: no longer both ways. */
+const replaceRefused = (app, id) => {
+  const p = app.files('proposals/').find(x => x.indexOf(id + '.status-wb-') >= 0), j = JSON.parse(app.fs.files[p].t);
+  j.op = 'applied'; app.fs.files[p] = { t: JSON.stringify(j), m: Date.now() };
+};
+const WB_CHANGES = {
+  'the requester taken out of people.json': (app) => people(app, l => l.filter(x => x.id !== 'person-blake')),
+  'the requester marked inactive': (app) => people(app, l => l.map(x => x.id === 'person-blake' ? Object.assign(x, { inactive: true }) : x)),
+  'the request it resolves rewritten from refused to applied': (app, id) => replaceRefused(app, id)
+};
+for (const ch of Object.keys(WB_CHANGES)) rule('Round 18 (WB): a resolve request, ' + ch + ' while its resolution waits, resolves nothing and is never recorded applied', async () => {
+  const app = await setup({ maps: { parent: LEAD, roles: { lead: 'person-blake' } } });
+  assert.strictEqual(parentRun(app).roles.lead, 'person-blake', 'set-up: Blake holds the loop step\'s role');
+  const id = await disputed(app), h = holdNewStatus(app.fs);
+  const PF = app.PF, LP = PF.loop, r = parentRun(app);
+  const c = LP.cleanIntent({ loop: { process: 'release-readiness', run: r.id, step: 'each' }, changes: [{ op: 'resolve', record: id, outcome: 'refused', as: 'person-blake' }] }, 'wb-rs', { name: 'release-helper', version: '1.0' });
+  const d = await PF.repo.loadAll(app.fs, {}), V = LP.view(r, 'each', { records: d.scopes, runs: d.runs });
+  const f = LP.buildRequest(c.intent, { seen: V.ledger.heads, children: [], now: new Date().toISOString(), app: '3.0.0' });
+  await app.fs.write('proposals/' + f.id + '.json', LP.text(f));
+  app.click('refresh');
+  for (let t = 0; t < 40 && !h.hit(); t++) await app.tick(50);
+  assert.ok(h.hit(), 'set-up: the resolution reached its existence read');
+  WB_CHANGES[ch](app, id);
+  h.hold.open(); await app.tick(600); h.off();
+  assert.deepStrictEqual(resolutionOf(app, id).map(x => x.op), [], 'no resolution written');
+  assert.notStrictEqual((outcome(app, f.id) || {}).op, 'applied', 'the resolve request isn\'t recorded applied');
+});
+rule('Round 18 (WB): Resolve on the run screen, the request rewritten from refused to applied while the resolution waits, writes nothing', async () => {
+  const app = await setup(), id = await disputed(app), h = holdNewStatus(app.fs);
+  app.click('loop-resolve', 'each', { request: id, outcome: 'refused' });
+  for (let t = 0; t < 40 && !h.hit(); t++) await app.tick(50);
+  assert.ok(h.hit(), 'set-up: the resolution reached its existence read');
+  replaceRefused(app, id);
+  h.hold.open(); await app.tick(600); h.off();
+  assert.deepStrictEqual(resolutionOf(app, id).map(x => x.op), [], 'no resolution written');
+});
+rule('Round 18 (WB): a resolve request with nothing changed is carried out: the resolution is written and the request applied', async () => {
+  const app = await setup({ maps: { parent: LEAD, roles: { lead: 'person-blake' } } });
+  const id = await disputed(app);
+  const rs = await ask(app, [{ op: 'resolve', record: id, outcome: 'refused', as: 'person-blake' }], 'wb-ok');
+  await app.tick(400);
+  assert.deepStrictEqual([resolutionOf(app, id).map(x => x.op), (outcome(app, rs) || {}).op], [['refused'], 'applied']);
+});
+/* Round 19 (XC): a start request's authority is asked of the loop as the guard reads it. Blake owns ABC-101 and asks for its
+   start; while the new run's first read waits, a scope record gives ABC-101 to Avery. The start is refused: no run, and the
+   request isn't recorded applied. */
+const scopeChange = async (app, change, key) => {
+  const PF = app.PF, LP = PF.loop, r = parentRun(app);
+  const c = LP.cleanIntent({ loop: { process: 'release-readiness', run: r.id, step: 'each' }, changes: [change] }, key, { name: 'release-helper', version: '1.0' });
+  assert.strictEqual(c.errors.length, 0, c.errors.join(' '));
+  const d = await PF.repo.loadAll(new Proxy(app.fs, {}), {}), V = LP.view(r, 'each', { records: d.scopes, runs: d.runs });
+  const f = LP.buildRequest(c.intent, { seen: V.ledger.heads, children: [], now: new Date().toISOString(), app: '3.0.0' });
+  app.fs.files['proposals/' + f.id + '.json'] = { t: LP.text(f), m: Date.now() };
+  return f.id;
+};
+rule('Round 19 (XC): a start request whose story is given to someone else while its run waits to be written starts nothing', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  await scopeChange(app, { op: 'owner', item: { key: 'ABC-101' }, owner: 'person-blake' }, 'xc-own');
+  app.click('refresh'); await app.tick(250);
+  const fs0 = app.fs, read = fs0.read, hold = gate(); let hit = null;
+  fs0.read = function (q) { const a = arguments; if (!hit && /^runs\/validate-story\/[^/]+\/run\.json$/.test(q) && !fs0.files[q]) { hit = q; return hold.p.then(() => read.apply(fs0, a)); } return read.apply(fs0, a); };
+  const PF = app.PF, LP = PF.loop, r = parentRun(app);
+  const c = LP.cleanIntent({ loop: { process: 'release-readiness', run: r.id, step: 'each' }, changes: [{ op: 'start', item: { key: 'ABC-101' }, as: 'person-blake' }] }, 'xc-start', { name: 'release-helper', version: '1.0' });
+  const d = await PF.repo.loadAll(new Proxy(app.fs, {}), {}), V = LP.view(r, 'each', { records: d.scopes, runs: d.runs });
+  const f = LP.buildRequest(c.intent, { seen: V.ledger.heads, children: [], now: new Date().toISOString(), app: '3.0.0' });
+  app.fs.files['proposals/' + f.id + '.json'] = { t: LP.text(f), m: Date.now() };
+  app.click('refresh');
+  for (let t = 0; t < 40 && !hit; t++) await app.tick(50);
+  assert.ok(hit, 'set-up: Blake\'s start reached its run\'s first read');
+  await scopeChange(app, { op: 'owner', item: { key: 'ABC-101' }, owner: 'person-avery' }, 'xc-back');
+  hold.open(); await app.tick(600); fs0.read = read;
+  assert.deepStrictEqual(kidPaths(app), [], 'no run started');
+  assert.notStrictEqual((outcome(app, f.id) || {}).op, 'applied', 'the start request isn\'t recorded applied');
+});
+/* Round 20 (YA): a scope token is made by the guard for exactly one record: its path, absent, the run it names and its
+   bytes. Taken from a real Add (answered false, so nothing is written) and used for anything else, it writes nothing. */
+rule('Round 20 (YA): a genuine scope token writes neither other bytes at its path, nor another record, nor a run', async () => {
+  const app = await setup(), R = app.PF.repo, ss = R.saveScope, got = [];
+  R.saveScope = function (f, n, file, o) { o = Object.assign({}, o); const rc = o.recheck; o.recheck = function () { return Promise.resolve(rc.apply(this, arguments)).then((t) => { got.push({ t, n, file }); return false; }); }; return ss.call(this, f, n, file, o); };
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(200);
+  R.saveScope = ss;
+  const one = got.find(x => x.t && typeof x.t === 'object');
+  assert.ok(one, 'set-up: Add\'s guard made a token');
+  const before = JSON.stringify(app.files('').map(f => [f, app.fs.files[f].t]));
+  const other = JSON.parse(JSON.stringify(one.file)); other.changes[0].item.key = 'ABC-999';
+  const tries = {
+    'other bytes at its path': () => R.saveScope(app.fs, one.n, other, { recheck: () => one.t }),
+    'another record': () => R.saveScope(app.fs, one.n.replace(/[0-9a-f]{4}\.json$/, 'abcd.json'), one.file, { recheck: () => one.t }),
+    'the loop\'s run': () => { const r = app.PF.run.sanitize(JSON.parse(app.fs.files[app.files('runs/release-readiness/').find(f => /run\.json$/.test(f))].t)); r._fileHash = R.fileHash(app.fs.files[app.files('runs/release-readiness/').find(f => /run\.json$/.test(f))].t); r.title = 'Taken over'; return R.saveRun(app.fs, r, 'mutant', { recheck: () => one.t }); }
+  };
+  for (const k of Object.keys(tries)) {
+    let how = 'resolved', v;
+    try { await Promise.resolve(tries[k]()).then(x => { v = x; }, () => { how = 'rejected'; }); } catch (e) { how = 'threw'; }
+    assert.ok(how !== 'resolved' || (v && v.dropped), k + ': ' + how + ' ' + JSON.stringify(v));
+  }
+  await app.tick(100);
+  assert.strictEqual(JSON.stringify(app.files('').map(f => [f, app.fs.files[f].t])), before, 'nothing written');
+});
+/* Round 22 (AB): a guard is bound, when it is made, to the write it was made for. Add's genuine guard (not its token), handed
+   to the run writer for the loop's parent with the recorder changed to Blake, or to another scope record, mints nothing. */
+rule('Round 22 (AB): Add\'s genuine guard handed to the run writer or another record\'s writer writes nothing', async () => {
+  const app = await setup(), R = app.PF.repo, ss = R.saveScope, got = [];
+  R.saveScope = function (f, n, file, o) { got.push({ rc: o && o.recheck, n, file }); return ss.apply(this, arguments); };
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(200);
+  R.saveScope = ss;
+  const one = got.find(x => typeof x.rc === 'function');
+  assert.ok(one, 'set-up: Add asked its guard');
+  const runAt = () => app.files('runs/release-readiness/').find(f => /run\.json$/.test(f));
+  const before = JSON.stringify(app.files('').map(f => [f, app.fs.files[f].t]));
+  const other = JSON.parse(JSON.stringify(one.file)); other.changes[0].item.key = 'ABC-998';
+  const tries = {
+    'the loop\'s run, its recorder Blake': () => { const t = app.fs.files[runAt()].t, r = app.PF.run.sanitize(JSON.parse(t)); r._fileHash = R.fileHash(t); r.recorder = Object.assign({}, r.recorder, { person: 'person-blake' }); return R.saveRun(app.fs, r, 'unapproved-session', { writer: 'unapproved', recheck: one.rc }); },
+    'other bytes under another name': () => R.saveScope(app.fs, one.n.replace(/[0-9a-f]{4}\.json$/, 'abce.json'), other, { recheck: one.rc })
+  };
+  for (const k of Object.keys(tries)) {
+    let how = 'resolved', v;
+    try { await Promise.resolve(tries[k]()).then(x => { v = x; }, () => { how = 'rejected'; }); } catch (e) { how = 'threw'; }
+    await app.tick(100);
+    assert.ok(how !== 'resolved' || (v && v.dropped), k + ': ' + how + ' ' + JSON.stringify(v));
+    assert.ok(JSON.stringify(app.files('').map(f => [f, app.fs.files[f].t])) === before, k + ': nothing written');
+  }
+});
+/* Round 20 (YC): a new run is started only past the fresh guard: the person starting it read again in people.json, active.
+   The start form for a second release run; while its run.json read waits, Avery is marked inactive. Nothing is written. */
+rule('Round 20 (YC): a run started from the form, its starter marked inactive while its first read waits, writes nothing', async () => {
+  const app = await setup(), runs = () => app.files('runs/release-readiness/').filter(f => /run\.json$/.test(f) || /candidate-/.test(f));
+  const had = runs().slice();
+  app.click('start', 'release-readiness'); await app.settle();
+  const fs0 = app.fs, read = fs0.read, hold = gate(); let hit = null;
+  fs0.read = function (q) { const a = arguments; if (!hit && /^runs\/release-readiness\/[^/]+\/run\.json$/.test(q) && !fs0.files[q]) { hit = q; return hold.p.then(() => read.apply(fs0, a)); } return read.apply(fs0, a); };
+  app.chooseApprovers().submitForm('start-form');
+  for (let t = 0; t < 40 && !hit; t++) await app.tick(50);
+  assert.ok(hit, 'set-up: the new run\'s first read');
+  const doc = JSON.parse(app.fs.files['people.json'].t), list = Array.isArray(doc) ? doc : doc.people;
+  list.forEach(x => { if (x.id === 'person-avery') x.inactive = true; });
+  app.fs.files['people.json'] = { t: JSON.stringify(doc, null, 2), m: Date.now() };
+  hold.open(); await app.tick(600); fs0.read = read;
+  assert.deepStrictEqual(runs(), had, 'no run, no candidate');
+});
+/* Round 20 (YD): a story's run is created only where nothing is: a run.json that arrives after its candidate is never
+   written over. Start ABC-101; once the candidate is written, another computer's run.json (rev 99, Blake recording) lands
+   there. Nothing is written over it. */
+rule('Round 20 (YD): a story\'s run that arrives after its start\'s candidate is never written over', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  const fs0 = app.fs, write = fs0.write, hold = gate(); let cand = null;
+  fs0.write = function (q) { const a = arguments; if (!cand && /^runs\/validate-story\/[^/]+\/candidate-[^/]+\.json$/.test(q)) { cand = q; return write.apply(fs0, a).then((x) => hold.p.then(() => x)); } return write.apply(fs0, a); };
+  app.click('loop-start', 'each', { item: 'ABC-101' });
+  for (let t = 0; t < 40 && !cand; t++) await app.tick(50);
+  assert.ok(cand, 'set-up: the start\'s candidate was written');
+  const there = cand.replace(/candidate-[^/]+\.json$/, 'run.json'), theirs = JSON.parse(fs0.files[cand].t);
+  theirs.rev = 99; theirs.recorder = Object.assign({}, theirs.recorder, { person: 'person-blake', session: 'other-computer' }); theirs.savedBy = 'other-computer';
+  const text = JSON.stringify(theirs, null, 2);
+  fs0.files[there] = { t: text, m: Date.now() };
+  hold.open(); await app.tick(600); fs0.write = write;
+  assert.strictEqual(fs0.files[there].t, text, 'the run that arrived is as it arrived');
+});
+/* Round 21 (ZA): a scope token is bound to the folder its guard checked. Add's record sent to another folder holding the
+   same files (where Avery is inactive), its guard asked about this folder: refused, and neither folder changes. */
+rule('Round 21 (ZA): a scope record sent to another folder with the same files, its guard asked about this one, writes nothing', async () => {
+  const app = await setup(), R = app.PF.repo, ss = R.saveScope, real = app.fs;
+  const files = JSON.parse(JSON.stringify(real.files));
+  const doc = JSON.parse(files['people.json'].t), list = Array.isArray(doc) ? doc : doc.people;
+  list.forEach(x => { if (x.id === 'person-avery') x.inactive = true; });
+  files['people.json'] = { t: JSON.stringify(doc, null, 2), m: Date.now() };
+  const other = { read: (q) => Promise.resolve(files[q] ? { text: files[q].t, mtime: files[q].m, size: files[q].t.length } : null),
+    list: (q) => { const pre = q ? q + '/' : '', seen = {}, out = []; Object.keys(files).forEach(k => { if (k.indexOf(pre) !== 0) return; const rest = k.slice(pre.length), i = rest.indexOf('/'), n = i < 0 ? rest : rest.slice(0, i); if (!seen[n]) { seen[n] = true; out.push({ name: n, kind: i < 0 ? 'file' : 'dir' }); } }); return Promise.resolve(out); },
+    write: (q, t) => { files[q] = { t: String(t), m: Date.now() }; return Promise.resolve(); }, remove: (q) => { delete files[q]; return Promise.resolve(); } };
+  const otherBefore = JSON.stringify(files), before = JSON.stringify(app.files('').map(f => [f, real.files[f].t]));
+  let calls = 0;
+  R.saveScope = function (f, n, file, o) { o = Object.assign({}, o); const rc = o.recheck; o.recheck = function (x, phase, w) { return rc.call(this, real, phase, w); }; calls++; return ss.call(this, other, n, file, o); };
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(250);
+  R.saveScope = ss;
+  assert.ok(calls > 0, 'set-up: Add wrote its record');
+  assert.deepStrictEqual([JSON.stringify(files) === otherBefore, JSON.stringify(app.files('').map(f => [f, real.files[f].t])) === before], [true, true], 'neither folder changed');
+});
+/* Round 21 (ZC): a refusal is recorded only by the run's recorder, about the very request it refused. Casey (not the
+   recorder) asks to start ABC-101; right before the refusal is written, either the run is handed to Blake, or the request
+   is replaced with Avery's under the same name. Neither refusal is written: the request stays pending. */
+async function refusalRace(app, change) {
+  app.set('loop-add-each', 'ABC-101, ABC-102'); app.click('loop-add', 'each'); await app.tick(150);
+  const R = app.PF.repo, ss = R.saveScope; let changed = false;
+  R.saveScope = function (f, n, file) {
+    const args = arguments, self = this;
+    if (!changed && /\.status-/.test(n) && file && file.op === 'refused') { changed = true; return Promise.resolve(change(app, file.proposal)).then(() => ss.apply(self, args)); }
+    return ss.apply(this, arguments);
+  };
+  const id = await ask(app, [{ op: 'start', item: { key: 'ABC-101' }, as: 'person-casey' }], 'zc-' + Math.random().toString(36).slice(2, 8));
+  await app.tick(300);
+  R.saveScope = ss;
+  assert.ok(changed, 'set-up: the refusal was about to be written');
+  return id;
+}
+rule('Round 21 (ZC): a refusal, the run handed to Blake right before it is written, isn\'t written', async () => {
+  const app = await setup();
+  const id = await refusalRace(app, (app) => {
+    const p = app.files('runs/release-readiness/').find(q => /run\.json$/.test(q)), r = JSON.parse(app.fs.files[p].t);
+    r.recorder = Object.assign({}, r.recorder, { person: 'person-blake', session: 'session-blake' }); r.rev = (r.rev || 0) + 1;
+    app.fs.files[p] = { t: JSON.stringify(r, null, 2), m: Date.now() };
+  });
+  assert.strictEqual(outcome(app, id), null, 'no refusal recorded: ' + JSON.stringify(outcome(app, id)));
+});
+rule('Round 21 (ZC): a refusal, its request replaced with an allowed one under the same name right before it is written, isn\'t written', async () => {
+  const app = await setup();
+  const id = await refusalRace(app, (app, rid) => {
+    const p = 'proposals/' + rid + '.json';
+    assert.ok(app.fs.files[p], 'set-up: the request is at ' + p);
+    app.fs.files[p] = { t: app.fs.files[p].t.split('person-casey').join('person-avery'), m: Date.now() };
+  });
+  assert.notStrictEqual((outcome(app, id) || {}).op, 'refused', 'the allowed request isn\'t settled by the old refusal');
+});
+/* Round 22 (AA): a refusal settles only the request it judged, as it was when it was taken up. Replaced with Avery's allowed
+   one and the folder read again (Refresh) while the refusal waits, the old refusal isn't written, and the allowed request
+   is carried out. A OneDrive copy of the request that says something else, added while it waits, refuses it too. */
+rule('Round 22 (AA): a refusal, its request replaced with an allowed one and the folder read again before it is written, isn\'t written', async () => {
+  const app = await setup();
+  const id = await refusalRace(app, async (app, rid) => {
+    const p = 'proposals/' + rid + '.json';
+    app.fs.files[p] = { t: app.fs.files[p].t.split('person-casey').join('person-avery'), m: Date.now() };
+    app.click('refresh'); await app.tick(300);
+  });
+  assert.notStrictEqual((outcome(app, id) || {}).op, 'refused', 'the allowed request isn\'t settled by the old refusal: ' + JSON.stringify(outcome(app, id)));
+  app.click('refresh'); await app.tick(400);
+  assert.deepStrictEqual([(outcome(app, id) || {}).op, kidPaths(app).length], ['applied', 1], 'the allowed request is carried out');
+});
+rule('Round 22 (AA): a refusal, a different OneDrive copy of its request added before it is written, isn\'t written', async () => {
+  const app = await setup();
+  const id = await refusalRace(app, (app, rid) => {
+    const p = 'proposals/' + rid + '.json';
+    app.fs.files['proposals/' + rid + ' (1).json'] = { t: app.fs.files[p].t.split('person-casey').join('person-avery'), m: Date.now() };
+  });
+  assert.strictEqual(outcome(app, id), null, 'no refusal recorded: ' + JSON.stringify(outcome(app, id)));
 });
 run();

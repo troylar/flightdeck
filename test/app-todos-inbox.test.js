@@ -111,6 +111,9 @@ rule('A decision dispute on a request that already landed is in the inbox; settl
 rule('A run whose file can\'t be read asks nothing, and an open dialog writes nothing for it: decide, revoke or delegate', async () => {
   const app = await setup();
   const [p] = await asked(app, 1);
+  /* Round 17 (VB): a delegation is written only as built from the folder read right before it, so the window reads the
+     request asked meanwhile first (one it hasn't seen would change what the grant says it saw: nothing is written). */
+  await refresh(app, 400);
   const g = await (async () => { app.click('td-delegate'); await app.tick(10); app.set('tdg-who', 'notes-bot'); app.check('tdg-add', true); app.set('tdg-adds', '2'); app.click('td-delegate-save'); await app.tick(80); return recs(app).map(f => JSON.parse(app.fs.files[f].t)).filter(x => x.kind === 'grant')[0]; })();
   assert.ok(g, 'set-up: a delegation');
   app.click('close-overlay'); await app.tick(10);

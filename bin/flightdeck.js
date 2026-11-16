@@ -928,19 +928,10 @@ async function readDeps(PF, L, r, o) {
      expected and named when missing. */
   for (const pk of Object.keys(parents)) {
     const ix = pk.indexOf('/'), pp = pk.slice(0, ix), pid = pk.slice(ix + 1);
-    /* YC: the parent is judged as its own reader judges it (its file, its format, its pinned version); its applied work is
-       read only when the parent itself can be. */
-    let one = null; try { one = await repo.readRunOnly(dependsOn(L.fs, ['runs/' + pk, 'publications/' + pp, 'staged/' + pp]), pp, pid); } catch (e) { put({ path: 'runs/' + pk + '/run.json', kind: 'unreadable', why: fileWhy(e && e.message || String(e)) }); continue; }
-    (one && one.bad || []).forEach((b) => put({ path: b.path, kind: b.kind || 'unreadable', why: fileWhy(b.why) }));
-    const pr = one && one.run;
-    if (!pr) { put({ path: 'runs/' + pk + '/run.json', kind: 'nofile', why: 'A request of this run rests on ' + pk + ' (a spread it fulfils, or the facts it is suggested on), which can\'t be read here.' }); continue; }
-    parentRuns.push(pr);
-    const pj = judgeRun(PF, pr, one.pub);
-    if (one.pub && one.pub._readFailed) pj.push({ path: PF.run.pubDir(pr), kind: 'unreadable', why: 'The version ' + pk + ' runs on couldn\'t be read here: ' + String(one.pub.why || 'unknown') + '.' });
-    pj.forEach(put);
-    if (newerRun(PF, pr) || (one.pub && !one.pub.ok) || pj.some((x) => x.kind === 'unusable')) continue;
-    let PV = null; try { PV = T.view(pr, { records: T.recordsFor((got && got.todos) || [], pr), unread: [], people: o.people }); } catch (e) { PV = null; }
-    if (PV) T.missingOf(PV, null).forEach(put);
+    /* YC, AC: judged as the parent's own reader judges it (parentVerdict); facts and readDeps' callers take its run too. */
+    const pv = await parentVerdict(PF, L, pk, (got && got.todos) || [], o.people);
+    if (pv.run) parentRuns.push(pv.run);
+    pv.problems.forEach(put);
   }
   const own = got ? T.recordsFor(got.todos || [], r) : [];
   let spreads = 0; try { spreads = got && r.living ? T.view(r, { records: own, unread: [], people: o.people }).spreads.length : 0; } catch (e) { spreads = 0; }
@@ -976,6 +967,23 @@ async function readDeps(PF, L, r, o) {
   return { got, runs, parentRuns, procOf: d ? procOfFrom(d) : () => null, problems: probs, coverage, bad, inputs, add: put,
     covers: (pth) => !!named[pth] || prefixes.some((k) => pth === k || String(pth).indexOf(k + '/') === 0) };
 }
+/* YC, AC: a parent a story's requests fulfil, judged as the parent's own reader judges it (its file, its format, its pinned
+   version), and its applied work (living.head, its chain) read only when the parent itself can be. Every reader of a story
+   asks this one, whatever it lists. Resolves { run (or null), problems }. */
+async function parentVerdict(PF, L, pk, todos, people) {
+  const T = PF.todos, repo = PF.repo, ix = pk.indexOf('/'), pp = pk.slice(0, ix), pid = pk.slice(ix + 1), out = [];
+  let one = null; try { one = await repo.readRunOnly(dependsOn(L.fs, ['runs/' + pk, 'publications/' + pp, 'staged/' + pp]), pp, pid); } catch (e) { return { run: null, problems: [{ path: 'runs/' + pk + '/run.json', kind: 'unreadable', why: fileWhy(e && e.message || String(e)) }] }; }
+  (one && one.bad || []).forEach((b) => out.push({ path: b.path, kind: b.kind || 'unreadable', why: fileWhy(b.why) }));
+  const pr = one && one.run;
+  if (!pr) { out.push({ path: 'runs/' + pk + '/run.json', kind: 'nofile', why: 'A request of this run rests on ' + pk + ' (a spread it fulfils, or the facts it is suggested on), which can\'t be read here.' }); return { run: null, problems: out }; }
+  const pj = judgeRun(PF, pr, one.pub);
+  if (one.pub && one.pub._readFailed) pj.push({ path: PF.run.pubDir(pr), kind: 'unreadable', why: 'The version ' + pk + ' runs on couldn\'t be read here: ' + String(one.pub.why || 'unknown') + '.' });
+  pj.forEach((x) => out.push(x));
+  if (newerRun(PF, pr) || (one.pub && !one.pub.ok) || pj.some((x) => x.kind === 'unusable')) return { run: pr, problems: out };
+  let PV = null; try { PV = T.view(pr, { records: T.recordsFor(todos || [], pr), unread: [], people }); } catch (e) { PV = null; }
+  if (PV) T.missingOf(PV, null).forEach((x) => out.push(x));
+  return { run: pr, problems: out };
+}
 /* Puts a reader's dependency problems in its ledger, once each (a read the ledger saw fail is there already). */
 function noteDeps(L, dep) { const had = {}; L.problems().forEach((x) => { had[x.path] = true; }); dep.problems.forEach((x) => { if (!had[x.path]) { had[x.path] = true; L.note(x.path, x.kind, x.why); } }); }
 /* The one receipt verdict every reader shares (run, next, runs, todo list): PF.receipts.verdict. An ended living run whose
@@ -987,6 +995,19 @@ function receiptProblem(PF, r, records, unread) {
 }
 /* The checked publication reader the screen gives a loop (procOf): a process's versions as loadAll indexed them. */
 function procOfFrom(d) { return (id) => { const e = ((d && d.processes) || []).filter((p) => p.process === id)[0], i = e && e.index; return i ? { latest: i.latest, all: i.all || [], clashes: i.clashes || [], broken: i.broken || [] } : null; }; }
+/* EC: the processes the loops of a process's living runs start (their {for.each} steps' process:), read from the runs' own
+   files without the ledger; one that can't be read says nothing here (the main read names it). */
+async function loopKidProcs(PF, fs, proc) {
+  const out = new Set();
+  let items = []; try { items = await fs.list('runs/' + proc); } catch (e) { items = []; }
+  for (const it of items || []) {
+    if (it.kind !== 'dir') continue;
+    let r = null; try { const f = await fs.read('runs/' + proc + '/' + it.name + '/run.json'); r = f ? PF.run.sanitize(JSON.parse(f.text)) : null; } catch (e) { r = null; }
+    if (!r || !r.living || r._unrunnable) continue;
+    try { PF.map.steps(PF.run.mapOf(r)).forEach((x) => { if (x.step.type !== 'for.each') return; const k = String(PF.run.fieldsOf(r, x.step).process || ''); if (/^[a-z0-9][a-z0-9-]{0,59}$/.test(k)) out.add(k); }); } catch (e) { /* named by the main read */ }
+  }
+  return [...out].sort();
+}
 function dependsOn(fs, prefixes) {
   const ok = covers(prefixes);
   const v = {};
@@ -1134,8 +1155,11 @@ async function readData(eng, adapter, req) {
     }
     /* Each command reads only what its output depends on (needs()), so every problem the ledger holds is one that output
        depends on, and all of them are reported: there's no scope to fall behind what's read. */
-    relevant = covers(needs(req));
-    const d = await repo.loadAll(dependsOn(L.fs, needs(req)), { readOnly: true, explain: true, deep: true, contract2: two });
+    /* EC: runs --process <a parent's process> reads what each living parent's spreads depend on too, whatever the filter
+       leaves out: its loops' stories' runs and their versions (found from the parents' own run files before the read). */
+    const want = needs(req).concat(two && req.cmd === 'runs' && req.proc ? (await loopKidProcs(PF, repo.readOnly(adapter, 'Reading for other apps'), req.proc)).filter((p) => p !== req.proc).reduce((o, p) => o.concat(['runs/' + p, 'publications/' + p]), []) : []);
+    relevant = covers(want);
+    const d = await repo.loadAll(dependsOn(L.fs, want), { readOnly: true, explain: true, deep: true, contract2: two });
     if (!two) { d.processes = A.v1Processes(d.processes); d.runs = d.runs.map(A.v1Run).filter(Boolean); }
     take(folderProblems(PF, d));
     /* Every run judged as run judges it, against its own version (runs reads the versions; followups doesn't need them). */
@@ -1218,6 +1242,25 @@ async function readData(eng, adapter, req) {
       /* YD: what each listed run's spreads depend on and couldn't be read is this list's problem too, named by its path; never
          judged against a proposals/ that couldn't be listed (that is the problem), as slice 6 judges no receipt then. */
       if (two && !(d.failed && 'proposals' in d.failed)) { const had = {}; L.problems().forEach((x) => { had[x.path] = true; }); list.forEach((r) => ((r._todos && r._todos.missing) || []).forEach((x) => { if (x && x.path && !had[x.path]) { had[x.path] = true; L.note(x.path, x.kind || 'unreadable', x.why); } })); }
+      /* ZD, AC, BC: each parent a listed run's requests fulfil is expected and judged as that run's own reader judges it
+         (parentVerdict: its file, its format, its pinned version and its applied work), the same one way whatever the filter
+         (process, status or none), before the problems are collected; its paths count and the listed run's to-dos are held. */
+      if (two) {
+        const verdicts = {};
+        for (const r of list) {
+          const pks = {}; PF.todos.recordsFor(d.todos || [], r).forEach((x) => { if (x && x.fulfills && x.fulfills.run && typeof x.fulfills.run.process === 'string' && typeof x.fulfills.run.id === 'string') pks[x.fulfills.run.process + '/' + x.fulfills.run.id] = true; });
+          for (const pk of Object.keys(pks).sort()) {
+            if (!verdicts[pk]) {
+              const v = verdicts[pk] = await parentVerdict(PF, L, pk, d.todos || [], d.people);
+              v.problems.forEach((x) => { if (!L.problems().some((y) => y.path === x.path)) L.note(x.path, x.kind, x.why); });
+              const named = covers(['runs/' + pk].concat(v.run && typeof v.run.folder === 'string' ? [PF.run.pubDir(v.run).replace(/\/$/, '')] : []).concat(v.problems.map((x) => String(x.path).replace(/\/$/, '')))), was = relevant;
+              relevant = (q) => was(q) || named(q);
+            }
+            const bad = verdicts[pk].problems;
+            if (bad.length && r._todos) r._todos.missing = (r._todos.missing || []).concat([{ path: bad[0].path, kind: 'unreadable', why: 'Its parent ' + pk + ' can\'t be read here.' }]);
+          }
+        }
+      }
       const plans = st === 'all' || st === 'planned' ? d.plans.filter((p) => mine(p.process)) : [];
       /* Which version a plan starts on is unknown (null), not missing, when any of its process's versions couldn't be read or
          verified: only problems with the versions themselves count (a run that doesn't match its version is named at the run). */
@@ -2927,7 +2970,8 @@ default goes to .flightdeck/updates/<version>/, with a README.md to hand to your
    always mean the same request: a retry writes nothing; the key with other content is refused. */
 /* ---- flightdeck spread (4.0, docs/apps.md "Spreads", docs/design.md section 45.1) ---- */
 /* Spreads (4.0 slice 3, docs/design.md 45.1, docs/apps.md): a standing requirement on a loop, "every open story here". A spread
-   is asked on the parent run (add, include, stop: one request each, decided by a person or a delegation, applied by the
+   is asked on the parent run (add, include, stop: one request each; add and bind decided by a person or a delegation that
+   may add on the loop step, include and stop always by a person; applied by the
    recorder); sync asks each story's own run for it, one request per obligation, each decided by that run's people. The CLI
    asks; it never decides and never writes run.json. */
 const SPREAD_SUBS = ['list', 'add', 'sync', 'include', 'stop', 'keep'];
