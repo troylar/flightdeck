@@ -25494,11 +25494,12 @@ PF.repo = (function () {
     }
     /* Asked right before every write of the save (the candidate, the history, a conflict copy, run.json): opts.fresh(fs)
        (4.0) awaited first, a guard that reads the folder again there; then opts.still. Either refusing (false, or fresh
-       rejecting) writes nothing more (e.dropped; e.kept, the candidate already written, stays for recovery). */
-    function guard(kept) {
+       rejecting) writes nothing more (e.dropped; e.kept, the candidate already written, stays for recovery). freshOnly: the
+       gate's recheck and its own opts.still follow at once, so still is asked once, after the recheck, right before the write. */
+    function guard(kept, freshOnly) {
       var drop = function () { var d = new Error('dropped'); d.dropped = true; if (kept) d.kept = kept; return d; };
       var fresh = typeof opts.fresh === 'function' ? Promise.resolve().then(function () { return opts.fresh(fs); }).then(function (ok) { return ok !== false; }, function () { return false; }) : Promise.resolve(true);
-      return fresh.then(function (ok) { if (!ok || (typeof opts.still === 'function' && !opts.still())) throw drop(); });
+      return fresh.then(function (ok) { if (!ok || (!freshOnly && typeof opts.still === 'function' && !opts.still())) throw drop(); });
     }
     /* opts.recheck(fs) (round 10, BB): an asynchronous guard awaited before the first write (candidate or conflict copy) and
        again before the final one. false, or a rejection, writes nothing more (e.dropped). */
@@ -25555,7 +25556,7 @@ PF.repo = (function () {
           /* Archived history is a record of what happened whichever version wins, so it's written first. */
           var kt = JSON.stringify(stripMeta(run), null, 2), wk = asWrite(keep, 'absent', kt);
           /* 4.0's guard (fresh, still) and the gate's recheck for exactly this write, in that order, before each write. */
-          return guard(null).then(function () { return archiveOverflow(fs, run, writer); }).then(function () { return guard(null); })
+          return guard(null).then(function () { return archiveOverflow(fs, run, writer); }).then(function () { return guard(null, true); })
             .then(function () { return recheck('conflict', wk); }).then(function (tok) { if (typeof opts.still === 'function' && !opts.still()) { var d = new Error('dropped'); d.dropped = true; throw d; } return gatedWrite(fs, wk, kt, tok); })
             /* A guard that refuses there stays a refusal; a write that fails is carried on the conflict (e.keepFailed), so the
                caller knows no conflict copy holds this window's version. */
@@ -25572,7 +25573,7 @@ PF.repo = (function () {
       var again = function () { if (typeof opts.still === 'function' && !opts.still()) { var d = new Error('dropped'); d.dropped = true; d.kept = cand; throw d; } };
       return gatedWrite(fs, wCand, text, tokFirst)
         .then(function () { return guard(cand); }).then(function () { return archiveOverflow(fs, run, writer); })
-        .then(function () { return guard(cand); })
+        .then(function () { return guard(cand, true); })
         .then(function () { return recheck('final', wRun).then(null, function (d) { d.kept = cand; throw d; }); })
         .then(function (tok) { again(); return gatedWrite(fs, wRun, text, tok).then(null, function (d) { if (d && d.dropped) d.kept = cand; throw d; }); })
         .then(function () {
