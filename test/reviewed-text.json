@@ -1,8 +1,8 @@
 {
   "texts": {
     "CHANGELOG.md": {
-      "sha256": "0e9b2b66174497d14692000c0f9baa0a3c16a28d0ab6df47697b1a2feefb4782",
-      "reviewed": "4.0.0 release fold of slice 3 (b365f237): guard order in saveRun and checkedWith (4.0 fresh, then slice 3's recheck, then still), stillSame rereads people.json last, todoStill on the fresh snapshot, recovery backup rechecked on the to-dos; checked for direct writes and unconditional deletes: every write goes through the gated write path"
+      "sha256": "1259ec6d7987ddd0b312bc7dd71299b7b04a746b9a91e9321e45f620145d1da3",
+      "reviewed": "4.0.0 entry dated 2026-11-15 with the folded slices (facts, 5, 6, 3's loops, spreads and write guards); checked for direct writes and unconditional deletes: text only, no code"
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
@@ -417,8 +417,8 @@
       "reviewed": "FD: every fact line reachable on the run screen (count left out, Show all), contrary lines first; checked for direct writes and unconditional deletes"
     },
     "src/releases.json": {
-      "sha256": "d69642ad72ca292c1f3fe6fe5c0775a52cb7d105a11f9aac545e8c89282380e9",
-      "reviewed": "4.0.0 release fold of slice 3 (b365f237): guard order in saveRun and checkedWith (4.0 fresh, then slice 3's recheck, then still), stillSame rereads people.json last, todoStill on the fresh snapshot, recovery backup rechecked on the to-dos; checked for direct writes and unconditional deletes: every write goes through the gated write path"
+      "sha256": "69b351c172e51c21c5055cef79e7aed33b4e8d8503eb83a1032941b8a3547ee6",
+      "reviewed": "4.0.0 entry dated 2026-11-15 with the folded slices (facts, 5, 6, 3's loops, spreads and write guards); checked for direct writes and unconditional deletes: text only, no code"
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",

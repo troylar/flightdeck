@@ -198,6 +198,6 @@ All twenty-one are waivers; no release has a rehearsal record yet.
 - [2.16.1, 2026-11-05](2.16.1-2026-11-05-waiver.md)
 - [3.0.0, 2026-11-08](3.0.0-2026-11-08-waiver.md)
 - [3.0.1, 2026-11-09](3.0.1-2026-11-09-waiver.md)
-- [4.0.0, 2026-11-10](4.0.0-2026-11-10-waiver.md)
+- [4.0.0, 2026-11-15](4.0.0-2026-11-15-waiver.md)
 
 Records written before 2.6.1 call steps 24 and 25 "P and R", and some name their sections a little differently ("What isn't proven on real OneDrive", "What still runs by hand").
