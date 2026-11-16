@@ -3,7 +3,8 @@ PF.repo = (function () {
   'use strict';
   var U = PF.util, P = PF.publish, R = PF.run;
 
-  function json(text) { try { return JSON.parse(text); } catch (e) { return undefined; } }
+  /* Every file this reads is parsed here: text nested past PF.util.JSON_DEPTH reads as not JSON, never as a stack overflow. */
+  function json(text) { if (PF.util.jsonTooDeep(text)) return undefined; try { return JSON.parse(text); } catch (e) { return undefined; } }
   /* A run.json's fingerprint, compared before every save of it: SHA-256 of its exact text. */
   function fileHash(text) { return PF.sha256.hex(text); }
   function readJson(fs, path) { return fs.read(path).then(function (f) { return f ? json(f.text) : null; }); }
@@ -90,15 +91,18 @@ PF.repo = (function () {
     });
   }
   /* One version folder, verified as a refresh does: its checklist, step types and record, then its screenshots. */
-  function readVersion(fs, proc, folder) {
-    var base = 'publications/' + proc + '/' + folder + '/';
+  /* keep: the texts judged stay on the result (_texts, not enumerable), so what is packed later can be held to them. */
+  function readVersion(fs, proc, folder, keep) {
+    var base = 'publications/' + proc + '/' + folder + '/', texts = null;
     return Promise.all(['map.md', 'types.json', 'publication.json'].map(function (n) { return fs.read(base + n); })).then(function (r) {
-      return verifyExact(fs, base, folder, { 'map.md': r[0] && r[0].text, 'types.json': r[1] && r[1].text, 'publication.json': r[2] && r[2].text });
+      texts = { 'map.md': r[0] && r[0].text, 'types.json': r[1] && r[1].text, 'publication.json': r[2] && r[2].text };
+      return verifyExact(fs, base, folder, texts);
     }).then(function (res) {
       res.folder = folder; res.process = proc;
       return checkImages(fs, base, res);
-    });
+    }).then(function (res) { if (keep) kept(res, texts); return res; });
   }
+  function kept(res, texts) { try { Object.defineProperty(res, '_texts', { value: texts, enumerable: false }); } catch (e) { /* frozen: nothing kept */ } return res; }
   /* A version verified as the app verifies it: a /2 version by the SHA-256 of the exact bytes of its checklist and step
      types (P.exactOf), read only when it is /2. Every reader of a version in a folder goes through this. */
   function verifyExact(fs, base, folder, texts, vo) {
@@ -334,6 +338,8 @@ PF.repo = (function () {
     if (bad && !run._unrunnable) run._unrunnable = bad;
     if (entry.repairs && entry.repairs.length) run._repairs = entry.repairs;
     if (entry.drift && entry.drift.length) run._drift = entry.drift;
+    if (entry.parts && entry.parts.length) run._parts = entry.parts.map(function (x) { return { path: x.path, kind: x.kind, why: x.why }; });
+    if (entry.canonical) run._canonical = entry.canonical;
     run._path = base; run._mtime = entry.mtime; run._conflicts = entry.conflicts.slice(); run._fileHash = entry.fileHash; run._notesSig = entry.notesSig;
     if (entry.recheckAt) run._recheckAt = entry.recheckAt;
     var notes = [], torn = [];
@@ -425,6 +431,24 @@ PF.repo = (function () {
     if (run.process === proc && run.id === id) return '';
     return 'belongs to ' + (run.process || '(no process)') + '/' + run.id + ', not to the folder it\'s in, so it isn\'t read as ' + proc + '/' + id;
   }
+  /* Reading for other apps: every record sanitize dropped, cut or replaced, and every other place it reads differently. */
+  function explainRaw(raw) { return { repairs: R.repairs(raw), drift: R.unexplained(raw) || [], canonical: R.canonical(raw) }; }
+  /* GA: the readers' verdict on one run.json as parsed (raw: undefined when it isn't complete JSON), from the same steps
+     readRun and build take with explain and the same judge (PF.appjson.judgeRun): the first problem every reader (run, next,
+     runs, todo list) names at runs/<proc>/<id>/run.json, { path, kind, why }, or null. The version isn't read here: a
+     version that doesn't verify or doesn't match is the export's to name, at its own path. */
+  function judgeRunFile(raw, proc, id) {
+    var path = 'runs/' + proc + '/' + id + '/run.json';
+    if (raw === undefined) return { path: path, kind: 'malformed', why: 'isn\'t complete JSON (it may still be arriving)' };
+    var run = R.sanitize(raw);
+    if (!run) return { path: path, kind: 'malformed', why: 'isn\'t a run this copy can read' };
+    var w = misplaced(raw, run, proc, id);
+    if (w) return { path: path, kind: 'malformed', why: w };
+    var x = explainRaw(raw);
+    if (x.repairs.length) run._repairs = x.repairs;
+    if (x.drift.length) run._drift = x.drift;
+    return PF.appjson.judgeRun(run, null).filter(function (q) { return q.path === path; })[0] || null;
+  }
   /* The same rule on a raw run.json alone (the evidence pack, which reads files as they are): why it isn't the run of
      runs/<proc>/<id>/, or ''. */
   function elsewhere(raw, proc, id) {
@@ -494,6 +518,13 @@ PF.repo = (function () {
       var names = items.filter(function (i) { return i.kind === 'file'; }).map(function (i) { return i.name; });
       var extra = names.filter(function (n) { return n !== 'run.json' && /^run.*\.json$/i.test(n); });
       var noteFiles = names.filter(function (n) { return /^notes-[\w-]+\.jsonl$/.test(n); });
+      /* VF: a part of the run listed as a link is never read through, and named (as the command line names it), so every
+         reader's verdict on the run sees it. */
+      if (o.explain && bad) items.forEach(function (i) { if (i && i.kind === 'link' && (/^notes-[\w-]+\.jsonl$/.test(i.name) || /^run.*\.json$/i.test(i.name))) bad.push({ path: base + i.name, key: proc + '/' + id, kind: 'link', why: 'A link. Flightdeck never reads through links.' }); });
+      /* WB: an ordinary read (the app's) keeps the same part problems on the run (_parts: a part listed as a link, a listed
+         notes file gone when read), so the shared run verdict holds what the write guard's checked read holds. */
+      var parts = [];
+      if (!o.explain) items.forEach(function (i) { if (i && i.kind === 'link' && (/^notes-[\w-]+\.jsonl$/.test(i.name) || /^run.*\.json$/i.test(i.name))) parts.push({ path: base + i.name, kind: 'link', why: 'A link. Flightdeck never reads through links.' }); });
       if (names.indexOf('run.json') < 0) return o.explain ? NOFILE : null;
       /* Notes files only grow, so one that hasn't changed size or time since the last read is taken from memory. */
       var notesCache = cacheIn.notes;
@@ -516,8 +547,9 @@ PF.repo = (function () {
         });
       }
       function noteOrSay(n) {
-        if (!o.explain) return readNotes(n);
-        return readNotes(n).then(null, function (e) { full = false; stamps[n] = null; if (bad) bad.push({ path: base + n, key: proc + '/' + id, kind: errKind(e), why: why(e) }); return null; });
+        if (!o.explain) return readNotes(n).then(function (f) { if (!f) parts.push({ path: base + n, kind: 'vanished', why: 'was listed, then gone before it could be read' }); return f; });
+        /* UC: a notes file listed and then read as gone is named (vanished), as a ledger names it, never read as no notes. */
+        return readNotes(n).then(function (f) { if (!f) { full = false; stamps[n] = null; if (bad) bad.push({ path: base + n, key: proc + '/' + id, kind: 'vanished', why: 'was listed, then gone before it could be read' }); } return f; }, function (e) { full = false; stamps[n] = null; if (bad) bad.push({ path: base + n, key: proc + '/' + id, kind: errKind(e), why: why(e) }); return null; });
       }
       return Promise.all([fs.read(base + 'run.json')].concat(noteFiles.map(noteOrSay))).then(withPublication).then(function (res) {
         var run = res[0] && R.sanitize(json(res[0].text));
@@ -537,10 +569,10 @@ PF.repo = (function () {
         var entry = { process: proc, folder: run.folder, internKey: run.folder + '|' + run.mapHash, base: base, text: res[0].text, mtime: res[0].mtime, fileHash: fileHash(res[0].text),
           notes: notesTexts, noteFiles: noteFiles, notesSig: U.hash(noteFiles.join('/') + '\u0000' + notesTexts.map(function (t) { return t == null ? '-' : t.length + ':' + U.hash(t); }).join('/')),
           unrunnable: run._unrunnable || res.pubProblem || '', ended: !!run.ended, endedAt: run.ended ? Date.parse(run.ended.at) || 0 : 0, conflicts: extra, recheckAt: 0,
-          names: names.slice().sort(), stamps: stamps, full: full };
+          names: names.slice().sort(), stamps: stamps, full: full, parts: parts };
         /* Reading for other apps: every record sanitize dropped, cut or replaced, named by where it is. */
-        if (o.explain) { var raw = json(res[0].text); entry.repairs = R.repairs(raw); entry.drift = R.unexplained(raw) || []; }
-        function done() { Object.freeze(entry.conflicts); Object.freeze(entry.notes); Object.freeze(entry.noteFiles); Object.freeze(entry.names); Object.freeze(entry.stamps); return Object.freeze(entry); }
+        if (o.explain) { var ex = explainRaw(json(res[0].text)); entry.repairs = ex.repairs; entry.drift = ex.drift; entry.canonical = ex.canonical; }
+        function done() { Object.freeze(entry.parts); Object.freeze(entry.conflicts); Object.freeze(entry.notes); Object.freeze(entry.noteFiles); Object.freeze(entry.names); Object.freeze(entry.stamps); return Object.freeze(entry); }
         /* A candidate whose save isn't listed in run.json, and that's old enough not to be a save still in progress, was
            overwritten by another window or computer: it's offered like any other conflict copy. */
         var lineage = run.lineage || [], lost = names.filter(function (n) { var t = candidateTag(n); return t && lineage.indexOf(t) < 0; });
@@ -605,28 +637,64 @@ PF.repo = (function () {
      the part. torn (the app): each file left out that way is named there ({ path, _file, why }), never just dropped: one
      still arriving could be the record that decides something. perFile (with torn): a read that's refused is named there
      too, by itself, instead of failing the part; only a folder that can't be listed fails it. */
-  function loadJsonDir(fs, dir, ok, bad, only, torn, perFile) {
+  /* Each object read carries its file's size in UTF-8 bytes as _bytes (not enumerable, so it never travels with the record),
+     for a reader whose limit is in bytes of the file as it is. */
+  function sized(o, f) { try { Object.defineProperty(o, '_bytes', { value: f.size != null ? f.size : U.utf8Bytes(f.text), enumerable: false }); } catch (e) { /* frozen: no size */ } return o; }
+  /* The loader's own fields (_file, then _bytes, and a keep's _sha) go on the object read; a file that already has any of
+     them keeps what it wrote, with the file's own field order, so a reader that checks every field (PF.todos.cleanFile)
+     reads the file as written. CA: that is kept in a side map keyed by the object, never in a field, since a file can
+     supply any field name. */
+  var LOADER_KEYS = ['_file', '_bytes', '_sha'];
+  var supplied = new WeakMap();
+  function tagged(o, name, f) {
+    var sup = null;
+    LOADER_KEYS.forEach(function (k) { if (Object.prototype.hasOwnProperty.call(o, k)) { sup = sup || { values: Object.create(null), order: Object.keys(o) }; sup.values[k] = o[k]; } });
+    if (sup) supplied.set(o, sup);
+    o._file = name;
+    /* A keep's file carries the SHA-256 of its bytes (_sha, not enumerable): withdrawing removes only what was read (YA). */
+    if (/^req-keep-/.test(String(name)) && typeof f.text === 'string') { try { Object.defineProperty(o, '_sha', { value: PF.sha256.hex(f.text), enumerable: false }); } catch (e) { /* frozen */ } }
+    return sized(o, f);
+  }
+  /* A record as its file wrote it, with no prototype: the loader's fields left out, the file's own put back. */
+  function asWritten(p) {
+    var raw = Object.create(null), sup = supplied.get(p) || null, vals = sup ? sup.values : null;
+    /* BF: a supplied loader key goes back where the file had it, so the first refusal names the same field as every reader. */
+    var own = function (o, k) { return Object.prototype.hasOwnProperty.call(o, k); };
+    (sup ? sup.order : []).concat(Object.keys(p)).forEach(function (k) {
+      if (own(raw, k)) return;
+      if (vals && own(vals, k)) raw[k] = vals[k]; else if (LOADER_KEYS.indexOf(k) < 0 && own(p, k)) raw[k] = p[k];
+    });
+    return raw;
+  }
+  /* hashes (export): each file kept is also hashed, by name, so what is packed later can be held to the bytes judged here. */
+  function loadJsonDir(fs, dir, ok, bad, only, torn, perFile, hashes) {
     return fs.list(dir).then(function (items) {
+      /* A link where a to-do or fact record, or a plan (4.0 slice 5, MC), would be is never read and never absent: it is named
+         like one that can't be read yet (readPlans). Other folders and kinds read links as 3.0 did: left out, named by the reader's adapter. */
+      if (torn && dir === 'proposals') items.forEach(function (i) { if (i && i.kind === 'link' && (PF.todos.recordName(i.name) || PF.plans.namesPlan(i.name)) && (!only || only(i.name))) torn.push({ path: dir + '/' + i.name, _file: i.name, parsed: false, link: true, why: 'is a link, and Flightdeck never reads through links' }); });
       return Promise.all(items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name) && (!only || only(i.name)); }).map(function (i) {
         var path = dir + '/' + i.name;
         if (!bad) return fs.read(path).then(function (f) {
           /* Listed but gone when read: it may be moving, so it's named like one still arriving, never just left out. */
           if (!f) { if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: 'was listed but was gone when read' }); return null; }
+          if (PF.util.jsonTooDeep(f.text)) { if (torn) torn.push({ path: path, _file: i.name, parsed: false, deep: true, why: PF.util.DEEP_WHY }); return null; }
           var o = json(f.text);
-          if (o && typeof o === 'object' && ok(o)) { o._file = i.name; return o; }
+          if (o && typeof o === 'object' && ok(o)) { if (hashes) hashes[i.name] = f.rawHash || fileHash(f.text); return tagged(o, i.name, f); }
           /* parsed: it's JSON, just not this folder's kind of file (ignored, only named); else it may still be arriving. */
           if (torn) torn.push({ path: path, _file: i.name, parsed: o !== undefined, why: o === undefined ? 'isn\'t complete JSON' : 'isn\'t a file Flightdeck reads here, so it\'s ignored' });
           return null;
-        }, function (e) { if (!torn || !perFile) throw e; torn.push({ path: path, _file: i.name, parsed: false, why: 'couldn\'t be read (' + why(e) + ')' }); return null; });
+        }, function (e) { if (!torn || !perFile || (typeof perFile === 'function' && !perFile(i.name))) throw e; torn.push({ path: path, _file: i.name, parsed: false, kind: errKind(e), why: 'couldn\'t be read (' + why(e) + ')' }); return null; });
         /* Reading for other apps names each of these in bad; with torn too (plans), they're also kept as the app keeps them,
            so a decision that can't be read holds its plan there as in the app. */
         return fs.read(path).then(function (f) {
           if (!f) { if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: 'was listed but was gone when read' }); return null; }
+          if (PF.util.jsonTooDeep(f.text)) { bad.push({ path: path, kind: 'malformed', why: PF.util.DEEP_WHY }); if (torn) torn.push({ path: path, _file: i.name, parsed: false, deep: true, why: PF.util.DEEP_WHY }); return null; }
           var o = json(f.text);
           if (o === undefined) { bad.push({ path: path, kind: 'malformed', why: 'isn\'t complete JSON (it may still be arriving)' }); if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: 'isn\'t complete JSON' }); return null; }
           if (!o || typeof o !== 'object' || Array.isArray(o) || !ok(o)) { bad.push({ path: path, kind: 'malformed', why: 'isn\'t a file this copy can read here' }); if (torn) torn.push({ path: path, _file: i.name, parsed: true, why: 'isn\'t a file Flightdeck reads here, so it\'s ignored' }); return null; }
-          o._file = i.name; return o;
-        }, function (e) { bad.push({ path: path, kind: errKind(e), why: why(e) }); if (torn) torn.push({ path: path, _file: i.name, parsed: false, why: 'couldn\'t be read (' + why(e) + ')' }); return null; });
+          if (hashes) hashes[i.name] = f.rawHash || fileHash(f.text);
+          return tagged(o, i.name, f);
+        }, function (e) { bad.push({ path: path, kind: errKind(e), why: why(e) }); if (torn) torn.push({ path: path, _file: i.name, parsed: false, kind: errKind(e), why: 'couldn\'t be read (' + why(e) + ')' }); return null; });
       }));
     }).then(function (x) { return x.filter(Boolean); });
   }
@@ -749,8 +817,8 @@ PF.repo = (function () {
       /* unnamed (2.1.1): a torn file whose name isn't a plan's or request's shape (PF.plans.namesPlan) and starts with no
          readable plan's ID could be a renamed decision on any plan. It holds none, and Folder health names it on its own. */
       var planIds = (r[6].plans || []).map(function (p) { return p.id; });
-      var named = function (n) { return PF.plans.namesPlan(String(n)) || planIds.some(function (id) { if (typeof id !== 'string' || !id || String(n).indexOf(id) !== 0) return false; var c = String(n).charAt(id.length); return c === '.' || c === ' ' || c === '-' || c === '('; }); };
-      var planUnread = 'proposals' in failed ? [] : (r[6].torn || []).map(function (u) { var x = { _unread: true, path: u.path, _file: u._file, why: u.why, kind: u.parsed ? 'ignored' : 'unreadable' }; if (!u.parsed && !named(u._file)) x.unnamed = true; return x; });
+      var named = function (n) { return PF.plans.namesPlan(String(n)) || planIds.some(function (id) { return typeof id === 'string' && PF.plans.fileFor(n, id); }); };
+      var planUnread = 'proposals' in failed ? [] : (r[6].torn || []).filter(function (u) { return !u.link && !u.deep; }).map(function (u) { var x = { _unread: true, path: u.path, _file: u._file, why: u.why, kind: u.parsed ? 'ignored' : 'unreadable' }; if (!u.parsed && !named(u._file)) x.unnamed = true; return x; });
       /* A file refused here (a newer Flightdeck's, not in its format, or a format that can't be read at all) holds its plan as
          one still arriving does, by its name alone (groupPlans: <plan>.status-…), whatever it says it is. A refused plan file
          isn't named so, and holds no plan. */
@@ -767,7 +835,7 @@ PF.repo = (function () {
         if (x.kind === 'cached') { var e = x.entry; x.sig = sigOf(e.fileHash, e.notesSig, e.conflicts, e.unrunnable || badFor(cache, e), e.recheckAt); delete x.entry; }
       });
       var out = { people: r[0], drafts: r[1], processes: r[2], reads: reads, runsComplete: complete, legacy: r[4], skills: r[5], validations: r[9], valUnread: valUnread, corrDecisions: r[10].filter(function (d) { return !d._unread; }), corrUnread: r[10].filter(function (d) { return d._unread; }),
-        fuDecisions: r[11].filter(function (d) { return !d._unread; }), fuUnread: r[11].filter(function (d) { return d._unread; }), plans: plans, scopes: r[6].scopes || [], scopesUnread: r[6].scopesUnread || [], stepTypes: r[7], jira: r[8],
+        fuDecisions: r[11].filter(function (d) { return !d._unread; }), fuUnread: r[11].filter(function (d) { return d._unread; }), plans: plans, scopes: r[6].scopes || [], scopesUnread: r[6].scopesUnread || [], todos: r[6].todos || [], todosUnread: r[6].todosUnread || [], proposalsRead: 'proposals' in failed ? null : r[6], stepTypes: r[7], jira: r[8],
         unreadable: unreadable, failed: failed, planUnread: planUnread, skillsSkipped: r[5].skipped || 0, readAt: new Date().toISOString(), proposed: r[12], presence: r[13],
         reports: r[14], repDecisions: r[15].filter(function (d) { return !d._unread; }), repUnread: r[15].filter(function (d) { return d._unread; }), stages: r[16], teamValues: r[17],
         /* Files from a newer Flightdeck this copy refused, by path, with the version each needs: shown by Folder health and
@@ -789,10 +857,14 @@ PF.repo = (function () {
   /* One run, for other apps (flightdeck run and next): read-only (nothing is removed, not even a save receipt that lost
      nothing), through a view that throws on any change, and only that run's folder, its version's record (pubProblem), its
      follow-up decisions and people.json. Resolves to { found: false } when the folder has no such run folder, else
-     { found, run (or null), nofile, bad: [{path, kind, why}], fuDecisions, fuUnread: [{path, why}], people, peopleWhy }. */
-  function readRunOnly(fsIn, proc, id) {
+     { found, run (or null), nofile, bad: [{path, kind, why}], fuDecisions, fuUnread: [{path, why}], people, peopleWhy }.
+     o (optional), for a caller reading many runs of one process (a run's loop children): listed, the process folder's listing
+     it already has (not listed again per run); lean, the run and its version only (no follow-up decisions, no people.json);
+     pubs, a map that shares each version's read across those runs. */
+  function readRunOnly(fsIn, proc, id, o) {
+    o = o || {};
     var fs = readOnlyView(fsIn, 'Reading for other apps'), cache = newCache(), bad = [], key = proc + '/' + id, F = PF.followups;
-    return fs.list('runs/' + proc).then(function (items) {
+    return (o.listed ? Promise.resolve(o.listed) : fs.list('runs/' + proc)).then(function (items) {
       if (!items.some(function (i) { return i.kind === 'dir' && i.name === id; })) return { found: false };
       var out = { found: true, run: null, nofile: false, bad: bad, fuDecisions: [], fuUnread: [], people: [], peopleWhy: '' };
       /* The run's version is checked below (readVersion) and judged by the caller, as runs judges it, not by pubProblem. */
@@ -801,7 +873,7 @@ PF.repo = (function () {
       }, function (e) { bad.push({ path: 'runs/' + key + '/run.json', key: key, kind: errKind(e), why: why(e) }); });
       /* The process's decisions folder is found through its parent's listing, so one gone between the two is named (vanished)
          by a ledger, never read as "no decisions". */
-      var fuP = fs.list('followups').then(function (top) {
+      var fuP = o.lean ? Promise.resolve() : fs.list('followups').then(function (top) {
         return top.some(function (i) { return i.kind === 'dir' && i.name === proc; }) ? fs.list('followups/' + proc) : [];
       }).then(function (list) {
         var mine = list.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name) && i.name.indexOf(id + '.') === 0; });
@@ -816,14 +888,16 @@ PF.repo = (function () {
           }, function (e) { out.fuUnread.push({ path: path, kind: errKind(e), why: why(e) }); });
         }));
       }, function (e) { out.fuUnread.push({ path: 'followups/' + proc + '/', kind: errKind(e), why: why(e) }); });
-      var peopleP = loadPeople(fs).then(function (p) { out.people = p; }, function (e) { out.peopleWhy = why(e); out.peopleKind = errKind(e); });
+      var peopleP = o.lean ? Promise.resolve() : loadPeople(fs).then(function (p) { out.people = p; }, function (e) { out.peopleWhy = why(e); out.peopleKind = errKind(e); });
       return Promise.all([runP, fuP, peopleP]).then(function () {
         /* The run's version, verified here so a failure is named, not taken as "nothing to say" (pubProblem's answer). */
         var r = out.run;
         /* A test run's version is its stage (2.1), read by the stage rules. */
-        if (r && isTestRun(r) && typeof r.folder === 'string' && P.STAGE.test(r.folder) && /^[a-z0-9][a-z0-9-]{0,59}$/.test(r.process)) return readStage(fs, r.process, r.folder).then(function (res) { out.pub = res; }, function (e) { out.pub = { ok: false, why: why(e), folder: r.folder, process: r.process, _readFailed: true }; }).then(function () { return out; });
+        if (r && isTestRun(r) && typeof r.folder === 'string' && P.STAGE.test(r.folder) && /^[a-z0-9][a-z0-9-]{0,59}$/.test(r.process)) return readStage(fs, r.process, r.folder, true).then(function (res) { out.pub = res; }, function (e) { out.pub = { ok: false, why: why(e), folder: r.folder, process: r.process, _readFailed: true }; }).then(function () { return out; });
         if (!r || typeof r.folder !== 'string' || !P.versionOf(r.folder) || !/^[a-z0-9][a-z0-9-]{0,59}$/.test(r.process)) return out;
-        return readVersion(fs, r.process, r.folder).then(function (res) { out.pub = res; }, function (e) { out.pub = { ok: false, why: why(e), folder: r.folder, process: r.process, _readFailed: true }; }).then(function () { return out; });
+        var vk = r.process + '/' + r.folder, vp = o.pubs && o.pubs[vk];
+        if (!vp) { vp = readVersion(fs, r.process, r.folder, true); if (o.pubs) o.pubs[vk] = vp; }
+        return vp.then(function (res) { out.pub = res; }, function (e) { out.pub = { ok: false, why: why(e), folder: r.folder, process: r.process, _readFailed: true }; }).then(function () { return out; });
       });
     });
   }
@@ -895,12 +969,20 @@ PF.repo = (function () {
   }
   /* A decision on a group of corrections, in a new file named for this window and the decision's rev. It's written once:
      if a file of that name is already there, nothing is written. */
-  function decideCorrection(fs, rec, writer) {
+  /* still (4.0, kept for next time): asked after the read, right before the write; false writes nothing and rejects with
+     .dropped. Without it, as before. */
+  /* still (4.0, a decision on what was kept for next time): asked right before the write; fresh(fs), when given, is awaited
+     after the read of the decision's name and before still (the guard's own read of people.json). */
+  function decideCorrection(fs, rec, writer, still, fresh) {
     if (!/^[a-z0-9][a-z0-9-]{0,59}$/.test(rec.process) || !/^[\w-]{1,40}$/.test(rec.group) || !/^[\w-]{1,40}$/.test(writer) || !(rec.rev >= 1)) return Promise.reject(new Error('That correction can\'t be decided here.'));
     var path = 'corrections/' + rec.process + '/' + rec.group + '.' + writer + '.' + Math.floor(rec.rev) + '.json';
+    var drop = function () { var e = new Error('the folder, the person or who may decide changed before it was written.'); e.dropped = true; throw e; };
     return fs.read(path).then(function (f) {
       if (f) throw new Error('A decision with that name is already in the folder. Look again, then decide.');
-      return fs.write(path, JSON.stringify(rec, null, 2) + '\n').then(function () { return path; });
+      return typeof fresh === 'function' ? Promise.resolve().then(function () { return fresh(fs); }).then(function (ok) { return ok !== false; }, function () { return false; }) : true;
+    }).then(function (ok) {
+      if (!ok || (typeof still === 'function' && !still())) drop();
+      return putFile(fs, path, JSON.stringify(rec, null, 2) + '\n').then(function () { return path; });
     });
   }
   /* What became of follow-ups: followups/<process>/<run>.<follow-up>.<writer>.<rev>.json, each written once by whoever
@@ -946,7 +1028,7 @@ PF.repo = (function () {
     function release(v) { delete claims[path]; return v; }
     return fs.read(path).then(function (f) {
       if (f) throw new Error('A decision with that name is already in the folder. Look again, then decide.');
-      return fs.write(path, text);
+      return putFile(fs, path, text);
     }).then(function () { return fs.read(path); }).then(function (f) {
       var back = f ? F.cleanDecision(json(f.text), rec.process, name) : null;
       if (!back || f.text !== text) throw new Error('The decision didn\'t read back from the team folder as it was written. Look again, then decide.');
@@ -1054,7 +1136,7 @@ PF.repo = (function () {
     return fs.read(path, { maxBytes: X.LIMITS.decisionBytes }).then(function (f) {
       if (f && f.text === text) return 'same';
       if (f) throw new Error('A decision with that name is already in the folder. Look again, then decide.');
-      return fs.write(path, text);
+      return putFile(fs, path, text);
     }).then(function () { return fs.read(path, { maxBytes: X.LIMITS.decisionBytes }); }).then(function (f) {
       var back = f ? X.cleanDecision(json(f.text), rec.process, name) : null;
       if (!back || !back.ok || f.text !== text) throw new Error('The decision didn\'t read back from the team folder as it was written. Look again, then decide.');
@@ -1200,8 +1282,104 @@ PF.repo = (function () {
   /* This window wrote into a run's folder: what the cache knew about it is dropped, so the next refresh reads it, even if a
      save happened to leave the same size and time. */
   function forgetRun(fs, run) { var c = cacheOf(fs); if (c.runs) delete c.runs[run.process + '/' + run.id]; }
+  /* Round 20 (the writer boundary): the gate belongs to this copy of the storage code, not to a folder object. The app
+     installs it once (gateWrites), before it opens any folder, and nothing can remove or replace it. From then on every
+     write of a run (its candidate, run.json, a conflict copy, a retried start) and of a scope or to-do record goes through
+     it, whatever object is passed as the folder (a wrapper, a Proxy, an object made from it): it is refused unless its
+     guard hands over a token for exactly that write, its kind, path, the run it belongs to and its revision, the state the
+     destination must be in (absent, or the fingerprint of the file it replaces) and the SHA-256 of its bytes. This writer
+     works all of them out itself, and reads the destination again right before writing. A copy that never installs a gate
+     (the command line, the storage tests, another window in a test) writes as before. */
+  var GATE = null;
+  function gateWrites(admit) {
+    if (GATE) throw new Error('The write gate is already set.');
+    if (typeof admit !== 'function') throw new Error('The write gate is a function.');
+    GATE = admit;
+  }
+  function unguarded() { var e = new Error('This write has no write-time check, so nothing was written.'); e.dropped = true; e.unguarded = true; return e; }
+  function notAdmitted() { var e = new Error('This write wasn\'t admitted by its check, so nothing was written.'); e.dropped = true; e.unguarded = true; return e; }
+  /* What a write is: { kind: 'run' | 'create' | 'scope', path, expect: 'absent' | <fingerprint>, key, rev }, with its bytes' hash. */
+  /* Round 22 (AB): each run or backup write remembers the run object it was made from (originOf), so a guard bound to one
+     run's save mints nothing for another's. */
+  var ORIGIN = typeof WeakMap === 'function' ? new WeakMap() : null;
+  function writeAs(what, text, src) { var w = Object.freeze(Object.assign({}, what, { hash: fileHash(text) })); if (src && ORIGIN) ORIGIN.set(w, src); return w; }
+  function originOf(w) { return ORIGIN && w && typeof w === 'object' ? ORIGIN.get(w) || null : null; }
+  /* One gated write: the destination read again, then the token, then the write, with nothing awaited between the last two. */
+  function gatedWrite(fs, w, text, tok) {
+    if (!GATE) return fs.write(w.path, text);
+    if (fileHash(text) !== w.hash) return Promise.reject(notAdmitted());
+    return fs.read(w.path).then(function (f) { return f ? fileHash(f.text) : 'absent'; }).then(function (now) {
+      if (now !== w.expect) {
+        var e = new Error(w.expect === 'absent' ? 'A file is already at ' + w.path + ', so nothing was written over it.' : 'The file changed before it could be written, so nothing was written.');
+        e.dropped = true; e.arrived = true; throw e;
+      }
+      /* The gate is told the folder written to: a token is good only for the folder its guard read (round 21, ZA). */
+      if (GATE(tok, w, fs) !== true) throw notAdmitted();
+      return fs.write(w.path, text);
+    });
+  }
+  /* Round 22 (AC): every write that isn't a gated one reaches the folder here and only here (putFile, addToFile, makeDir;
+     test/guards.test.js checks the source). It never writes:
+     - a run's own files: run.json, a save's candidate, a conflict copy or a recovery's backup, or anything under one of
+       those names (a run named to reach one);
+     - a path that climbs or isn't plain;
+     - in proposals/, a scope or to-do record: neither bytes that are one, nor over a file that is one (or that can't be
+       read as anything else), nor at a record's name or a synced copy's of one, there or not (round 23: a plan decision
+       written first at a decision's name would keep the loop's own decision from ever being recorded).
+     Those go only through gatedWrite, on their guard's token. Each segment is compared without case and without trailing
+     dots or spaces, as Windows and a Mac's folders compare names. A refusal writes nothing; the gate, when the app has set
+     one, is told (a test build throws there). */
+  var RUN_OWN = /^runs\/[^/]+\/[^/]+\/(run\.json|candidate-[^/]*|run\.conflict-[^/]*|replaced-[^/]*)(\/|$)/i;
+  function plainPath(path) {
+    if (typeof path !== 'string' || !path || path.length > 1024 || path.charAt(0) === '/' || /[\\\u0000-\u001f]/.test(path)) return null;
+    var segs = path.split('/').map(function (x) { return x.replace(/[. ]+$/, ''); });
+    return segs.some(function (x) { return !x; }) ? null : segs.join('/');
+  }
+  /* A scope or to-do record's name in proposals/ (a request, or its decision <request>.status-<writer>-<rev>), or a synced
+     copy's, compared without case. */
+  var RECORD_NAME = /^req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24}(\.status-[a-z0-9][a-z0-9-]{0,39}-[0-9a-f]{8})?( \([0-9]{1,3}\)|-[a-z0-9-]{1,63})?\.json$/i;
+  function aRecord(o) { return !!o && typeof o === 'object' && (PF.loop.claims(o) || PF.todos.claims(o)); }
+  function plainRefused(path, what) {
+    if (GATE) GATE(null, { kind: 'plain', path: String(path), unguarded: true });
+    var e = new Error('Flightdeck doesn\'t write ' + String(path) + ' that way: ' + what + '. Nothing was written.');
+    e.dropped = true; e.refused = true;
+    return Promise.reject(e);
+  }
+  function plainPut(fs, path, data, how) {
+    var norm = plainPath(path);
+    if (norm == null) return plainRefused(path, 'it isn\'t a plain path in the team folder');
+    if (RUN_OWN.test(norm)) return plainRefused(path, 'it is one of a run\'s own files, which only the run writer writes');
+    var go = function () { return how === 'append' ? fs.append(path, data) : how === 'dir' ? fs.mkdirExclusive(path) : fs.write(path, data); };
+    if (!/^proposals(\/|$)/i.test(norm)) return go();
+    if (RECORD_NAME.test(norm.slice(norm.lastIndexOf('/') + 1))) return plainRefused(path, 'that name is kept for a scope or to-do record, which is written only on its guard\'s token');
+    if (how !== 'write' || typeof data !== 'string' || aRecord(json(data)) || !json(data)) return plainRefused(path, 'scope and to-do records are written only on their guard\'s token');
+    return fs.read(path).then(function (f) {
+      var o = f ? json(f.text) : null;
+      if (f && (!o || typeof o !== 'object' || aRecord(o))) return plainRefused(path, 'the file there may be a scope or to-do record');
+      return go();
+    });
+  }
+  function putFile(fs, path, data) { return plainPut(fs, path, data, 'write'); }
+  function addToFile(fs, path, data) { return plainPut(fs, path, data, 'append'); }
+  function makeDir(fs, path) { return plainPut(fs, path, null, 'dir'); }
+  /* Where Flightdeck's install and update files go (the contract): AGENTS.md, .flightdeck/ and, for a skills folder, its
+     skills, its updates and its record. Their copies go only under an updates folder. */
+  var CONTRACT_AT = /^(AGENTS\.md|\.flightdeck\/.+|\.flightdeck-updates\/.+|\.flightdeck-installed\.json|_flightdeck\/.+|flightdeck-[a-z0-9-]+\/.+)$/;
+  var UPDATES_AT = /^(\.flightdeck\/updates|\.flightdeck-updates)\/.+$/;
+  function contractWhy(path, re) { var n = plainPath(path); return n != null && re.test(n) && n === path ? '' : 'it isn\'t one of Flightdeck\'s install or update files'; }
+  /* The run a scope or to-do record is about, when it names one (a status decision names only its request). */
+  function subjectOf(file) {
+    if (file && file.loop && typeof file.loop.process === 'string' && typeof file.loop.run === 'string') return file.loop.process + '/' + file.loop.run;
+    if (file && file.run && typeof file.run.process === 'string' && typeof file.run.id === 'string') return file.run.process + '/' + file.run.id;
+    return '';
+  }
   function saveRun(fs, run, session, opts) {
     opts = opts || {};
+    var rkey = run.process + '/' + run.id, isNew = !run._fileHash, wkind = isNew ? 'create' : 'run';
+    var guardFn = typeof opts.recheck === 'function' ? opts.recheck : isNew && typeof opts.create === 'function' ? opts.create : null;
+    /* A write with no guard at all is refused at once, and the gate is told (a test build throws there, synchronously). */
+    if (GATE && !guardFn) { GATE(null, { kind: wkind, key: rkey, unguarded: true }); return Promise.reject(unguarded()); }
+    var mk = null, tokFirst = null;
     forgetRun(fs, run);
     var writer = opts.writer || session;
     var path = 'runs/' + run.process + '/' + run.id + '/run.json';
@@ -1213,6 +1391,8 @@ PF.repo = (function () {
     /* Any save that got as far as writing may have landed whatever the write answered (2.3.1): its error says so. */
     var marked = function (e) { if (wrote && e && typeof e === 'object') e.maybeWritten = true; throw e; };
     if (run._unrunnable) return made ? Promise.reject(readOnly(run._unrunnable)).then(null, kept) : Promise.reject(readOnly(run._unrunnable));
+    /* opts.hold (UD): the exact text is made and handed back for Try again, and nothing is written now. */
+    if (made && opts.hold) return Promise.reject(new Error(String(opts.hold))).then(null, kept);
     /* The check and the write happen together: with opts.lock (the browser's Web Locks), windows on this computer save a run one
        at a time, so a second window always sees the first one's save and keeps its own change as a conflict copy. */
     var go = opts.lock ? opts.lock('preflight:run:' + run.process + '/' + run.id, function () { return checkAndWrite(); }) : checkAndWrite();
@@ -1228,6 +1408,31 @@ PF.repo = (function () {
       if (copy.test === true) { var tst = copy.stage; delete copy.test; delete copy.stage; copy.test = true; copy.stage = tst; }
       return { copy: copy, dir: dir, text: JSON.stringify(copy, null, 2), cand: dir + 'candidate-' + writer + '-' + saveId + '.json' };
     }
+    /* Asked right before every write of the save (the candidate, the history, a conflict copy, run.json): opts.fresh(fs)
+       (4.0) awaited first, a guard that reads the folder again there; then opts.still. Either refusing (false, or fresh
+       rejecting) writes nothing more (e.dropped; e.kept, the candidate already written, stays for recovery). freshOnly: the
+       gate's recheck and its own opts.still follow at once, so still is asked once, after the recheck, right before the write. */
+    function guard(kept, freshOnly) {
+      var drop = function () { var d = new Error('dropped'); d.dropped = true; if (kept) d.kept = kept; return d; };
+      var fresh = typeof opts.fresh === 'function' ? Promise.resolve().then(function () { return opts.fresh(fs); }).then(function (ok) { return ok !== false; }, function () { return false; }) : Promise.resolve(true);
+      return fresh.then(function (ok) { if (!ok || (!freshOnly && typeof opts.still === 'function' && !opts.still())) throw drop(); });
+    }
+    /* opts.recheck(fs) (round 10, BB): an asynchronous guard awaited before the first write (candidate or conflict copy) and
+       again before the final one. false, or a rejection, writes nothing more (e.dropped). */
+    /* phase: 'first' (before the candidate), 'conflict' (before a conflict copy) or 'final' (before run.json, once the
+       candidate is written); w: exactly the write it is asked for (writeAs). With a gate its answer is the token for w,
+       handed to gatedWrite. A new run's guard may be given as opts.create. */
+    function recheck(phase, w) {
+      var drop = function () { var e = new Error('dropped'); e.dropped = true; return e; };
+      if (!guardFn) return Promise.resolve(null);
+      return Promise.resolve().then(function () { return guardFn(fs, phase, w); }).then(function (tok) {
+        if (tok === false) throw drop();
+        /* Anything but a token (true, a plain object) is the gate's to refuse: a test build throws there. */
+        if (GATE && (tok == null || typeof tok !== 'object')) { GATE(null, w); throw drop(); }
+        return tok;
+      }, function (err) { var e = drop(); e.cause = err; throw e; });
+    }
+    function asWrite(path, expect, text) { return writeAs({ kind: wkind, path: path, expect: expect, key: rkey, rev: run.rev || 0 }, text, run); }
     /* The publication record may have arrived (by sync) after the run was loaded; a newer format makes the run read-only. */
     function checkAndWrite() {
     return pubProblem(fs, run, null, opts.strict).then(function (why) {
@@ -1239,10 +1444,15 @@ PF.repo = (function () {
       if (typeof opts.prewrite !== 'function') return f;
       var drop = function () { var e = new Error('dropped'); e.dropped = true; return e; };
       return Promise.resolve().then(function () { return opts.prewrite(fs); }).then(function (ok) { if (ok === false) throw drop(); return f; }, function (err) { var e = drop(); e.cause = err; throw e; });
+    }).then(function (f) { return guard(null).then(function () { return f; }); }).then(function (f) {
+      /* A create never replaces a run already there (round 19). */
+      if (GATE && f && isNew) { var ex = new Error('A run with this ID is already in the folder, so nothing was written.'); ex.exists = true; throw ex; }
+      mk = made || make();
+      /* 4.0's guard (fresh, still) first, then the gate's recheck: the recheck's own judgment (a receipt's, a to-do's) is
+         asked on the fresh read the guard just took. */
+      return recheck('first', asWrite(mk.cand, 'absent', mk.text)).then(function (tok) { tokFirst = tok; return f; });
     }).then(function (f) {
       var e;
-      /* opts.still: asked after every read, right before the first write; false writes nothing (e.dropped). */
-      if (typeof opts.still === 'function' && !opts.still()) { e = new Error('dropped'); e.dropped = true; throw e; }
       if (f) {
         var disk = R.sanitize(json(f.text));
         if (!disk) { e = new Error('The run file is unreadable, so it wasn\'t overwritten.'); e.unreadable = true; throw e; }
@@ -1260,21 +1470,28 @@ PF.repo = (function () {
           e = new Error('changed'); e.disk = disk;
           var keep = 'runs/' + run.process + '/' + run.id + '/run.conflict-' + writer + '-' + Date.now() + '.json';
           /* Archived history is a record of what happened whichever version wins, so it's written first. */
-          return archiveOverflow(fs, run, writer).then(function () { if (typeof opts.still === 'function' && !opts.still()) { var d = new Error('dropped'); d.dropped = true; throw d; } return fs.write(keep, JSON.stringify(stripMeta(run), null, 2)); })
-            .then(function () { forgetRun(fs, run); e.keptAs = keep; throw e; }, function () { throw e; });
+          var kt = JSON.stringify(stripMeta(run), null, 2), wk = asWrite(keep, 'absent', kt);
+          /* 4.0's guard (fresh, still) and the gate's recheck for exactly this write, in that order, before each write. */
+          return guard(null).then(function () { return archiveOverflow(fs, run, writer); }).then(function () { return guard(null, true); })
+            .then(function () { return recheck('conflict', wk); }).then(function (tok) { if (typeof opts.still === 'function' && !opts.still()) { var d = new Error('dropped'); d.dropped = true; throw d; } return gatedWrite(fs, wk, kt, tok); })
+            /* A guard that refuses there stays a refusal; a write that fails is carried on the conflict (e.keepFailed), so the
+               caller knows no conflict copy holds this window's version. */
+            .then(function () { forgetRun(fs, run); e.keptAs = keep; throw e; }, function (err) { if (err && err.dropped) throw err; e.keepFailed = err || new Error('The conflict copy couldn\'t be written.'); throw e; });
         }
       }
       /* A run this window read from (or saved to) the folder whose file is gone now was deleted or moved by someone: it's
          never written back by an ordinary save, only by an explicit restore. A run never saved yet is created here. */
       if (!f && run._fileHash && !opts.restoreMissing) { e = new Error('This run\'s file is gone from the team folder, so it wasn\'t written back. Someone may have deleted or moved it.'); e.missing = true; throw e; }
-      var m = made || make(), copy = m.copy, dir = m.dir, text = m.text, cand = m.cand;
+      var m = mk, copy = m.copy, dir = m.dir, text = m.text, cand = m.cand, wCand = asWrite(cand, 'absent', text), wRun = asWrite(path, f ? fileHash(f.text) : 'absent', text);
       wrote = true;
-      /* opts.still again before each further write: a switch after the candidate landed writes nothing more, and the
+      /* The guard again before each further write: a switch after the candidate landed writes nothing more, and the
          candidate stays where recovery finds it (a save not listed in run.json), never removed as a failed write. */
       var again = function () { if (typeof opts.still === 'function' && !opts.still()) { var d = new Error('dropped'); d.dropped = true; d.kept = cand; throw d; } };
-      return fs.write(cand, text)
-        .then(function () { again(); return archiveOverflow(fs, run, writer); })
-        .then(function () { again(); return fs.write(path, text); })
+      return gatedWrite(fs, wCand, text, tokFirst)
+        .then(function () { return guard(cand); }).then(function () { return archiveOverflow(fs, run, writer); })
+        .then(function () { return guard(cand, true); })
+        .then(function () { return recheck('final', wRun).then(null, function (d) { d.kept = cand; throw d; }); })
+        .then(function (tok) { again(); return gatedWrite(fs, wRun, text, tok).then(null, function (d) { if (d && d.dropped) d.kept = cand; throw d; }); })
         .then(function () {
           forgetRun(fs, run);
           run.rev = copy.rev; run.savedAt = copy.savedAt; run._fileHash = fileHash(text); run.lineage = copy.lineage;
@@ -1313,7 +1530,7 @@ PF.repo = (function () {
   function archiveOverflow(fs, run, session) {
     var batch = (run._overflow || []).splice(0);
     if (!batch.length) return Promise.resolve();
-    return fs.append('runs/' + run.process + '/' + run.id + '/history-' + session + '.jsonl', batch.map(function (x) { return JSON.stringify(x); }).join('\n') + '\n')
+    return addToFile(fs, 'runs/' + run.process + '/' + run.id + '/history-' + session + '.jsonl', batch.map(function (x) { return JSON.stringify(x); }).join('\n') + '\n')
       .catch(function (e) { run._overflow = batch.concat(run._overflow || []); throw e; });
   }
   /* Everything archived from a run's history files, oldest first. Read on demand, never during routine refreshes. */
@@ -1349,31 +1566,60 @@ PF.repo = (function () {
   }
   /* Only a copy that was actually listed next to this run, by its exact name. */
   function isCopy(run, name) { return typeof name === 'string' && name !== 'run.json' && (/^run.*\.json$/i.test(name) || CAND.test(name)) && !/[\/\\]/.test(name) && (!run._conflicts || run._conflicts.indexOf(name) >= 0); }
-  function readCopy(fs, run, name) {
+  /* out (round 16, UB), when given, gets the copy's path and its exact text as read: the bytes a recovery is bound to. */
+  function readCopy(fs, run, name, out) {
     if (!isCopy(run, name)) return Promise.reject(new Error('Not a run copy.'));
-    return fs.read('runs/' + run.process + '/' + run.id + '/' + name).then(function (f) { return f ? R.cleanCopy(json(f.text), run) : null; });
+    var path = 'runs/' + run.process + '/' + run.id + '/' + name;
+    return fs.read(path).then(function (f) { if (out) { out.path = path; out.text = f ? f.text : null; } return f ? R.cleanCopy(json(f.text), run) : null; });
   }
   /* Before a conflict copy replaces the current version, the current one is saved beside it. The name doesn't start with "run",
-     so it's kept as a record without showing up as another conflict. */
-  function keepDisplaced(fs, run, session) {
+     so it's kept as a record without showing up as another conflict. Round 21 (ZD): with a gate, the backup is written only
+     with the token its guard (check(fs, 'backup', w)) hands over for exactly this write: the folder, the path, nothing there
+     yet, the run's revision and the bytes. The guard answering false writes nothing and resolves null. */
+  function keepDisplaced(fs, run, session, check) {
+    var key = run.process + '/' + run.id;
+    if (GATE && typeof check !== 'function') { GATE(null, { kind: 'backup', key: key, unguarded: true }); return Promise.reject(unguarded()); }
     forgetRun(fs, run);
-    var path = 'runs/' + run.process + '/' + run.id + '/replaced-' + session + '-' + Date.now() + '.json';
-    return fs.write(path, JSON.stringify(stripMeta(run), null, 2)).then(function () { return path; });
+    var path = 'runs/' + key + '/replaced-' + session + '-' + Date.now() + '.json', text = JSON.stringify(stripMeta(run), null, 2);
+    var w0 = writeAs({ kind: 'backup', path: path, expect: 'absent', key: key, rev: run.rev || 0 }, text, run);
+    if (typeof check !== 'function') return gatedWrite(fs, w0, text, null).then(function () { return path; });
+    var w = writeAs({ kind: 'backup', path: path, expect: 'absent', key: key, rev: run.rev || 0 }, text, run);
+    return Promise.resolve().then(function () { return check(fs, 'backup', w); }).then(function (tok) {
+      if (tok === false) return null;
+      if (GATE && (tok == null || typeof tok !== 'object')) { GATE(null, w); throw notAdmitted(); }
+      return gatedWrite(fs, w, text, tok).then(function () { return path; });
+    });
   }
   /* Removing a copy also removes any lost-save candidate with exactly the same contents, so one decision covers one version. */
-  function removeCopy(fs, run, name) {
+  /* check() (round 14, HA): asked after the copy's read and right before it is removed; false removes nothing (resolves false). */
+  function removeCopy(fs, run, name, check, chosen) {
     if (!isCopy(run, name)) return Promise.reject(new Error('Not a run copy.'));
     var dir = 'runs/' + run.process + '/' + run.id + '/', lineage = run.lineage || [];
+    var asked = function (pin) { return Promise.resolve(typeof check === 'function' ? check(pin) : true); };
     return fs.read(dir + name).then(function (f) {
       var h = f ? f.text : null;
-      return fs.remove(dir + name).then(function () {
+      /* chosen (round 16, UB): the exact bytes the recovery kept. A copy that is anything else now (replaced with a newer
+         one, gone) is never removed: it may hold what the kept one doesn't. */
+      if (typeof chosen === 'string' && h !== chosen) return false;
+      /* check({ path, text }): the copy as read here, which the check's last reads compare it with, right before the removal. */
+      return asked({ path: dir + name, text: h }).then(function (ok) { if (ok === false) return false; return fs.remove(dir + name).then(function () {
         forgetRun(fs, run);
         if (!h) return;
         return fs.list(dir.slice(0, -1)).then(function (items) {
           var twins = items.filter(function (it) { var t = candidateTag(it.name); return t && it.name !== name && lineage.indexOf(t) < 0; });
-          return Promise.all(twins.map(function (it) { return fs.read(dir + it.name).then(function (g) { if (g && g.text === h) return fs.remove(dir + it.name).catch(function () {}); }, function () {}); }));
+          /* Each twin is removed only while it is still exactly those bytes, asked through the same check right before. */
+          var chain = Promise.resolve();
+          twins.forEach(function (it) {
+            chain = chain.then(function () {
+              return fs.read(dir + it.name).then(function (g) {
+                if (!g || g.text !== h) return;
+                return asked({ path: dir + it.name, text: g.text }).then(function (ok2) { if (ok2 === false) return; return fs.remove(dir + it.name).catch(function () {}); }, function () {});
+              }, function () {});
+            });
+          });
+          return chain;
         });
-      });
+      }); });
     });
   }
 
@@ -1381,7 +1627,7 @@ PF.repo = (function () {
   /* Each window appends only to its own notes file. */
   function addNote(fs, run, session, note) {
     forgetRun(fs, run);
-    return fs.append('runs/' + run.process + '/' + run.id + '/notes-' + session + '.jsonl', JSON.stringify(note) + '\n');
+    return addToFile(fs, 'runs/' + run.process + '/' + run.id + '/notes-' + session + '.jsonl', JSON.stringify(note) + '\n');
   }
   /* An attachment is checked against the allowed kinds and the 10 MB limit (PF.attach) and named after the person's own file,
      cleaned. Older copies keep these notes: the path still matches what they read, and an image still shows as one. */
@@ -1389,7 +1635,7 @@ PF.repo = (function () {
     var ok = PF.attach.check(name || blob.name || '', blob.type, blob.size);
     if (ok.error) return Promise.reject(new Error(ok.error));
     var path = PF.attach.pathFor('runs/' + run.process + '/' + run.id + '/', Date.now(), U.randomId(6), session, ok.name);
-    return fs.write(path, blob).then(function () { return path; });
+    return putFile(fs, path, blob).then(function () { return path; });
   }
 
   /* A reference screenshot added in the builder (o: { process, step, file, writer, now?, rand? }): checked like an attachment
@@ -1408,7 +1654,7 @@ PF.repo = (function () {
       if (!path) throw new Error('Flightdeck can\'t name a screenshot for this process.');
       return fs.stat(path).then(function (st) {
         if (st) { if (++tries >= 3) throw new Error('Couldn\'t find a free name for the image. Try again.'); return attempt(); }
-        return fs.write(path, f).then(function () { return fs.blob(path); }).then(function (b) {
+        return putFile(fs, path, f).then(function () { return fs.blob(path); }).then(function (b) {
           if (!b) throw new Error('The image wasn\'t there when Flightdeck read it back. Try again.');
           return b.arrayBuffer();
         }).then(function (back) {
@@ -1462,6 +1708,33 @@ PF.repo = (function () {
       return publishWith(fs, draftMd, opts);
     });
   }
+  /* A version written under a write guard (4.0, a version with what was kept for next time): o.fresh(fs) is awaited and
+     o.still asked right before every write, after every read before it. Refused, nothing more is written and what this
+     write put there is removed by identity (only a file that still has exactly its bytes): { dropped: true }. */
+  function guardedWrites(fs, o) {
+    var wrote = [], dropped = new Error('dropped'); dropped.dropped = true;
+    var gate = function () {
+      var f = typeof o.fresh === 'function' ? Promise.resolve().then(function () { return o.fresh(fs); }).then(function (ok) { return ok !== false; }, function () { return false; }) : Promise.resolve(true);
+      return f.then(function (ok) { if (!ok || !o.still()) throw dropped; });
+    };
+    var same = function (w) {
+      if (typeof w.data === 'string') return fs.read(w.path).then(function (f) { return !!f && f.text === w.data; }, function () { return false; });
+      return Promise.all([fs.blob(w.path).then(function (b) { return b ? bytesOf(b) : null; }), bytesOf(w.data)]).then(function (two) {
+        return !!two[0] && !!two[1] && sha256Of(two[0]) === sha256Of(two[1]);
+      }, function () { return false; });
+    };
+    return {
+      put: function (path, data, after) {
+        return gate().then(function () { return putFile(fs, path, data); }).then(function () { wrote.push({ path: path, data: data }); return after ? after() : null; });
+      },
+      settle: function (e) {
+        if (!(e && e.dropped)) throw e;
+        return wrote.slice().reverse().reduce(function (p, w) {
+          return p.then(function () { return same(w).then(function (ok) { return ok && fs.remove ? fs.remove(w.path).then(null, function () {}) : null; }); });
+        }, Promise.resolve()).then(function () { return { dropped: true }; });
+      }
+    };
+  }
   function publishWith(fs, draftMd, opts) {
     var built = P.build(draftMd, opts);
     if (built.blockers) return Promise.resolve(built);
@@ -1476,15 +1749,25 @@ PF.repo = (function () {
       return shots.reduce(function (p, src) { return p.then(function (m) { return bytesOf(blobs[src]).then(function (b) { bytes[src] = b; m[src] = fnvBytes(b); return m; }); }); }, Promise.resolve({})).then(function (images) {
         var rebuilt = Object.keys(images).length ? P.build(draftMd, Object.assign({}, opts, { images: images, imageBytes: bytes, rand: built.folder.replace(/^v\d+-/, '') })) : built;
         if (rebuilt.blockers) return rebuilt;
-        return shots.reduce(function (p, src) { return p.then(function () { return fs.write(base + src, blobs[src]); }); }, Promise.resolve())
+        /* opts.still (4.0, a version with what was kept for next time): asked right before the first write; false writes
+           nothing ({ dropped: true }). Without it, as before. */
+        if (typeof opts.still === 'function' && !opts.still()) return { dropped: true };
+        if (typeof opts.still !== 'function') return shots.reduce(function (p, src) { return p.then(function () { return putFile(fs, base + src, blobs[src]); }); }, Promise.resolve())
           .then(function () { return writePublication(fs, base, rebuilt); });
+        /* Under a write guard: asked again before every file, and a refusal takes back what this publish wrote. */
+        var G = guardedWrites(fs, opts), fl = rebuilt.files;
+        return shots.reduce(function (p, src) { return p.then(function () { return G.put(base + src, blobs[src]); }); }, Promise.resolve())
+          .then(function () { return G.put(base + 'map.md', fl['map.md']); })
+          .then(function () { return G.put(base + 'types.json', fl['types.json']); })
+          .then(function () { return G.put(base + 'publication.json', fl['publication.json']); })
+          .then(function () { return rebuilt; }, G.settle);
       });
     });
   }
   function writePublication(fs, base, built) {
-    return fs.write(base + 'map.md', built.files['map.md'])
-      .then(function () { return fs.write(base + 'types.json', built.files['types.json']); })
-      .then(function () { return fs.write(base + 'publication.json', built.files['publication.json']); })
+    return putFile(fs, base + 'map.md', built.files['map.md'])
+      .then(function () { return putFile(fs, base + 'types.json', built.files['types.json']); })
+      .then(function () { return putFile(fs, base + 'publication.json', built.files['publication.json']); })
       .then(function () { return built; });
   }
 
@@ -1516,13 +1799,13 @@ PF.repo = (function () {
         return shots.reduce(function (p, src) { return p.then(function () { return bytesOf(blobs[src]).then(function (b) { bytes[src] = b; images[src] = fnvBytes(b); }); }); }, Promise.resolve()).then(function () {
           var b2 = shots.length ? P.build(draftMd, Object.assign({}, o, { images: images, imageBytes: bytes, rand: built.folder.replace(/^stage-/, '') })) : built;
           if (b2.blockers) return b2;
-          var put = function (path, data, want) { return fs.write(base + path, data).then(function () { return readBack(fs, base + path, want); }); };
+          var put = function (path, data, want) { return putFile(fs, base + path, data).then(function () { return readBack(fs, base + path, want); }); };
           /* The window's folder and person, checked right before the first write (o.still, as for promote). */
           if (typeof opts.still === 'function' && !opts.still()) return { dropped: true };
           return shots.reduce(function (p, src) { return p.then(function () { return put(src, blobs[src], sha256Of(bytes[src])); }); }, Promise.resolve())
             .then(function () { return put('map.md', b2.files['map.md'], sha256Of(b2.files['map.md'])); })
             .then(function () { return put('types.json', b2.files['types.json'], sha256Of(b2.files['types.json'])); })
-            .then(function () { return fs.write(base + 'publication.json', b2.files['publication.json']); })
+            .then(function () { return putFile(fs, base + 'publication.json', b2.files['publication.json']); })
             .then(function () { return readStage(fs, proc, b2.folder); })
             .then(function (res) {
               if (!res.ok) throw new Error('The stage didn\'t read back as written (' + res.why + '). It isn\'t usable; Folder health names it.');
@@ -1535,11 +1818,13 @@ PF.repo = (function () {
   /* One stage folder, verified by the stage rules and its screenshots. Anything short of a verified stage is incomplete. */
   /* A stage is its folder's process's: one whose record or checklist names another process (copied in by hand) is
      unusable, named, so no test run or version is ever written for the wrong process. */
-  function readStage(fs, proc, folder) {
-    var base = 'staged/' + proc + '/' + folder + '/';
+  function readStage(fs, proc, folder, keep) {
+    var base = 'staged/' + proc + '/' + folder + '/', texts = null;
     return Promise.all(['map.md', 'types.json', 'publication.json'].map(function (n) { return fs.read(base + n); })).then(function (r) {
-      return verifyExact(fs, base, folder, { 'map.md': r[0] && r[0].text, 'types.json': r[1] && r[1].text, 'publication.json': r[2] && r[2].text }, { stage: true });
+      texts = { 'map.md': r[0] && r[0].text, 'types.json': r[1] && r[1].text, 'publication.json': r[2] && r[2].text };
+      return verifyExact(fs, base, folder, texts, { stage: true });
     }).then(function (res) {
+      if (keep) kept(res, texts);
       if (res.ok && res.info.process !== proc) res = { ok: false, why: 'It\'s a stage of ' + String(res.info.process) + ', in ' + proc + '\'s folder. Edited by hand: nothing runs from it here.', info: res.info, unusable: true };
       else if (res.ok && res.map.meta.process !== proc) res = { ok: false, why: 'Its checklist is for ' + String(res.map.meta.process) + ', not ' + proc + '. Edited by hand: nothing runs from it here.', info: res.info, unusable: true };
       return res;
@@ -1654,7 +1939,7 @@ PF.repo = (function () {
       var run = o.make(st);
       /* Inside the stage lock, so no promote or decision from this computer lands between the check and the write; the
          stage is read again strictly and o.still() asked once more right before the first write. */
-      return saveRun(fs, run, o.session, { writer: o.writer, lock: o.lock, strict: true, still: o.still }).then(function () { return { run: run }; }, function (e) {
+      return saveRun(fs, run, o.session, { writer: o.writer, lock: o.lock, strict: true, still: o.still, create: o.create }).then(function () { return { run: run }; }, function (e) {
         if (e && e.dropped) return { dropped: true };
         throw e;
       });
@@ -1669,7 +1954,7 @@ PF.repo = (function () {
     return stageState(fs, proc).then(function (sp) {
       var l = PF.staging.latest(stageFolder, sp.decisions), d = PF.staging.decision(proc, stageFolder, status, { window: o.window, by: o.by, now: o.now || new Date().toISOString(), reason: o.reason, app: o.app || '', seen: l.rev || null });
       try { stillOk(o); } catch (e) { return { dropped: true }; }
-      return fs.write(d.path, JSON.stringify(d.rec, null, 2)).then(function () { return d.rec; });
+      return putFile(fs, d.path, JSON.stringify(d.rec, null, 2)).then(function () { return d.rec; });
     });
   }
   /* Make a stage the default: the next number from a fresh listing (renumbered and said when someone published meanwhile),
@@ -1689,6 +1974,9 @@ PF.repo = (function () {
       ]).then(function (r) {
         var pubs = r[0], sp = r[1], st = r[2];
         if (!st.ok) throw new Error('This stage can\'t be read now: ' + st.why);
+        /* o.expect (VD): the stage exactly as the caller's guard judged it (its checklist and its record); a stage read now that
+           differs isn't the one that was checked, so nothing is published. */
+        if (o.expect && (st.md !== o.expect.md || JSON.stringify(st.info) !== JSON.stringify(o.expect.info))) throw new Error('The stage changed after it was checked (a sync may have replaced it), so it isn\'t the one that was checked. Nothing was published. Look again, then try again.');
         /* A version whose record can't be read, or reads incomplete, could be this stage's promotion: never promote past one.
            One that names this stage, complete or not, already is. */
         var unread = promotionUnknown(pubs, stageFolder);
@@ -1703,7 +1991,7 @@ PF.repo = (function () {
         /* Every file is copied by its exact bytes and checked against the stage's frozen payload, before and after: what's
            published is byte for byte what was staged (a byte-order mark included). */
         var shots = Object.keys(st.info.images || {}), pay = st.info.payload;
-        var put = function (path, data, want) { return fs.write(base + path, data).then(function () { return readBack(fs, base + path, want); }); };
+        var put = function (path, data, want) { return putFile(fs, base + path, data).then(function () { return readBack(fs, base + path, want); }); };
         var raw = function (name, want) {
           return fs.blob(from + name).then(function (b) { return b ? bytesOf(b) : null; }).then(function (u8) {
             if (!u8 || sha256Of(u8) !== want) throw new Error('Still syncing: ' + from + name + ' doesn\'t match the stage. Nothing was published.');
@@ -1720,12 +2008,22 @@ PF.repo = (function () {
           .then(function () { return text('types.json', pay.types).then(function (t) { got.types = t; }); })
           .then(function () {
             if (o && typeof o.still === 'function' && !o.still()) return { dropped: true };
+            /* With o.fresh (4.0, a stage with what was kept for next time): asked again before every file, and a refusal
+               takes back what this promotion wrote. */
+            if (o && typeof o.fresh === 'function') {
+              var G = guardedWrites(fs, o), gput = function (path, data, want) { return G.put(base + path, data, function () { return readBack(fs, base + path, want); }); };
+              return shots.reduce(function (p, src) { return p.then(function () { return gput(src, got.blobs[src], pay.images[src]); }); }, Promise.resolve())
+                .then(function () { return gput('map.md', got.map, pay.map); })
+                .then(function () { return gput('types.json', got.types, pay.types); })
+                .then(function () { return G.put(base + 'publication.json', record); })
+                .then(finish, G.settle);
+            }
             return shots.reduce(function (p, src) { return p.then(function () { return put(src, got.blobs[src], pay.images[src]); }); }, Promise.resolve())
               .then(function () { return put('map.md', got.map, pay.map); })
               .then(function () { return put('types.json', got.types, pay.types); })
               .then(function () { return writeRecord(); });
           });
-        function writeRecord() { return fs.write(base + 'publication.json', record).then(finish); }
+        function writeRecord() { return putFile(fs, base + 'publication.json', record).then(finish); }
         function finish() { return readVersion(fs, proc, folder).then(function (res) {
             if (!res.ok) throw new Error('The new version didn\'t read back as written (' + res.why + ').');
             return { version: version, folder: folder, proposed: st.info.stage.proposed, renumbered: version !== st.info.stage.proposed };
@@ -1739,7 +2037,8 @@ PF.repo = (function () {
      back, so two editors over a shared folder never silently overwrite each other. */
   /* opts.expectText: when given, the file must be exactly that text (null: not there), compared right before the write, not
      only its fingerprint (two different drafts can share an FNV fingerprint). */
-  function saveChecked(fs, path, text, expect, opts) {
+  function saveChecked(fs, path, text, expect, opts) { return checkedWith(function (p, t) { return putFile(fs, p, t); }, fs, path, text, expect, opts); }
+  function checkedWith(put, fs, path, text, expect, opts) {
     var exact = opts && opts.expectText !== undefined;
     /* Replacing a file needs the exact text it replaces: a fingerprint alone (32-bit FNV) could match a file that changed. */
     if (expect != null && (!exact || typeof opts.expectText !== 'string')) return Promise.reject(new Error('A save needs the exact text it expects to find.'));
@@ -1749,13 +2048,21 @@ PF.repo = (function () {
       return fs.read(path, rd).then(function (f) {
         var now = f ? U.hash(f.text) : null;
         if (now !== expect || (exact && (f ? f.text : null) !== opts.expectText)) return { conflict: true, theirs: f ? f.text : null, theirsHash: now };
-        /* opts.still: asked after the read, right before the write; false writes nothing ({ dropped: true }). */
-        if (opts && typeof opts.still === 'function' && !opts.still()) return { dropped: true };
-        /* A folder can't check and write in one step, so read it back: if anything else is there now, say so rather than
-           report a save that didn't stick. (Across computers, OneDrive keeps both copies of a file changed on two.) */
-        return fs.write(path, text).then(function () { return fs.read(path, rd); }).then(function (back) {
-          if (back && back.text === text) return { ok: true, hash: U.hash(text), text: text };
-          return { conflict: true, theirs: back ? back.text : null, theirsHash: back ? U.hash(back.text) : null, afterWrite: true };
+        /* opts.fresh(fs) (4.0): awaited after the read, for a guard that reads the folder again at the write; then
+           opts.recheck(fs) (round 17, VA-VC), the app's fresh authority guard, last, so nothing else is awaited between its
+           answer and the write. false, or a failure, from either writes nothing ({ dropped: true }). */
+        var fresh = function () { return opts && typeof opts.fresh === 'function' ? Promise.resolve().then(function () { return opts.fresh(fs); }).then(function (ok) { return ok !== false; }, function () { return false; }) : Promise.resolve(true); };
+        var rc = function () { return opts && typeof opts.recheck === 'function' ? Promise.resolve().then(function () { return opts.recheck(fs); }).then(function (ok) { return ok !== false; }, function () { return false; }) : Promise.resolve(true); };
+        return fresh().then(function (ok) { return ok ? rc() : false; }).then(function (fine) {
+          if (!fine) return { dropped: true };
+          /* opts.still: asked after the read, right before the write; false writes nothing ({ dropped: true }). */
+          if (opts && typeof opts.still === 'function' && !opts.still()) return { dropped: true };
+          /* A folder can't check and write in one step, so read it back: if anything else is there now, say so rather than
+             report a save that didn't stick. (Across computers, OneDrive keeps both copies of a file changed on two.) */
+          return put(path, text).then(function () { return fs.read(path, rd); }).then(function (back) {
+            if (back && back.text === text) return { ok: true, hash: U.hash(text), text: text };
+            return { conflict: true, theirs: back ? back.text : null, theirsHash: back ? U.hash(back.text) : null, afterWrite: true };
+          });
         });
       });
     };
@@ -1767,15 +2074,13 @@ PF.repo = (function () {
      read-back failed; { unsure } the write failed and what's there now is neither text. A failed write that left the file as it
      was still throws: that one really did change nothing. */
   function contractWrite(fs, path, expectText, text) {
-    var expect = expectText == null ? null : expectText, wrote = false, failed = null;
+    var expect = expectText == null ? null : expectText, wrote = false, failed = null, no = contractWhy(path, CONTRACT_AT);
     var why = function (e) { return e && e.message || String(e); };
-    var watched = {
-      read: function (p, o) { return fs.read(p, o); },
-      write: function (p, t) { return fs.write(p, t).then(function () { wrote = true; }, function (e) { failed = { e: e }; throw e; }); }
-    };
-    return saveChecked(watched, path, text, expect == null ? null : U.hash(expect), { expectText: expect }).catch(function (e) {
+    if (no) return plainRefused(path, no);
+    var put = function (p, t) { return putFile(fs, p, t).then(function () { wrote = true; }, function (e) { failed = { e: e }; throw e; }); };
+    return checkedWith(put, fs, path, text, expect == null ? null : U.hash(expect), { expectText: expect }).catch(function (e) {
       if (wrote) return { unverified: true, why: why(e) };
-      if (!failed) throw e;
+      if (!failed || failed.e.refused) throw e;
       var unsure = { unsure: true, why: why(failed.e) };
       return fs.read(path).then(function (f) {
         var now = f ? f.text : null;
@@ -1811,16 +2116,18 @@ PF.repo = (function () {
       for (var j = 0; j < 3; j++) rnd += p2(b[j].toString(16));
       return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + '-' + p2(d.getHours()) + p2(d.getMinutes()) + p2(d.getSeconds()) + '-' + p2(d.getMilliseconds(), 3) + '-' + rnd;
     }
+    if (contractWhy(base + '/x', UPDATES_AT)) return plainRefused(base, 'copies are kept only in an updates folder');
     function attempt(n) {
       var at = base + '/' + name();
-      return fs.mkdirExclusive(at).then(function () { return at; }, function (e) { if (n >= 20 || !/already there/.test(e && e.message)) throw e; return attempt(n + 1); });
+      return makeDir(fs, at).then(function () { return at; }, function (e) { if (n >= 20 || !/already there/.test(e && e.message)) throw e; return attempt(n + 1); });
     }
     return attempt(0);
   }
   /* A copy of a file about to be replaced, read back: no checked copy, no replacement. */
   function archiveCopy(fs, dir, rel, text) {
     var at = dir + '/' + rel;
-    return fs.write(at, text).then(function () { return fs.read(at); }).then(function (back) {
+    if (contractWhy(at, UPDATES_AT)) return plainRefused(at, 'copies are kept only in an updates folder');
+    return putFile(fs, at, text).then(function () { return fs.read(at); }).then(function (back) {
       if (!back || back.text !== text) throw new Error('The copy of ' + rel + ' didn\'t read back the same, so nothing was replaced. Check the folder and try again.');
     });
   }
@@ -1830,6 +2137,7 @@ PF.repo = (function () {
      removal is removed; the command's --force has the same limit, and this is a generated copy. */
   function archiveStaged(fs, dir, path, rel, text, alive) {
     var on = function () { return !alive || alive(); };
+    if (contractWhy(path, UPDATES_AT)) return plainRefused(path, 'only a staged copy in an updates folder is put away');
     if (!on()) return Promise.resolve({ stale: true });
     return archiveCopy(fs, dir, rel, text).then(function () { return on() ? fs.read(path) : null; }).then(function (now) {
       if (!on()) return { stale: true };
@@ -1872,13 +2180,13 @@ PF.repo = (function () {
   function recordValidation(fs, pub, session, by, note, evidence, as) {
     var rec = { kind: 'validation', process: pub.map.meta.process, version: pub.info.version, folder: pub.info.folder, by: by, at: new Date().toISOString(), note: String(note || '').slice(0, 300), evidence: evidence };
     if (as === 'backup') rec.as = 'backup';
-    return fs.write('validations/' + pub.map.meta.process + '.v' + pub.info.version + '.' + session + '.json', JSON.stringify(rec, null, 2));
+    return putFile(fs, 'validations/' + pub.map.meta.process + '.v' + pub.info.version + '.' + session + '.json', JSON.stringify(rec, null, 2));
   }
   /* A stage sign-off (2.1): flightdeck-validation/2 in validations/<process>.<stage>.<window>.json, the frozen shape
      (PF.skills.stageSignoff). o: { window, by, note, evidence, as, app, now }. */
   function recordStageValidation(fs, stage, o) {
     var s = PF.skills.stageSignoff(stage, { window: o.window, by: o.by, at: o.now || new Date().toISOString(), note: o.note, evidence: o.evidence, as: o.as, app: o.app });
-    return fs.write(s.path, s.text).then(function () { return s.rec; });
+    return putFile(fs, s.path, s.text).then(function () { return s.rec; });
   }
   /* Sign off a stage from the app (2.1 slice 6): under the same per-process lock as promote and retire, the stage, its
      decisions and publications/<process>/ are read again; it must still be staged. o.check(stage) says who signs and with
@@ -1998,14 +2306,66 @@ PF.repo = (function () {
     var path = '.flightdeck/write-test-' + writer + '.tmp', text = 'Flightdeck checks it can save in this folder. This file is removed right away.\n';
     /* The file is always removed (or said to be left), whatever the read back found. */
     var remove = function () { return fs.remove(path).then(function () { return { removed: true }; }, function () { return { removed: false, path: path }; }); };
-    return fs.write(path, text).then(function () { return fs.read(path).catch(function () { return null; }); }).then(function (f) {
+    return putFile(fs, path, text).then(function () { return fs.read(path).catch(function () { return null; }); }).then(function (f) {
       return remove().then(function (res) { if (!f || f.text !== text) throw new Error('a test file didn\'t read back as written' + (res.removed ? '' : ', and ' + path + ' couldn\'t be removed; delete it')); return res; });
     });
   }
   /* A scope request or decision (3.0, PF.loop) is a new file written once, never replacing one (expect null). */
   function saveScope(fs, name, file, opts) {
     if (!/^req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24}(\.status-[a-z0-9][a-z0-9-]{0,39}-[0-9a-f]{8})?\.json$/.test(name)) return Promise.reject(new Error('That isn\'t the name of a scope record.'));
-    return saveChecked(fs, 'proposals/' + name, PF.loop.text(file), null, opts);
+    /* Round 20: with the gate, a scope or to-do record is written only on its guard's token for exactly this file: its path,
+       absent, the run it names and its bytes. The guard is asked right before the write; the gated write reads the path
+       again first. A refusal writes nothing ({ dropped }); a test build's gate throws, and that is the answer. */
+    if (GATE) {
+      var rc = opts && opts.recheck, text = PF.loop.text(file), path = 'proposals/' + name;
+      if (typeof rc !== 'function') { GATE(null, { kind: 'scope', path: path, unguarded: true }); return Promise.resolve({ dropped: true, unguarded: true }); }
+      var w = writeAs({ kind: 'scope', path: path, expect: 'absent', key: subjectOf(file) }, text), tok = null, refused = null;
+      var gput = function (p, t) { if (p !== path || t !== text) return Promise.reject(notAdmitted()); return gatedWrite(fs, w, t, tok).then(null, function (e) { refused = e; throw e; }); };
+      var o2 = Object.assign({}, opts, { recheck: function () { return Promise.resolve(rc(fs, 'first', w)).then(function (t) { if (t === false) return false; if (!t || typeof t !== 'object') { try { GATE(null, w); } catch (e) { refused = e; } return false; } tok = t; return true; }); } });
+      return checkedWith(gput, fs, path, text, null, o2).then(function (res) { if (refused && !refused.dropped) throw refused; return res; }, function (e) {
+        if (e && e === refused && e.dropped) return { dropped: true, arrived: !!e.arrived };
+        throw e;
+      });
+    }
+    /* No gate installed (the command, a test build): still the record writer, never the plain one, which refuses records. */
+    var t0 = PF.loop.text(file), p0 = 'proposals/' + name, w0 = writeAs({ kind: 'scope', path: p0, expect: 'absent', key: subjectOf(file) }, t0);
+    return checkedWith(function (p, t) { if (p !== p0 || t !== t0) return Promise.reject(notAdmitted()); return gatedWrite(fs, w0, t, null); }, fs, p0, t0, null, opts);
+  }
+  /* Withdrawing one keep (4.0 slice 5, OB): its record is removed only after opts.fresh read the folder again and opts.still
+     allowed it on that read; refused, nothing is removed ({ dropped: true }). A removal that says it failed may still have
+     happened: only a file still there is a failure. */
+  /* name: any name the checked reader knows for the keep opts.id (its own, " (n)" or "-COMPUTER", PF.todos.requestFile).
+     opts.copies(), asked once still() has passed, gives every file of that keep read under the guard (its identical copies),
+     each removed in turn; each must be a name of opts.id too. Every delete, the first included, runs the whole guard (YA):
+     fresh (the caller's reads, its bytes among them, then people.json last), then still and copies, and the file is removed
+     in the same turn as that last check, nothing awaited between. Refused, it stops and resolves { partial: true, removed,
+     left } (or { dropped: true } before the first); withdrawing again finishes it. */
+  function withdrawKeep(fs, name, opts) {
+    var id = opts && typeof opts.id === 'string' ? opts.id : String(name).replace(/\.json$/, '');
+    var isName = function (n) { return /^req-keep-[a-z0-9-]{1,80}$/.test(id) && PF.todos.requestFile(String(n), id) && !/[\/\\]/.test(String(n)); };
+    if (!isName(name)) return Promise.reject(new Error('That isn\'t the name of a keep.'));
+    if (!opts || typeof opts.fresh !== 'function' || typeof opts.still !== 'function') return Promise.reject(new Error('A keep is withdrawn only under its guard.'));
+    var names = null, removed = [], i = 0;
+    var one = function (n) {
+      var path = 'proposals/' + n;
+      return fs.remove(path).then(null, function (e) { return fs.read(path).then(function (left) { if (left) throw e; }, function () { throw e; }); });
+    };
+    var stop = function () { return removed.length ? { partial: true, removed: removed.slice(), left: names ? names.slice(i) : [] } : { dropped: true }; };
+    var next = function () {
+      if (names && i >= names.length) return { ok: true, removed: removed.slice() };
+      /* AD: the guard is told which copy this delete removes, so it reads that one last (null before the first is known). */
+      if (typeof opts.aim === 'function') opts.aim(names ? names[i] : null);
+      return Promise.resolve().then(function () { return opts.fresh(fs); }).then(function (ok) {
+        if (ok === false || !opts.still()) return stop();
+        var now = typeof opts.copies === 'function' ? opts.copies() : [name];
+        if (!Array.isArray(now) || !now.length || !now.every(isName)) { if (removed.length) return stop(); throw new Error('That isn\'t the name of a keep.'); }
+        if (!names) names = now.slice();
+        var n = names[i];
+        if (now.indexOf(n) < 0) return stop();
+        return one(n).then(function () { removed.push(n); i++; return next(); });
+      }, function () { return stop(); });
+    };
+    return next();
   }
   /* A plan made in the app is a new file this window creates once (expect null: "doesn't exist yet"), so it never replaces one. */
   function savePlan(fs, plan, opts) {
@@ -2026,7 +2386,7 @@ PF.repo = (function () {
   function decidePlan(fs, plan, o) {
     var id = plan && plan.id;
     if (typeof id !== 'string' || !id) return Promise.reject(new Error('No such plan.'));
-    var go = function () { stillOk(o); return planGate(fs, plan, o).then(function () { stillOk(o); return o.write(); }); };
+    var go = function () { stillOk(o); return (o.final ? planFinal(fs, plan, o) : planGate(fs, plan, o)).then(function () { stillOk(o); return o.write(); }); };
     return (typeof o.lock === 'function' ? o.lock('preflight:plan:' + id, go) : Promise.resolve().then(go)).then(null, function (e) {
       if (e && e.dropped) return { dropped: true };
       throw e;
@@ -2036,13 +2396,17 @@ PF.repo = (function () {
     var id = plan.id, said = ' Nothing was written.';
     var mine = function (n) { if (n.indexOf(id) !== 0) return false; var c = n.charAt(id.length); return c === '.' || c === ' ' || c === '-' || c === '('; };
     return fs.list('proposals').then(null, function (e) { throw new Error('proposals/ couldn\'t be read (' + why(e) + '), so it isn\'t known whether this plan was already decided.' + said); }).then(function (items) {
+      /* WC: an entry named for this plan that isn't a plain file (a link, never read through, or anything else) could be a
+         decision or a copy of it: it refuses, named by its path, before the listing is filtered, never left out. */
+      var odd = items.filter(function (i) { return i && i.kind !== 'file' && mine(String(i.name)); }).map(function (i) { return 'proposals/' + i.name; });
+      if (odd.length) throw new Error(odd.slice(0, 3).join(', ') + (odd.length > 3 ? ' and ' + (odd.length - 3) + ' more' : '') + (odd.length > 1 ? ' aren\'t plain files' : ' isn\'t a plain file') + ' (Flightdeck never reads through links), so it isn\'t known whether this plan was already decided.' + said);
       var names = items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) { return i.name; });
       return Promise.all(names.map(function (n) {
         var path = 'proposals/' + n;
-        return fs.read(path).then(function (f) { return { name: n, path: path, o: f ? json(f.text) : undefined, gone: !f }; }, function (e) { return { name: n, path: path, o: undefined, err: why(e) }; });
+        return fs.read(path).then(function (f) { return { name: n, path: path, o: f ? json(f.text) : undefined, text: f ? f.text : null, gone: !f }; }, function (e) { return { name: n, path: path, o: undefined, err: why(e) }; });
       }));
     }).then(function (files) {
-      var copies = [], decisions = [];
+      var copies = [], decisions = [], own = null;
       files.forEach(function (x) {
         var o2 = x.o, ours = mine(x.name);
         if (o2 === undefined || o2 === null || typeof o2 !== 'object' || Array.isArray(o2)) {
@@ -2054,27 +2418,54 @@ PF.repo = (function () {
         var v = PF.plans.clean(o2, x.name, false);
         if (!v.ok || v.why) throw new Error(x.path + ' can\'t be used here: it ' + (v.why || 'isn\'t a file this copy can read here').replace(/\.$/, '') + '. Until it can, this plan can\'t be started, declined or switched.' + said);
         if (!about) return;
-        if (v.kind === 'plan') copies.push(o2); else decisions.push(o2);
+        if (v.kind === 'plan') copies.push(o2); else { decisions.push(o2); if (o.own && x.path === o.own.path && x.text === o.own.text) own = o2; }
       });
+      /* Try again (o.own): this window's start decision, exactly as it wrote it, is what reserves the plan for its run; gone
+         or changed, the run is never saved on it. */
+      if (o.own && !own) throw new Error('Your start decision on this plan isn\'t in the folder as this window wrote it, so it isn\'t known that the plan is still yours to start.' + said);
+      /* A start or decline on this plan's ID holds it whatever version of the plan it was made on (2.1.1): one made before
+         an edit, or on a copy since deleted, still counts. A switch counts only for the exact plan, as it isn't a decision. */
+      var made = decisions.filter(function (d) { return d.status !== 'retargeted' && d !== own; }), done = made.filter(function (d) { return d.status === 'accepted'; })[0] || made[0];
+      var decided = function () { if (done) throw new Error((done.status === 'accepted' ? 'This plan was already started' + (typeof done.run === 'string' ? ' (' + done.run + ')' : '') + '. Find its run on Runs.' : 'This plan was already ' + (done.status === 'declined' ? 'declined' : 'decided on') + '.') + ' To run it again, make a new plan.' + said); };
+      /* A plan about to be written (o.create): no copy yet, or only copies the same as it; never beside one that differs, and
+         never beside a start or decline on its ID, which the new plan would show as made on an earlier version. */
+      if (o.create) { decided(); if (!copies.every(function (c) { return PF.requests.same(c, plan); })) throw new Error('A different copy of this plan is in the folder. Delete the wrong one first.' + said); return; }
       if (!copies.length) throw new Error('This plan isn\'t in the folder now.' + said);
       var texts = copies.map(function (c) { return JSON.stringify(stripMeta(c)); });
       if (!copies.every(function (c) { return PF.requests.same(c, copies[0]); })) throw new Error('Two different copies of this plan are in the folder. Delete the wrong one first.' + said);
       if (texts.map(function (t) { return PF.sha256.hex(t); }).indexOf(o.sha) < 0) throw new Error('This plan changed since the form showed it. Open it again to see the new plan.' + said);
       var hashes = texts.map(function (t) { return U.hash(t); });
-      /* A start or decline on this plan's ID holds it whatever version of the plan it was made on (2.1.1): one made before
-         an edit, or on a copy since deleted, still counts. A switch counts only for the exact plan, as it isn't a decision. */
-      var made = decisions.filter(function (d) { return d.status !== 'retargeted'; }), done = made.filter(function (d) { return d.status === 'accepted'; })[0] || made[0];
-      if (done) throw new Error((done.status === 'accepted' ? 'This plan was already started' + (typeof done.run === 'string' ? ' (' + done.run + ')' : '') + '. Find its run on Runs.' : 'This plan was already ' + (done.status === 'declined' ? 'declined' : 'decided on') + '.') + ' To run it again, make a new plan.' + said);
+      decided();
       var moves = decisions.filter(function (d) { return d.status === 'retargeted' && hashes.indexOf(d.proposalHash) >= 0; });
       if (moves.length && o.action === 'retargeted') throw new Error('This plan was already switched to another version. Open it again to see where it starts.' + said);
       if (o.action === 'start' && moves.some(function (d) { return !d.to || d.to.folder !== o.folder; })) throw new Error('This plan was switched to another version in another window. Open it again to see where it starts.' + said);
     });
   }
+  /* The plan gate as the last read of proposals/ (PF.repo.proposalsFinal): listed, every file read and judged from a listing
+     of its own, listed again. A file that arrived or went meanwhile is a move: nothing is written. o as planGate takes it,
+     with o.create (the plan about to be written) and o.own ({ path, text }: this window's own start decision, which must be
+     there exactly as written and is then the one decision that doesn't count against it). */
+  function planFinal(fs, plan, o) {
+    return proposalsFinal(fs, { read: function (rf) { return planGate(rf, plan, o); } }).then(function (F) {
+      if (F.moved) throw new Error('A file in proposals/ arrived or went while this plan was read, so it isn\'t known whether it was decided. Nothing was written.');
+    });
+  }
   /* A start or decline goes to <plan>.status-<session>-d.json and a switch to <plan>.status-<session>.json (2.1.1), so a start
      never replaces the switch this window made before it. Resolves to the path written. */
-  function recordPlanStatus(fs, plan, session, status, runId, by, to, app) {
-    var rec = PF.plans.decision(plan, status, runId, by, new Date().toISOString(), to, app), path = 'proposals/' + plan.id + '.status-' + session + (status === 'retargeted' ? '' : '-d') + '.json';
-    return fs.write(path, JSON.stringify(rec, null, 2)).then(function () { return path; });
+  /* A plan ID a decision can be named for: today's (plan-… or a request's), or an older plan's ID that the plan reader still
+     reads (any text before 2.1.1, such as release-old) when it is one plain file name: letters, numbers, dashes and
+     underscores, not a Windows device name, and never plan- or req- in another shape (a request's names, in any case, are
+     kept for scope and to-do records). */
+  var PLAN_ID = /^(plan-[a-z0-9-]{1,100}|req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})$/, SESSION_ID = /^[a-z0-9][a-z0-9-]{0,59}$/;
+  var OLD_PLAN_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,159}$/, NOT_OLD = /^((plan|req)-|(con|prn|aux|nul|com[0-9]|lpt[0-9])$)/i;
+  function decidableId(id) { return typeof id === 'string' && (PLAN_ID.test(id) || (OLD_PLAN_ID.test(id) && !NOT_OLD.test(id))); }
+  function recordPlanStatus(fs, plan, session, status, runId, by, to, app, out) {
+    if (!plan || !decidableId(plan.id)) return Promise.reject(new Error('That isn\'t a plan Flightdeck can record a decision on. Nothing was written.'));
+    if (typeof session !== 'string' || !SESSION_ID.test(session)) return Promise.reject(new Error('That isn\'t a window Flightdeck can record a decision for. Nothing was written.'));
+    var rec = PF.plans.decision(plan, status, runId, by, new Date().toISOString(), to, app), path = 'proposals/' + plan.id + '.status-' + session + (status === 'retargeted' ? '' : '-d') + '.json', text = JSON.stringify(rec, null, 2);
+    /* out.text: the exact bytes written, which Try again's final read asks for again. */
+    if (out) { out.text = text; out.path = path; }
+    return putFile(fs, path, text).then(function () { return path; });
   }
   /* Try again (2.1.1): the run a planned start reserved, written from the exact bytes this window kept when its first save
      failed (k: { process, id, path, text, cand, dec }), never made again. Under the plan's lock and then the run's, on a fresh
@@ -2093,6 +2484,18 @@ PF.repo = (function () {
     var go = function () {
       stillOk(o);
       return fs.read(k.dec).then(function (f) {
+        /* VA: a reservation the first write couldn't confirm (k.unsure), confirmed absent now, is made again from its exact
+           bytes (k.decText) once o.reserve passes, and read back; a read that fails confirms nothing and writes nothing. */
+        if (!f && k.unsure && typeof o.reserve === 'function' && typeof k.decText === 'string') {
+          return Promise.resolve(o.reserve()).then(function () {
+            stillOk(o);
+            return putFile(fs, k.dec, k.decText);
+          }).then(function () { return fs.read(k.dec); }).then(function (b) {
+            if (!b || b.text !== k.decText) throw new Error('Its decision on this plan couldn\'t be confirmed after it was written again, so the run wasn\'t saved. Try again.');
+            if (typeof o.reserved === 'function') o.reserved();
+            return typeof o.lock === 'function' ? o.lock('preflight:run:' + proc + '/' + id, check) : check();
+          });
+        }
         /* The decision is read through the one plan reader, as the gate reads it. */
         var d = f ? json(f.text) : null, v = d && typeof d === 'object' && !Array.isArray(d) ? PF.plans.clean(d, k.dec.slice('proposals/'.length), false) : null;
         if (!v || !v.ok || v.why || v.kind !== 'status' || d.proposal !== planId || d.status !== 'accepted' || d.run !== id || d.by !== o.me) throw gone();
@@ -2120,10 +2523,18 @@ PF.repo = (function () {
           var own = paths.length > others.length ? fs.read(k.cand).then(function (c) { return !!c && c.text === k.text; }) : Promise.resolve(true);
           return own.then(function (ok) {
             if (others.length || !ok) throw new Error('The run\'s folder has files but no run.json. Restore run.json from a backup.' + said);
+            return o.final ? o.final() : null;
+          }).then(function () {
             stillOk(o);
-            /* From here the run may land whatever the write answers: the caller is told first (2.3.1). */
-            if (typeof o.writing === 'function') o.writing();
-            return fs.write(path, k.text).then(function () { forgetRun(fs, run); return { written: true }; }, function (e) { if (e && typeof e === 'object') e.maybeWritten = true; throw e; });
+            /* Round 20: a retried start is a create: with the gate it needs its guard's token for exactly this run.json, absent. */
+            var w = writeAs({ kind: 'create', path: path, expect: 'absent', key: proc + '/' + id, rev: run.rev || 0 }, k.text);
+            var ask = !GATE ? Promise.resolve(null) : typeof o.create !== 'function' ? (GATE(null, { kind: 'create', key: w.key, unguarded: true }), Promise.reject(unguarded())) : Promise.resolve(o.create(fs, 'final', w)).then(function (t) { if (!t || typeof t !== 'object') throw unguarded(); return t; });
+            return ask.then(function (tok) {
+              stillOk(o);
+              /* From here the run may land whatever the write answers: the caller is told first (2.3.1). */
+              if (typeof o.writing === 'function') o.writing();
+              return gatedWrite(fs, w, k.text, tok).then(function () { forgetRun(fs, run); return { written: true }; }, function (e) { if (e && typeof e === 'object' && !e.dropped) e.maybeWritten = true; throw e; });
+            });
           });
         }, function (e) { throw new Error('The run\'s folder ' + why(e) + '.' + said); });
       });
@@ -2153,7 +2564,7 @@ PF.repo = (function () {
       var chunk = '', b = size;
       while (i < lines.length) { var t = lines[i] + '\n', tb = TL.bytes(t); if (TL.rolls(b, tb)) break; chunk += t; b += tb; i++; }
       if (!chunk) { roll[dir] = ++n; return sizeOf().then(next); }
-      return fs.append(path(), chunk).then(function () { return next(b); });
+      return addToFile(fs, path(), chunk).then(function () { return next(b); });
     }
     return sizeOf().then(next);
   }
@@ -2297,7 +2708,7 @@ PF.repo = (function () {
     var path = PF.proposals.DIR + '/' + proc + '/' + name, text = JSON.stringify(rec, null, 2) + '\n';
     return fs.read(path).then(function (f) {
       if (f) throw new Error('A file with that name is already in the folder.');
-      return fs.write(path, text);
+      return putFile(fs, path, text);
     }).then(function () { return fs.read(path); }).then(function (back) {
       if (!back || back.text !== text) throw new Error('it didn\'t read back as written');
       return name;
@@ -2315,7 +2726,7 @@ PF.repo = (function () {
       }).then(function (l) { return l.filter(Boolean); });
     });
   }
-  function writePresence(fs, rec) { return fs.write(PF.proposals.PRESENCE + '/' + PF.proposals.presenceName(rec.writer), JSON.stringify(rec) + '\n'); }
+  function writePresence(fs, rec) { return putFile(fs, PF.proposals.PRESENCE + '/' + PF.proposals.presenceName(rec.writer), JSON.stringify(rec) + '\n'); }
   function removePresence(fs, writer) { return fs.remove(PF.proposals.PRESENCE + '/' + PF.proposals.presenceName(writer)).then(null, function () {}); }
   /* Any window writing presence may delete files in presence/ over 24 hours old, at most 20 a pass (the second documented
      exception to one writer per file, beside connection/). Each is looked at again first, and deleted only if its size and
@@ -2493,7 +2904,7 @@ PF.repo = (function () {
     var text = JSON.stringify(rec, null, 2) + '\n';
     return fs.read(path).then(function (f) {
       if (f) throw new Error('A file with that name is already in the folder.');
-      return fs.write(path, text);
+      return putFile(fs, path, text);
     }).then(function () { return path; });
   }
   function sendProbe(fs, rec, atMs) {
@@ -2573,16 +2984,305 @@ PF.repo = (function () {
      a plan or decision from a newer Flightdeck is named newer. Without bad (the app) those are left out too, and the newer
      ones are kept in refused, so Folder health names them. only(name): just those files (plan request reads its own request's). */
   /* two: reading for other apps with contract 2, which reads plan/2 and its decisions as the app does. */
-  function readPlans(fs, bad, only, two) {
+  /* The to-do records and people.json as they are now (4.0), for a to-do write guard asked at the write rather than on what
+     the window read last: { records, unread, people }. people.json that won't read is an unread entry, as loadAll has it; a
+     proposals/ that can't be listed rejects, and the write it guards is dropped. */
+  /* o.evidence (4.0 slice 5): also what a done on a run's result is checked against, read now (readEvidence). */
+  /* What kept content rests on, read now (4.0 slice 5, PF.learn.keptIn), for the Publish and Promote guards: the keep records
+     and those that can't be read (proposals/), and every correction decision and those that can't be read. A part that can't be
+     listed rejects, and the write it guards holds. */
+  /* In order: the decisions, then mid() (the caller's own reads), then proposals/, then after() (the caller's check that what
+     mid() read still stands), so a keep removed while any read before it is in flight is seen. */
+  function readKept(fs, mid, after) {
+    var decs = null, pl = null;
+    return loadCorrectionDecisions(fs, {}, null).then(function (d) { decs = d; return mid ? mid() : null; }).then(function () { return readPlans(fs, null); }).then(function (x) { pl = x; return after ? after() : null; }).then(function () {
+      return { keeps: PF.learn.keepsOf(pl.todos || []), keepFiles: (pl.todos || []).filter(function (x) { return x && x.kind === 'keep'; }), keepUnread: (pl.todosUnread || []).filter(function (u) { return u && /^req-keep-/.test(String(u.file)); }),
+        decisions: decs.filter(function (d) { return !d._unread; }), decUnread: decs.filter(function (d) { return d._unread; }) };
+    });
+  }
+  /* LA: the one final check every writer of proposals/ asks last, after every other read it rests on (o.deps, read first):
+     proposals/ listed, read whole (readPlans, as o.bad and o.two say), then listed again. moved: a file arrived or went
+     during that read, so what was read isn't what the folder holds and the caller writes nothing. The caller builds its
+     operation again from got (counts, copies, unread records, evidence, a request's identity) and compares. sig: what was
+     read, for a caller that must know nothing in proposals/ changed between two reads (evidence read from the first). */
+  function proposalsFinal(fs, o) {
+    o = o || {};
+    var dep = null, n0 = null, mid = [];
+    var namesOf = function (items) { return (items || []).filter(function (v) { return v && v.kind !== 'dir'; }).map(function (v) { return String(v.name); }).sort().join('\n'); };
+    var names = function () { return fs.list('proposals').then(namesOf); };
+    /* The files are read from readPlans' own listing: that listing is compared too, so a file there and gone again before
+       the last listing is a move, never a read that agrees. */
+    var rf = Object.create(fs);
+    rf.list = function (d) { return fs.list(d).then(function (items) { if (d === 'proposals') mid.push(namesOf(items)); return items; }); };
+    return Promise.resolve(o.deps ? o.deps(fs) : null).then(function (d) { dep = d; return names(); }).then(function (n) { n0 = n; return o.read ? o.read(rf) : readPlans(rf, o.bad || null, null, !!o.two); })
+      .then(function (got) { return names().then(function (n1) { return { got: got, deps: dep, moved: n0 !== n1 || !mid.length || mid.some(function (m) { return m !== n0; }), sig: o.read ? '' : proposalsSig(got) }; }); });
+  }
+  /* Every record readPlans gave, by file and content, and every file it couldn't read: equal exactly when two reads agree. */
+  function proposalsSig(got, test) {
+    var ok = test || function () { return true; }, out = [];
+    ['todos', 'plans', 'statuses', 'scopes'].forEach(function (k) { (got[k] || []).forEach(function (x) { if (x && ok(String(x._file || ''))) out.push(k + ':' + x._file + ':' + U.hash(JSON.stringify(x))); }); });
+    (got.todosUnread || []).concat(got.scopesUnread || []).forEach(function (u) { if (u && ok(String(u.file || ''))) out.push('unread:' + u.file + ':' + u.why); });
+    (got.torn || []).forEach(function (t) { var f = String(t._file || t.path || ''); if (ok(f.replace(/^proposals\//, ''))) out.push('torn:' + f); });
+    (got.refused || []).forEach(function (r) { var f = String(r.path || ''); if (ok(f.replace(/^proposals\//, ''))) out.push('refused:' + f); });
+    return out.sort().join('\n');
+  }
+  function readTodos(fs, o) {
+    /* With o.evidence the plans are read as the app reads them (no reading-for-other-apps list), from the same one read. */
+    return Promise.all([readPlans(fs, o && o.evidence ? null : []), loadPeople(fs).then(null, function (e) { return { failed: why(e) }; })]).then(function (r) {
+      var unread = (r[0].todosUnread || []).slice(), people = r[1];
+      if (people.failed) { unread.push({ file: 'people.json', why: 'people.json couldn\'t be read, so no one\'s authority over to-dos can be checked.', run: null }); people = null; }
+      /* The loops' scope records from the same one read (a receipt is asked again on them, 4.0 slice 6). */
+      var out = { records: r[0].todos || [], unread: unread, people: people, scopes: r[0].scopes || [], scopesUnread: r[0].scopesUnread || [], plans: r[0].plans || [], plansUnread: r[0].plansUnread || [] };
+      if (!o || !o.evidence) return out;
+      out.sig = proposalsSig(r[0]);
+      return readEvidence(fs, r[0], out.records, o.also).then(function (ev) { out.evidence = ev; return out; });
+    });
+  }
+  /* A loop parent's child runs read again (4.0 slice 6: what a receipt is asked again on), each through readRunOnly with the
+     version it ran checked: { runs, unread: [{ key, path, kind, why }] }. A child folder listed under one of the run's
+     {for.each} processes that can't be read, or that the verdict every reader gives a run refuses (depVerdict, below), is
+     unread with its first problem, never left out. */
+  /* One run the work depends on, as readRunOnly read it, judged as every reader judges a run: { run }, or { bad: { key, path,
+     kind, why } } with the first problem. Missing, unreadable, another run, a version that couldn't be read (named at the
+     version's folder, never taken as "nothing to say"), then the run's own verdict (PF.appjson.judgeRun: its version, newer,
+     times or records this copy can't read as written, conflict copies) and why it's read-only. The export's closure and the
+     app's ending guard both ask this one. */
+  function depVerdict(proc, id, one) {
+    var key = proc + '/' + id, path = 'runs/' + key + '/run.json';
+    if (!one || !one.found || one.nofile) return { bad: { key: key, path: path, kind: 'missing', why: 'it isn\'t in the folder' } };
+    var b = (one.bad || []).filter(function (x) { return String(x.path || '').indexOf('runs/' + key + '/') === 0; })[0];
+    if (b) return { bad: { key: key, path: String(b.path), kind: b.kind || 'malformed', why: String(b.why || 'it can\'t be read') } };
+    var c = one.run;
+    if (!c || c.id !== id || c.process !== proc) return { bad: { key: key, path: path, kind: 'malformed', why: 'it isn\'t that run' } };
+    if (one.pub && one.pub._readFailed) return { bad: { key: key, path: R.pubDir(c), kind: 'unreadable', why: 'its version ' + String(c.folder) + ' couldn\'t be read (' + String(one.pub.why || 'unknown') + ')' } };
+    var jp = PF.appjson.judgeRun(c, one.pub)[0];
+    if (jp) return { bad: { key: key, path: String(jp.path), kind: jp.kind, why: String(jp.why) } };
+    if (c._unrunnable) return { bad: { key: key, path: path, kind: 'unusable', why: String(c._unrunnable) } };
+    /* Confirmed only as written: a run the cleaner would change in any way (R.canonical) is malformed, named by the first place. */
+    if (c._canonical) return { bad: { key: key, path: path, kind: 'malformed', why: 'it isn\'t exactly as the app writes it, at ' + c._canonical } };
+    return { run: c, pub: one.pub || null };
+  }
+  /* One run the work depends on, read as the readers read it (readRunOnly) and judged as they judge it (depVerdict): the run
+     and its version, all the verdict reads. o: readRunOnly's (listed, pubs) for a caller reading many runs of one process. */
+  function depRead(fs, proc, id, o) {
+    var key = proc + '/' + id, path = 'runs/' + key + '/run.json';
+    return readRunOnly(fs, proc, id, Object.assign({}, o || {}, { lean: true })).then(function (one) { return depVerdict(proc, id, one); }, function (e) { return { bad: { key: key, path: path, kind: errKind(e), why: why(e) } }; });
+  }
+  /* A living run's bounded dependency closure (PF.receipts.deps), walked until it holds every run it depends on: the shared
+     collector names the runs it found that aren't read yet; they are read (and their loop children listed), and it is asked
+     again. Pr: one checked read of proposals/ ({ todos, todosUnread, scopes, scopesUnread }). io: { depRun(proc, id) ->
+     { run } | { bad }, childrenOf(run) -> { runs, bad }, count() -> how many runs were read }. Resolves to { D, known, plans
+     (each evidence plan's copies by id), kids (each run's loop children as listed) }, its evidence plans' checks in D.missing, and
+     rejects past the one shared bound or with runs left unread. The export (collectEvidence) and the app's ending guard
+     (rcptFresh, before every write that ends a living run) both walk it here, so they ask the same closure. */
+  function depClosure(self, Pr, io) {
+    var known = Object.create(null), kids = Object.create(null), runBad = [], listed = Object.create(null), DEP_RUNS = PF.receipts.DEP_CAP;
+    var ask = function () { return PF.receipts.deps(self, { records: Pr.todos, unread: Pr.todosUnread, scopes: Pr.scopes, scopesUnread: Pr.scopesUnread, runs: known, kids: kids, runBad: runBad }); };
+    var listKids = function (X) {
+      var k = X.process + '/' + X.id;
+      if (listed[k]) return Promise.resolve(); listed[k] = true;
+      return io.childrenOf(X).then(function (ch) { kids[k] = ch.runs; ch.runs.forEach(function (c) { known[c.process + '/' + c.id] = c; }); runBad = runBad.concat(ch.bad); });
+    };
+    var step = function () {
+      var D = ask();
+      if (D.over) throw new Error(D.over);
+      var fresh = Object.keys(known).filter(function (k) { return !listed[k]; }).map(function (k) { return known[k]; });
+      if (!D.toRead.length && !fresh.length) return null;
+      /* Within the one shared bound: past it the export is refused, never cut and never called complete. */
+      if (io.count() + D.toRead.length > DEP_RUNS) throw new Error('The work of ' + self.process + '/' + self.id + ' depends on more than ' + DEP_RUNS + ' runs; a pack made here holds at most that many. Nothing was packed.');
+      return limited(D.toRead, 4, function (x) {
+        return io.depRun(x.process, x.id).then(function (y) { if (y.bad) runBad.push(y.bad); else known[x.process + '/' + x.id] = y.run; });
+      }).then(function () { return limited(fresh, 2, listKids); }).then(step);
+    };
+    return listKids(self).then(step).then(function () {
+      var D = ask();
+      if (D.over) throw new Error(D.over);
+      if (D.toRead.length) throw new Error('The runs the work of ' + self.process + '/' + self.id + ' depends on weren\'t all read, so no pack was made.');
+      /* Every evidence plan the work names, from the same read of proposals/ (Pr.plans, Pr.plansUnread): a copy that can't be
+         read, none in the folder, or copies that differ (PF.requests.same) is named in D.missing, after the closure's own. */
+      var planFiles = Object.create(null), plans = Object.create(null);
+      (Pr.plans || []).forEach(function (pl) { if (pl && pl._file) (planFiles[pl.id] = planFiles[pl.id] || []).push(pl); });
+      D.missing = D.missing.slice();
+      D.plans.forEach(function (id) {
+        var g = planFiles[id] || [], gu = (Pr.plansUnread || []).filter(function (u) { return u.id === id; })[0];
+        if (gu) D.missing.push('proposals/' + gu.file + ': a copy of the evidence plan a to-do was done on (' + id + ') can\'t be read (' + String(gu.why).slice(0, 200) + ').');
+        if (!g.length) { D.missing.push('proposals/' + id + '.json: a to-do was done on this evidence plan, but it isn\'t in the folder as read.'); return; }
+        plans[id] = g;
+        if (!g.every(function (pl) { return PF.requests.same(pl, g[0]); })) D.missing.push('proposals/' + id + '.json: a to-do was done on this evidence plan, but the folder has two different copies of it.');
+      });
+      return { D: D, known: known, plans: plans, kids: kids };
+    });
+  }
+  /* Where a run's loop children are found: each {for.each} step's process, as the run's own checklist sends it (Fill in
+     included). Every run folder there may be one (which run a child belongs to is in its run.json), so the candidates are
+     counted from the listings before any is read: past the one bound (CHILD_SCAN, the most runs a pack holds) discovery is
+     refused, named, and nothing is read. Each process is listed once, and that listing and each version's read are shared by
+     every run read there (readRunOnly's listed and pubs). */
+  var CHILD_SCAN = 5000;
+  function childProcs(self) {
+    var map = null; try { map = R.mapOf(self); } catch (e) { map = null; }
+    var procs = [];
+    (map ? map.phases : []).forEach(function (ph) { ph.steps.forEach(function (st) { var cp = st.type === 'for.each' ? String(R.fieldsOf(self, st).process || '') : ''; if (cp && /^[a-z0-9][a-z0-9-]{0,59}$/.test(cp) && procs.indexOf(cp) < 0) procs.push(cp); }); });
+    return procs;
+  }
+  /* The listings of the processes a run's loops start, each once: { lists: [{ cp, items }] (items null: it couldn't be listed,
+     e: why), count } or a refusal (an Error naming the bound) when the run folders there go past it. */
+  function listChildProcs(fs, self, cap) {
+    var procs = childProcs(self), lists = [];
+    return procs.reduce(function (q, cp) { return q.then(function () {
+      return fs.list('runs/' + cp).then(function (items) { lists.push({ cp: cp, items: items }); }, function (e) { lists.push({ cp: cp, items: null, e: e }); });
+    }); }, Promise.resolve()).then(function () {
+      var n = 0, most = cap || CHILD_SCAN;
+      lists.forEach(function (l) { n += (l.items || []).filter(function (i) { return (i.kind === 'dir' || i.kind === 'link') && /^[a-z0-9-]{1,40}$/i.test(i.name); }).length; });
+      if (n > most) throw new Error('The loops of ' + self.process + '/' + self.id + ' start runs in ' + procs.map(function (cp) { return 'runs/' + cp + '/'; }).join(', ') + ', which hold ' + n + ' run folders; its loop children are looked for among at most ' + most + ', so none of them was read.');
+      return { lists: lists, count: n };
+    });
+  }
+  function readLoopChildren(fs, self, o) {
+    var out = { runs: [], unread: [] }, pubs = Object.create(null);
+    return listChildProcs(fs, self, o && o.cap).then(function (L) { return L.lists.reduce(function (q, l) { return q.then(function () {
+      var cp = l.cp, items = l.items;
+      if (items === null) { out.unread.push({ key: cp, path: 'runs/' + cp + '/', kind: 'unreadable', why: 'runs/' + cp + ' couldn\'t be listed' }); return; }
+      /* A link where a run folder could be may be a child this run must count: named unread, never read through (RC). */
+      items.forEach(function (i) { if (i.kind === 'link' && /^[a-z0-9-]{1,40}$/i.test(i.name)) out.unread.push({ key: cp + '/' + i.name, path: 'runs/' + cp + '/' + i.name, kind: 'link', why: 'it is a link, and Flightdeck never reads through links' }); });
+      return limited(items.filter(function (i) { return i.kind === 'dir' && /^[a-z0-9-]{1,40}$/i.test(i.name); }).map(function (i) { return i.name; }).sort(), 4, function (cid) {
+        var key = cp + '/' + cid;
+        return readRunOnly(fs, cp, cid, { listed: items, lean: true, pubs: pubs }).then(function (one) {
+          /* Listed, then gone before it was read: named missing (depVerdict), so the end is refused, never skipped. */
+          /* Judged whole first (depVerdict), as the export's closure judges every listed run: one the readers refuse is
+             unread, named, whichever run it says it is a child of (sanitizing may have dropped that). Only a run read whole
+             may be taken as another run's child, which isn't this run's to judge. */
+          var v = depVerdict(cp, cid, one);
+          if (v.bad) { out.unread.push(v.bad); return; }
+          var c = v.run;
+          if (!(c.parent && c.parent.item && c.parent.process === self.process && c.parent.id === self.id)) return;
+          out.runs.push(c);
+        }, function (e) { out.unread.push({ key: key, path: 'runs/' + key + '/run.json', kind: errKind(e), why: why(e) }); });
+      });
+    }); }, Promise.resolve()); }).then(function () { return out; });
+  }
+  /* Checklist-linked to-dos (4.0 slice 5): what a done on a run's result is checked against, from one read of proposals/ (got,
+     as readPlans gave it): every plan grouped as the folder reader groups them (a decision that can't be read holds its plan),
+     and each run the records name as evidence (also: more { process, id }), read on its own; one that can't be read is in
+     unreadRuns, never left out quietly. paths: the runs read, for a caller's problems. */
+  /* problems: every run a record's evidence names that is missing ({ path: runs/<process>/<id>/run.json, kind: 'nofile' })
+     or can't be read (the checked read's own problems, by path and kind), for every reader's ledger. A run only asked about
+     (also) is the asker's to judge. */
+  function readEvidence(fs, got, records, also) {
+    var want = Object.create(null), named = Object.create(null), PROC = /^[a-z0-9][a-z0-9-]{0,59}$/, RUN = /^[a-z0-9-]{1,40}$/i;
+    var add = function (e, rec) { if (e && e.run && typeof e.run.process === 'string' && typeof e.run.id === 'string' && PROC.test(e.run.process) && RUN.test(e.run.id)) { want[e.run.process + '/' + e.run.id] = e.run; if (rec) named[e.run.process + '/' + e.run.id] = true; } };
+    (records || []).forEach(function (x) { if (!x) return; add(x.evidence, true); add(x.effect && x.effect.evidence, true); add(x.application && x.application.effect && x.application.effect.evidence, true); });
+    (also || []).forEach(function (r) { add({ run: r }); });
+    /* The evidence plans the records name: each one's refused or torn file or decision, or its absence, is a problem too. */
+    var planIds = [], pairs = [], addPlan = function (e) {
+      if (!e || typeof e.plan !== 'string' || !/^plan-ev-[a-f0-9]{24}$/.test(e.plan)) return;
+      if (planIds.indexOf(e.plan) < 0) planIds.push(e.plan);
+      if (e.run && typeof e.run.process === 'string' && typeof e.run.id === 'string') pairs.push({ plan: e.plan, process: e.run.process, id: e.run.id });
+    };
+    (records || []).forEach(function (x) { if (!x) return; addPlan(x.evidence); addPlan(x.effect && x.effect.evidence); addPlan(x.application && x.application.effect && x.application.effect.evidence); });
+    var problems = [], file = function (k) { return 'runs/' + k + '/run.json'; };
+    var problemAt = function (k, path, kind, why) { if ((k == null || named[k]) && !problems.some(function (q) { return q.path === path && q.kind === kind; })) problems.push({ path: path, kind: kind, why: why }); };
+    var problem = function (k, kind, why) { problemAt(k, file(k), kind, why); };
+    /* A link where a plan file would be is refused like one that can't be read (kind link), never left out (MC). */
+    var holds = (got.torn || []).filter(function (u) { return !u.deep; }).map(function (u) { return { path: u.path, _file: u._file, kind: u.link ? 'link' : 'unreadable' }; })
+      .concat((got.refused || []).map(function (x) { return { path: x.path, _file: String(x.path).slice('proposals/'.length), kind: x.kind, needs: x.needs || '' }; }));
+    var plans = groupPlans((got.plans || []).map(function (p) { return Object.assign({}, p); }), got.statuses || [], holds), keys = Object.keys(want).sort(), runs = [], unreadRuns = [], pubs = Object.create(null);
+    /* A run asked for by name (also: --evidence-run, the run about to be written on) is named like one a record names once an
+       evidence plan started it, or while an evidence plan's file or decision can't be read (which runs it started isn't known). */
+    var evHeld = holds.some(function (h) { return /^plan-ev-[0-9a-f]{24}(\.| \(|-[A-Z])/.test(String(h._file || '')); });
+    (also || []).forEach(function (r) {
+      if (!r || typeof r.process !== 'string' || typeof r.id !== 'string') return;
+      if (evHeld || plans.some(function (p) { return p && p.process === r.process && /^plan-ev-/.test(String(p.id)) && ((p._starts || []).indexOf(r.id) >= 0 || (p._statusHeld || []).length || p._copiesDiffer); })) named[r.process + '/' + r.id] = true;
+    });
+    return keys.reduce(function (pr, k) {
+      return pr.then(function () {
+        return readRunOnly(fs, want[k].process, want[k].id).then(function (one) {
+          /* A run that reads is judged as runs judges it (PF.appjson.judgeRun): newer, damaged, conflicted or not matching
+             its version, it is unread here, with each problem named, never evidence. */
+          if (one.found && one.run) {
+            var jp = PF.appjson.judgeRun(one.run, one.pub);
+            /* Its version couldn't be read at all (judgeRun leaves that to its caller): never usable evidence. */
+            if (one.pub && one.pub._readFailed) jp.push({ path: PF.run.pubDir(one.run), kind: 'unreadable', why: 'The version the run a to-do\'s evidence names couldn\'t be read (' + String(one.pub.why || 'it couldn\'t be read') + '), so what rests on it can\'t be checked.' });
+            /* The whole pin (MC): a version whose step types changed from the run's, even one that verifies, is never evidence. */
+            var dq = PF.detours.versionDrift(one.run, one.pub); if (dq) jp.push(dq);
+            /* The version as read now, for the whole-pin verdict (PF.detours.pinWhy), whether or not the run carries every field. */
+            if (one.pub && one.pub.info) pubs[k] = { folder: one.pub.info.folder, version: one.pub.info.version, mapHash: one.pub.info.mapHash, typesHash: one.pub.info.typesHash };
+            /* SE: a part of the run that couldn't be read now (a notes file, a conflict copy), as run and runs name it by path
+               and kind: what the run says isn't fully known, so it is unread here, never evidence. */
+            (one.bad || []).forEach(function (b) { if (b && typeof b.path === 'string' && b.path.indexOf('runs/' + k + '/') === 0) jp.push({ path: b.path, kind: b.kind || 'unreadable', why: 'Part of the run a to-do\'s evidence names couldn\'t be read (' + String(b.why || 'it couldn\'t be read').replace(/\.$/, '') + '), so what rests on it can\'t be checked.' }); });
+            if (!jp.length) { runs.push(one.run); return; }
+            unreadRuns.push(k); jp.forEach(function (q) { problemAt(k, q.path, q.kind, q.why); }); return;
+          }
+          if (!one.found || one.nofile) { problem(k, 'nofile', 'The run a to-do\'s evidence names isn\'t in the team folder, so what rests on it can\'t be checked.'); if (one.found) unreadRuns.push(k); return; }
+          unreadRuns.push(k);
+          var mine = (one.bad || []).filter(function (b) { return b && typeof b.path === 'string' && b.path.indexOf('runs/' + k + '/') === 0; });
+          if (mine.length) mine.forEach(function (b) { problem(k, b.kind || 'unreadable', String(b.why || 'It couldn\'t be read.')); });
+          else problem(k, 'unreadable', 'This run couldn\'t be read, so what rests on it can\'t be checked.');
+        }, function (e) { unreadRuns.push(k); problem(k, errKind(e), why(e)); });
+      });
+    }, Promise.resolve()).then(function () {
+      var ev = { runs: runs, unreadRuns: unreadRuns, plans: plans, holds: holds, problems: problems, paths: keys.map(function (k) { return 'runs/' + k; }), pubs: pubs };
+      planIds.sort().forEach(function (id) {
+        var held = PF.detours.planHeld(ev, id);
+        if (held.length) held.forEach(function (q) { problemAt(null, q.path, q.kind, q.why); });
+        else if (!plans.some(function (p) { return p && p.id === id; })) problemAt(null, 'proposals/' + id + '.json', 'nofile', 'The evidence plan a to-do\'s done names isn\'t in the team folder, so what rests on it can\'t be checked.');
+        else {
+          /* Each plan/run pair a record names carries its start proof: the plan is for that run's checklist and a decision of
+             its started that run. A missing one is named at the plan: which run it started can't be shown. */
+          var p = plans.filter(function (x) { return x && x.id === id; })[0];
+          pairs.filter(function (e) { return e.plan === id; }).forEach(function (e) {
+            if (p.process !== e.process || (p._starts || []).indexOf(e.id) < 0) problemAt(null, 'proposals/' + id + '.json', 'nofile', 'No decision of the evidence plan ' + id + ' says it started ' + e.process + '/' + e.id + ', the run a to-do\'s done names, so what rests on it can\'t be checked.');
+          });
+        }
+      });
+      /* Every path a problem names is one the caller depends on. */
+      problems.forEach(function (q) { if (ev.paths.indexOf(q.path) < 0) ev.paths.push(q.path); });
+      return ev;
+    });
+  }
+  var OTHER_COPY = 'holds another record than the one its name stands for, so which is meant isn\'t known. Keep one of them';
+  function readPlans(fs, bad, only, two, hashes) {
     var refused = [], torn = [];
-    return loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status' || typeof o.format === 'string'; }, bad, only, torn).then(function (props) {
-      var plans = [], statuses = [], scopes = [], scopesUnread = [];
+    /* A to-do, fact or scope record that fails to read is named by its path (torn, with its kind), never the whole folder
+       refused: run and next name proposals/<id>.json. Any other file failing still refuses the read, as in 3.0. */
+    return loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status' || typeof o.format === 'string'; }, bad, only, torn, PF.todos.recordName, hashes).then(function (props) {
+      var plans = [], statuses = [], scopes = [], scopesUnread = [], todos = [], todosUnread = [];
+      /* Copies of one id that differ are compared over every file read here, before any family reads its own (PF.loop.splitIds):
+         one that is a to-do or fact record while another copy is a plan or a scope record would escape every reducer, so each
+         copy is held as a record that can't be read, on the run a to-do copy names (or every living run) and its loop. */
+      var split = PF.loop.splitIds(props), across = Object.create(null);
+      props.forEach(function (p) { if (typeof p.id !== 'string' || !split[p.id]) return; var a = across[p.id] = across[p.id] || { todo: [], other: [] }; (PF.todos.claims(p) ? a.todo : a.other).push(p); });
+      Object.keys(across).forEach(function (id) {
+        var a = across[id];
+        if (!a.todo.length || !a.other.length) return;
+        var runs = a.todo.map(function (p) { var r = PF.todos.runOf(p); return r ? r.process + '/' + r.id : ''; }), one = runs.every(function (k) { return k && k === runs[0]; }) ? PF.todos.runOf(a.todo[0]) : null;
+        var why = 'has copies under one id (' + id + ') that are different kinds of record, so which is meant isn\'t known. Keep one of them';
+        a.todo.concat(a.other).forEach(function (p) {
+          todosUnread.push({ file: p._file, why: why, kind: 'malformed', run: one });
+          if (PF.loop.isScope(p)) scopesUnread.push({ file: p._file, why: why, loop: PF.loop.loopOf(p) });
+        });
+      });
       props.forEach(function (p) {
-        /* A scope request or decision (3.0, PF.loop) goes to its own reader first and never reaches the plan reader. */
-        if (PF.loop.isScope(p)) {
-          var sv = PF.loop.cleanFile(p, p._file), sp = 'proposals/' + p._file, sf = p.format === PF.loop.STATUS ? 'flightdeck-plan-status' : 'flightdeck-plan';
+        /* A scope request or decision (3.0, PF.loop; a living run's scope request is flightdeck-plan/4 with loops) goes to its own
+           reader first, before the to-do reader, and never reaches the plan reader. */
+        /* A fact by its kind goes to the to-do reader before any loop or scope dispatch (PB), whatever envelope it carries. */
+        if (PF.loop.claims(p) && !(p && p.kind === 'fact')) {
+          var sv, sp, sf;
+          try { sv = PF.loop.cleanFile(asWritten(p), p._file); } catch (e) { sv = { ok: false, kind: 'malformed', why: 'is a scope record that isn\'t in its format' }; }
+          sp = 'proposals/' + p._file, sf = /^flightdeck-plan-status\//.test(p.format) ? 'flightdeck-plan-status' : 'flightdeck-plan';
           if (!sv.ok) { if (bad) bad.push({ path: sp, kind: sv.kind, why: sv.why }); refused.push(PF.envelope.refusal(sp, sf, sv)); scopesUnread.push({ file: p._file, why: sv.why, loop: PF.loop.loopOf(p) }); return; }
           sv.record._file = p._file; scopes.push(sv.record); return;
+        }
+        /* A to-do record (4.0, PF.todos), or any record naming living-runs, goes to its own reader first; one that can't be
+           read (newer, malformed) holds its run (or, when which run it is for can't be told, every living run). */
+        if (PF.todos.claims(p)) {
+          /* Copied into a map with no prototype, so a "__proto__" key in the file is a field the checks refuse, never the copy's prototype. */
+          /* A record the checks can't even look at (a value that can't be turned into text) is one unread file, never a read
+             that fails. */
+          var tv; try { tv = PF.todos.cleanFile(asWritten(p), p._file, p._bytes); } catch (e) { tv = { ok: false, kind: 'malformed', why: 'is a to-do record that isn\'t in its format', needs: '' }; }
+          var tp = 'proposals/' + p._file, tf = PF.todos.familyOf(p);
+          if (!tv.ok) { if (bad) bad.push({ path: tp, kind: tv.kind, why: tv.why }); refused.push(PF.envelope.refusal(tp, tf, tv)); todosUnread.push({ file: p._file, why: tv.why, kind: tv.kind, run: PF.todos.runOf(p) }); return; }
+          tv.record._file = p._file; if (p._sha) { try { Object.defineProperty(tv.record, '_sha', { value: p._sha, enumerable: false }); } catch (e) { /* frozen */ } } todos.push(tv.record); return;
         }
         var v = PF.plans.clean(p, p._file, !!bad && !two), path = 'proposals/' + p._file, fam = PF.plans.familyOf(p, p._file) === 'status' ? 'flightdeck-plan-status' : 'flightdeck-plan';
         if (!v.ok) { if (bad) bad.push({ path: path, kind: v.kind, why: v.why }); refused.push(PF.envelope.refusal(path, fam, v)); return; }
@@ -2597,8 +3297,45 @@ PF.repo = (function () {
         else if (typeof p.id === 'string' && typeof p.process === 'string') plans.push(p);
       });
       /* A scope record that can't be read (cut short, still syncing) holds every loop, since which loop it is for can't be known. */
-      (torn || []).forEach(function (t) { if (/^req-/.test(String(t._file || ''))) scopesUnread.push({ file: t._file, why: t.why, loop: null }); });
-      return { plans: plans, statuses: statuses, scopes: scopes, scopesUnread: scopesUnread, refused: refused, torn: torn || [] };
+      /* A link holds every living run's to-dos and facts (which run it is for can't be told); loops read as in 3.0. */
+      (torn || []).forEach(function (t) {
+        /* Nested past the bound: refused by name (Folder health), as every reader refuses it, before anything parses it. */
+        if (t.deep) refused.push(PF.envelope.refusal(t.path, 'flightdeck-plan', { kind: 'malformed', why: t.why }));
+        if (PF.todos.recordName(t._file)) todosUnread.push(t.kind ? { file: t._file, why: t.why, kind: t.kind, run: null } : { file: t._file, why: t.why, run: null });
+        if (!t.link && /^req-/.test(String(t._file || ''))) scopesUnread.push({ file: t._file, why: t.why, loop: null });
+      });
+      /* DA: every file here indexed by its file-name id before any family's result is used. A file under a witness's name (a
+         to-do record, a scope record or a plan read whole) that can't be read, whatever family it parsed as or failed as (a
+         refusal, a torn file, another run's record), holds that witness: the to-do record's run, the scope record's loop, the
+         plan's id (plansUnread). Every verdict that asks for unread records sees it there. */
+      var wit = Object.create(null), keyed = function (f, w) { w.file = f; PF.todos.nameKeys(f).forEach(function (k) { (wit[k] = wit[k] || []).push(w); }); };
+      todos.forEach(function (x) { keyed(x._file, { fam: 'todo', id: x.id, run: PF.todos.runOf(x) }); });
+      scopes.forEach(function (x) { keyed(x._file, { fam: 'scope', id: x.id, loop: PF.loop.loopOf(x) }); });
+      plans.forEach(function (x) { keyed(x._file, { fam: 'plan', id: x.id, plan: x.id }); });
+      var badFiles = [], badSeen = Object.create(null), bad1 = function (f, why, kind) { f = String(f || ''); if (!f || badSeen[f]) return; badSeen[f] = true; badFiles.push({ file: f, why: String(why || 'unreadable'), kind: kind === 'newer' || kind === 'unreadable' ? kind : 'malformed' }); };
+      todosUnread.forEach(function (u) { bad1(u.file, u.why, u.kind); });
+      scopesUnread.forEach(function (u) { bad1(u.file, u.why, 'malformed'); });
+      refused.forEach(function (x) { if (/^proposals\//.test(x.path)) bad1(x.path.slice(10), x.why, x.kind); });
+      (torn || []).forEach(function (t) { bad1(t._file, t.why, t.kind); });
+      /* EA: successful reads are grouped too. A file read whole (any family) under a witness's name that isn't the same
+         family and id as that witness is a copy that differs, unless the name is its own (its id is its whole stem). */
+      var good = todos.map(function (x) { return { fam: 'todo', id: x.id, file: x._file }; }).concat(scopes.map(function (x) { return { fam: 'scope', id: x.id, file: x._file }; }),
+        plans.map(function (x) { return { fam: 'plan', id: x.id, file: x._file }; }), statuses.map(function (x) { return { fam: 'status', id: x.id, file: x._file }; }));
+      good.forEach(function (g) {
+        var ks = PF.todos.nameKeys(g.file);
+        if (typeof g.id === 'string' && g.id === ks[0]) return;
+        if (ks.some(function (k) { return (wit[k] || []).some(function (w) { return w.file !== g.file && (w.fam !== g.fam || w.id !== g.id); }); })) bad1(g.file, OTHER_COPY, 'malformed');
+      });
+      var plansUnread = [], sameRun = function (a, b) { return !!a && !!b && a.process === b.process && a.id === b.id; };
+      badFiles.forEach(function (b) {
+        var ws = []; PF.todos.nameKeys(b.file).forEach(function (k) { (wit[k] || []).forEach(function (w) { if (ws.indexOf(w) < 0) ws.push(w); }); });
+        ws.forEach(function (w) {
+          if (w.run && !todosUnread.some(function (u) { return u.file === b.file && sameRun(u.run, w.run); })) todosUnread.push({ file: b.file, why: b.why, kind: b.kind, run: { process: w.run.process, id: w.run.id } });
+          if (w.loop && !scopesUnread.some(function (u) { return u.file === b.file && u.loop && u.loop.process === w.loop.process && u.loop.run === w.loop.run && u.loop.step === w.loop.step; })) scopesUnread.push({ file: b.file, why: b.why, loop: w.loop });
+          if (w.plan && !plansUnread.some(function (u) { return u.file === b.file && u.id === w.plan; })) plansUnread.push({ file: b.file, why: b.why, kind: b.kind, id: w.plan });
+        });
+      });
+      return { plans: plans, statuses: statuses, scopes: scopes, scopesUnread: scopesUnread, todos: todos, todosUnread: todosUnread, plansUnread: plansUnread, refused: refused, torn: torn || [] };
     });
   }
   /* Reading for other apps: a view of a folder that writes down, by path, every list, read, stat or blob that failed (as
@@ -2702,12 +3439,84 @@ PF.repo = (function () {
     function statOf(path) { return ro.stat(path).then(function (st) { return st ? st.size : null; }); }
     /* One decoder for every record, as a browser reads files: UTF-8, a byte-order mark dropped. */
     function decoded(t) { return t == null ? null : String(t).replace(/^﻿/, ''); }
-    /* Text of a file that's never packed (another run's records, people.json): sized first, never over limit. */
-    function sizedText(path, limit) {
-      return statOf(path).then(function (size) {
+    /* Text of a file that's never packed (another run's records, people.json): sized first, then read in bounded slices,
+       counting the bytes actually read (4.0, OC). Each slice takes its room from budget ({ left }, shared by reads made at
+       once) before it is read, and gives back what it didn't use (QC); a file past the limit, or a slice that can't get its
+       room, is too big ({ over }), never read past either. The bytes read are confirmed against a fresh stat (RD) and by
+       reading the file again and comparing SHA-256 (SC), as discovery confirms packed files: a file that grew, shrank or
+       changed at the same size while it was read is read again within the export's tries, then named ({ changed }). */
+    /* What a stat or an open says of a file besides its size: when it was last changed and, where the folder gives it, which
+       file it is. A value the folder doesn't give is never compared (TD). */
+    function stampOf(x) { return x ? { mtime: x.mtime != null ? x.mtime : x.lastModified != null ? x.lastModified : null, id: x.id != null ? x.id : null } : { mtime: null, id: null }; }
+    function sameStamps(list) {
+      return ['mtime', 'id'].every(function (k) { var seen = list.map(function (x) { return x[k]; }).filter(function (v) { return v != null; }); return seen.every(function (v) { return v === seen[0]; }); });
+    }
+    function sizedText(path, limit, budget, attempt) {
+      attempt = attempt || 1;
+      var stamps = [];
+      var again = function (r) {
+        if (!r.changed) return r;
+        if (budget && r.held) budget.left += r.held;
+        return attempt < EV_TRIES ? sizedText(path, limit, budget, attempt + 1) : { changed: true };
+      };
+      return ro.stat(path).then(function (st0) {
+        var size = st0 ? st0.size : null;
         if (size == null) return { missing: true };
-        if (size > limit) return { over: size };
-        return ro.read(path).then(function (f) { return f ? { text: decoded(f.text) } : { missing: true }; }, function () { return { missing: true }; });
+        if (size > limit || (budget && size > budget.left)) return { over: size };
+        stamps.push(stampOf(st0));
+        return ro.blob(path).then(function (b) {
+          if (!b) return { missing: true, gone: true };
+          stamps.push(stampOf(b));
+          var parts = [], off = 0, h = S.create();
+          var done = function (r) { if (b.close) b.close(); return r; };
+          function step() {
+            if (off >= b.size) { done(null); return confirm(h.digest()); }
+            var want = Math.min(b.size - off, EV_CHUNK);
+            if (off + want > limit || (budget && want > budget.left)) return done({ over: Math.max(b.size, 1), held: off });
+            if (budget) budget.left -= want;
+            return b.slice(off, off + want).arrayBuffer().then(function (ab) {
+              var u = new Uint8Array(ab);
+              if (budget) budget.left += want - Math.min(want, u.length);
+              if (!u.length) throw new Error('A file ended early while it was read.');
+              parts.push(u); h.update(u); off += u.length;
+              return step();
+            });
+          }
+          /* Read again slice by slice, each slice's room taken from the budget and given back once hashed: the same size at
+             the second open, the same SHA-256, and the same size by a fresh stat afterwards, or it changed while read (a
+             file that grew or shrank after the first open shows in the second's size). */
+          function confirm(sha) {
+            return ro.blob(path).then(function (b2) {
+              if (!b2) return { changed: true, held: off };
+              stamps.push(stampOf(b2));
+              var at = 0, h2 = S.create(), shut = function (r) { if (b2.close) b2.close(); return r; };
+              function next() {
+                if (at >= b2.size) {
+                  shut(null);
+                  if (at !== off || h2.digest() !== sha) return { changed: true, held: off };
+                  return ro.stat(path).then(function (st1) {
+                    /* The same size, and the same time and file at every open and at the end (TD): a rewrite at the same size
+                       during either read moves the time. A folder that gives no time can't show one. */
+                    return st1 && st1.size === off && sameStamps(stamps.concat([stampOf(st1)])) ? { text: decoded(E.text(E.join(parts))) } : { changed: true, held: off };
+                  });
+                }
+                var want = Math.min(b2.size - at, EV_CHUNK);
+                if (budget && want > budget.left) return shut({ over: Math.max(b2.size, 1), held: off });
+                if (at + want > off) return shut({ changed: true, held: off });
+                if (budget) budget.left -= want;
+                return b2.slice(at, at + want).arrayBuffer().then(function (ab) {
+                  var u = new Uint8Array(ab);
+                  if (budget) budget.left += want;
+                  if (!u.length) throw new Error('A file ended early while it was read.');
+                  h2.update(u); at += u.length;
+                  return next();
+                });
+              }
+              return Promise.resolve().then(next).then(null, function (e) { if (b2.close) b2.close(); throw e; });
+            });
+          }
+          return Promise.resolve().then(step).then(null, function (e) { if (b.close) b.close(); throw e; });
+        }).then(function (r) { if (r.over && budget && r.held) budget.left += r.held; return again(r); }, function () { return { missing: true, failed: true }; });
       });
     }
 
@@ -2727,11 +3536,13 @@ PF.repo = (function () {
     function forget(path) { var r = done[path]; if (r && r.bytes) r.bytes.forEach(function (u) { retained.now -= u.length; }); delete snaps[path]; delete done[path]; }
     function keeps(path, size) { return keepAll || (size <= recordMax && (!isAttachment(path) || /\.(png|jpe?g|gif|webp)$/i.test(path))); }
     function isAttachment(path) { return /^runs\/[^/]+\/[^/]+\/files\//.test(path); }
-    function hashBlob(b, keep) {
-      var h = S.create(), crc = 0, off = 0, size = b.size, parts = keep ? [] : null;
+    /* limit: the size its stat gave, all that was reserved for it. A file that is bigger now grew: it is never read past
+       that (what is hashed is what was reserved), and it is marked grew, so it is named and read again. */
+    function hashBlob(b, keep, limit) {
+      var h = S.create(), crc = 0, off = 0, size = Math.min(b.size, limit), grew = b.size > limit, parts = keep ? [] : null;
       function step() {
         stop();
-        if (off >= size) { if (b.close) b.close(); return { size: off, sha256: h.digest(), crc: crc, bytes: parts }; }
+        if (off >= size) { if (b.close) b.close(); return { size: off, sha256: h.digest(), crc: crc, bytes: parts, grew: grew }; }
         return b.slice(off, Math.min(size, off + EV_CHUNK)).arrayBuffer().then(function (ab) {
           var u = new Uint8Array(ab);
           if (!u.length) throw new Error('A file ended early while it was read.');
@@ -2749,7 +3560,7 @@ PF.repo = (function () {
         if (retained.full && keeps(path, size)) return { skipped: true, statSize: size };
         return ro.blob(path).then(null, function (e) { if (e && e.link) return null; throw e; }).then(function (b) {
           if (!b) return { gone: true, statSize: size };
-          return hashBlob(b, keeps(path, size)).then(function (r) {
+          return hashBlob(b, keeps(path, size), size).then(function (r) {
             r.statSize = size;
             if (r.skipped) return r;
             if (r.bytes) { r.image = r.bytes.length ? E.imageType(path, r.bytes[0]) : ''; if (!isAttachment(path) && r.size <= recordMax) r.text = decoded(E.text(E.join(r.bytes))); }
@@ -2775,7 +3586,7 @@ PF.repo = (function () {
     /* A copy of what's kept from a file that shares nothing with its text: a slice of a big string keeps the whole string
        alive, so kept fields are written out and parsed again (fresh strings), and what they take is counted. */
     function detach(o) { var t = JSON.stringify(o); hold(t.length * 2); return JSON.parse(t); }
-    function changeOf(path, r) { var n = path.split('/').pop(); return r.gone ? n + ' was removed' : r.size > r.statSize ? n + ' grew' : n + ' changed'; }
+    function changeOf(path, r) { var n = path.split('/').pop(); return r.gone ? n + ' was removed' : r.grew || r.size > r.statSize ? n + ' grew' : n + ' changed'; }
 
     /* ---- pack names ----
        The folder's own path under originals/, made unique ignoring letter case (so the pack unpacks on Windows) before any
@@ -2843,10 +3654,12 @@ PF.repo = (function () {
     var procCache = {}, selected = {};
     function processContext(proc) {
       if (procCache[proc]) return procCache[proc];
-      var dirs = ['corrections', 'suggestions'];
+      var dirs = ['corrections', 'suggestions'], decLinks = [];
       /* Decisions are evidence: always read (each sized first), and packed when they belong to a selected run. */
       var decisions = dirs.reduce(function (q, dir) { return q.then(function (acc) {
         return ro.list(dir + '/' + proc).then(function (items) {
+          /* A decision listed as a link is named before anything is filtered (RB): Flightdeck never reads through it. */
+          items.forEach(function (i) { if (i.kind === 'link' && /\.json$/i.test(i.name)) decLinks.push(dir + '/' + proc + '/' + i.name + ' (link)'); });
           /* One at a time, so at most one decision's bytes are held while they're classified. */
           return limited(items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).map(function (i) { return i.name; }).sort(), 1, function (n) {
             var path = dir + '/' + proc + '/' + n;
@@ -2864,16 +3677,26 @@ PF.repo = (function () {
         }).then(function (got) { return acc.concat(got); });
       }); }, Promise.resolve([]));
       /* Other runs and the versions are read only to work out where corrections stand: sizes first, within one budget. */
+      /* What the process folder holds is named before anything is filtered (4.0, OB, QB): a listing that fails, a run folder
+         or notes file that is a link, and a run folder that gives no run.json are each a run that can't be read. */
+      var listFails = [];
       var runMetas = ro.list('runs/' + proc).then(function (items) {
+        items.forEach(function (i) { if (i.kind === 'link') listFails.push({ key: proc + '/' + i.name, why: 'runs/' + proc + '/' + i.name + ' (link)' }); });
         return limited(items.filter(function (i) { return i.kind === 'dir'; }).map(function (i) { return i.name; }).sort(), 8, function (id) {
-          var base = 'runs/' + proc + '/' + id + '/';
+          var base = 'runs/' + proc + '/' + id + '/', key = proc + '/' + id;
           return ro.list(base.slice(0, -1)).then(function (files) {
-            var want = files.some(function (i) { return i.name === 'run.json' && i.kind === 'file'; }) ? ['run.json'].concat(files.filter(function (i) { return i.kind === 'file' && /^notes-[\w-]+\.jsonl$/.test(i.name); }).map(function (i) { return i.name; }).sort()) : [];
-            return Promise.all(want.map(function (n) { return statOf(base + n); })).then(function (sizes) { return { key: proc + '/' + id, base: base, want: want, sizes: sizes }; });
-          });
+            var has = files.some(function (i) { return i.name === 'run.json' && i.kind === 'file'; });
+            var links = files.filter(function (i) { return i.kind === 'link' && (i.name === 'run.json' || /^notes-[\w-]+\.jsonl$/.test(i.name)); }).map(function (i) { return base + i.name + ' (link)'; });
+            var want = has ? ['run.json'].concat(files.filter(function (i) { return i.kind === 'file' && /^notes-[\w-]+\.jsonl$/.test(i.name); }).map(function (i) { return i.name; }).sort()) : [];
+            return Promise.all(want.map(function (n) { return statOf(base + n); })).then(function (sizes) { return { key: key, base: base, want: want, sizes: sizes, noRun: !has, links: links }; });
+          }, function () { return { key: key, base: base, want: [], sizes: [], listFailed: true, links: [] }; });
         });
-      });
+      }, function () { listFails.push({ key: '', why: 'runs/' + proc + ' (unreadable)' }); return []; });
+      /* A version folder listed as a link is named (SD): Flightdeck never reads through it, and where something kept for next
+         time stands can't be worked out without the versions. */
+      var pubLinks = [];
       var pubMetas = ro.list('publications/' + proc).then(function (items) {
+        items.forEach(function (i) { if (i.kind === 'link' && P.versionOf(i.name)) pubLinks.push('publications/' + proc + '/' + i.name + ' (link)'); });
         return limited(items.filter(function (i) { return i.kind === 'dir' && P.versionOf(i.name); }).map(function (i) { return i.name; }).sort(), 8, function (folder) {
           var b = 'publications/' + proc + '/' + folder + '/', want = ['map.md', 'types.json', 'publication.json'];
           return Promise.all(want.map(function (n) { return statOf(b + n); })).then(function (sizes) { return { folder: folder, base: b, want: want, sizes: sizes }; });
@@ -2882,28 +3705,74 @@ PF.repo = (function () {
       return (procCache[proc] = Promise.all([decisions, runMetas, pubMetas]).then(function (r) {
         var ds = r[0], total = 0, over = false;
         r[1].concat(r[2]).forEach(function (m) { m.sizes.forEach(function (z) { if (z == null) return; total += z; if (z > recordMax) over = true; }); });
-        if (over || total > CTX_MAX) return { decisions: ds, groups: [], pubs: [], why: 'The runs and versions of ' + proc + ' are too big to read here (' + E.size(total) + '), so where its corrections stand can\'t be worked out.' };
+        if (over || total > CTX_MAX) return { decisions: ds, groups: [], pubs: [], runs: [], index: null, why: 'The runs and versions of ' + proc + ' are too big to read here (' + E.size(total) + '), so where its corrections stand can\'t be worked out.' };
+        /* Every other run's file that was listed but gone when sized, or couldn't be read, is named by its path and kind: where
+           corrections stand can't be worked out without it (4.0, NC). A run in the pack answers for its own files. */
+        var fails = [], budget = { left: CTX_MAX };
+        listFails.forEach(function (f) { if (!selected[f.key]) fails.push(f.why); });
+        decLinks.forEach(function (x) { fails.push(x); });
+        pubLinks.forEach(function (x) { fails.push(x); });
+        r[2].forEach(function (m) { m.want.forEach(function (n, i) { if (m.sizes[i] == null) fails.push(m.base + n + ' (missing)'); }); });
+        r[1].forEach(function (m) {
+          if (selected[m.key]) return;
+          if (m.listFailed) { fails.push(m.base.slice(0, -1) + ' (unreadable)'); return; }
+          m.links.forEach(function (x) { fails.push(x); });
+          if (m.noRun && !m.links.some(function (x) { return x.indexOf(m.base + 'run.json') === 0; })) fails.push(m.base + 'run.json (vanished)');
+          m.want.forEach(function (n, i) { if (m.sizes[i] == null) fails.push(m.base + n + ' (vanished)'); });
+        });
         var runs = limited(r[1].filter(function (m) { return m.want.length; }), 8, function (m) {
           /* A run in the pack is read from its snapshot; any other only as text. */
-          var read = function (n) { return selected[m.key] ? record(m.base + n).then(function (x) { return x.text == null ? null : x.text; }) : sizedText(m.base + n, recordMax).then(function (x) { return x.text == null ? null : x.text; }); };
+          var read = function (n, i) {
+            if (selected[m.key]) return record(m.base + n).then(function (x) { return x.text == null ? null : x.text; });
+            if (m.sizes[i] == null) return Promise.resolve(null);
+            return sizedText(m.base + n, recordMax, budget).then(function (x) {
+              if (x.text == null) fails.push(m.base + n + (x.over ? ' (too big)' : x.changed ? ' (changed while read)' : x.failed ? ' (unreadable)' : ' (vanished)'));
+              return x.text == null ? null : x.text;
+            });
+          };
           return Promise.all(m.want.map(read)).then(function (t) {
-            /* Only a run in its own folder: a copy of one elsewhere would add its corrections again. */
-            if (t[0] == null || !R.sanitize(json(t[0])) || elsewhere(json(t[0]), proc, m.key.split('/')[1])) return null;
-            return build({ text: t[0], base: m.base, notes: t.slice(1), conflicts: [], fileHash: fileHash(t[0]), notesSig: '', unrunnable: '' }, null);
+            /* A run.json read that won't parse or isn't a run is named (QB). Only a run in its own folder counts: a copy of
+               one elsewhere would add its corrections again. */
+            if (t[0] == null) return null;
+            var o = json(t[0]), rid = m.key.split('/')[1];
+            if (selected[m.key]) {
+              if (!o || !R.sanitize(o) || elsewhere(o, proc, rid)) return null;
+            } else {
+              /* The readers' whole verdict first (RB, judgeRunFile): a run.json that won't parse, isn't a run, or that any
+                 reader refuses is named by its kind. One naming another run is judged as that run, and only then left out as
+                 a copy, so its corrections aren't counted twice. */
+              if (!o || typeof o !== 'object') { fails.push(m.base + 'run.json (malformed)'); return null; }
+              var away = elsewhere(o, proc, rid), v = away ? (typeof o.process === 'string' && typeof o.id === 'string' ? judgeRunFile(o, o.process, o.id) : { kind: 'malformed' }) : judgeRunFile(o, proc, rid);
+              if (v) { fails.push(m.base + 'run.json (' + String(v.kind || 'malformed') + ')'); return null; }
+              if (away) return null;
+            }
+            var built = build({ text: t[0], base: m.base, notes: t.slice(1), noteFiles: m.want.slice(1), conflicts: [], fileHash: fileHash(t[0]), notesSig: '', unrunnable: '' }, null);
+            /* A notes line that isn't complete JSON (a torn append) is named by its file and line (RB). */
+            if (!selected[m.key]) (built._noteLines || []).forEach(function (x) { fails.push(m.base + x.file + ' (torn at line ' + x.line + ')'); });
+            return built;
           });
         });
         /* Versions are read from snapshots: the files behind a claim are the very bytes in the pack. */
         var pubs = limited(r[2], 8, function (m) {
           return Promise.all(m.want.map(function (n) { return record(m.base + n); })).then(function (rs) {
             var files = {}, exact = {}; m.want.forEach(function (n, i) { files[n] = rs[i].text == null ? null : rs[i].text; });
+            /* A file that was there when sized but can't be captured now (gone, skipped or too big) is named by its path and
+               kind (TE): one already named missing at sizing isn't named twice. */
+            m.want.forEach(function (n, i) { if (rs[i].text == null && m.sizes[i] != null) fails.push(m.base + n + ' (' + (rs[i].missing ? 'missing' : rs[i].skipped ? 'skipped' : 'too big') + ')'); });
             /* A /2 version by the SHA-256 of the exact bytes snapshotted for the pack, never its text. */
             ['map.md', 'types.json'].forEach(function (n) { var x = done[m.base + n]; if (x && !x.gone && x.sha256) exact[n] = x.sha256; });
             return { folder: m.folder, files: files, v: P.verify(m.folder, files, exact) };
           });
         });
         return Promise.all([runs, pubs]).then(function (x) {
+          /* A version whose files are all there but that doesn't verify (from a newer Flightdeck, or files that don't match its
+             record) is named by its folder (SD): it can't say what it has, so where something stands can't be worked out. */
+          x[1].forEach(function (p) { if (!p.v.ok && Object.keys(p.files).every(function (n) { return p.files[n] != null; })) fails.push('publications/' + proc + '/' + p.folder + ' (' + (p.v.newer ? 'newer' : 'refused') + ')'); });
           var pubList = x[1], verified = pubList.filter(function (p) { return p.v.ok; }).map(function (p) { return p.v; });
-          return { decisions: ds, groups: C.forProcess(x[0].filter(Boolean), proc, ds.filter(function (y) { return y.d; }).map(function (y) { return y.d; }), P.index(verified)), pubs: pubList, why: '' };
+          var runsRead = x[0].filter(Boolean), index = P.index(verified);
+          fails.sort();
+          var why = fails.length ? 'Some runs of ' + proc + ' couldn\'t be read (' + fails.slice(0, 5).join(', ') + (fails.length > 5 ? ', and ' + (fails.length - 5) + ' more' : '') + '), so where its corrections stand can\'t be worked out.' : '';
+          return { decisions: ds, groups: C.forProcess(runsRead, proc, ds.filter(function (y) { return y.d; }).map(function (y) { return y.d; }), index), pubs: pubList, why: why, runs: runsRead, index: index, fails: fails };
         });
       }));
     }
@@ -2949,7 +3818,9 @@ PF.repo = (function () {
              on the group belongs to the pack whatever else can be read. */
           var self = raw && !p.foreign ? R.sanitize(raw) : null;
           if (self) { self._notes = []; t.forEach(function (x) { if (x != null) E.notesFile(x).notes.forEach(function (n) { self._notes.push(cleanNote(n.note, base + '/')); }); }); }
-          p.ownGroups = {};
+          p.ownGroups = {}; p.self = self; p.selfRaw = raw && !p.foreign ? raw : null;
+          /* GA: the readers' verdict on the file as read, kept even when sanitizing gives nothing or a name only. */
+          p.selfBad = !p.foreign && r.text != null ? judgeRunFile(raw, proc, id) : null;
           if (self) try { C.groups(C.collect([self], proc)).forEach(function (g) { p.ownGroups[g.id] = true; }); } catch (e) { /* a run this copy can't fully read has no groups to add */ }
         });
         });
@@ -3036,6 +3907,8 @@ PF.repo = (function () {
           }));
         });
       }).then(function () {
+        return livingPart(p, add);
+      }).then(function () {
         /* Sizes: attachments left out, or over the one-file limit, are listed with their size and never read. */
         return limited(p.files, 8, function (f) { return done[f.path] ? (f.size = done[f.path].gone ? null : done[f.path].statSize) : statOf(f.path).then(function (z) { f.size = z; }); }).then(function () {
           p.files = p.files.filter(function (f) {
@@ -3047,6 +3920,221 @@ PF.repo = (function () {
           return p;
         });
       });
+    }
+
+    /* ---- a living run's work (4.0 slice 6): what it rests on ----
+       One checked read of proposals/ for the whole collection (readPlans, the readers' own), and the loops' child runs. Every
+       record the run's work rests on goes in (the application chain from living.head, its requests and their decisions, the
+       facts used as evidence, the loops' scope records, every record on a child run and every request fulfilling a spread,
+       the receipt), with the evidence runs and plans and the publication proof of what it kept for next time. Anything that
+       can't be found or read is named (p.living.missing): the pack is partial and no claim resting on it is confirmed. Past
+       the cap the export is refused, never cut. A run with no to-do records is packed exactly as in 3.0. */
+    var propsOnce = null, recHashes = Object.create(null);
+    /* The reads the work's closure makes (proposals/, the runs it depends on, their versions and loop children) go through
+       one reader that sizes each file first: one over the one-file limit is never read, and what is read is counted in the
+       memory the pack may use; past it nothing more is read. A file refused this way fails like any read (named by path). */
+    /* The listings those reads made (the first of each folder, as kind:name), kept: the checks at the end list each folder
+       again and compare (recheck), so what arrived in proposals/, beside a dependency run or among a loop's children after its
+       read is a change, never missed. */
+    /* Every run discovery read (a loop child, kept or left out as another parent's), by the SHA-256 of the bytes read. */
+    var seenHashes = Object.create(null), rawOf = Object.create(null), rawKept = Object.create(null), rawDiff = Object.create(null);
+    /* The first read of a path is its baseline, never replaced: a later read with other bytes (a version two runs pin, read
+       for each) is a change, named at the end, so no verdict rests on bytes another one didn't see. */
+    function rawSeen(p, hash) { if (p in rawOf && rawOf[p] !== hash) rawDiff[p] = true; else if (!(p in rawOf)) rawOf[p] = hash; rawKept[hash] = true; }
+    /* A file's raw bytes and their SHA-256 (noted in rawOf by path). n: the size its stat gave. */
+    function rawBytes(p, n) {
+      return ro.blob(p).then(function (b) {
+        if (!b) return null;
+        var shut = function () { if (b.close) b.close(); };
+        /* Never more than its stat said, plus one byte to see that it grew: what was reserved is all that is read. Closed
+           once read, whether or not the read worked. */
+        return b.slice(0, n + 1).arrayBuffer().then(function (ab) {
+          shut();
+          var u = new Uint8Array(ab);
+          if (u.length > n) throw new Error(p + ' grew past the ' + E.size(n) + ' reserved for it while it was read, so it wasn\'t read');
+          var h = S.create(); h.update(u); var hash = h.digest(); rawSeen(p, hash);
+          return { u: u, hash: hash };
+        }, function (e) { shut(); throw e; });
+      });
+    }
+    var lists = Object.create(null), listKey = function (items) { return (items || []).map(function (i) { return i.kind + ':' + i.name; }).sort(); };
+    var lro = readOnlyView({
+      list: function (p, o) { return ro.list(p, o).then(function (items) { if (!(p in lists)) lists[p] = listKey(items); return items; }); }, stat: function (p, o) { return ro.stat(p, o); },
+      /* A file's bytes (a version's files and its screenshots too): sized first, over the one-file limit never read, what it
+         holds reserved before it is read, and never read past that (one that grew is refused, named). */
+      blob: function (p, o) {
+        return ro.stat(p).then(function (st) {
+          /* Nothing there when it was sized: missing, never read without a reservation. */
+          if (!st) return null;
+          if (st.size > recordMax) throw new Error(p + ' is ' + E.size(st.size) + ', over ' + E.size(recordMax) + ', the most one file can be in a pack made here, so it wasn\'t read');
+          var n = st.size;
+          if (retained.now + n > retained.limit) { retained.full = true; throw new Error(p + ' wasn\'t read: the pack reached the most it may hold in memory here (' + E.size(retained.limit) + ')'); }
+          hold(n);
+          return ro.blob(p, o).then(function (b) {
+            if (!b) { retained.now -= n; return null; }
+            /* Its raw SHA-256 kept (rawOf), as for a record: a screenshot that verified a version is read again at the end too. */
+            var shut = function () { if (b.close) b.close(); };
+            var whole = function () { return b.slice(0, n + 1).arrayBuffer().then(function (ab) { shut(); if (ab.byteLength > n) throw new Error(p + ' grew past the ' + E.size(n) + ' reserved for it while it was read, so it wasn\'t read'); var h = S.create(); h.update(new Uint8Array(ab)); rawSeen(p, h.digest()); return ab; }, function (e) { shut(); throw e; }); };
+            return { size: Math.min(b.size, n), type: b.type, lastModified: b.lastModified, slice: function (a, z) { return b.slice(a, Math.min(z == null ? n : z, n)); }, arrayBuffer: whole,
+              text: function () { return whole().then(function (ab) { return new TextDecoder('utf-8').decode(ab); }); }, close: shut };
+          }, function (e) { retained.now -= n; throw e; });
+        });
+      },
+      read: function (p, o) {
+        return ro.stat(p).then(function (st) {
+          if (!st) return null;
+          if (st.size > recordMax) throw new Error(p + ' is ' + E.size(st.size) + ', over ' + E.size(recordMax) + ', the most one file can be in a pack made here, so it wasn\'t read');
+          /* What its text may take (two bytes a character, never more characters than bytes) is reserved before the read
+             starts, so reads in flight together never pass the budget; a read that fails gives its reservation back. */
+          var want = st.size * 2;
+          if (retained.now + want > retained.limit) { retained.full = true; throw new Error(p + ' wasn\'t read: the pack reached the most it may hold in memory here (' + E.size(retained.limit) + ')'); }
+          hold(want);
+          /* Its bytes, read once: the text as a browser decodes a file (TextDecoder, a byte-order mark dropped), and the
+             SHA-256 of the raw bytes kept (rawOf), so a mark or any byte added later is a change. */
+          if (typeof ro.blob === 'function' && typeof TextDecoder !== 'undefined') return rawBytes(p, st.size).then(function (x) {
+            if (!x) { retained.now -= want; return null; }
+            return { text: new TextDecoder('utf-8').decode(x.u), mtime: st.mtime, size: x.u.length, rawHash: x.hash };
+          }, function (e) { retained.now -= want; throw e; });
+          return ro.read(p, o).then(function (f) {
+            var n = f && f.text != null ? String(f.text).length : 0;
+            if (n * 2 > want) { retained.now -= want; throw new Error(p + ' grew while it was read, so it wasn\'t read'); }
+            if (!f || f.text == null) retained.now -= want;
+            return f;
+          }, function (e) { retained.now -= want; throw e; });
+        });
+      }
+    });
+    /* A discovery input read again at the end, within the same budget: its size first (over the one-file limit is a change),
+       then what its text may take reserved before the read starts and given back once it is hashed. { hash }, { gone },
+       { changed } or { why } (it couldn't be read again, or didn't fit in the memory a pack may use). */
+    function reread(path) {
+      return ro.stat(path).then(function (st) {
+        if (!st) return { gone: true };
+        if (st.size > recordMax) return { changed: true };
+        var want = st.size * 2;
+        if (retained.now + want > retained.limit) return { why: 'it couldn\'t be read again within the most the pack may hold in memory here (' + E.size(retained.limit) + ')' };
+        hold(want);
+        /* Both hashes: of the raw bytes, and of the text as decoded (for a hash discovery could only take of text). */
+        var again = typeof ro.blob === 'function' && typeof TextDecoder !== 'undefined' ? rawBytes(path, st.size).then(function (x) { return x ? { hash: x.hash, text: fileHash(new TextDecoder('utf-8').decode(x.u)) } : { gone: true }; }) : ro.read(path).then(function (f) { return f && f.text != null ? { hash: '', text: fileHash(f.text) } : { gone: true }; });
+        return again.then(function (x) { retained.now -= want; return x; }, function (e) { retained.now -= want; return { why: 'it couldn\'t be read again (' + why(e) + ')' }; });
+      }, function (e) { return { why: 'it couldn\'t be read again (' + why(e) + ')' }; });
+    }
+    function proposalsRead() {
+      if (!propsOnce) propsOnce = readPlans(lro, null, null, false, recHashes).then(null, function (e) { return { failed: why(e) }; });
+      return propsOnce;
+    }
+    /* One run the work depends on, read as the readers read it (readRunOnly) and judged as they judge it: { run } or { bad:
+       { key, path, kind, why } } for one that isn't there, can't be read, or whose version can't be read or doesn't verify. */
+    function depRun(proc, id, o) { return depRead(lro, proc, id, o); }
+    /* A run's loop children: every run folder under each {for.each} step's process, read. A listing that fails, or a folder
+       whose run.json is missing or can't be read, is named (it may be a child: nothing tells it apart); a run there naming
+       another parent isn't this run's child. */
+    function childrenOf(self, got) {
+      var out = { runs: [], bad: [] }, pubs = Object.create(null);
+      /* Where the run's own checklist sends them, Fill in included (R.fieldsOf), as the ending guard finds them, and bounded
+         the same way before any run folder is read (listChildProcs). */
+      return listChildProcs(lro, self).then(function (L) { return L.lists.reduce(function (q, l) { return q.then(function () {
+        var cp = l.cp, items = l.items;
+        if (items === null) { out.bad.push({ key: '', path: 'runs/' + cp + '/', kind: errKind(l.e), why: 'the folder of ' + cp + ' runs couldn\'t be listed (' + why(l.e) + ')' }); return; }
+        /* A link where a run folder could be may be a child of this run: named for it, never read through (RC). */
+        items.forEach(function (i) { if (i.kind === 'link' && /^[a-z0-9-]{1,40}$/i.test(i.name)) out.bad.push({ key: '', path: 'runs/' + cp + '/' + i.name, kind: 'link', why: 'it is a link, and Flightdeck never reads through links' }); });
+        return limited(items.filter(function (i) { return i.kind === 'dir' && /^[a-z0-9-]{1,40}$/i.test(i.name); }).map(function (i) { return i.name; }).sort(), 4, function (cid) {
+          var k = cp + '/' + cid;
+          return (got[k] ? Promise.resolve(got[k]) : depRun(cp, cid, { listed: items, pubs: pubs }).then(function (x) { got[k] = x; return x; })).then(function (x) {
+            if (x.run) seenHashes['runs/' + k + '/run.json'] = rawOf['runs/' + k + '/run.json'] || x.run._fileHash || '';
+            /* Which run it is a child of can't be told: named for this run whatever it is (key '': always said). */
+            if (x.bad) { out.bad.push({ key: '', path: x.bad.path, kind: x.bad.kind, why: x.bad.why }); return; }
+            var c = x.run;
+            if (c.parent && c.parent.item && c.parent.process === self.process && c.parent.id === self.id) out.runs.push(c);
+          });
+        });
+      }); }, Promise.resolve()); }).then(function () { return out; });
+    }
+    function livingPart(p, add) {
+      var self = p.self, bad = p.selfBad;
+      if (!self && !bad) return Promise.resolve();
+      return proposalsRead().then(function (Pr) {
+        /* What discovery listed and read is checked again at the end on every path, a run with no to-dos yet included. */
+        p.discovery = { lists: lists, hashes: seenHashes, recs: recHashes };
+        /* Whether the run has to-do records at all is only known from this read: one that fails is named, living or not yet. */
+        /* GA: the readers' whole verdict on the raw run.json (judgeRunFile), judged before every gate below: a run any reader
+           refuses keeps run.json named, living or not, even when sanitizing drops its living record or gives a name only. */
+        var me = { process: p.process, id: p.id }, rawPath = 'runs/' + me.process + '/' + me.id + '/run.json', rawMiss = bad ? [rawPath + ' (' + bad.kind + '): ' + bad.why] : [];
+        var whole = !!self && self._needs == null, failed = Pr.failed ? ['proposals/ ' + Pr.failed + ', so the run\'s work can\'t be packed.'] : [];
+        var hollow = function () { return { head: whole && self.living ? self.living.head : '', chain: [], receipt: null, missing: rawMiss.concat(failed), recs: {}, listing: null, deps: [], runTexts: {} }; };
+        if (Pr.failed && whole) { p.living = hollow(); return; }
+        /* A record that can't be read but names this run (a malformed request, say) is part of its work too, living or not; one
+           whose run can't be told at all may be this run's, so it is too (the pack is partial, naming it). */
+        var mineUnread = !Pr.failed && ((Pr.todosUnread || []).some(function (u) { return u && (!u.run || (u.run.process === me.process && u.run.id === me.id)); })
+          /* A scope record that can't be read whose loop can't be told, or one of this run's loops, likewise (DC). */
+          || (Pr.scopesUnread || []).some(function (u) { return u && (!u.loop || (u.loop.process === me.process && u.loop.run === me.id)); }));
+        if (!(bad && R.livingWork(p.selfRaw)) && !(whole && self.living) && !(!Pr.failed && PF.todos.recordsFor(Pr.todos, me).length) && !mineUnread) return;
+        /* A run sanitizing can't read, or reads by name only, has no work to walk: its living section names run.json. */
+        if (!whole) { p.living = hollow(); return; }
+        /* The closure, walked until it holds every run it depends on: the shared collector (PF.receipts.deps) names the runs it
+           found that aren't read yet; they are read (and their loop children listed), and it is asked again. Bounded. */
+        var got = Object.create(null);
+        return depClosure(self, Pr, {
+          depRun: function (proc, id) { var k = proc + '/' + id; return got[k] ? Promise.resolve(got[k]) : depRun(proc, id).then(function (y) { got[k] = y; return y; }); },
+          childrenOf: function (X) { return childrenOf(X, got); },
+          count: function () { return Object.keys(got).length; }
+        }).then(function (res) {
+          var D = res.D, known = res.known;
+          /* The run's own end and living record (PF.run.rawProblem, judged above), before anything about its receipt is
+             derived: one the readers refuse or drop leaves the work unconfirmed, named at run.json. */
+          var L = p.living = { head: self.living ? self.living.head : '', chain: D.chain, receipt: D.receipt ? { id: self.living.receipt || '', state: D.receipt.state, why: D.receipt.why } : null, missing: rawMiss.concat(D.missing), recs: {}, recTexts: {}, deps: [], runTexts: {} };
+          var byFile = Object.create(null);
+          Pr.todos.concat(Pr.scopes).forEach(function (x) { if (x && x._file) byFile[x._file] = x; });
+          D.files.forEach(function (f) { var path = 'proposals/' + f.file; L.recs[path] = byFile[f.file] || null; L.recTexts[path] = recHashes[f.file] || ''; add(path, { role: 'living', label: f.label }); });
+          /* Every copy of each evidence plan, as the app groups them: each packed and held to its bytes. Its checks (a copy that
+             can't be read, none, copies that differ) are depClosure's, already in D.missing. */
+          D.plans.forEach(function (id) {
+            (res.plans[id] || []).forEach(function (pl) { L.runTexts['proposals/' + pl._file] = recHashes[pl._file] || ''; add('proposals/' + pl._file, { role: 'evidence plan', label: 'The evidence plan a to-do was done on' }); });
+          });
+          var LBL = { evidence: { role: 'evidence run', label: 'The run a to-do was done on (its result is the evidence)' }, child: { role: 'child run', label: 'A child run of the run\'s loops' }, fulfills: { role: 'fulfilled run', label: 'A run whose spread a request on this run fulfills' } };
+          D.runs.forEach(function (x) {
+            var k = x.process + '/' + x.id, path = 'runs/' + k + '/run.json';
+            L.deps.push({ key: k, role: x.role, head: x.head || '', chain: (x.chain || []).slice(), receipt: x.receipt || '', problem: x.problem ? x.problem.kind : '' });
+            if (x.problem || !known[k]) return;
+            L.runTexts[path] = rawOf[path] || known[k]._fileHash || '';
+            add(path, LBL[x.role] || LBL.child);
+            /* The version its verdict read, packed and held to those same bytes. */
+            var pv = got[k] && got[k].pub, vt = pv && pv._texts;
+            if (vt) ['map.md', 'types.json', 'publication.json'].forEach(function (n) { if (typeof vt[n] !== 'string') return; var vp = R.pubDir(known[k]) + n; L.runTexts[vp] = rawOf[vp] || fileHash(vt[n]); add(vp, { role: 'dependency version', label: 'The version a run the work depends on ran' }); });
+            /* Every other file its verdict read (the version's screenshots), by the SHA-256 of its bytes: read again at the end
+               with what discovery read, so one replaced meanwhile is a change and the run isn't confirmed. */
+            if (pv) Object.keys(rawOf).forEach(function (vp) { var rel = vp.slice(R.pubDir(known[k]).length); if (vp.indexOf(R.pubDir(known[k])) === 0 && ['map.md', 'types.json', 'publication.json'].indexOf(rel) < 0) seenHashes[vp] = rawOf[vp]; });
+          });
+          return keepClaims(p, add, Pr);
+        });
+      });
+    }
+    /* What the run kept for next time, and where each stands: its correction's decisions and, once published, the version's
+       files as proof (a claim like any correction's). */
+    function keepClaims(p, add, Pr) {
+      var self = p.self, ks = PF.todos.recordsFor(Pr.todos, self).filter(function (x) { return x.kind === 'keep' && x.template && x.anchor; });
+      var procs = []; ks.forEach(function (k) { if (procs.indexOf(k.template.process) < 0 && EV_PROC.test(k.template.process)) procs.push(k.template.process); });
+      return procs.reduce(function (q, kp) { return q.then(function () {
+        return processContext(kp).then(function (ctx) {
+          var mineK = ks.filter(function (k) { return k.template.process === kp; });
+          /* A scan that was capped or failed can't say where a keep stands: the pack names it and is partial (4.0, MD). */
+          var cant = function (why) { (p.keepWhys = p.keepWhys || []).push(why); mineK.forEach(function (k) { p.claims.push({ correction: k.id, group: '', process: kp, text: 'Where it stands', folder: '', why: why }); }); };
+          if (ctx.why) return cant(ctx.why);
+          var gs = [];
+          try { gs = C.forProcess(ctx.runs, kp, ctx.decisions.filter(function (y) { return y.d; }).map(function (y) { return y.d; }), ctx.index, PF.learn.members(Pr.todos, ctx.runs, kp)); } catch (e) { return cant('Where what was kept for next time in ' + kp + ' stands couldn\'t be worked out.'); }
+          var vers = {};
+          mineK.forEach(function (k) {
+            var g = gs.filter(function (x) { return x.keep && x.members.some(function (m) { return m.keep && m.keep.record === k.id; }); })[0];
+            if (!g) return;
+            ctx.decisions.forEach(function (y) { if (y.d && y.d.group === g.id) add(y.path, { role: 'correction', label: 'A decision on what was kept for next time' }); });
+            if (g.landed) { vers[g.landed.folder] = true; p.claims.push({ correction: k.id, group: g.id, process: kp, text: 'Published in v' + g.landed.version, folder: g.landed.folder }); }
+          });
+          return Promise.all(Object.keys(vers).map(function (folder) {
+            var b = 'publications/' + kp + '/' + folder;
+            return listFiles(b).then(function (items) { items.forEach(function (x) { var rel = x.path.slice(b.length + 1); if (x.kind === 'file' && ['map.md', 'types.json', 'publication.json'].indexOf(rel) >= 0) add(x.path, { role: 'proof', label: 'Backs up "Published in v' + P.versionOf(folder) + '" of what was kept' }); }); }, function () { /* the claim stays unconfirmed: its files aren't here */ });
+          }));
+        });
+      }); }, Promise.resolve());
     }
 
     /* ---- after collecting: did anything the pack holds change? ---- */
@@ -3075,6 +4163,30 @@ PF.repo = (function () {
             }));
           }).then(function (x) {
             if (x[0].concat(x[1]).sort().join('/') !== p.decListing.join('/')) note('corrections/' + p.process, 'a decision on corrections was added or removed', p.key);
+            /* A run's work rests on what discovery listed (proposals/, each dependency run's folder, each loop's child folder),
+               whether or not it is living yet: each listed again; anything added or removed there is a change. Each run
+               discovery read, one it left out included, is read again and compared by its SHA-256. */
+            if (!p.discovery) return;
+            var D0 = p.discovery;
+            Object.keys(rawDiff).sort().forEach(function (rp) { note(rp, rp + ' changed between two of its reads', p.key); });
+            /* Every proposals/ original it read, one it left out (another run's) included, by its SHA-256 too. */
+            var was = Object.create(null);
+            Object.keys(D0.hashes).forEach(function (rp) { was[rp] = D0.hashes[rp]; });
+            Object.keys(D0.recs || {}).forEach(function (n) { var rp = 'proposals/' + n; if (!inPack[rp]) was[rp] = D0.recs[n]; });
+            return limited(Object.keys(was).sort(), 8, function (rp) {
+              return reread(rp).then(function (x) {
+                if (x.gone) note(rp, rp + ' was removed', p.key);
+                else if (x.why) note(rp, rp + ': ' + x.why, p.key);
+                else if (x.changed || (rawKept[was[rp]] ? x.hash : x.text) !== was[rp]) note(rp, rp + ' changed', p.key);
+              });
+            }).then(function () { return limited(Object.keys(D0.lists).sort(), 8, function (dir) {
+              var was = D0.lists[dir];
+              return ro.list(dir).then(function (it) {
+                var nowL = listKey(it), add = nowL.filter(function (n) { return was.indexOf(n) < 0; }), gone = was.filter(function (n) { return nowL.indexOf(n) < 0; });
+                if (add.length || gone.length) note(dir, dir + '/: ' + add.map(function (n) { return n.slice(n.indexOf(':') + 1) + ' was added'; }).concat(gone.map(function (n) { return n.slice(n.indexOf(':') + 1) + ' was removed'; })).join(', '), p.key);
+              }, function (e) { note(dir, dir + '/ couldn\'t be listed again (' + why(e) + ')', p.key); });
+            }); });
+          }).then(function () {
             (p.changes || []).forEach(function (c) { note(c.path, c.what, p.key); });
           });
         });
@@ -3083,14 +4195,14 @@ PF.repo = (function () {
           var s = done[path];
           if (!s || s.skipped) return null;
           if (decHash[path] && s.sha256 !== decHash[path]) { inPack[path].forEach(function (k) { note(path, path.split('/').pop() + ' changed', k); }); return null; }
-          if (s.gone || s.size !== s.statSize) { inPack[path].forEach(function (k) { note(path, changeOf(path, s), k); }); return null; }
+          if (s.gone || s.grew || s.size !== s.statSize) { inPack[path].forEach(function (k) { note(path, changeOf(path, s), k); }); return null; }
           return statOf(path).then(function (z) {
             if (z == null || z !== s.size) { inPack[path].forEach(function (k) { note(path, changeOf(path, { gone: z == null, size: z, statSize: s.size }), k); }); return; }
             if (s.text == null) return;
             /* A record: read again, and compared by its hash. */
             return ro.blob(path).then(null, function (e) { if (e && e.link) return null; throw e; }).then(function (b) {
               if (!b) { inPack[path].forEach(function (k) { note(path, path.split('/').pop() + ' was removed', k); }); return; }
-              return hashBlob(b, false).then(function (r) { if (r.sha256 !== s.sha256) inPack[path].forEach(function (k) { note(path, path.split('/').pop() + ' changed', k); }); });
+              return hashBlob(b, false, z).then(function (r) { if (r.grew || r.sha256 !== s.sha256) inPack[path].forEach(function (k) { note(path, path.split('/').pop() + (r.grew ? ' grew' : ' changed'), k); }); });
             });
           });
         });
@@ -3143,8 +4255,34 @@ PF.repo = (function () {
       rc.checks = E.checks(rc.raw, p.folder ? pubTexts : null, p.folder ? pubShots : null, p.test);
       rc.test = p.test;
       if (rc.raw && !p.folder) limits.push('The version it names isn\'t one this copy can find.');
+      /* A living run (4.0 slice 6): each record its work rests on, as packed, must be the bytes the one checked read of
+         proposals/ read; one that changed, went or wasn't read is named, and nothing kept for next time is confirmed. */
+      /* What was kept for next time whose standing couldn't be worked out: never confirmed, and the pack is partial. */
+      if (p.keepWhys && !p.living) p.keepWhys.forEach(function (w) { limits.push(w); col.unresolved.push(p.key + ': ' + w); });
+      if (p.living) {
+        var L = p.living, lm = L.missing.slice().concat(p.keepWhys || []);
+        Object.keys(L.recs).sort().forEach(function (path) {
+          var x = done[path], was = L.recs[path];
+          if (!x || x.gone) { lm.push(path + ' was removed while the pack was made.'); return; }
+          if (x.skipped || x.text == null) { lm.push(path + ' wasn\'t read into the pack, so what it says can\'t be checked.'); return; }
+          /* The bytes packed are the bytes the checked read judged: the same SHA-256, whole, as for the runs below. */
+          var h = (L.recTexts || {})[path];
+          if (!was || !h || (rawKept[h] ? x.sha256 : fileHash(x.text)) !== h) lm.push(path + ' changed while the pack was made.');
+        });
+        /* Each run the work depends on and each evidence plan, read into the pack as it was read for the closure. */
+        Object.keys(L.runTexts || {}).sort().forEach(function (path) {
+          var x = done[path];
+          if (!x || x.gone) { lm.push(path + ' was removed while the pack was made.'); return; }
+          if (x.skipped || x.text == null) { lm.push(path + ' wasn\'t read into the pack, so what it says can\'t be checked.'); return; }
+          /* The bytes packed are the bytes the checked read judged: the same SHA-256, whole. */
+          if (!L.runTexts[path] || (rawKept[L.runTexts[path]] ? x.sha256 : fileHash(x.text)) !== L.runTexts[path]) lm.push(path + ' changed while the pack was made.');
+        });
+        lm.forEach(function (m) { col.unresolved.push(p.key + ': ' + m); });
+        if (lm.length) { limits.push('What the run\'s work rests on isn\'t all in this pack, so nothing it claims from its to-dos is confirmed.'); p.claims.forEach(function (c) { if (c.process) c.why = c.why || 'what the run\'s work rests on isn\'t all in this pack.'; }); }
+        rc.living = { head: L.head, chain: L.chain.slice(), receipt: L.receipt, records: Object.keys(L.recs).sort(), deps: (L.deps || []).map(function (d) { return { key: d.key, role: d.role, head: d.head, chain: d.chain, receipt: d.receipt, confirmed: !d.problem && !lm.length }; }), missing: lm, complete: !lm.length };
+      }
       rc.claims = p.claims.map(function (c) {
-        var proof = c.folder ? ['map.md', 'types.json', 'publication.json'].map(function (n) { return 'publications/' + p.process + '/' + c.folder + '/' + n; }) : [];
+        var proof = c.folder ? ['map.md', 'types.json', 'publication.json'].map(function (n) { return 'publications/' + (c.process || p.process) + '/' + c.folder + '/' + n; }) : [];
         var have = proof.length && proof.every(function (x) { return p.files.some(function (f) { return f.path === x; }) && done[x] && !done[x].gone; });
         var ok = !!have && !c.why;
         return { correction: c.correction, group: c.group, text: c.text, folder: c.folder, proof: proof, verified: ok, status: ok ? c.text : 'Can\'t be confirmed from this pack: ' + (c.why || 'the files of that version aren\'t all here.') };
@@ -3201,7 +4339,7 @@ PF.repo = (function () {
       return sizedText(PF.people.FILE, PEOPLE_MAX).then(function (r) {
         if (r.missing) return;
         if (r.text != null) PF.people.clean(json(r.text)).forEach(function (x) { col.people[x.id] = x.name; });
-        peopleOut = [{ path: PF.people.FILE, reason: 'The people directory and its email fields are left out.' + (r.text != null ? ' The page shows names and IDs from it.' : ' It was too big to read for names, so the page shows IDs.') }];
+        peopleOut = [{ path: PF.people.FILE, reason: 'The people directory and its email fields are left out.' + (r.text != null ? ' The page shows names and IDs from it.' : r.changed ? ' It changed while it was read, so the page shows IDs.' : ' It was too big to read for names, so the page shows IDs.') }];
       });
     }).then(function () {
       var list = fullEstimate();
@@ -3224,7 +4362,7 @@ PF.repo = (function () {
           attempt++;
           paths.forEach(function (pth) { forget(pth); delete decHash[pth]; });
           Object.keys(rc.runs).forEach(function (k) { var base = 'runs/' + k + '/'; Object.keys(done).forEach(function (pth) { if (pth.indexOf(base) === 0) forget(pth); }); });
-          procCache = {}; decHash = {};
+          procCache = {}; decHash = {}; propsOnce = null; recHashes = Object.create(null); lists = Object.create(null); seenHashes = Object.create(null); rawOf = Object.create(null); rawDiff = Object.create(null);
           /* Every attempt starts as the first did: sizes and the cap checked before anything new is read. */
           return preEstimate(keysAll).then(function () { return planAll(keysAll); }).then(fullEstimate).then(round);
         });
@@ -3280,17 +4418,18 @@ PF.repo = (function () {
             if (f.bytes) { var parts = f.bytes; f.bytes = null; return parts.reduce(function (p2, u) { return p2.then(function () { return w.data(u); }); }, Promise.resolve()); }
             /* Not kept in memory (the command line): read again, chunk by chunk; the writer checks it's the same size and CRC. */
             return ro.blob(f.path).then(function (b) {
-              if (!b) { var e = new Error(f.path + ' changed while the pack was written. Try again.'); e.changed = true; throw e; }
+              if (!b || b.size !== f.size) { if (b && b.close) b.close(); var e = new Error(f.path + ' changed while the pack was written. Try again.'); e.changed = true; throw e; }
               /* Read again: the bytes written must have the SHA-256 the manifest gives, not only the same size and CRC. */
               var off = 0, again = S.create();
               function step() {
                 stop();
-                if (off >= b.size) {
+                if (off >= f.size) {
                   if (b.close) b.close();
                   if (again.digest() !== f.sha256) { var e2 = new Error(f.path + ' changed while the pack was written. Try again.'); e2.changed = true; throw e2; }
                   return;
                 }
-                return b.slice(off, Math.min(b.size, off + EV_CHUNK)).arrayBuffer().then(function (ab) { var u = new Uint8Array(ab); if (!u.length) throw new Error(f.path + ' ended early while it was read.'); off += u.length; again.update(u); return w.data(u); }).then(evYield).then(step);
+                /* Never past the size packed (one that grew or shrank was refused above): all that is read again. */
+                return b.slice(off, Math.min(f.size, off + EV_CHUNK)).arrayBuffer().then(function (ab) { var u = new Uint8Array(ab); if (!u.length) throw new Error(f.path + ' ended early while it was read.'); off += u.length; again.update(u); return w.data(u); }).then(evYield).then(step);
               }
               return Promise.resolve().then(step).then(null, function (e) { if (b.close) b.close(); throw e; });
             });
@@ -3303,5 +4442,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, saveScope: saveScope, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, proposalsFinal: proposalsFinal, planFinal: planFinal, proposalsSig: proposalsSig, readTodos: readTodos, readKept: readKept, withdrawKeep: withdrawKeep, readEvidence: readEvidence, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, saveScope: saveScope, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection, readLoopChildren: readLoopChildren, CHILD_SCAN: CHILD_SCAN, depVerdict: depVerdict, depRead: depRead, depClosure: depClosure, judgeRunFile: judgeRunFile, gateWrites: gateWrites, originOf: originOf, readPeopleOnly: function (fs) { return loadPeople(readOnlyView(fs, 'Reading for other apps')); } };
 })();

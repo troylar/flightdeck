@@ -205,6 +205,22 @@ PF.util = (function () {
   /* ---------- The draft size limit (docs/design.md section 27) ----------
      One limit for every draft read and write, in UTF-8 bytes, so Flightdeck never saves a draft it would refuse to read. */
   var DRAFT_BYTES = 1048576;
+  /* JSON nesting every reader takes (4.0): no file Flightdeck writes nests past 12, and a value nested thousands deep would
+     overflow the stack of whatever walks it (a hash, a copy, a comparison). Checked on the text, at the loading boundary,
+     before anything parses it: jsonTooDeep(text) is whether it nests past JSON_DEPTH (strings skipped). */
+  var JSON_DEPTH = 64;
+  function jsonTooDeep(text) {
+    var t = String(text == null ? '' : text), d = 0, inStr = false, esc = false;
+    for (var i = 0; i < t.length; i++) {
+      var c = t.charCodeAt(i);
+      if (inStr) { if (esc) esc = false; else if (c === 92) esc = true; else if (c === 34) inStr = false; continue; }
+      if (c === 34) inStr = true;
+      else if (c === 91 || c === 123) { if (++d > JSON_DEPTH) return true; }
+      else if (c === 93 || c === 125) d--;
+    }
+    return false;
+  }
+  var DEEP_WHY = 'is nested more than ' + JSON_DEPTH + ' levels deep, deeper than any Flightdeck file, so it isn\'t read';
   function utf8Bytes(s) {
     var n = 0; s = String(s);
     for (var i = 0; i < s.length; i++) { var c = s.charCodeAt(i); n += c < 0x80 ? 1 : c < 0x800 ? 2 : c >= 0xd800 && c < 0xdc00 && i + 1 < s.length && s.charCodeAt(i + 1) >= 0xdc00 && s.charCodeAt(i + 1) < 0xe000 ? (i++, 4) : 3; }
@@ -224,7 +240,7 @@ PF.util = (function () {
     return b >= 0.9 * DRAFT_BYTES ? String(Math.round(b / 1048576 * 100) / 100) + ' of 1 MB' : '';
   }
 
-  return { DRAFT_BYTES: DRAFT_BYTES, utf8Bytes: utf8Bytes, draftTooBig: draftTooBig, draftSize: draftSize, drift: drift, esc: esc, timeOnDayIn: timeOnDayIn, safeUrl: safeUrl, mdInline: mdInline, mdBlock: mdBlock, excerpt: excerpt, stepLabel: stepLabel, stepName: stepName, stepRef: stepRef, slug: slug, randomId: randomId, hash: hash, nthKey: nthKey, nthOf: nthOf,
+  return { JSON_DEPTH: JSON_DEPTH, jsonTooDeep: jsonTooDeep, DEEP_WHY: DEEP_WHY, DRAFT_BYTES: DRAFT_BYTES, utf8Bytes: utf8Bytes, draftTooBig: draftTooBig, draftSize: draftSize, drift: drift, esc: esc, timeOnDayIn: timeOnDayIn, safeUrl: safeUrl, mdInline: mdInline, mdBlock: mdBlock, excerpt: excerpt, stepLabel: stepLabel, stepName: stepName, stepRef: stepRef, slug: slug, randomId: randomId, hash: hash, nthKey: nthKey, nthOf: nthOf,
     hm: hm, when: when, full: full, day: day, dueWords: dueWords, localDateTime: localDateTime, clock: clock, duration: duration, timeToday: timeToday };
 })();
 /* Name order for the lists people scan by name (2.11): numbers in a name compare as numbers, so Process 2 comes before

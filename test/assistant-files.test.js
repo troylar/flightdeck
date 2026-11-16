@@ -153,9 +153,9 @@ rule('B3: contractWrite writes only over the exact text it expects, and reads it
     assert.ok(r.ok, 'replaced');
     r = await PF.repo.contractWrite(f, 'AGENTS.md', 'old', 'newer');
     assert.ok(r.conflict && r.theirs === 'new', 'a file that changed is never overwritten');
-    r = await PF.repo.contractWrite(f, 'x/new.md', null, 'fresh');
+    r = await PF.repo.contractWrite(f, '.flightdeck/new.md', null, 'fresh');
     assert.ok(r.ok, 'null: must not exist');
-    r = await PF.repo.contractWrite(f, 'x/new.md', null, 'again');
+    r = await PF.repo.contractWrite(f, '.flightdeck/new.md', null, 'again');
     assert.ok(r.conflict, 'and it now exists');
     assert.strictEqual((await f.read('AGENTS.md')).text, 'new');
   }
@@ -176,7 +176,7 @@ rule('B3: archiveCopy reserves a new folder each time and reads every copy back;
   // A copy that doesn't read back the same stops everything.
   const bad = folderFs({}); const orig = bad.read.bind(bad);
   bad.read = (p, o) => /replaced/.test(p) ? Promise.resolve({ text: 'garbled' }) : orig(p, o);
-  const d = await PF.repo.archiveDir(bad, 'u/replaced');
+  const d = await PF.repo.archiveDir(bad, '.flightdeck/updates/2.7.0/replaced');
   await assert.rejects(PF.repo.archiveCopy(bad, d, 'AGENTS.md', 'x'), /didn't read back/);
   // mkdirExclusive refuses a folder that's there.
   await f.mkdirExclusive('fresh/one');
@@ -1651,7 +1651,7 @@ rule('Round 7, contractWrite: from the first write on, every ending is a fact, n
       write: async (p, t) => { if (x.writeThrows) { if (x.lands) now = t; else if (x.after) now = x.after; throw new Error('write no'); } now = x.after || t; }
     };
     let r, threw = null;
-    try { r = await PF.repo.contractWrite(fake, 'a.md', 'old', 'new'); } catch (e) { threw = e.message; }
+    try { r = await PF.repo.contractWrite(fake, 'AGENTS.md', 'old', 'new'); } catch (e) { threw = e.message; }
     if (want.throws) { assert.strictEqual(threw, want.throws, name); continue; }
     assert.strictEqual(threw, null, name + ': no bare error');
     for (const k of Object.keys(want)) assert.strictEqual(r[k], want[k], name + ': ' + k + ': ' + JSON.stringify(r));
@@ -1795,12 +1795,12 @@ rule('Round 8, archiveStaged: a removal that fails is only called a failure if t
   for (const [name, x, want] of REMOVES) {
     let now = 'staged', removing = false;
     const fake = {
-      read: async (p) => { if (p !== 'u/a.md') return { text: 'staged' }; if (removing && x.checkThrows) throw new Error('read no'); return now == null ? null : { text: now }; },
+      read: async (p) => { if (p !== '.flightdeck/updates/2.6.0/a.md') return { text: 'staged' }; if (removing && x.checkThrows) throw new Error('read no'); return now == null ? null : { text: now }; },
       write: async () => {},
       remove: async () => { removing = true; if (!x.stays) now = null; if (x.rejects) throw new Error('remove no'); }
     };
     let r, threw = null;
-    try { r = await PF.repo.archiveStaged(fake, 'd', 'u/a.md', 'staged/a.md', 'staged'); } catch (e) { threw = e.message; }
+    try { r = await PF.repo.archiveStaged(fake, '.flightdeck/updates/2.7.0/replaced/d', '.flightdeck/updates/2.6.0/a.md', 'staged/a.md', 'staged'); } catch (e) { threw = e.message; }
     if (want.throws) { assert.strictEqual(threw, want.throws, name); continue; }
     assert.strictEqual(threw, null, name + ': no bare error');
     for (const k of Object.keys(want)) assert.strictEqual(r[k], want[k], name + ': ' + k + ': ' + JSON.stringify(r));

@@ -226,13 +226,15 @@ PF.corrections = (function () {
   function groups(list) {
     var by = Object.create(null), out = [];
     list.forEach(function (c) {
-      var k = groupKey(c), g = by[k];
-      if (!g) { g = by[k] = { id: 'g' + U.hash(k) + U.hash(k + '|2'), process: c.process, target: c.target, change: c.change, from: c.from, sig: c.sig, members: [], legacy: !!c.legacy }; out.push(g); }
+      /* A step kept for next time (4.0 slice 5, PF.learn) groups on its checklist and place, never its wording. */
+      var k = c.keep ? PF.learn.groupKey(c) : groupKey(c), g = by[k];
+      if (!g) { g = by[k] = { id: 'g' + U.hash(k) + U.hash(k + '|2'), process: c.process, target: c.target, change: c.change, from: c.from, sig: c.sig, members: [], legacy: !!c.legacy }; if (c.keep) g.keep = true; out.push(g); }
       g.members.push(c);
     });
     out.forEach(function (g) {
-      var runs = Object.create(null); g.members.forEach(function (c) { runs[c.run] = 1; });
-      g.runs = Object.keys(runs).length; g.first = g.members[0]; g.authors = g.members.map(function (c) { return c.by; }).filter(function (b, i, a) { return a.indexOf(b) === i; });
+      var runs = Object.create(null); g.members.forEach(function (c) { runs[c.keep && c.runKey ? c.runKey : c.run] = 1; });
+      g.runs = Object.keys(runs).length; g.first = g.members[0];
+      if (g.keep) g.alternatives = PF.learn.alternatives(g); g.authors = g.members.map(function (c) { return c.by; }).filter(function (b, i, a) { return a.indexOf(b) === i; });
     });
     return out;
   }
@@ -254,7 +256,7 @@ PF.corrections = (function () {
     if (o.kind !== 'correction-decision' || typeof o.group !== 'string' || !ID.test(o.group) || DECIDE.indexOf(o.status) < 0) return null;
     var r = o.result && typeof o.result === 'object' && /^[0-9a-f]{8}$/.test(o.result.sig || '') ? { step: typeof o.result.step === 'string' && CID.test(o.result.step) ? o.result.step : '', sig: o.result.sig } : null;
     var out = Object.assign(d, { kind: 'correction-decision', group: o.group, status: o.status, act: typeof o.act === 'string' && ID.test(o.act) ? o.act : '', result: o.addressed === true ? null : r, addressed: o.addressed === true && o.status === 'applied', dv: whole(o.dv),
-      members: Array.isArray(o.members) ? o.members.filter(function (m) { return typeof m === 'string' && ID.test(m); }).slice(0, 500) : [] });
+      members: Array.isArray(o.members) ? o.members.filter(function (m) { return typeof m === 'string' && ID.test(m); }).slice(0, MEMBERS_MAX) : [] });
     if (o.status === 'included') {
       var m = typeof o.folder === 'string' ? FOLDER.exec(o.folder) : null;
       if (!m || +m[1] !== o.version) return null;
@@ -266,8 +268,18 @@ PF.corrections = (function () {
      decision this window shows (opts.current), and seen names that decision's file. Declining needs a reason; only the
      author of every correction in the group can withdraw it. An applied one records its result (opts.result, from outcome),
      so a later change to that step shows; older copies ignore it. */
+  /* A decision names at most MEMBERS_MAX members (its reader keeps that many). A keep group with more is refused, never
+     written short (the rest would reopen it): '' or why. Every other group is decided as before. */
+  var MEMBERS_MAX = 500;
+  function decideWhy(g) {
+    if (!g || !g.keep) return '';
+    var cw = PF.learn.copiesWhy(g); if (cw) return cw;
+    if ((g.members || []).length <= MEMBERS_MAX) return '';
+    return 'This correction has ' + g.members.length + ' keeps, more than the ' + MEMBERS_MAX + ' one decision can name, so nothing was decided. Withdraw keeps no decision names (whoever kept one, or the checklist\'s owner while it is over) until ' + MEMBERS_MAX + ' or fewer remain, then decide it.';
+  }
   function decision(g, by, status, reason, at, opts) {
     opts = opts || {};
+    if (decideWhy(g)) throw fail(decideWhy(g));
     if (DECIDE.indexOf(status) < 0) throw fail('Unknown decision.');
     reason = norm(reason);
     if (status === 'declined' && !reason) throw fail('Why not? The runs will show this.', 'corr-reason');
@@ -286,7 +298,8 @@ PF.corrections = (function () {
     }
     return d;
   }
-  function canWithdraw(g, by) { return !!by && g.members.every(function (c) { return c.by === by; }); }
+  /* Only a person withdraws, and only what they wrote: a keep a tool filed (byKind 'tool') is never a person's, whatever its name. */
+  function canWithdraw(g, by) { return !!by && g.members.every(function (c) { return c.by === by && c.byKind !== 'tool'; }); }
 
   /* Where each group stands, from decisions only. The current decision is the one with the highest rev; two at the same rev
      (made at once from the same state) are settled by file name, the same way everywhere, and flagged Needs review. A
@@ -310,7 +323,7 @@ PF.corrections = (function () {
       pick(d.process + '/' + d.group, d);
     });
     return gs.map(function (g) {
-      var hit = cur[g.process + '/' + g.id], d = hit ? hit.d : null, st = d ? d.status : 'open', again = null;
+      var hit = cur[g.process + '/' + g.id], d = hit ? hit.d : null, st = d ? d.status : 'open', again = null, reviewed = null;
       /* "It's in vN" is applied, with the version a person named. */
       if (st === 'included') st = 'applied';
       /* Two decided at once is unresolved: the group stays open, as Needs review, until someone decides again. */
@@ -318,11 +331,24 @@ PF.corrections = (function () {
       if (d && d.kind === 'correction-decision') {
         var known = d.members || [], fresh = g.members.filter(function (c) { return known.indexOf(c.id) < 0; });
         if (fresh.length && (st === 'declined' || st === 'withdrawn')) { again = { reason: d.reason, by: d.by, status: st }; st = 'open'; }
+        /* Kept for next time (4.0 slice 5): a wording kept after the owner applied the group was never reviewed, so the
+           group is open again for the owner, and what was reviewed keeps its own standing (reviewed, landing's
+           reviewedLanded). The same words again join what was decided. */
+        else if (g.keep && fresh.length && st === 'applied' && !(hit && hit.tie)) {
+          var said = Object.create(null); g.members.forEach(function (c) { if (known.indexOf(c.id) >= 0) said[norm(c.change.text)] = 1; });
+          if (fresh.some(function (c) { return !said[norm(c.change.text)]; })) {
+            reviewed = { decision: d, members: g.members.filter(function (c) { return known.indexOf(c.id) >= 0; }).map(function (c) { return c.id; }) };
+            again = { reason: 'another wording was kept since', by: d.by, status: 'applied' }; st = 'open';
+          }
+        }
       }
-      return Object.assign({}, g, { status: st, decision: d, tie: !!(hit && hit.tie), again: again, label: hit && hit.tie ? 'Needs review' : st === 'applied' && d && d.addressed ? 'Addressed differently' : STATUS[st] });
+      var out = Object.assign({}, g, { status: st, decision: d, tie: !!(hit && hit.tie), again: again, label: hit && hit.tie ? 'Needs review' : st === 'applied' && d && d.addressed ? 'Addressed differently' : g.keep && st === 'open' ? 'Suggested' : g.keep && st === 'applied' ? 'Applied to draft' : STATUS[st] });
+      /* Only a keep group carries what its owner reviewed: every other group is exactly as before. */
+      if (g.keep) out.reviewed = reviewed;
+      return out;
     });
   }
-  function label(g) { return g.tie ? 'Needs review' : g.landed ? 'Published in v' + g.landed.version : g.status === 'applied' && g.decision && g.decision.addressed ? 'Addressed differently' : STATUS[g.status] || STATUS.open; }
+  function label(g) { return g.keep ? PF.learn.label(g) : g.tie ? 'Needs review' : g.landed ? 'Published in v' + g.landed.version : g.status === 'applied' && g.decision && g.decision.addressed ? 'Addressed differently' : STATUS[g.status] || STATUS.open; }
   /* Open groups per step ID, for marking steps in the editor's preview. */
   function openCounts(gs) {
     var c = Object.create(null);
@@ -550,6 +576,9 @@ PF.corrections = (function () {
       if (ch.op === 'add') out.now = view(o, r0);
       return Object.assign(out, { state: 'already', result: ch.op === 'remove' ? null : view(o, r0), removed: ch.op === 'remove', text: text });
     }
+    /* Kept for next time (4.0 slice 5): the draft already has one of the wordings at the place asked for. */
+    var alts = g.keep && g.alternatives && g.alternatives.length > 1 ? g.alternatives : null, atNow = alts && edited == null ? placed(g, o) : null;
+    if (atNow && alts.some(function (a) { return norm(a.text) === norm(atNow.text); })) return Object.assign(out, { state: 'already', now: view(o, atNow), result: view(o, atNow), text: text });
     if (t.gone) return Object.assign(out, { state: 'gone', reason: t.gone });
     if (!t.ops.length) return Object.assign(out, { state: 'already', result: out.now, text: text });
     var res = run(text, t.ops);
@@ -559,6 +588,10 @@ PF.corrections = (function () {
     /* The step as the run saw it is the group's signature; for a new step, the step it goes after. */
     var anchor = ch.op === 'add' && ch.where === 'end' ? null : s, map = M.parse(text);
     if (anchor && g.sig && stepSig(map, anchor.id) !== g.sig) { out.state = 'changed'; out.reason = ch.op === 'add' ? 'The step it goes after changed in the draft since the run\'s version.' : 'This step changed in the draft since the run\'s version.'; }
+    /* A step kept for the end of a phase: the phase as the run's version had it is its place; one that gained, lost or changed
+       a step since needs a person, as a changed step does. Several wordings: the owner chooses one (or writes their own). */
+    else if (g.keep && !anchor && g.sig && PF.learn.phaseSig(map, g.target.phase) !== g.sig) { out.state = 'changed'; out.reason = 'Its phase changed in the draft since the run\'s version. Check where it goes before applying it.'; }
+    if (alts && edited == null) { out.state = 'changed'; out.reason = 'It was kept for next time in ' + alts.length + ' wordings. Choose one, or write your own, before applying it (this shows the first).' + (out.reason ? ' ' + out.reason : ''); }
     return out;
   }
   /* review() for a phase's note or a gate's: the note as the draft has it, and as it would be. */
@@ -667,6 +700,12 @@ PF.corrections = (function () {
     return gs.map(function (g) {
       var out = Object.assign({}, g, { landed: null, proofless: false });
       if (g.status === 'legacy' && !g.tie) out.proofless = out.old = true;
+      if (g.reviewed && !g.tie) {
+        var rg = Object.assign({}, g, { status: 'applied', decision: g.reviewed.decision, reviewed: null, members: g.members.filter(function (c) { return g.reviewed.members.indexOf(c.id) >= 0; }) });
+        var rl = landing([rg], pubs, clashes)[0];
+        out.reviewedLanded = rl.landed;
+        if (rl.proofless) out.reviewedProofless = true;
+      }
       if (g.status !== 'applied' || g.tie) return out;
       var d = g.decision, inc = d && d.status === 'included' ? d : null, own = ownVersion(g);
       for (var i = 0; i < ok.length; i++) {
@@ -684,8 +723,12 @@ PF.corrections = (function () {
     });
   }
   /* Every group on a process with where it stands and which version has it. proc: { all, clashes } (its publications). */
-  function forProcess(runs, pid, decisions, proc) {
-    return landing(status(groups(collect(runs, pid)), decisions), proc ? proc.all : [], proc ? proc.clashes : []);
+  /* keeps (4.0 slice 5): the steps kept for next time on this process (PF.learn.members), corrections like any other. Without
+     them every group is exactly as before. */
+  function forProcess(runs, pid, decisions, proc, keeps) {
+    var list = collect(runs, pid);
+    if (keeps && keeps.length) list = list.concat(keeps).sort(function (a, b) { return a.at < b.at ? -1 : a.at > b.at ? 1 : a.id < b.id ? -1 : 1; });
+    return landing(status(groups(list), decisions), proc ? proc.all : [], proc ? proc.clashes : []);
   }
   /* What a publish of this text includes: applied groups not yet published whose change the text makes, with each one's
      result (for publication.json, capped at 500), and the applied ones left out because the draft no longer matches what was
@@ -693,6 +736,11 @@ PF.corrections = (function () {
   function forPublish(text, gs) {
     var inc = [], left = [];
     (gs || []).forEach(function (g) {
+      /* A keep group open again for a new wording still publishes what its owner reviewed and applied: that subgroup is
+         listed (and proved) under the group, and the new wordings stay open. */
+      if (g.keep && g.status === 'open' && g.reviewed && !g.tie && !g.reviewedLanded && !g.reviewedProofless)
+        g = Object.assign({}, g, { status: 'applied', decision: g.reviewed.decision, reviewed: null, again: null, landed: null, proofless: false,
+          members: g.members.filter(function (c) { return g.reviewed.members.indexOf(c.id) >= 0; }) });
       if (g.status !== 'applied' || g.tie || g.landed || g.proofless) return;
       /* Addressed differently isn't the proposed change: never listed, and not "left out" either. */
       if (g.decision && g.decision.addressed) return;
@@ -718,7 +766,8 @@ PF.corrections = (function () {
     var out = [], by = Object.create(null);
     if (!me) return out;
     (gs || []).forEach(function (g) {
-      var mine = g.members.some(function (c) { return c.by === me; });
+      /* LE: only what the person wrote is theirs: a tool's keep under their name never is. */
+      var mine = g.members.some(function (c) { return c.by === me && c.byKind !== 'tool'; });
       if (!mine) return;
       if (g.landed && (!since || !g.landed.at || g.landed.at >= since)) {
         var k = 'l.' + g.process + '.' + g.landed.folder;
@@ -735,6 +784,8 @@ PF.corrections = (function () {
   function brief(proc, gs, opts) {
     opts = opts || {};
     var map = opts.map, nameOf = opts.nameOf || function (x) { return x; }, images = 'images/' + proc.id + '/';
+    /* LE: a keep a tool filed is said to be the tool's, by its name, never a person's. */
+    var who = function (m) { return m.byKind === 'tool' ? m.by + ' (a tool)' : nameOf(m.by); };
     var todo = gs.filter(function (g) { return g.status === 'open' && !g.landed; });
     /* People's words go in as quoted lines, so nothing in them reads as part of the brief. */
     var quote = function (t) { return String(t).split(/\r?\n/).map(function (l) { return '  > ' + l; }).join('\n'); };
@@ -748,13 +799,13 @@ PF.corrections = (function () {
       var c = g.first, x = g.target.step && map && M.findStep(map, g.target.step);
       var tid = g.target.step || g.target.gate || g.target.phase;
       L.push('## ' + (i + 1) + '. ' + OP_LABEL[g.change.op] + ': ' + (x ? '"' + x.step.text + '"' : g.target.step ? 'step ' + tid : g.target.gate ? 'the note of the gate ' + tid : 'the note of the phase ' + tid) + ' {#' + tid + '}', '');
-      L.push('- Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + ': ' + g.members.map(function (m) { return nameOf(m.by) + ' in "' + m.runTitle + '" (' + (m.test ? 'test run, staged v' : 'v') + m.version + ')' + (m.at ? ', ' + m.at.slice(0, 10) : ''); }).join('; '));
+      L.push('- Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + ': ' + g.members.map(function (m) { return who(m) + ' in "' + m.runTitle + '" (' + (m.test ? 'test run, staged v' : 'v') + m.version + ')' + (m.at ? ', ' + m.at.slice(0, 10) : ''); }).join('; '));
       if (g.from) L.push('- From (what v' + c.version + ' said):', quote(g.from));
       var p = proposal(c, map); if (p) L.push('- Proposed:', quote(p));
       if (g.change.op === 'screenshot' && g.change.shot) L.push('- Screenshot: `' + g.change.shot + '`');
       g.members.forEach(function (m) {
-        if (m.why) L.push('- ' + (g.change.op === 'describe' ? 'Problem' : 'Why') + ' (' + nameOf(m.by) + '): ' + m.why.replace(/\n/g, ' '));
-        if (m.happened) L.push('- What happened (' + nameOf(m.by) + '): ' + m.happened.replace(/\n/g, ' '));
+        if (m.why) L.push('- ' + (g.change.op === 'describe' ? 'Problem' : 'Why') + ' (' + who(m) + '): ' + m.why.replace(/\n/g, ' '));
+        if (m.happened) L.push('- What happened (' + who(m) + '): ' + m.happened.replace(/\n/g, ' '));
         (m.files || []).forEach(function (f) { L.push('- Attached: `' + f + '`' + (g.change.op === 'screenshot' && PF.attach.kindOf(f) === 'image' ? ' (the right screenshot: add it as a new file under `' + images + '` and point the step at it)' : '')); });
       });
       L.push('');
@@ -773,5 +824,5 @@ PF.corrections = (function () {
   return { LIMITS: LIMITS, OPS: OPS, OTHER: OTHER, OP_LABEL: OP_LABEL, STATUS: STATUS, build: build, cleanNote: cleanNote, stepSig: stepSig, collect: collect, groups: groups, cleanDecision: cleanDecision, verdict: verdict,
     decision: decision, canWithdraw: canWithdraw, status: status, label: label, openCounts: openCounts, statusById: statusById, forRun: forRun, proposal: proposal, diffWords: diffWords, brief: brief, summary: summary,
     toOps: toOps, onNote: onNote, targetKey: targetKey, targetName: targetName, review: review, inverse: inverse, outcome: outcome, changedSince: changedSince, alternatives: alternatives, applies: function (g) { return !!APPLIES[g.change.op] && !g.legacy && !g.newer; },
-    LISTED_MAX: LISTED_MAX, listed: listed, satisfied: satisfied, landing: landing, forProcess: forProcess, forPublish: forPublish, changedIn: changedIn, acks: acks, checkable: checkable };
+    LISTED_MAX: LISTED_MAX, listed: listed, satisfied: satisfied, landing: landing, forProcess: forProcess, forPublish: forPublish, decideWhy: decideWhy, MEMBERS_MAX: MEMBERS_MAX, changedIn: changedIn, acks: acks, checkable: checkable };
 })();

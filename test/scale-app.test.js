@@ -203,17 +203,25 @@ rule('A click during a waiting batch draw draws at once and drops the waiting on
 
 rule('Typing survives a batch draw that lands while you type: a step note, a Fill in value and a follow-up reason keep their text, focus and caret', async () => {
   const f = await pickerApp(400, { gen: { typed: true } }), app = f.app;
+  /* A running run (read first, so it's in the first batch), picked up by someone on the team, with its step's note box. Its
+     recorder's window has closed (no session), so the pickup is an ordinary save, not a conflict with a live recorder. */
+  const parse = p => { try { return JSON.parse(f.files[p]); } catch (e) { return null; } };
+  const path = Object.keys(f.files).filter(p => RUNS.test(p)).find(p => { const r = parse(p); return r && !r.ended; });
+  { const r = parse(path); if (r.recorder) r.recorder.session = null; f.files[path] = JSON.stringify(r, null, 2); }
   f.holdRuns(RUNS);
   app.click('connect'); await app.tick(80);
   await nextBatch(f);
-  /* A running run (read first, so it's in the first batch), picked up by someone on the team, with its step's note box. */
   const people = JSON.parse(f.files['people.json']), me = people.filter(p => !p.inactive)[0].id;
   app.choose(me); await app.tick(10);
-  const parse = p => { try { return JSON.parse(f.files[p]); } catch (e) { return null; } };
-  const path = Object.keys(f.files).filter(p => RUNS.test(p)).find(p => { const r = parse(p); return r && !r.ended; });
   const key = path.split('/').slice(1, 3).join('/');
   app.click('open-run', key); await app.tick(20);
   app.click('pickup'); await app.tick(40);
+  /* The pickup's save reads the run (held like every run read here) before each write, its guard too: let those reads go
+     until the save has written something (the run, or a conflict copy), so it lands before the typing below, not during. */
+  const dir = path.replace(/run\.json$/, ''), mark = () => Object.keys(f.files).filter(p => p.indexOf(dir) === 0).map(p => p + f.files[p].length).join();
+  const was = mark();
+  for (let i = 0; i < 100 && mark() === was; i++) { f.release(); await app.tick(3); }
+  assert.notStrictEqual(mark(), was, 'set-up: the pickup was saved');
   if (app.html().indexOf('id="note-text"') < 0) { const st = (/data-act="sel" data-id="([^"]+)"/.exec(app.html()) || [])[1]; if (st) { app.click('sel', st); await app.tick(10); } }
   /* A box typed in, focused, caret mid-text; then a batch draw lands. Its text, focus and caret are all still there. */
   const survives = async (id, text, what) => {

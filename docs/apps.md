@@ -91,10 +91,10 @@ An error object (exit 1 or 5) has `contract`, `app`, `error` and `problems`, and
 | Kind | Means |
 |---|---|
 | `unreadable` | A file or a part of the folder failed to read (a cloud placeholder that isn't downloaded yet, a permissions error). One version that can't be read is named on its own; the other versions are still listed. |
-| `nofile` | A run folder without `run.json` (it may still be arriving, or it was deleted) |
+| `nofile` | A run folder without `run.json` (it may still be arriving, or it was deleted). From 4.0, also any file another record depends on that isn't in the folder at all: the parent or fact a to-do rests on, the run a to-do's evidence names (`runs/<process>/<id>/run.json`), the evidence plan a done names (`proposals/<plan>.json`, also when the plan reads but no decision of it says it started that run), or the checklist a keep's items run (`publications/<process>`). What rests on it is held, never taken as settled. |
 | `malformed` | A run, plan, plan decision, follow-up decision or `people.json` that won't parse or isn't in the format. What's left out and what's still shown: [`malformed` in detail](#malformed-in-detail), below. |
 | `newer` | A run, version or file from a newer Flightdeck, including a run whose own copy of its checklist or step types uses features this copy can't read. A run like that is named here and left out of the data. More in [`newer` in detail](#newer-in-detail), below. |
-| `unusable` | A version this copy can't use, with why. At a run's `run.json`: the run doesn't match its version (its checklist or version number differs from the version's record), so the app opens it read-only; the version itself is fine. |
+| `unusable` | A version this copy can't use, with why. At a run's `run.json`: the run doesn't match its version (its checklist or version number differs from the version's record), so the app opens it read-only; the version itself is fine. Also at a run's `run.json` when its own checklist can't be run by this copy (a step type it doesn't have, for one) and nothing else names it. |
 | `conflict` | Conflict copies or lost saves beside a run, for a person to resolve in the app |
 | `still-syncing` | A version whose files haven't all arrived |
 | `link` | A link the command didn't follow |
@@ -646,6 +646,194 @@ With the stories below it. The JSON carries the same: `added`, `proposed` (with 
 | The same key, another request | `key-taken`: "This key already names a different request. Changed fields: …. Read that request before choosing a new key." |
 | A story's child is missing an input | The preview names it: "1 needs environment". Its scope change is valid; its assessment can't start yet. |
 | The write can't be confirmed | `failed`: "Could not confirm whether the request was saved. Retry with the same key." Never a new key: that could ask twice. |
+| Its name was taken while it was written, and what is there can't be read back (a link, which is never read through, a file over the record limit, one gone again, one that isn't complete JSON or one its reader refuses, with that reason) | exit 4 (`held`; a loop review, `failed`), the file named in `problems`: whether it is this request isn't known, so it is never `already`. Every command that files into `proposals/` (loop, todo, spread, fact) reads a taken name back the same way. |
+
+## To-dos on a living run
+
+A running run can carry to-dos (4.0, docs/design.md section 45): work found along the way that comes before one of its gates. They live in `proposals/` as to-do records, never in `run.json`. `flightdeck todo` reads a run's to-dos and asks for one change. It never decides a request and never writes `run.json`: a person decides in Flightdeck (or a delegation they made covers the change), and the run's recorder's window applies it with the same checks as its buttons.
+
+```
+flightdeck todo list   <team folder> <process>/<run> --json
+flightdeck todo add    <team folder> <process>/<run> --text "..." --phase <phase id> | --step <step id> | --item <loop step>/<item uid> [--attempt <n>] [--owner <person id>] --tool <name>@<version> --key <key> [--as <person id>] [--dry-run] [--json]
+flightdeck todo done   <same> --todo <to-do id> [--reason <why>] --tool ... --key ...
+flightdeck todo wont   <same> --todo <to-do id> --reason <why> --tool ... --key ...
+flightdeck todo move   <same> --todo <to-do id> --to <ABC-123 | https link | process/run> [--reason <why>] --tool ... --key ...
+flightdeck todo reopen <same> --todo <to-do id> [--reason <why>] --tool ... --key ...
+```
+
+Every command prints `flightdeck-read/2` (with `--json`) or plain words. `list` and `--dry-run` read and write nothing. Without `--dry-run` a change writes exactly one file, `proposals/req-<tool>-<24 hex>.json` (`flightdeck-plan/4` with the `living-runs` feature), created once and never replaced. The same `--tool` name and `--key` always mean the same request: a retry says `already` and writes nothing, even after the request was applied (a new tool version doesn't make it new); the same key with another change is refused (`key-taken`), naming the changed fields (`op`, `todo`, `text`, `target`, `owner`, `reason`, `to`, `as`, `run`).
+
+`--as <person id>` names the person the tool asks for (`requester` in the file). It must be in `people.json` and active. It is who asked, never that person's approval: the request waits for a decision like any other.
+
+The rules are the app's own (`PF.todos.prepare`, the run screen's buttons use them too): a to-do is at most 200 characters; won't do needs a reason (at most 300); a move needs a ticket key like `ABC-123`, an http(s) link, or another run as `process/run`; a run that ended takes no new work; a to-do with a request still waiting takes no second one in the app; a run has at most 500 to-dos. Anything else is refused, never cut.
+
+### The result
+
+`data.status` is `would-request` (a preview), `requested`, `already` or `held` (a to-do record of this run, or `people.json`, couldn't be read; nothing was written). The rest names what the change would do:
+
+| Field | Means |
+|---|---|
+| `request` | `{ id, file }`: the request's id and the file it is (or would be) |
+| `op`, `todo`, `placement`, `gate` | The change, the to-do it is on (an addition's new id), and the gate it comes before, by id and title |
+| `authority` | `needs`: `person` (it waits for a person who records the run or holds one of its roles), `delegation` (a delegation covers it, so it goes straight to the recorder) or `none`; `why`; `requester` (from `--as`); `approvesNothing` (always true) |
+| `consequence` | `reopens`: the approvals it would send back for review (a passed or waived gate, a loop approval); `releases`: whether it releases work (won't do, move) |
+| `recorder`, `queue` | Who applies it, and where it would wait: Waiting for approval, or Queued for the recorder |
+| `preview` | The same in plain words, the one an assistant repeats |
+| `appliedBy` | Always the recorder |
+
+`list` gives `todos` (each `id`, `text`, `state` open/done/wont/moved, `stateWords`, `target`, `placement`, `beforeGate`, `gate`, `owner`, `reason` (why it was last checked off, dropped, moved or reopened), `addedReason` (why it was added), `to`), `requests` (each `id`, `kind`, `op`, `todo`, `status` waiting/queued/applied/declined/held/disputed, `statusWords`, `why`, `by` (who asked: `{ person }` for a person, or `{ tool, version }` for a tool, that is `person`, or `tool` and `version`), `requester`, `at`), `summary` and `held` (records that can't be read or trusted; while there are any, every gate of the run waits).
+
+`flightdeck run` and `next` (`--contract 2`) read a living run's to-dos too, as every window does: `run` adds `todoCounts` (`open`, `total`, `waiting`, `held`), `todos`, `todoRequests` (each `id`, `op`, `todo`, `status`, `why`, `by` as `list` gives it, `requester`) and `todoHolds` (why any of its gates is held by them); `next` adds `todos` (`open`, `holds`); `runs` adds `todoCounts`. A run with to-do requests but none applied yet (no `living` in its `run.json`) prints them too, so pending requests are visible before it gains `living`; one naming it that can't be read shows the fields too, held, and is a problem (exit 4). When `proposals/` itself can't be listed, whether or not the run is living yet, `run`, `next`, `runs` and `todo list` each name `proposals/` as unreadable and exit 4: a request pending on the run may be there, so none calls the run complete. Facts alone add no to-do fields, and a run with no to-do record naming it prints exactly as 3.0 did. An ended run with to-dos adds `receipt` (`id`, the record it names; `state`: `confirmed`, `none` for a run that ended before receipts, `missing`, `unread` or `mismatch`; `why`): `missing` and `mismatch` are problems (exit 4) named by the receipt's path, `proposals/<id>.json`, with the same kind and why in `run`, `next`, `runs` and `todo list`, and an unreadable one is named as any to-do record is. A receipt is confirmed only when what it says holds against the run's work (docs/design.md section 45.5): numbers, unsettled records, coverage, evidence or keeps that don't hold make it a `mismatch`, and a record it rests on that isn't in the folder leaves it `missing`, named in `why`. A run without to-dos prints none of these, exactly as 3.0 did. An open or disputed to-do holds the gate it comes before (or, for an item's work, its loop's approval); adding or reopening one after the gate passed sends that approval back for review, and checking it off never brings the approval back on its own.
+
+### Errors
+
+| Situation | What it says |
+|---|---|
+| A to-do record of the run can't be read yet | `held`: "Part of the team folder this depends on couldn't be read, so nothing was written. Check folder availability, then retry with the same key." |
+| The same key, the same change | `already`: "Already requested (…). Nothing written." |
+| The same key, another change | `key-taken`: "This key already names a different request. Changed fields: …." |
+| A change the run doesn't allow | `invalid`, with why: an ended run, a to-do already done, won't do without a reason, a move to this run, an unknown phase |
+| The write can't be confirmed | `failed`: "Could not confirm whether the request was saved. Retry with the same key." Never a new key: that could ask twice. |
+| Its name was taken while it was written, and what is there can't be read back (a link, which is never read through, a file over the record limit, one gone again, one that isn't complete JSON or one its reader refuses, with that reason) | exit 4 (`held`; a loop review, `failed`), the file named in `problems`: whether it is this request isn't known, so it is never `already`. Every command that files into `proposals/` (loop, todo, spread, fact) reads a taken name back the same way. |
+
+Every copy before 4.0 calls a to-do record, and a run that has to-dos, newer: it shows the run by name only and can't save it.
+
+## Spreads
+
+A spread is a requirement every item of a loop must meet (4.0, docs/design.md section 45.1): "security sign-off on every open story in this release". It is asked on the parent run and fulfilled by an addition on each item's own run, which that run's own people decide. Records live in `proposals/` like every to-do's; never write one by hand.
+
+```
+flightdeck spread list    <team folder> <process>/<run> --json
+flightdeck spread add     <team folder> <process>/<run> --loop <loop step> --text "..." --before <child gate id> [--owner <person id>] [--reason <why>] --tool <name>@<version> --key <key> [--as <person id>] [--dry-run] [--json]
+flightdeck spread sync    <same> --spread <spread id> --tool <name>@<version> [--dry-run] [--json]
+flightdeck spread include <same> --spread <spread id> --item <key or uid> [--attempt <n>] [--run <process>/<run>] [--reason <why>] --tool ... --key ... [--as ...] [--dry-run] [--json]
+flightdeck spread stop    <same> --spread <spread id> --reason <why> --tool ... --key ... [--as ...] [--dry-run] [--json]
+```
+
+`list` and `--dry-run` write nothing. `add`, `include` and `stop` write exactly one request on the parent run, once, under `--tool` and `--key`, as `flightdeck todo` does: the same key and the same ask says `already`; the same key with another ask is `key-taken`. An `include` retried without `--attempt` means the attempt it meant the first time, even after a new attempt started; saying a different `--attempt` is another ask. `add` records the scope the person reviewed: the items open now owe the requirement, those cleared now stay unchanged, and every item that joins later, or starts a new attempt, owes it at once. `include` opts one cleared item in; with `--run` it binds the item's obligation to that run instead (when the loop's run for it changed, or competes). `stop` needs a reason; it ends inheritance for later items only and keeps exactly what is owed now.
+
+`sync` asks each owed item's own run for its addition: one `add` request per obligation not yet asked, before the spread's child gate, named by the obligation (`fulfills: { run, spread, uid, attempt }`), so any tool's retry is the same request. Each is written once and on its own: if one can't be written, the rest stand, the exit code is 4, and the next `sync` asks only what is missing. No key is needed; nothing it asks is decided by the parent's approval.
+
+Adding or binding needs a person, or a delegation that may add on the loop step; on an approved loop it sends that approval back for review, so a person decides. Including a cleared item opts it in (it owes work it didn't) and stopping releases work, so a person always decides those, whatever a delegation covers.
+
+While what a spread is owed on can't all be read (a scope record of its loop is missing or can't be read), its `complete` is false and its coverage is never read as empty: `list` exits 4 with the reason in `held`, and `sync` (its dry run too), `include` and `stop` write nothing and give `status: "held"` with the reason in `why`, exit 4.
+
+### The result
+
+`list` gives `spreads` (each `id`, `text`, `loop`, `beforeGate`, `state`, `row` like "Security sign-off · on 3 stories · 0 done", `preview` like "11 open stories; 3 cleared stories unchanged", `counts` (`owed`, `done`, `unchanged`, `arrivals`), `items` (each `key`, `uid`, `attempt`, `owed`, `state`, `words`, `why`, `arrival`, `run`, `request` (the id its request has or would have), `requested` (whether that request is there), `todo`), `notices` ("ABC-105 joined. Security sign-off is owed; not requested yet.") and `holds`, what holds the loop) and `requests` (the spread requests and their status). An item's `state` is `exempt` (cleared when it was added, unchanged), `owed` (not requested yet), `waiting`, `queued`, `open` (added), `done`, `wont`, `moved`, `excepted` (approved without a run), `declined`, `disputed`, `held`, `ended`, `no-run`, `competing`, `rebind` or `unread`; only done, won't do, moved and excepted resolve it.
+
+`add`, `include` and `stop` give what `flightdeck todo` gives (`status`, `request`, `op`, `authority`, `consequence`, `recorder`, `queue`, `preview`), and `add` adds `scope` (`open`, `unchanged`). `sync` gives `status` (`would-sync`, `synced`, `partial` or `held`; a `--dry-run` is `partial` and exits 4 exactly when the sync would be, because an obligation can't be asked), `items` (each `key`, `uid`, `attempt`, `run`, `request`, `file`, `consequence` (`reopens`, the approvals on its run it would send back for review, and `releases`) and `status`: `would-request`, `requested`, `already`, `refused` or `failed` with why) and `skipped` (owed items not asked now: already asked, no run yet, a run to choose or bind).
+
+### Errors
+
+| Situation | What it says |
+|---|---|
+| A record or part of the folder this depends on can't be read, or one it expects isn't there (a scope record the spread was reviewed against, the spread's own records, a story's run or its version, the run's own version) | `held` (exit 4), the path named in `problems`: nothing was written, and a spread is never called absent while this is so; retry once the folder is available |
+| An item's request couldn't be written | `partial` (exit 4): the rest stand; run `sync` again |
+| The same key, another ask | `key-taken`, with the changed fields |
+| No such spread, a step that isn't a loop, a change the run doesn't allow | `invalid`, with why |
+| No such run | exit 5 |
+
+## Facts
+
+A fact is what a tool observed about one loop item from one source (4.0, docs/design.md section 45.2): its PRs, commits, status or blockers, with whether the list is complete, when it was observed and how long that stays fresh. Facts are information only. They never check off a step or a to-do, pass an approval or reopen work; a to-do is resolved on a fact's evidence only through `flightdeck todo suggest-done`, an ordinary done request a person decides (or a delegation covers), and applying it checks the evidence again. Records live in `proposals/`; never write one by hand.
+
+```
+flightdeck fact sync <team folder> <process>/<run> --from <file|-> --tool <name>@<version> [--dry-run] [--json]
+flightdeck fact list <team folder> <process>/<run> [--loop <loop step>] [--item <key or uid>] [--json]
+flightdeck todo suggest-done <team folder> <process>/<run> --todo <to-do id> --fact <fact id> --tool <name>@<version> [--reason <why>] [--as <person id>] [--dry-run] [--json]
+```
+
+The run is the one that has the loop. `--from` is a JSON file (or `-` for standard input) of `{"facts": [ ... ]}`, at most 500, each one observation:
+
+```json
+{ "key": "abc-102-prs-2026-11-09T09", "loopStep": "stories", "item": "ABC-102",
+  "source": { "feed": "bitbucket", "site": "git.example.com" }, "domain": "prs",
+  "observedAt": "2026-11-09T09:00:00Z", "maxAgeSeconds": 86400,
+  "complete": true, "reported": 2, "errors": [],
+  "entries": [ { "id": "17", "text": "Fix the login", "state": "merged", "link": "https://git.example.com/pr/17" } ] }
+```
+
+- `key`: the tool's own name for this observation. The same `--tool` name and key always mean the same observation: filed again on the same run it is `already`; the same key with any other observation, or on another run, is refused (`key-taken`). Use a new key for each new observation (a key with the time in it works).
+- `item`: the item's key or uid; `attempt` (optional) defaults to its current one. An item that isn't in the loop, or an attempt it hasn't reached, is refused.
+- `domain` and its entries: `prs` (`state`: open, draft, merged or closed), `commits` (no state), `status` (one entry; `category`: todo, doing or done) or `blockers` (`state`: open or resolved). Each entry has an `id` (at most 120 characters), `text` (at most 200) and an optional https `link`; at most 100 entries.
+- `complete`: true only when you read the whole list: `reported` (how many the source says there are, or null when it doesn't say) equals the entries given, and there are no `errors` (at most 20, 300 characters each). A partial list is fine; say so. `fetched` defaults to the number of entries.
+- `maxAgeSeconds`: how long it stays fresh, 1 to 604,800 (default 86,400).
+
+`sync` checks the whole batch first, in order (each observation sees the ones before it), and files nothing when any of it is refused (a key twice in one sync is refused too: each observation has its own key); the error names each refusal by its place and key. Then each is written once, as `proposals/req-<tool>-<24 hex>.json`, on its own: if one can't be written, the rest stand, the exit code is 4, and the next `sync` of the same file files only what is missing. A run takes at most 10,000 fact records; past that `sync` is refused with what to do, and the records there are kept.
+
+`suggest-done` checks one fact against one open to-do about that item: the fact must be the current observation in its slot (not replaced by one that says something else), fresh, complete for PRs, status and blockers, show the work done (every PR merged, a commit, status done, no open blocker), and no other fact about the item may disagree (a disputed observation, open blockers). It files one done request whose name comes from the to-do's current opening and what the evidence says, so no `--key`: another tool, or a later sync that only moved the time, gets `already`, as does a suggestion already declined or applied. Reopened, the to-do may be suggested again.
+
+### The result
+
+`fact sync` gives `status` (`would-sync`, `synced`, `partial` or `held`), `facts` (each `index`, `key`, `id`, `file`, `item` `{ loop, uid, attempt }`, `domain`, `words` (how its slot would read), and `status`: `would-file`, `filed`, `already` or `failed` with why) and `preview`. `fact list` gives `count` (fact records on the run), `limit`, `items` (each `loop`, `uid`, `key`, `title`, `attempt` and `facts`: one per source and domain observed, then each domain not checked, each `domain`, `source`, `state`, `words`, `fact` (the current record's id, for `suggest-done`), `records` and `disputed`) and `held`. A slot's `state` is `complete`, `partial`, `stale`, `future` (dated ahead of now), `failed` (it has errors), `disputed` (observations made at once disagree; the next sync that sees them all settles it), `held` (a record can't be read) or `unknown` (not checked). `words` read like "PRs (bitbucket · git.example.com): 1 of 2 merged · complete · checked 3 hours ago." Missing data never reads as no blockers: a domain no tool checked says "not checked", and an incomplete list of blockers says it is no sign there are none.
+
+`suggest-done` gives what `flightdeck todo` gives, plus `evidence` (`fact`, `domain`, `source`, `words`). `todo list` adds `evidence` to a to-do done on a fact's evidence and to a request that carries one. While a suggestion's evidence doesn't hold (replaced, stale, incomplete, disputed) its request is `held` with why, and nothing is applied. A record its evidence depends on that can't be read (a story's parent's fact, say) is every reader's problem: `todo list`, `run`, `next` and `suggest-done` name it in `problems`, with `complete: false` and exit 4. A link in `proposals/` where a to-do or fact record would be (`req-*.json`, in any case: one test, `PF.todos.recordName`, both notices it and holds on it) is such a record, never an absent one: which run it is for can't be told, so it holds every living run's requests and facts until it is replaced by the file itself; a loop's scope reads as in 3.0.
+
+### Errors
+
+| Situation | What it says |
+|---|---|
+| A record or part of the folder this depends on can't be read | `held` (exit 4): nothing was written; retry once the folder is available |
+| An observation out of its format, over a limit, about an unknown item; a batch over 500; input that isn't JSON | `invalid`, naming each one; nothing was filed |
+| The same key, another observation | `key-taken`; nothing was filed |
+| A record couldn't be written | `partial` (exit 4): the rest stand; run `sync` again |
+| Evidence that doesn't support it, or a to-do that isn't open | `invalid`, with why |
+| No such run | exit 5 |
+
+## Keep for next time
+
+A to-do or a spread on a living run can be kept as a suggestion for the checklist it came from (4.0, docs/design.md section 45.3): one record in `proposals/` that the checklist's owner reviews with its other corrections. Keeping changes nothing on the run: no work, no gate, no to-do. Never write one by hand.
+
+```
+flightdeck todo keep <team folder> <process>/<run> --todo <to-do id> --tool <name>@<version> [--text <the step, in other words>] [--reason <why>] [--phase <phase id> | --after <step id>] [--dry-run] [--json]
+flightdeck spread keep <team folder> <process>/<run> --spread <spread id> --tool <name>@<version> [--text ...] [--reason ...] [--phase ... | --after ...] [--dry-run] [--json]
+```
+
+Where it goes: a phase's to-do goes at the end of that phase of the run's own checklist, a step's to-do right after that step. A spread goes to the checklist the loop's items run, at the end of the phase that holds its gate. A to-do on one item goes to the checklist the items run too, but needs `--phase` (the end of that phase) or `--after` (after that step) to say where; without one it is kept as needing placement, which shows on the to-do and goes into no correction. `--text` keeps it in other words (no @roles, ^details or {#ids}; at most 2,000 characters, never cut).
+
+There is no `--key`: a keep is named by the run, what it keeps, the place and its wording (spacing aside). The same keep again (any tool, any person) is `already`; the same place in other words is another keep, an alternative in the same correction for the owner to choose between, and the same words with another reason are refused. Two to-dos kept for the same place join one correction, each wording kept as an alternative.
+
+Only the checklist's active owner (or its backup while the owner is inactive) reviews, applies and declines what was kept, in the app. The to-do then says where it stands: Suggested, Applied to draft, or Published in vN.
+
+### The result
+
+`status` (`would-keep`, `kept`, `already` or `held`), `keep` (`id`, `file`), `source` (`{ todo }` or `{ spread }`), `placed`, `template` (the checklist's `process`, `folder`, `version`, `mapHash`, `typesHash`, or null), `anchor` (`phase`, `after`), `where` (`after` or `end`), `needs` (why it needs placement, or null), `text`, `reason`, `changesRun: false` and `preview`, like "Suggest for next time in release-readiness v3: add \"Post the release notes\" at the end of phase ship. The checklist's owner reviews it; this run doesn't change."
+
+### Errors
+
+| Situation | What it says |
+|---|---|
+| A record, people.json or the items' checklist can't be read; the run kept from, or its version, isn't trusted as `runs` judges it (its version unreadable, a malformed run, its `run.json` missing, not JSON, with an unknown field, from a newer Flightdeck or with a damaged snapshot), in the preview and the write alike | `held` (exit 4), each named in `problems` by path and kind, as `run` names it: nothing was written |
+| The run kept from, its version, or (for item work and spreads) the checklist its items run, broke or became unreadable after the first read: right before the write each is read and judged again, then `proposals/` is read again, last (listed, read, listed again), and the keep is made again from those reads; `todo add`, `done`, `wont`, `move`, `reopen` and `suggest-done` make their request again from the same last read | `held` (exit 4) with the path named (a copy of this keep that can't be read included, a keep at its place from any run that can't be read, or `still-syncing` at `proposals` for a file that arrived or went during that read), `failed` (exit 1) when the keep it would make now differs, `key-taken` for a copy of it filed meanwhile that differs, `already` for one the same, or `invalid` when its place reached 500 keeps meanwhile: nothing was written |
+| The same place and words, kept with another reason | `key-taken` |
+| No such to-do or spread, a place not in that checklist, a step text a checklist can't hold; a place that already has 500 keeps (the most one correction holds: the owner reviews those first) | `invalid`, with why |
+| `--key`, both `--phase` and `--after` | `usage` |
+| No such run | exit 5 |
+
+## Checklist-linked to-dos
+
+A to-do can be settled by a whole run of another checklist (4.0, docs/design.md section 45.4): "run the smoke test". The to-do pins that checklist's exact version and the results of it that count; a run of it is an ordinary run, started from the to-do's own plan through the usual start. Nothing resolves on its own: a done on that run's result is a request like any other.
+
+```
+flightdeck todo add <team folder> <process>/<run> --text "..." --phase <phase id> --checklist <process>@<version folder> [--accepts <result>,<result>] --tool <name>@<version> --key <key> [--dry-run] [--json]
+flightdeck todo suggest-done <team folder> <process>/<run> --todo <to-do id> --evidence-run <process>/<run id> --tool <name>@<version> [--reason <why>] [--as <person>] [--dry-run] [--json]
+```
+
+`--checklist` names an exact version folder (each process's `versions` in `flightdeck processes <team folder> --contract 2 --json` lists them; `flightdeck process <team folder> <process> --folder <version folder> --contract 2 --json` reads one), never "the latest". Without `--accepts`, any run of it that completes counts. In Flightdeck, Run this checklist on the to-do makes its plan (one per to-do and opening: asking again opens the same plan) and opens the start; the plan's start names the run it started.
+
+`suggest-done --evidence-run` names one run that plan started, as `<process>/<run id>`; when more than one was started, it is the one you name, never a guess. There is no `--key`: the to-do and that run as it stands name the request, so asking again is `already`, even once it was applied and the to-do is done. It is checked again whenever it is read and before it is applied: a run reopened, corrected or ended again since is held, even if it ends with the same result; ask again on the run as it is then. A person decides it (or a delegation covers it), as any done.
+
+Once checked off, `todo list` shows the to-do's `checklist`, the run it rests on (`evidence`: `plan`, `run`, `answer`, `result`, `words`) and `provenance`: what became of that run since, or null. A change is said, never undone.
+
+### Errors
+
+| Situation | What it says |
+|---|---|
+| The pinned version, a run it rests on, a plan's decision or a record can't be read, or the run the to-do is on is one `run` wouldn't trust as it is (torn, newer, with a field this copy doesn't know, without its run.json, damaged, a part of it or its version unreadable), judged first and again right before any preview and in the final read before filing; one that changed meanwhile is `failed` (run it again) | `held` (exit 4), each named in `problems`: nothing was written |
+| No such checklist or version, a result it never returns, a run not started for the to-do, not completed, or a result it doesn't accept | `invalid`, with why |
+| `--key` with `suggest-done`, both `--fact` and `--evidence-run`, `--accepts` without `--checklist`, an empty `--accepts` or one with an empty entry (never read as "any result"), `--checklist` on anything but `add` | `usage` |
+| No such run | exit 5 |
 
 ## Writing step types (for AI assistants)
 

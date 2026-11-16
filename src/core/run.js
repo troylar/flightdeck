@@ -212,6 +212,23 @@ PF.run = (function () {
   /* A pin's step ID (never __proto__ or another key an object treats specially). */
   var STEP_ID = /^[a-z0-9][a-z0-9-]{0,59}$/i;
   /* A must-understand feature a run/3 now uses, kept in the frozen order. */
+  /* What an approval records of the to-do records in its scope (PF.todos.cutFor), or null when it records nothing: a living
+     run's always; before the first application, only when its scope already holds records (a dispute's participants), so a run
+     without to-dos saves exactly as before. A run/2 can't hold one, so such an approval waits (nothing is set). */
+  function approvalCut(r, kind, id) {
+    if (!r._todos) return null;
+    var c = PF.todos.cutFor(r._todos, kind, id);
+    if (r.living) return c;
+    if (!c.cut.length) return null;
+    if (r.format !== FORMAT3) throw new Error('To-do requests on this run were decided two ways before any landed, and a run from an earlier Flightdeck can\'t record which this approval counted. It waits until one of its to-dos lands.');
+    return c;
+  }
+  /* Marks a run/3 living with nothing landed yet (living.head ''), as an approval's cut needs. */
+  function livingNow(r) {
+    if (r.living) return;
+    r.living = { head: '' }; addFeature(r, PF.todos.FEATURE);
+    var re = withPins(order3(r)); Object.keys(r).forEach(function (k) { delete r[k]; }); Object.keys(re).forEach(function (k) { r[k] = re[k]; });
+  }
   function addFeature(r, f) { var list = (r.features || []).concat([f]); r.features = PF.envelope.FROZEN.filter(function (x) { return list.indexOf(x) >= 0; }); }
   /* run/3's pins and migrations sit right before its steps, as in the frozen samples. */
   function withPins(r) {
@@ -371,6 +388,56 @@ PF.run = (function () {
     if (g && (g.s === 'passed' || g.s === 'waived')) r.gates[gid] = { s: 'review', was: g.s, by: g.by, at: g.at, reason: 'A loop\'s approval needs review', approved: g.approved };
     addLog(r, who, now, 'Approval needs review "' + x.step.text + '": ' + reasons.join(' ').slice(0, 200));
   }
+  /* Living runs (4.0, docs/design.md section 45): the recorder lands an application already written in proposals/. Only on
+     the head it was prepared on; a run/2 becomes a run/3 with its version's types fingerprint (o.typesHash). An addition or
+     reopening sends a passed or waived gate in its phase to review, or an approved loop it belongs to back for review.
+     o: { who, now, typesHash, app, todo (the to-do as the reduction reads it, for a change to existing work) }. */
+  var TODO_WORDS = { add: 'To-do added', done: 'To-do done', wont: 'To-do won\'t be done', move: 'To-do moved', reopen: 'To-do reopened',
+    'spread-add': 'Spread added', 'spread-include': 'Spread includes an item', 'spread-bind': 'Spread bound to a run', 'spread-stop': 'Spread stopped' };
+  function todoLand(r, map, rec, o) {
+    o = o || {};
+    var ap = rec && (rec.kind === 'compound' ? rec.application : rec), head = r.living ? r.living.head : '';
+    if (!ap || !ap.effect || !own(TODO_WORDS, ap.effect.op)) throw new Error('That isn\'t an application of a to-do.');
+    if (r.ended) throw new Error('The run has ended, so it takes no new work.');
+    if ((ap.previous || '') !== head) throw new Error('The run\'s to-dos changed since this was prepared, so it wasn\'t applied; it will be prepared again.');
+    if (r.format !== FORMAT3) {
+      if (!(typeof o.typesHash === 'string' && /^[0-9a-f]{8}$/.test(o.typesHash))) throw new Error('This run\'s version can\'t be read here, so its to-dos can\'t be applied.');
+      r.format = FORMAT3; r.features = []; if (PF.envelope.semver(o.app)) r.app = o.app; r.typesHash = o.typesHash;
+    }
+    r.living = { head: rec.id };
+    addFeature(r, PF.todos.FEATURE);
+    var re = withPins(order3(r)); Object.keys(r).forEach(function (k) { delete r[k]; }); Object.keys(re).forEach(function (k) { r[k] = re[k]; });
+    var e = ap.effect, x = o.todo || null, sp = o.spread || null, text = String(e.op === 'add' || e.op === 'spread-add' ? e.text : x ? x.text : sp ? sp.text : e.todo || e.spread).slice(0, 200);
+    addLog(r, o.who, o.now, TODO_WORDS[e.op] + ': "' + text + '"' + (e.reason ? ' (' + String(e.reason).slice(0, 120) + ')' : ''));
+    /* A spread (4.0 slice 3) that owes work (added, an item included, a run bound) sends its loop's approval back and its
+       phase's gate to review, as an item's to-do does; stopping one releases work and reopens nothing. */
+    if (PF.todos.isSpreadOp(e.op)) {
+      var ls = e.op === 'spread-add' ? e.loopStep : sp ? sp.loopStep : '', SP = ls && !PF.todos.loopWhy(map, ls) ? PF.todos.placeOf(map, { step: ls }) : null;
+      if (e.op === 'spread-stop' || !SP || SP.why) return;
+      var sla = r.steps[ls];
+      if (sla && sla.s === 'done' && sla.loop) unsettleLoop(r, map, ls, ['A spread was changed on this loop after this approval: "' + text + '".'], o.who, o.now);
+      var sg = r.gates[SP.gate];
+      if (sg && (sg.s === 'passed' || sg.s === 'waived')) {
+        r.gates[SP.gate] = { s: 'review', was: sg.s, by: sg.by, at: sg.at, reason: 'A spread was changed after it was ' + sg.s, approved: sg.approved };
+        addLog(r, o.who, o.now, 'Gate needs review: a spread was changed after it was ' + sg.s);
+      }
+      return;
+    }
+    if (e.op !== 'add' && e.op !== 'reopen') return;
+    var t = e.op === 'add' ? e.target : x && x.target, P = t ? PF.todos.placeOf(map, t) : null, did = e.op === 'add' ? 'added' : 'reopened';
+    if (!P || P.why) return;
+    /* An item's work is governed by its loop's approval and by its phase's gate: both are sent back, the gate whether or not
+       the loop was ever approved (an optional loop's phase may have been waived without it). */
+    if (t.item && P.loop) {
+      var la = r.steps[P.loop];
+      if (la && la.s === 'done' && la.loop) unsettleLoop(r, map, P.loop, ['A to-do was ' + did + ' on one of its items after this approval: "' + text + '".'], o.who, o.now);
+    }
+    var g = r.gates[P.gate];
+    if (g && (g.s === 'passed' || g.s === 'waived')) {
+      r.gates[P.gate] = { s: 'review', was: g.s, by: g.by, at: g.at, reason: 'A to-do was ' + did + ' after it was ' + g.s, approved: g.approved };
+      addLog(r, o.who, o.now, 'Gate needs review: a to-do was ' + did + ' after it was ' + g.s);
+    }
+  }
   /* Whether a linked step can count the version its run starts on (3.0): what it accepts must be results that version
      returns, and the detail it imports into must hold every one of them. '' when it can, or why not. */
   function resultFit(r, step, cmap, version) {
@@ -522,7 +589,41 @@ PF.run = (function () {
     if (a.s === 'done' && s.type === 'run.process' && a.child && !childCurrent(r, s, a)) return false;
     /* A loop (3.0) whose approval the folder no longer matches (PF.loop.markStale, read-only) isn't answered either. */
     if (a.s === 'done' && s.type === 'for.each' && r._loopStale && Object.prototype.hasOwnProperty.call(r._loopStale, s.id)) return false;
+    /* Nor one an item's open or disputed to-do holds, or that was approved before work in its scope (4.0, PF.todos.markHolds). */
+    if (a.s === 'done' && s.type === 'for.each' && loopHeld(r, s.id)) return false;
     return a.s === 'done' || (a.s === 'na' && !s.must);
+  }
+  /* Living runs (4.0, docs/design.md section 45): what holds approval, read-only (r._todos, PF.todos.markHolds, never saved).
+     A living run whose to-dos haven't been read is held whole; an ended run holds nothing. */
+  function todoHolds(r) {
+    /* Practice's stand-in (r.practice) never has to-dos. */
+    if (!r || r.practice || r.memo || r.ended) return null;
+    if (r._todos) return r._todos;
+    if (!r.living) return null;
+    var none = function () { return Object.create(null); };
+    return { all: ['This run\'s to-dos haven\'t been read, so approval waits until they are.'], phases: none(), loops: none(), stale: { gate: none(), loop: none() }, scope: { gate: none(), loop: none() }, open: 0 };
+  }
+  /* Why a phase's gate is held by to-dos, or null: its own work, and an item's open or disputed work in any of its loops, so
+     neither passing nor waiving the phase (an optional loop's included) gets past work that isn't resolved. */
+  /* A loop's run or version that couldn't be read holds the phase too (round 8, ZB: r._loopUnread, set by the reader on every
+     read, never saved), with or without to-dos: its approval stays as recorded, and the gate waits until they read again.
+     Practice's stand-in has no loops read, so it is never asked. */
+  function phaseHeld(r, map, pi) {
+    var H = todoHolds(r), p = map.phases[pi], U = r && !r.practice && !r.ended ? r._loopUnread : null;
+    if ((!H && !U) || !p) return null;
+    var why = H ? H.all.concat(own(H.phases, p.id) ? H.phases[p.id] : []) : [];
+    p.steps.forEach(function (s) {
+      if (s.type !== 'for.each') return;
+      if (H && own(H.loops, s.id)) why = why.concat(H.loops[s.id]);
+      if (U && own(U, s.id)) why = why.concat(U[s.id]);
+    });
+    return why.length ? why : null;
+  }
+  function loopHeld(r, sid) {
+    var H = todoHolds(r);
+    if (!H) return null;
+    var why = H.all.concat(own(H.loops, sid) ? H.loops[sid] : [], own(H.stale.loop, sid) ? H.stale.loop[sid] : []);
+    return why.length ? why : null;
   }
   /* r.memo (practice's stand-in only, docs/design.md section 34): a run that never changes while it's read keeps each phase's
      info and gate status, so a long checklist isn't walked again for every earlier gate. A real run has no memo. */
@@ -570,16 +671,18 @@ PF.run = (function () {
   function gateStatusNow(r, map, pi) {
     /* An earlier gate that isn't through locks this phase whether or not it's needed: skipping never opens the way past it. */
     if (pi > 0 && !gateOk(gateStatus(r, map, pi - 1))) return 'locked';
-    if (map.phases[pi] && phaseSkipped(r, map, pi)) return 'skipped';
-    var g = map.phases[pi].gate, rec = r.gates[g.id], info = phaseInfo(r, map, pi);
+    /* A to-do on a phase that isn't needed still holds it until the work is resolved (4.0). */
+    var held = phaseHeld(r, map, pi);
+    if (map.phases[pi] && !held && phaseSkipped(r, map, pi)) return 'skipped';
+    var g = map.phases[pi].gate, rec = r.gates[g.id], info = phaseInfo(r, map, pi), H = todoHolds(r);
     if (rec && rec.s === 'failed') return 'failed';
     if (rec && rec.s === 'review') return 'review';
     if (rec && (rec.s === 'passed' || rec.s === 'waived')) {
       var stillValid = sameInputs(rec.approved, gateInputs(r, map, g)) && !info.blocked.length &&
-        (rec.s === 'passed' ? info.left === 0 : info.mustLeft === 0);
+        (rec.s === 'passed' ? info.left === 0 : info.mustLeft === 0) && !held && !(H && own(H.stale.gate, g.id));
       return stillValid ? rec.s : 'review';
     }
-    if (info.left === 0 && !info.blocked.length) return 'ready';
+    if (info.left === 0 && !info.blocked.length && !held) return 'ready';
     return 'open';
   }
   function phaseOpen(r, map, pi) {
@@ -599,11 +702,11 @@ PF.run = (function () {
     M.steps(map).forEach(function (x) { var a = r.steps[x.step.id]; if (a && a.s === 'blocked' && applies(r, map, x.phaseIndex, x.step).applies !== false) out.push(x); });
     return out;
   }
-  function canPass(r, map, pi) { var st = gateStatus(r, map, pi); return r.state === 'running' && (st === 'ready' || (st === 'review' && phaseInfo(r, map, pi).left === 0 && !phaseInfo(r, map, pi).blocked.length)); }
+  function canPass(r, map, pi) { var st = gateStatus(r, map, pi); return r.state === 'running' && !phaseHeld(r, map, pi) && (st === 'ready' || (st === 'review' && phaseInfo(r, map, pi).left === 0 && !phaseInfo(r, map, pi).blocked.length)); }
   function canWaive(r, map, pi) {
     var st = gateStatus(r, map, pi);
     var info = phaseInfo(r, map, pi);
-    return r.state === 'running' && st !== 'locked' && st !== 'passed' && st !== 'waived' && st !== 'skipped' && info.mustLeft === 0 && !info.blocked.length;
+    return r.state === 'running' && st !== 'locked' && st !== 'passed' && st !== 'waived' && st !== 'skipped' && info.mustLeft === 0 && !info.blocked.length && !phaseHeld(r, map, pi);
   }
   function allGatesOk(r, map) { for (var i = 0; i < map.phases.length; i++) if (!gateOk(gateStatus(r, map, i))) return false; return true; }
 
@@ -619,6 +722,8 @@ PF.run = (function () {
       if (gateOk(st)) continue;
       if (st === 'failed') return { s: 'stopped', text: 'Gate failed: ' + g.title, sub: 'Reopen it once the problem is fixed, or end the run.', gate: g.id };
       if (st === 'review') return { s: 'working', text: 'Needs review: ' + g.title, sub: 'Something it approved has changed. Check again, then pass it.', gate: g.id };
+      var tw = phaseHeld(r, map, pi);
+      if (tw && st !== 'review' && info.left === 0) return { s: 'working', text: map.phases[pi].title + ': waiting on to-dos', sub: tw[0] + (tw.length > 1 ? ' (and ' + (tw.length - 1) + ' more)' : ''), phase: pi };
       if (st === 'ready') return { s: 'ready', text: 'Ready: ' + g.title, sub: g.implicit ? 'Every step is answered. Confirm ' + (solo(r) ? 'it' : 'together') + ', then move on.' : 'Every step is answered. ' + (g.approves ? 'It approves ' + fill(g.approves, r.details, map.meta.context) + '.' : 'Confirm it to move on.'), gate: g.id };
       return { s: 'working', text: map.phases[pi].title + ': ' + info.left + ' step' + (info.left === 1 ? '' : 's') + ' to go', sub: (info.mustLeft ? info.mustLeft + ' must-do. ' : '') + 'Then ' + (g.implicit ? (solo(r) ? 'confirm the phase.' : 'confirm together.') : 'the "' + g.title + '" gate.'), phase: pi };
     }
@@ -992,6 +1097,10 @@ PF.run = (function () {
       var lv = values && values._loop;
       if (!lv || !lv.ok || !PF.loop.cleanSnapshot(lv.snapshot)) throw new Error('This step is approved when every item in scope has an accepted result or an approved exception. Approve it from its item list.');
       rec.loop = PF.loop.cleanSnapshot(lv.snapshot);
+      var lh = todoHolds(r), lw = lh ? lh.all.concat(own(lh.loops, id) ? lh.loops[id] : []) : [];
+      if (lw.length) throw new Error('This loop waits on to-dos: ' + lw[0]);
+      var lc = approvalCut(r, 'loop', id);
+      if (lc) { rec.todos = lc; livingNow(r); }
       answer(r, id, rec, exact);
       addLog(r, who, now, 'Approved "' + x.step.text + '": ' + rec.loop.summary);
       return x;
@@ -1233,7 +1342,11 @@ PF.run = (function () {
     if (!canPass(r, map, pi)) throw new Error('This gate isn\'t ready to pass.');
     var g = map.phases[pi].gate, waiting = consumption(r, g.binds);
     if (waiting) throw new Error(waiting);
-    r.gates[g.id] = { s: 'passed', by: who, at: now, approved: gateInputs(r, map, g) };
+    /* The record is built whole before the gate is set: a refusal (an approval counting too many to-do records) leaves the
+       run as it was. */
+    var rec = { s: 'passed', by: who, at: now, approved: gateInputs(r, map, g) }, pc = approvalCut(r, 'gate', g.id);
+    if (pc) { rec.todos = pc; livingNow(r); }
+    r.gates[g.id] = rec;
     addLog(r, who, now, 'Passed gate "' + g.title + '"' + (g.binds.length ? ' for ' + describe(r.gates[g.id].approved) : ''));
   }
   function waive(r, map, pi, reason, who, now) {
@@ -1242,7 +1355,9 @@ PF.run = (function () {
     if (!String(reason || '').trim()) throw new Error('Say why the gate is waived.');
     var g = map.phases[pi].gate, waiting = consumption(r, g.binds);
     if (waiting) throw new Error(waiting);
-    r.gates[g.id] = { s: 'waived', reason: String(reason).slice(0, 200), by: who, at: now, approved: gateInputs(r, map, g) };
+    var rec = { s: 'waived', reason: String(reason).slice(0, 200), by: who, at: now, approved: gateInputs(r, map, g) }, wc = approvalCut(r, 'gate', g.id);
+    if (wc) { rec.todos = wc; livingNow(r); }
+    r.gates[g.id] = rec;
     addLog(r, who, now, 'Waived gate "' + g.title + '": ' + r.gates[g.id].reason);
   }
   function fail(r, map, pi, reason, who, now) {
@@ -1392,16 +1507,40 @@ PF.run = (function () {
     if (JSON.stringify(cur.pauses || []) !== JSON.stringify(other.pauses || [])) out.push('Pause history: ' + (cur.pauses || []).length + ' pauses here, ' + (other.pauses || []).length + ' in the copy');
     if (JSON.stringify(cur.jira || {}) !== JSON.stringify(other.jira || {})) out.push('The copy has a different copy of the Jira workflows.');
     pair('Part of', cur.parent && JSON.stringify(cur.parent), other.parent && JSON.stringify(other.parent));
+    /* Living runs (4.0): the last to-do application each copy has landed. */
+    if (cur.living || other.living) pair('To-dos applied up to', cur.living ? cur.living.head : 'none', other.living ? other.living.head : 'none');
     M.steps(map).forEach(function (x) { var a = cur.steps[x.step.id], b = other.steps[x.step.id]; pair('"' + x.step.text + '" child run', a && a.child && JSON.stringify(a.child), b && b.child && JSON.stringify(b.child)); });
     if (!out.length) out.push('No differences in answers, evidence, values, gates, details, roles, follow-ups, pauses or outcome.');
     return out;
   }
   /* Make a conflict copy the current version. Everything a person recorded comes from the copy; both versions' activity stays
-     in the log. Refuses a copy of another run or of another map version. The caller keeps the displaced version. */
-  function adopt(cur, copy, who, now) {
+     in the log. Refuses a copy of another run or of another map version. The caller keeps the displaced version.
+     o.typesHash (4.0): the types fingerprint of the run's own version, as the folder's publication says it; a run/2 whose
+     copy a to-do made a run/3 is made a run/3 with it, so the copy's landed to-dos are never dropped. */
+  /* A kept copy with no head left (4.0): its approvals' cuts counted to-dos the run no longer holds, so each approval made with
+     one goes to review (a loop back for review, a passed or waived gate to review) and the cuts go, since a run without a head
+     can't hold them and still be read. */
+  function dropCuts(r, who, now) {
+    var map = null, why = 'Its approval counted to-dos the kept copy doesn\'t keep.';
+    Object.keys(r.steps || {}).forEach(function (k) {
+      var a = r.steps[k]; if (!a || a.todos === undefined) return;
+      delete a.todos;
+      if (a.s === 'done' && a.loop) unsettleLoop(r, map || (map = mapOf(r)), k, [why], who, now);
+    });
+    Object.keys(r.gates || {}).forEach(function (k) {
+      var g = r.gates[k]; if (!g || g.todos === undefined) return;
+      delete g.todos;
+      if (g.s !== 'passed' && g.s !== 'waived') return;
+      r.gates[k] = { s: 'review', was: g.s, by: g.by, at: g.at, reason: 'It counted to-dos the kept copy doesn\'t keep', approved: g.approved };
+      addLog(r, who, now, 'Gate needs review: it counted to-dos the kept copy doesn\'t keep');
+    });
+  }
+  function adopt(cur, copy, who, now, o) {
     if (!copy || copy.id !== cur.id || copy.process !== cur.process) throw new Error('That copy belongs to a different run.');
     if (copy._unrunnable) throw new Error(copy._unrunnable + ' That copy can only be read here, so it wasn\'t kept.');
     if (copy.mapHash !== cur.mapHash || copy.folder !== cur.folder) throw new Error('That copy was made from a different version of the checklist, so it can\'t replace this one.');
+    var promote = cur.format !== FORMAT3 && copy.format === FORMAT3 && !!copy.living;
+    if (promote && !(o && typeof o.typesHash === 'string' && /^[0-9a-f]{8}$/.test(o.typesHash) && o.typesHash === copy.typesHash)) throw new Error('That copy has to-dos, but its step types aren\'t the ones this run\'s version publishes' + (o && o.typesHash ? '' : ' (the version can\'t be read here)') + ', so it wasn\'t kept.');
     /* Every deviation either version shows (in its marks, its answers or their earlier answers), taken before the copy's
        answers replace this version's, so a run from before marks existed can't lose a block by being recovered. */
     var seenMarks = [cur, copy].map(function (v) { var m = {}; Object.keys(v.marks || {}).forEach(function (k) { m[k] = (v.marks[k] || []).slice(); }); Object.keys(v.steps || {}).forEach(function (k) { var a = v.steps[k] || {}; [a].concat(a.history || []).forEach(function (h) { var kind = h.s === 'blocked' || h.s === 'recheck' || h.s === 'na' ? h.s : null; [kind, h.differently ? 'differently' : null].forEach(function (x) { if (!x) return; var l = Object.prototype.hasOwnProperty.call(m, k) ? m[k] : (m[k] = []); if (l.indexOf(x) < 0) l.push(x); }); }); }); return m; });
@@ -1409,6 +1548,8 @@ PF.run = (function () {
     var retired = [cur, copy].map(function (v) { var o = Object.create(null); Object.keys(v.steps || {}).forEach(function (k) { var c = v.steps[k] && v.steps[k].child; if (c && c.retired) o[k] = c.process + '/' + c.id; }); return o; });
     ['steps', 'gates', 'fields', 'details', 'roles', 'followUps', 'title', 'state', 'ended', 'tz', 'shotsFrozen', 'paused', 'pauses', 'jira', 'parent'].forEach(function (k) { cur[k] = JSON.parse(JSON.stringify(copy[k] == null ? (k === 'ended' || k === 'paused' || k === 'parent' ? null : cur[k]) : copy[k])); });
     Object.keys(cur.steps || {}).forEach(function (k) { var c = cur.steps[k] && cur.steps[k].child; if (c && retired.some(function (o) { return o[k] === c.process + '/' + c.id; })) retire(c); });
+    /* Verified promotion first (4.0), so every run/3 branch below (migrations, pins, the living head) takes the copy's. */
+    if (promote) { cur.format = FORMAT3; cur.features = []; if (PF.envelope.semver(copy.app)) cur.app = copy.app; cur.typesHash = o.typesHash; }
     /* A run/3's migration records come with the copy taken over (they sit before its steps). */
     if (cur.format === FORMAT3 && (copy.migrations || cur.migrations)) { if (Array.isArray(copy.migrations)) cur.migrations = JSON.parse(JSON.stringify(copy.migrations)); else delete cur.migrations; }
     /* A child pinned when it first started (linkChild) is in only the version that started it: the copy's pins win for the
@@ -1421,6 +1562,15 @@ PF.run = (function () {
       cur.pins = { children: kids };
       (copy.features || []).forEach(function (f) { addFeature(cur, f); });
     }
+    /* Living runs (4.0): a kept copy never drops landed to-dos. Its head is kept, or this version's when it has none; an approval
+       either made without counting the work lands back in review (PF.todos.markHolds), never quietly kept. */
+    /* o.head (4.0): the head to keep, as the caller checked it (PF.todos.keepHead: a copy's head is kept only as far as its
+       applications this run never landed are still authorized; '' keeps none). */
+    var lv = cur.format !== FORMAT3 ? null : o && typeof o.head === 'string' ? (o.head ? { head: o.head } : null) : copy.living || cur.living;
+    if (!lv) { delete cur.living; if (cur.features) cur.features = cur.features.filter(function (f) { return f !== PF.todos.FEATURE; }); dropCuts(cur, who, now); }
+    /* A receipt (4.0 slice 6) stays with the head it was written on, and only on a run kept ended. */
+    var rcpt = lv && lv.receipt ? lv.receipt : lv && o && typeof o.head === 'string' && copy.living && copy.living.head === lv.head ? copy.living.receipt : '';
+    if (lv) { cur.living = rcpt && cur.ended ? { head: lv.head, receipt: rcpt } : { head: lv.head }; addFeature(cur, PF.todos.FEATURE); var lo = order3(cur); Object.keys(cur).forEach(function (k) { delete cur[k]; }); Object.keys(lo).forEach(function (k) { cur[k] = lo[k]; }); }
     if (cur.format === FORMAT3) { var re = withPins(cur); Object.keys(cur).forEach(function (k) { delete cur[k]; }); Object.keys(re).forEach(function (k) { cur[k] = re[k]; }); }
     /* Deviation marks record what happened in this run in either version, so keeping a copy keeps both versions' marks;
        they're complete only if both versions' were. */
@@ -1921,10 +2071,15 @@ PF.run = (function () {
       deviated: deviated, steps: deviated.slice(0, 10), notes: res.notes, excluded: res.excluded.map(function (e) { return e.text; }), final: res.final };
   }
 
-  function end(r, map, outcome, who, whoName, now) {
+  /* o.receipt (4.0 slice 6): a living run ends with the receipt record its recorder wrote (PF.receipts), named in living in
+     the same save that sets ended. Everything is checked before anything is set. */
+  function end(r, map, outcome, who, whoName, now, o) {
     if (outcome === 'Completed' && !allGatesOk(r, map)) throw new Error('Pass or waive every gate before ending as Completed.');
     if (['Completed', 'Stopped early', 'Cancelled'].indexOf(outcome) < 0) throw new Error('Unknown outcome.');
+    var rc = o && o.receipt != null ? o.receipt : null;
+    if (rc != null && !(r.living && PF.todos.cleanLiving({ head: r.living.head, receipt: rc }))) throw new Error('That receipt can\'t be named by this run, so it wasn\'t ended.');
     if (r.paused) resume(r, who, now);
+    if (rc != null) r.living = { head: r.living.head, receipt: rc };
     r.ended = { outcome: outcome, by: who, byName: whoName, at: now };
     r.state = outcome === 'Completed' ? 'completed' : outcome === 'Cancelled' ? 'cancelled' : 'stopped';
     addLog(r, who, now, 'Ended the run: ' + outcome);
@@ -2037,7 +2192,7 @@ PF.run = (function () {
   }
 
   /* run/3's fields in the frozen order (test/fixtures/v2): the envelope, then the version's fingerprints, then the rest as run/2. */
-  var ORDER3 = ['format', 'features', 'app', 'id', 'process', 'version', 'folder', 'mapHash', 'typesHash', 'title', 'category', 'snapshot', 'types', 'payload'];
+  var ORDER3 = ['format', 'features', 'app', 'id', 'process', 'version', 'folder', 'mapHash', 'typesHash', 'title', 'category', 'snapshot', 'types', 'payload', 'living'];
   function order3(r) {
     var out = {};
     ORDER3.forEach(function (k) { if (Object.prototype.hasOwnProperty.call(r, k)) out[k] = r[k]; });
@@ -2050,8 +2205,14 @@ PF.run = (function () {
   /* Without a prototype, so a state named like an inherited property (constructor, toString) is never a state. */
   var STEP_STATES = Object.assign(Object.create(null), { done: 1, na: 1, blocked: 1, recheck: 1, open: 1 }), GATE_STATES = Object.assign(Object.create(null), { passed: 1, waived: 1, failed: 1, review: 1 });
   var RUN_STATES = { running: 1, completed: 1, stopped: 1, cancelled: 1 }, OUTCOMES = { Completed: 1, 'Stopped early': 1, Cancelled: 1 };
+  /* An outcome is exactly one of these as text: a list or a number that reads as one when made into text isn't. */
+  function outcomeOk(v) { return typeof v === 'string' && Object.prototype.hasOwnProperty.call(OUTCOMES, v); }
   function str(v, max) { return typeof v === 'string' ? v.slice(0, max || 200) : ''; }
-  function isoOrNull(v) { return typeof v === 'string' && !isNaN(new Date(v)) ? v : null; }
+  /* A time in a run: exactly the form Flightdeck writes (toISOString: YYYY-MM-DDTHH:mm:ss.sssZ, a six-digit signed year
+     outside 0000-9999), a real calendar time within the date range. Every copy since 1.10 writes only this; anything else
+     (a bare number, a date alone, an offset, no milliseconds) is no time, as the pack reader reads it too (4.0, NB). */
+  var ISO_TIME = /^(\d{4}|[+-]\d{6})-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+  function isoOrNull(v) { if (typeof v !== 'string' || !ISO_TIME.test(v)) return null; var d = new Date(v); return !isNaN(d) && d.toISOString() === v ? v : null; }
   /* A child's input snapshot keeps every run-detail name a map can declare, so nothing it was started for is lost on reload. */
   function inputsOf(o) { var c = {}; if (o && typeof o === 'object') Object.keys(o).slice(0, 60).forEach(function (k) { if (/^[\w-]{1,120}$/.test(k)) c[k] = str(o[k], 300); }); return c; }
   function values(o) { var c = {}; if (o && typeof o === 'object') Object.keys(o).slice(0, 120).forEach(function (k) { if (/^[\w-]{1,40}$/.test(k)) c[k] = str(o[k], 300); }); return c; }
@@ -2066,8 +2227,8 @@ PF.run = (function () {
     followUp: 'id text owner ticket step from by at', log: 'at by what', deadline: 'at by set', differently: 'note by at', started: 'by at',
     workflow: 'statuses transitions invalid', transition: 'from to fields', jiraField: 'name hint source options'
   };
-  KNOWN.run3 = KNOWN.run + ' features app typesHash payload pins migrations test stage searchSites searchGen searchRec';
-  KNOWN.step3 = KNOWN.step + ' skill loop'; KNOWN.history3 = KNOWN.history + ' skill loop'; KNOWN.child3 = KNOWN.child + ' folder retired teamPassed result answer'; KNOWN.parent3 = KNOWN.parent + ' folder item';
+  KNOWN.run3 = KNOWN.run + ' features app typesHash payload pins migrations test stage searchSites searchGen searchRec living';
+  KNOWN.step3 = KNOWN.step + ' skill loop todos'; KNOWN.gate3 = KNOWN.gate + ' todos'; KNOWN.history3 = KNOWN.history + ' skill loop'; KNOWN.child3 = KNOWN.child + ' folder retired teamPassed result answer'; KNOWN.parent3 = KNOWN.parent + ' folder item';
   KNOWN.pins = 'children'; KNOWN.skillSeen = 'id rev sha snapshot';
   Object.keys(KNOWN).forEach(function (k) { var o = {}; KNOWN[k].split(' ').forEach(function (f) { o[f] = 1; }); KNOWN[k] = o; });
   var HEX64 = /^[0-9a-f]{64}$/;
@@ -2119,7 +2280,7 @@ PF.run = (function () {
     look(o, three ? 'run3' : 'run', 'The run');
     state(RUN_STATES, o.state, 'Its state');
     look(o.recorder, 'recorder', 'Its recorder'); look(o.recorder && o.recorder.handoff, 'handoff', 'Its hand-off');
-    look(o.ended, 'ended', 'How it ended'); if (obj(o.ended)) state(OUTCOMES, o.ended.outcome, 'How it ended');
+    look(o.ended, 'ended', 'How it ended'); if (obj(o.ended) && !why && o.ended.outcome != null && !outcomeOk(o.ended.outcome)) why = 'How it ended is "' + String(o.ended.outcome).slice(0, 40) + '".';
     look(o.paused, 'paused', 'Its pause'); each(o.pauses, 'pause', 'A pause'); each(o.followUps, 'followUp', 'A follow-up'); each(o.log, 'log', 'A log entry');
     look(o.parent, three ? 'parent3' : 'parent', 'Its parent run');
     if (!why && three && obj(o.parent) && o.parent.item !== undefined && !PF.loop.itemRef(o.parent.item)) why = 'Its parent run\'s item isn\'t one this copy reads.';
@@ -2131,6 +2292,12 @@ PF.run = (function () {
       ['features', 'app', 'typesHash', 'payload', 'pins', 'migrations'].forEach(function (k) { if (!why && o[k] === null) why = 'Its "' + k + '" is empty.'; });
       if (!why && obj(o.pins) && !(obj(o.pins.children) && Object.keys(o.pins.children).length)) why = 'Its pins name no linked runs.';
       if (!why && Array.isArray(o.features) && JSON.stringify(PF.envelope.FROZEN.filter(function (f) { return o.features.indexOf(f) >= 0; })) !== JSON.stringify(o.features)) why = 'Its features aren\'t listed as this copy writes them.';
+      /* A living run (4.0) names its last application and the living-runs feature, both or neither. */
+      var lf = Array.isArray(o.features) && o.features.indexOf(PF.todos.FEATURE) >= 0;
+      if (!why && o.living !== undefined && !PF.todos.cleanLiving(o.living)) why = 'Its record of its to-dos isn\'t one this copy reads.';
+      if (!why && (o.living !== undefined) !== lf) why = lf ? 'It names the living-runs feature without its record of its to-dos.' : 'It records to-dos without naming the living-runs feature.';
+      /* Its receipt (4.0 slice 6) is named only by a run that has ended. */
+      if (!why && obj(o.living) && o.living.receipt !== undefined && !obj(o.ended)) why = 'It names the receipt it ended with, but it hasn\'t ended.';
     }
     if (three && obj(o.pins)) look(o.pins, 'pins', 'Its pins'); if (obj(o.parent)) text(o.parent.inputs, 'Its parent run\'s details', 300);
     /* Maps of text (details, roles, answers, approvals): anything else in them is dropped on load. */
@@ -2156,13 +2323,15 @@ PF.run = (function () {
       if (three && !why && obj(a.child) && a.child.answer !== undefined && !(usesResults(o) && typeof a.child.answer === 'string' && /^[0-9TZ:.+-]{0,40} [0-9TZ:.+-]{0,40}$/.test(a.child.answer))) why = w + '\'s record of which answer its run gave isn\'t one this copy reads.';
       if (three) { look(a.skill, 'skillSeen', w + '\'s skill'); if (!why && a.skill !== undefined && !cleanSkill(a.skill)) why = w + '\'s skill registration isn\'t one this copy reads.'; }
       if (three && !why && a.loop !== undefined && !PF.loop.cleanSnapshot(a.loop)) why = w + '\'s loop approval isn\'t one this copy reads.';
+      if (three && !why && a.todos !== undefined && !(o.living !== undefined && PF.todos.cleanCut(a.todos))) why = w + '\'s record of the to-dos its approval counted isn\'t one this copy reads.';
       text(a.values, w + '\'s evidence', 300); if (obj(a.child)) text(a.child.inputs, w + '\'s child run detail', 300);
       if (Array.isArray(a.history)) a.history.forEach(function (h) { look(h, three ? 'history3' : 'history', w + '\'s history'); if (three && obj(h)) { look(h.skill, 'skillSeen', w + '\'s earlier skill'); if (!why && h.skill !== undefined && !cleanSkill(h.skill)) why = w + '\'s earlier skill registration isn\'t one this copy reads.'; } if (obj(h) && h.s !== 'corrected') state(STEP_STATES, h.s, w + '\'s history'); if (obj(h)) { look(h.differently, 'differently', w + '\'s history'); text(h.values, w + '\'s earlier evidence'); text(h.fields, w + '\'s earlier value'); } });
     });
     if (obj(o.gates)) Object.keys(o.gates).forEach(function (k) {
       var g = o.gates[k], w = 'Gate "' + k.slice(0, 60) + '"';
       if (!obj(g)) return;
-      look(g, 'gate', w); state(GATE_STATES, g.s, w + '\'s state'); state(GATE_STATES, g.was, w + '\'s earlier state'); text(g.approved, w + '\'s approval of', V.DETAIL_MAX, unit);
+      look(g, three ? 'gate3' : 'gate', w); state(GATE_STATES, g.s, w + '\'s state');
+      if (three && !why && g.todos !== undefined && !(o.living !== undefined && PF.todos.cleanCut(g.todos))) why = w + '\'s record of the to-dos it counted isn\'t one this copy reads.'; state(GATE_STATES, g.was, w + '\'s earlier state'); text(g.approved, w + '\'s approval of', V.DETAIL_MAX, unit);
     });
     return why ? NEWER + ' ' + why : '';
   }
@@ -2251,12 +2420,68 @@ PF.run = (function () {
   function badTimes(o, r) {
     var b = {}, n = 0, bad = function (v) { return v != null && !isoOrNull(v); };
     if (bad(o.created)) { b.created = true; n++; }
-    if (o.ended && typeof o.ended === 'object' && OUTCOMES[o.ended.outcome] && !r.ended) { b.ended = o.ended.outcome; n++; }
+    if (o.ended && typeof o.ended === 'object' && outcomeOk(o.ended.outcome) && !r.ended) { b.ended = o.ended.outcome; n++; }
     if (Array.isArray(o.pauses) && o.pauses.slice(0, 500).some(function (p) { return p && (!isoOrNull(p.from) || !isoOrNull(p.to)); })) { b.pauses = true; n++; }
     if (o.paused && typeof o.paused === 'object' && r.state === 'running' && !r.paused) { b.paused = true; n++; }
     var lost = (Array.isArray(o.log) ? o.log.slice(-LOG_MAX) : []).filter(function (l) { return l && typeof l === 'object' && !isoOrNull(l.at); });
     if (lost.length) { b.log = lost.map(function (l) { return { what: str(l.what, 300) }; }); n++; }
     return n ? b : null;
+  }
+  /* The one end validation (DB): how every reader judges a run file's ended record, as newer() (an unknown field, an outcome
+     this copy doesn't know, a receipt named without an end), badTimes() (a time it can't read) and repairs() (an end it drops,
+     a who or name that isn't text or is over 80 characters) judge it, in that order and those words. null when the end is
+     read as written. { kind: 'newer' | 'malformed', why }: a newer why is newer()'s (NEWER and the place); a malformed one is
+     the reader's sentence for the file. The export keeps it for the run it packs; check_folder.py ports it. */
+  /* The living record (4.0) as newer() judges it on a run/3 file: one cleanLiving refuses, or the living-runs feature without
+     it (or it without the feature), is newer. Shared by the export and mirrored by the checker (living_problem). */
+  function livingProblem(o) {
+    if (!o || typeof o !== 'object' || o.format !== FORMAT3) return null;
+    var lf = Array.isArray(o.features) && o.features.indexOf(PF.todos.FEATURE) >= 0;
+    if (o.living !== undefined && !PF.todos.cleanLiving(o.living)) return { kind: 'newer', why: NEWER + ' Its record of its to-dos isn\'t one this copy reads.' };
+    if ((o.living !== undefined) !== lf) return { kind: 'newer', why: NEWER + ' ' + (lf ? 'It names the living-runs feature without its record of its to-dos.' : 'It records to-dos without naming the living-runs feature.') };
+    return null;
+  }
+  function endObj(o) { var e = o.ended; return !!e && typeof e === 'object' && !Array.isArray(e); }
+  /* A receipt named without an end (no end, null, or an end that isn't a record). */
+  function noEnd(o) { return !endObj(o) && o.living && typeof o.living === 'object' && o.living.receipt !== undefined ? { kind: 'newer', why: NEWER + ' It names the receipt it ended with, but it hasn\'t ended.' } : null; }
+  /* An end field this copy doesn't know, or an outcome that isn't exactly one it knows as text. */
+  function endNewer(o) {
+    if (!endObj(o)) return null;
+    var e = o.ended, extra = Object.keys(e).filter(function (f) { return !Object.prototype.hasOwnProperty.call(KNOWN.ended, f); })[0];
+    if (extra != null) return { kind: 'newer', why: NEWER + ' How it ended has "' + String(extra).slice(0, 40) + '".' };
+    if (e.outcome != null && !outcomeOk(e.outcome)) return { kind: 'newer', why: NEWER + ' How it ended is "' + String(e.outcome).slice(0, 40) + '".' };
+    return null;
+  }
+  /* A time badTimes() can't read, and what repairs() drops or cuts. */
+  function endMalformed(o) {
+    var e = o.ended, isObj = endObj(o);
+    if (e == null) return null;
+    var parts = [], fixed = [];
+    if (isObj && outcomeOk(e.outcome) && !isoOrNull(e.at)) parts.push('Some times in this file couldn\'t be read (the end).');
+    if (!isObj || !outcomeOk(e.outcome)) fixed.push('ended (dropped: not an outcome this copy knows)');
+    else ['by', 'byName'].forEach(function (k) { var v = e[k]; if (v == null) return; if (typeof v !== 'string') fixed.push('ended.' + k + ' (dropped: not text)'); else if (v.length > 80) fixed.push('ended.' + k + ' (cut to 80 characters)'); });
+    if (fixed.length) parts.push('Records this copy dropped or changed: ' + fixed.join(', ') + '.');
+    return parts.length ? { kind: 'malformed', why: parts.join(' ') + ' The run is shown as the app shows it, without them.' } : null;
+  }
+  function endProblem(o) {
+    if (!o || typeof o !== 'object') return null;
+    return noEnd(o) || endNewer(o) || endMalformed(o);
+  }
+  /* FA: the one validation of a raw run file's end and living record, in newer()'s order (a run/2 with living work, the
+     end's fields, then the living record, then a receipt named without an end), then what the readers drop or can't read. Applied to the file as written,
+     before any "no living work" gate, by the export and both Python checkers (raw_problem), so sanitizing never hides it. */
+  /* Whether a raw run file says anything about living work: a living record (any value) or the living-runs feature. */
+  function livingWork(o) { return !!o && typeof o === 'object' && (o.living !== undefined || (Array.isArray(o.features) && o.features.indexOf(PF.todos.FEATURE) >= 0)); }
+  /* FD: living work needs run/3. A run/2 that names the living-runs feature or holds a living record has a field run/2 doesn't
+     know, so it is newer, worded as newer() words it (the first such field, in the file's order). */
+  function envelopeProblem(o) {
+    if (o.format !== FORMAT || !livingWork(o)) return null;
+    var extra = Object.keys(o).filter(function (f) { return !Object.prototype.hasOwnProperty.call(KNOWN.run, f) && f[0] !== '_'; })[0];
+    return extra == null ? null : { kind: 'newer', why: NEWER + ' The run has "' + String(extra).slice(0, 40) + '".' };
+  }
+  function rawProblem(o) {
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return null;
+    return envelopeProblem(o) || endNewer(o) || livingProblem(o) || noEnd(o) || endMalformed(o);
   }
   /* Reading for other apps: every record in a run file that sanitize drops, cuts short or replaces, by where it is
      (gates.ready, followUps[2], steps.tests.values.url, log[40]…), worked out from the file as parsed. Pure, never saved, and
@@ -2383,7 +2608,7 @@ PF.run = (function () {
       text(l.by, 80, at + '.by'); text(l.what, 300, at + '.what');
     });
     if (o.ended != null) {
-      if (!obj(o.ended) || !OUTCOMES[o.ended.outcome]) add('ended', 'dropped: not an outcome this copy knows');
+      if (!obj(o.ended) || !outcomeOk(o.ended.outcome)) add('ended', 'dropped: not an outcome this copy knows');
       else { text(o.ended.by, 80, 'ended.by'); text(o.ended.byName, 80, 'ended.byName'); }
     }
     /* A typed value (run/3) that isn't exactly canonical is kept as written and named here, never changed. */
@@ -2421,6 +2646,44 @@ PF.run = (function () {
     var map = mapOf(r), pre = sx.rebuilt.slice();
     sx.reopened.forEach(function (x) { pre.push('steps.' + x.id); var f = M.findStep(map, x.id); if (f) pre.push('gates.' + f.phase.gate.id); });
     return d.filter(function (p) { return !pre.some(function (q) { return p === q || p.indexOf(q + '.') === 0 || p.indexOf(q + '[') === 0; }); });
+  }
+  /* A dependency run as the export confirms it (4.0 slice 6): exactly what the cleaner keeps, read as its JSON. The first
+     place it isn't, or ''. Two allowances, and DRIFT_ALLOW's documented ones: a key the file leaves out where the cleaner
+     fills in an empty value ('', null, {} or []), and a null the cleaner leaves out. Nothing else is coerced, trimmed, cut,
+     repaired or dropped, numbers are finite, and a value the cleaner keeps as written after looking it up in a table (the
+     run's state, a step's and an earlier answer's s, a gate's s and was, the outcome) is a string. The app's own reading of
+     a run is unchanged. */
+  function canonical(o) {
+    var r = sanitize(o);
+    if (!r || !o || typeof o !== 'object') return '';
+    var c = JSON.parse(JSON.stringify(r)), first = '';
+    var segs = function (p) { return String(p).replace(/\[(\d+|\*)\]/g, '.$1').split('.'); };
+    var added = DRIFT_ALLOW.added.map(segs), dropped = DRIFT_ALLOW.dropped.map(segs);
+    var allowed = function (list, path) { var x = segs(path); return list.some(function (q) { return q.length === x.length && q.every(function (y, i) { return y === '*' || y === x[i]; }); }); };
+    var kind = function (v) { return Array.isArray(v) ? 'list' : v === null ? 'null' : typeof v; };
+    var bare = function (v) { return v === '' || v === null || (Array.isArray(v) && !v.length) || (kind(v) === 'object' && !Object.keys(v).length); };
+    var plain = function (v) { return kind(v) === 'object' ? Object.keys(v).filter(function (k) { return k.charAt(0) !== '_'; }) : []; };
+    /* A key the file names is read as its own, never an inherited name (constructor, toString). */
+    var ownAt = function (x, k) { return Object.prototype.hasOwnProperty.call(x, k) ? x[k] : undefined; };
+    var walk = function (a, b, path) {
+      if (first) return;
+      if (a === undefined) { if (b !== undefined && !bare(b) && !allowed(added, path)) first = path; return; }
+      if (b === undefined) { if (a !== null && !allowed(dropped, path)) first = path; return; }
+      /* A documented drop the cleaner writes as null (a pause left on an ended run). */
+      if (b === null && a !== null && allowed(dropped, path)) return;
+      if (kind(a) !== kind(b)) { first = path; return; }
+      if (Array.isArray(a)) { for (var i = 0; i < Math.max(a.length, b.length) && !first; i++) walk(ownAt(a, i), ownAt(b, i), path + '[' + i + ']'); return; }
+      if (kind(a) === 'object') { Object.keys(a).concat(plain(b).filter(function (k) { return !Object.prototype.hasOwnProperty.call(a, k); })).forEach(function (k) { walk(ownAt(a, k), ownAt(b, k), path ? path + '.' + k : k); }); return; }
+      if (a !== b) first = path;
+    };
+    var str = function (v, path) { if (!first && v != null && typeof v !== 'string') first = path; };
+    var isObj = function (v) { return kind(v) === 'object'; };
+    str(o.state, 'state');
+    if (isObj(o.steps)) Object.keys(o.steps).forEach(function (k) { var a = o.steps[k]; if (!isObj(a)) return; str(a.s, 'steps.' + k + '.s'); if (Array.isArray(a.history)) a.history.forEach(function (h, i) { if (isObj(h)) str(h.s, 'steps.' + k + '.history[' + i + '].s'); }); });
+    if (isObj(o.gates)) Object.keys(o.gates).forEach(function (k) { var g = o.gates[k]; if (!isObj(g)) return; str(g.s, 'gates.' + k + '.s'); str(g.was, 'gates.' + k + '.was'); });
+    if (isObj(o.ended)) str(o.ended.outcome, 'ended.outcome');
+    walk(o, c, '');
+    return first;
   }
   function sanitize(o) {
     if (!valid(o)) return newerFormat(o);
@@ -2465,6 +2728,7 @@ PF.run = (function () {
       if (a.child && /^[a-z0-9][a-z0-9-]*$/.test(String(a.child.process)) && /^[a-z0-9-]{1,40}$/i.test(String(a.child.id))) { c.child = { process: a.child.process, id: a.child.id }; if (a.child.inputs && typeof a.child.inputs === 'object') c.child.inputs = inputsOf(a.child.inputs); if (a.child.failed === true) c.child.failed = true; if (three && a.child.retired === true) c.child.retired = true; if (three && folderOk(a.child.folder)) c.child.folder = a.child.folder; if (three && usesTeam(o) && teamRecord(a.child.teamPassed)) c.child.teamPassed = teamRecord(a.child.teamPassed); if (three && usesResults(o) && typeof a.child.result === 'string') c.child.result = a.child.result.slice(0, 40); if (three && usesResults(o) && typeof a.child.answer === 'string') c.child.answer = a.child.answer.slice(0, 81); }
       if (three && a.skill) { var sk = cleanSkill(a.skill); if (sk) c.skill = sk; }
       if (three && a.loop) { var lp = PF.loop.cleanSnapshot(a.loop); if (lp) c.loop = lp; }
+      if (three && a.todos) { var tc = PF.todos.cleanCut(a.todos); if (tc) c.todos = tc; }
       if (Array.isArray(a.history)) c.history = a.history.slice(-HISTORY_MAX).filter(function (h) { return h && (STEP_STATES[h.s] || h.s === 'corrected'); }).map(function (h) { return { s: h.s, by: str(h.by, 80), at: isoOrNull(h.at), reason: str(h.reason, 120) || undefined, differently: h.differently ? { note: str(h.differently.note, 500) } : undefined, values: h.values ? values(h.values) : undefined, fields: h.fields ? values(h.fields) : undefined, skill: three && h.skill ? cleanSkill(h.skill) || undefined : undefined, loop: three && h.loop ? PF.loop.cleanSnapshot(h.loop) || undefined : undefined }; });
       r.steps[k] = c;
     });
@@ -2473,10 +2737,11 @@ PF.run = (function () {
       if (!g || !GATE_STATES[g.s] || k === '__proto__') return;
       var c = { s: g.s, by: str(g.by, 80), at: isoOrNull(g.at), reason: str(g.reason, 200) || undefined, was: GATE_STATES[g.was] ? g.was : undefined, approved: {} };
       Object.keys(g.approved || {}).forEach(function (f) { c.approved[f] = typeof g.approved[f] === 'string' ? V.cut(null, g.approved[f], V.DETAIL_MAX, unit).value : ''; });
+      if (three && g.todos) { var gc = PF.todos.cleanCut(g.todos); if (gc) c.todos = gc; }
       r.gates[k] = c;
     });
     (Array.isArray(o.log) ? o.log.slice(-LOG_MAX) : []).forEach(function (l) { if (l && isoOrNull(l.at)) r.log.push({ at: l.at, by: str(l.by, 80), what: str(l.what, 300) }); });
-    if (o.ended && OUTCOMES[o.ended.outcome] && isoOrNull(o.ended.at)) r.ended = { outcome: o.ended.outcome, by: str(o.ended.by, 80), byName: str(o.ended.byName, 80), at: o.ended.at };
+    if (o.ended && outcomeOk(o.ended.outcome) && isoOrNull(o.ended.at)) r.ended = { outcome: o.ended.outcome, by: str(o.ended.by, 80), byName: str(o.ended.byName, 80), at: o.ended.at };
     var bt = badTimes(o, r); if (bt) r._badTimes = bt;
     /* A run on a version this copy can't fully read, or with fields or states it doesn't know (a newer Flightdeck saved it), is
        shown but never recorded or saved here: sanitizing just dropped what this copy doesn't know, so saving would erase it.
@@ -2493,6 +2758,7 @@ PF.run = (function () {
       if (o.payload != null) r.payload = JSON.parse(JSON.stringify(o.payload));
       if (o.pins && o.pins.children && Object.keys(o.pins.children).length) r.pins = { children: JSON.parse(JSON.stringify(o.pins.children)) };
       if (Array.isArray(o.migrations)) r.migrations = JSON.parse(JSON.stringify(o.migrations));
+      if (o.living !== undefined && PF.todos.cleanLiving(o.living)) r.living = PF.todos.cleanLiving(o.living);
       r = withPins(order3(r));
       /* Jira searches (2.16): the containers read into fresh plain objects with only valid entries (section 5.6). */
       if (searchIn(o)) { var sc3 = searchRead(o); if (sc3) afterJira(r, sc3.add); }
@@ -2522,9 +2788,9 @@ PF.run = (function () {
   return { answerable: answerable, reopenIds: reopenIds, gateInputs: gateInputs, detailValueDef: detailValueDef, detailUnit: detailUnit,
     childCheck: childCheck, childMarks: childMarks, edgeHolds: edgeHolds, linkShape: linkShape, CHILD_HEIGHT: CHILD_HEIGHT, CHILD_LINKS: CHILD_LINKS, isSearchStep: isSearchStep, searchSteps: searchSteps, searchState: searchState, searchProblem: searchProblem, reopenNotice: reopenNotice, searchId: searchId, searchCheck: searchCheck, genDamaged: genDamaged, refreshSearch: refreshSearch, rereadable: rereadable, mergeOverflow: mergeOverflow, SEARCH_PREFIX: SEARCH_PREFIX,
     RUN_ID: RUN_ID, isTest: isTest, pubDir: pubDir, testProblem: testProblem, testLast: testLast,
-    FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
+    FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, endProblem: endProblem, livingProblem: livingProblem, rawProblem: rawProblem, livingWork: livingWork, repairs: repairs, unexplained: unexplained, canonical: canonical, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk, phaseHeld: phaseHeld,
     phaseOpen: phaseOpen, applies: applies, held: held, stepNeeded: stepNeeded, canStartChild: canStartChild, phaseSkipped: phaseSkipped, condFields: condFields, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, fillOffered: fillOffered, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence, checkFill: checkFill,
-    pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, resultMoved: resultMoved, resultChanged: resultChanged, resultMarks: resultMarks, RESULT_CHANGED: RESULT_CHANGED, unsettleResult: unsettleResult, unsettleLoop: unsettleLoop, resultFit: resultFit, answerOf: answerOf, resultOf: resultOf, outcomeText: outcomeText, resultHeld: resultHeld, acceptsOf: acceptsOf, boundSource: boundSource, teamUnrecorded: teamUnrecorded, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, jiraFor: jiraFor, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, effStep: effStep, setFields: setFields,
+    pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, resultMoved: resultMoved, resultChanged: resultChanged, resultMarks: resultMarks, RESULT_CHANGED: RESULT_CHANGED, unsettleResult: unsettleResult, todoLand: todoLand, unsettleLoop: unsettleLoop, resultFit: resultFit, answerOf: answerOf, resultOf: resultOf, outcomeText: outcomeText, resultHeld: resultHeld, acceptsOf: acceptsOf, boundSource: boundSource, teamUnrecorded: teamUnrecorded, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, jiraFor: jiraFor, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, effStep: effStep, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,
     pass: pass, waive: waive, fail: fail, reopen: reopen, setDetail: setDetail, setRole: setRole,
     handOff: handOff, pickUp: pickUp, takeOver: takeOver, legacyLinks: legacyLinks, continuation: continuation, continued: continued, skillWarning: skillWarning, cleanSkill: cleanSkill, LEGACY_CHILD: LEGACY_CHILD, waitingForHandoff: waitingForHandoff, compare: compare, adopt: adopt, addFollowUp: addFollowUp, removeFollowUp: removeFollowUp, corrections: corrections, end: end, myNext: myNext, nextUp: nextUp, nextInPhase: nextInPhase, totals: totals, receipt: receipt, blockedSteps: blockedSteps

@@ -1,0 +1,7 @@
+{
+  "name": "backup-report",
+  "version": "1.0.0",
+  "location": "https://example.com/skills/backup-report",
+  "implements": "backup@1",
+  "description": "Writes the backup report."
+}

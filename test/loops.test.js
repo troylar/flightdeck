@@ -372,6 +372,24 @@ rule('Review round 1: a scope record that can\'t be read holds the loop, and rea
   same(got.scopesUnread.map(u => u.file), ['req-x-' + 'b'.repeat(24) + '.json']);
 });
 
+/* CA: "_supplied" in a scope record or a plan is the file's own field: read as the core readers read it
+   for that one file, never a failed read of proposals/. */
+rule('A scope record or plan that supplies "_supplied" of any JSON type is read file by file, never failing proposals/', async () => {
+  const f = reqFile('ca-1'), name = f.id + '.json', plan = { kind: 'plan', id: 'plan-abc', process: 'release-readiness', version: 1, title: 'Release', details: {}, roles: {} };
+  for (const v of ['forged', 7, true, null, {}, [], ['extra'], { order: 'forged' }, { order: 7 }, { order: {} }, { order: ['extra'] }, { order: null }, { _file: 'x.json' }]) for (const lead of [false, true]) {
+    const o = Object.assign(lead ? { _file: 'first' } : {}, JSON.parse(LP.text(f)), { _supplied: v }), raw = Object.create(null);
+    Object.keys(o).forEach((x) => { raw[x] = o[x]; });
+    const core = LP.cleanFile(raw, name), tag = JSON.stringify(v) + (lead ? ' after _file' : '');
+    const m = memFs({ ['proposals/' + name]: JSON.stringify(o), 'proposals/plan-abc.json': JSON.stringify(Object.assign(lead ? { _bytes: 1 } : {}, plan, { _supplied: v })), 'proposals/plan-ok.json': JSON.stringify(Object.assign({}, plan, { id: 'plan-ok' })) });
+    const got = await PF.repo.readPlans(m, null, null, false), u = got.scopesUnread.filter(x => x.file === name)[0];
+    if (core.ok) assert.ok(!u && got.scopes.some(x => x._file === name), tag + ': read as the core reader reads it');
+    else assert.ok(u && u.why === core.why, tag + ': ' + JSON.stringify(u) + ' vs ' + core.why);
+    assert.ok(got.plans.some(p => p.id === 'plan-ok'), tag + ': the other plan still reads');
+    const all = await PF.repo.loadAll(m, {});
+    assert.ok(!('proposals' in (all.failed || {})), tag + ': ' + JSON.stringify(all.failed));
+  }
+});
+
 rule('Round 2: an approval the folder no longer matches holds the gate, read-only, before any save; nothing is written into the run', () => {
   const { r, kid2 } = release(), map = R.mapOf(r);
   const recs = [LP.cleanRequest(JSON.parse(LP.text(reqFile('c1', { loop: LOOPT, observation: obs([101]) }))), reqFile('c1').id + '.json').record];
@@ -932,4 +950,11 @@ rule('3.0.1: A loop at Latest that passes a detail its child no longer has is li
   has(c.suggestions, /Release readiness \(published\) .*passes \^issue to this checklist/);
 });
 
+/* YA: a record that saw itself is a circle, held with everything after it; reading it never fails (3.0's reducer threw). */
+rule('A record that names itself among what it saw is held, with every record after it, and reading never fails', () => {
+  const LP = PF.loop, a = { id: 'r1', seen: ['r1'] }, b = { id: 'r2', seen: ['r1'] }, c = { id: 'r3', seen: [] };
+  const got = LP.causal([a, b, c]);
+  same(got.order.map(r => r.id), ['r3']);
+  same(got.held.map(h => h.record).sort(), ['r1', 'r2']);
+});
 run();

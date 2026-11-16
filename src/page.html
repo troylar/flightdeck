@@ -309,6 +309,17 @@ b.dname { font-weight: 600; }
 .b-time.s-soon { background: var(--amber-soft); color: var(--ink); }
 .b-time.s-done, .b-time.s-done-late { background: var(--go-soft); color: var(--go); }
 .hint { display: block; color: var(--muted); margin: -2px 0 4px; }
+.todos { margin: 8px 0; padding: 8px 10px; border-left: 3px solid var(--line); }
+.td-list { list-style: none; margin: 0 0 6px; padding: 0; }
+.td-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 4px 0; min-width: 0; }
+.td-row .td-text { overflow-wrap: anywhere; min-width: 0; }
+.td-row[data-s="done"] .td-text, .td-row[data-s="wont"] .td-text, .td-row[data-s="moved"] .td-text { text-decoration: line-through; color: var(--muted, inherit); }
+.td-check { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; min-width: 22px; border: 1.5px solid var(--line); border-radius: 5px; background: transparent; font: inherit; line-height: 1; cursor: default; }
+button.td-check { cursor: pointer; }
+.td-form { flex-basis: 100%; display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.td-add { gap: 6px; align-items: center; flex-wrap: wrap; }
+.td-add input { flex: 1 1 200px; min-width: 0; }
+.rw-counts { list-style: none; display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 4px 0; padding: 0; }
 .childbox { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; padding: 8px 10px; border: 1px dashed var(--line); border-radius: 8px; }
 .tracks { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 10px; }
 .track { min-width: 0; border-top: 3px solid var(--plan); background: var(--paper); border-radius: 6px; padding: 8px 10px; }
@@ -544,6 +555,14 @@ input[type="checkbox"] { accent-color: var(--go); width: 16px; height: 16px; }
 .seg button .ic { margin-right: 6px; vertical-align: -3px; }
 .icon-btn { display: inline-flex; align-items: center; justify-content: center; padding: 6px 8px; }
 .todos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.sp-row { margin: 8px 0; padding: 8px 10px; border-left: 3px solid var(--amber); }
+.sp-chips { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.sp-chip { padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); }
+.fact-lines { list-style: none; margin: 4px 0 0; padding: 0; color: var(--muted, inherit); overflow-wrap: anywhere; }
+.fact-lines .fact-contrary, .fact-lines .fact-disputed, .fact-lines .fact-failed, .fact-lines .fact-stale, .fact-lines .fact-held, .fact-lines .fact-future { color: inherit; font-weight: 600; }
+.td-ack, .td-evidence { color: var(--muted, inherit); overflow-wrap: anywhere; }
+.sp-chip.sp-done, .sp-chip.sp-wont, .sp-chip.sp-moved, .sp-chip.sp-excepted { border-color: var(--go); }
+.td-batch { margin: 8px 0; padding: 8px 10px; border-left: 3px solid var(--go); }
 .todo { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--line); border-left: 4px solid var(--amber); border-radius: 8px; background: var(--card); }
 .todo.plan { border-left-color: var(--plan); } .todo.skill, .todo.sign { border-left-color: var(--go); } .todo.draft { border-left-color: var(--muted); }
 .glance { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }

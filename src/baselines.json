@@ -76,6 +76,9 @@
       ],
       "24c5a846ef74e5b1d549fd6039dafee044d13f9be55b22b693c87d85df3c3192": [
         "3.0.1"
+      ],
+      "0201f9fb9e66b0d1682334fbf5c1589cd1f61d4103ae325a1c194fa8c9f2b4c6": [
+        "4.0.0"
       ]
     },
     ".flightdeck/skills/_flightdeck/checklist-essentials.md": {
@@ -88,7 +91,8 @@
         "3.0.0"
       ],
       "197779e5fb047d6137527db0211659a2db320470f3086d61b5126d6e868b0cf8": [
-        "3.0.1"
+        "3.0.1",
+        "4.0.0"
       ]
     },
     ".flightdeck/skills/_flightdeck/command-guide.md": {
@@ -102,6 +106,9 @@
       ],
       "6b481b41848a4d32bbe57076f65769724aad85bce47af23fd01e3bb2f3849dad": [
         "3.0.1"
+      ],
+      "8e284adf5ba57a75d4941e911b6768231187c16e3b31818d9be8b7189e5c2d32": [
+        "4.0.0"
       ]
     },
     ".flightdeck/skills/_flightdeck/file-formats.md": {
@@ -114,7 +121,8 @@
         "2.16.1",
         "2.16.2",
         "3.0.0",
-        "3.0.1"
+        "3.0.1",
+        "4.0.0"
       ]
     },
     ".flightdeck/skills/_flightdeck/good-checklists.md": {
@@ -172,7 +180,8 @@
         "3.0.0"
       ],
       "e242f8b86e5ee9578bdbec9f4ebf08402f2e494a89ecdcfdbe1062e857987713": [
-        "3.0.1"
+        "3.0.1",
+        "4.0.0"
       ]
     },
     ".flightdeck/skills/_flightdeck/map-format.md": {
@@ -252,7 +261,13 @@
         "3.0.0"
       ],
       "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9": [
-        "3.0.1"
+        "3.0.1",
+        "4.0.0"
+      ]
+    },
+    ".flightdeck/skills/_flightdeck/run_verdict.py": {
+      "a4c0467f3703f5efeeba4cadb1053287216ff0d1d320e4d2851d8bec36622634": [
+        "4.0.0"
       ]
     },
     ".flightdeck/skills/flightdeck-edit-checklist/SKILL.md": {
@@ -312,7 +327,8 @@
         "3.0.0"
       ],
       "6a46e0d61b6d12c316ae81a62d0b01667adefa8df80a30de49a39d4fe3854284": [
-        "3.0.1"
+        "3.0.1",
+        "4.0.0"
       ]
     },
     ".flightdeck/skills/flightdeck-learn-from-runs/SKILL.md": {
@@ -377,6 +393,14 @@
       ],
       "23218b1cfcb218c7dc1a414c5255e90e8100c0fb02144b55589722c25857fc2d": [
         "3.0.1"
+      ],
+      "8bd08c936234c4e3f871cd551fd175cfe4f7277880014d7f532e3d7487278bec": [
+        "4.0.0"
+      ]
+    },
+    ".flightdeck/skills/flightdeck-living-run/SKILL.md": {
+      "261abef0ef6e104cac26b79c30a7e03c5f59df321b85b4cee0f2c2200b0fc3e9": [
+        "4.0.0"
       ]
     },
     ".flightdeck/skills/flightdeck-new-checklist/SKILL.md": {
@@ -438,7 +462,8 @@
         "3.0.0"
       ],
       "3a6eb58e264583f36fb072835912f61bbb9a3fcf619f5932b2f0bdea2cfa6099": [
-        "3.0.1"
+        "3.0.1",
+        "4.0.0"
       ]
     },
     ".flightdeck/skills/flightdeck-new-step-type/SKILL.md": {
@@ -496,7 +521,8 @@
         "3.0.0"
       ],
       "93a792da09f9cbb58c9275e75dff4ef9f1bdb87160f2e4a06c9259e8c7227f1b": [
-        "3.0.1"
+        "3.0.1",
+        "4.0.0"
       ]
     },
     ".flightdeck/skills/flightdeck-plan-run/SKILL.md": {
@@ -550,7 +576,8 @@
         "2.16.1",
         "2.16.2",
         "3.0.0",
-        "3.0.1"
+        "3.0.1",
+        "4.0.0"
       ]
     },
     ".flightdeck/skills/flightdeck-review-checklist/SKILL.md": {
@@ -614,7 +641,8 @@
         "3.0.0"
       ],
       "df3203443ea1a144cf18a6646f9f67e80ce988e1b6c04cee9a8d483ea7f827a5": [
-        "3.0.1"
+        "3.0.1",
+        "4.0.0"
       ]
     },
     ".flightdeck/skills/flightdeck-skill-brief/SKILL.md": {
@@ -672,7 +700,8 @@
         "3.0.0"
       ],
       "bf3494f1d7d8d3b5a6a2b612c0021adcfd6483be525eab2e85491525d2d1b6a2": [
-        "3.0.1"
+        "3.0.1",
+        "4.0.0"
       ]
     },
     ".flightdeck/skills/flightdeck-status/SKILL.md": {
@@ -731,6 +760,9 @@
       ],
       "f4489f459cf189d3087f29af0a6091465e97e5f38b35470513ee8828b9d29bc0": [
         "3.0.1"
+      ],
+      "667fb29b4a649b34dd4a21bd86ec97d7ca4618f33463a08d753a8440c07e6273": [
+        "4.0.0"
       ]
     },
     "AGENTS.md#flightdeck": {
@@ -823,6 +855,9 @@
       ],
       "1c4e7710f2a73d36814c12d1d5f9d864f07087dcd647668a1b8faeeb9d70cc8a": [
         "3.0.1"
+      ],
+      "9e9632ca853713f1fd6bf35b7ef65ed1393d12a391d2e092ff299f68baaafae5": [
+        "4.0.0"
       ]
     }
   }

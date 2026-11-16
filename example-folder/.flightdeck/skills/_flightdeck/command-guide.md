@@ -168,8 +168,50 @@ Keys are taken exactly as typed. A list of items syncs only from the feed its st
 
 Exit code 0 is requested, already requested, or (with `--dry-run`) what it would write; 4 nothing written, because a scope record or part of the folder couldn't be read; 1 refused (a key already used for a different request, or a request that isn't valid); 5 no such run or loop step. If it can't confirm the save, retry with the same key, never a new one: a new key could ask twice. If `review` wrote some of its decisions and not the rest ("Some of this decision was written before it", or a retry with the same key refused as a different decision), read the loop: the items already decided aren't waiting any more, so ask again for the ones still waiting, with a new key. The formats are in docs/apps.md of the Flightdeck repository.
 
+### To-dos
+
+A running run can carry to-dos: work someone found that comes before one of its gates. Flightdeck keeps them as to-do records in `proposals/` (`flightdeck-plan/4` and `flightdeck-plan-status/4`), written by Flightdeck windows and by `flightdeck todo`; never write, edit or delete one by hand.
+
+Read them with `flightdeck todo list <team folder> <process>/<run> --json`: each to-do's `id`, `text`, `state` (open, done, wont, moved) and the gate it comes before, and each request's `status` (waiting, queued, applied, declined, held, disputed) with why. `flightdeck run` and `next` (`--contract 2`) give the same to-dos, `todoCounts` and what holds a gate (`todoHolds`, `todos.holds`). An open or disputed to-do holds its gate.
+
+Ask for one change with `flightdeck todo add --text "..." --phase <phase id>` (or `--step <step id>`), `todo done --todo <id>`, `todo wont --todo <id> --reason "..."`, `todo move --todo <id> --to <ticket | https link | process/run>` or `todo reopen --todo <id>`, each with `--tool <name>@<version> --key <key>`. Run it with `--dry-run --json` first and show the person the preview: where it goes, who must approve it (`authority.needs`), what it sends back for review or releases, and that the recorder applies it. It writes one file, once; it never decides and never writes a run. `--as <person id>` names who the tool asks for, never their approval: a person decides in Flightdeck, unless a delegation they made covers it.
+
+Exit code 0 is requested, already requested, or (with `--dry-run`) what it would write; 4 nothing written, because a to-do record or part of the folder couldn't be read; 1 refused (a key already used for a different request, or a change the run doesn't allow, with why); 5 no such run. If it can't confirm the save, retry with the same key, never a new one. The formats are in docs/apps.md of the Flightdeck repository.
+
+A run with requests but no to-do applied yet lists them too (`todoRequests`). How a run stands is three numbers, each out of its own total: the checklist's steps, a loop's items and the run's to-dos; a request not applied yet is waiting or queued, never counted as applied. A run with to-dos ends with a receipt, a record in `proposals/` (`"kind": "receipt"`) the recorder's window writes as it ends the run, which the run then names (`living.receipt`). `flightdeck run --contract 2` gives its `receipt`: `confirmed` means it is there and says the run's work and outcome; `missing` or `mismatch` is a problem (exit 4) that `run`, `next`, `runs` and `todo list` all name by its path; `none` is a run that ended before receipts. Anything that arrived after the end is later, never part of the outcome.
+
+### Spreads
+
+A spread is a requirement every item of a loop must meet, like "security sign-off on every open story". It is asked on the parent run and met by an addition on each item's own run, which that run's own people decide; the parent's approval never stands for theirs.
+
+Read them with `flightdeck spread list <team folder> <process>/<run> --json`: each spread's `row`, `preview` (what is open and what stays unchanged), `notices` (items that joined since), `holds`, and each item's `state` (owed means not requested yet; only done, won't do, moved and excepted resolve it).
+
+Ask for one with `flightdeck spread add --loop <loop step> --text "..." --before <child gate id>`, `spread include --spread <id> --item <key> [--run <process>/<run>]` or `spread stop --spread <id> --reason "..."`, each with `--tool <name>@<version> --key <key>`, previewed first with `--dry-run --json`. Then `flightdeck spread sync --spread <id> --tool <name>@<version>` asks each owed item's run, one request per item, once each; run it again after an interruption and it asks only what is missing. A delegation that may add on the loop step covers adding and binding only. Including a cleared item and stopping a spread always wait for a person, and adding or binding on an approved loop sends the approval back, so a person decides that too. Exit codes are as for to-dos; `sync` exits 4 when part of it couldn't be written, and the rest stand.
+
+### Facts
+
+A fact is what a tool observed about one item of a loop from one source: its PRs, commits, status or blockers, whether the list is complete, and when. Facts are information only: they never check off a step or a to-do, pass an approval or reopen work.
+
+File them with `flightdeck fact sync <team folder> <process>/<run> --from <file|-> --tool <name>@<version>`, previewed first with `--dry-run --json`. The file is `{"facts": [ ... ]}`, at most 500, each with its own `key` (a new key for each new observation; the same key and observation is `already`), `loopStep`, `item` (its key), `source` (`feed`, optional `site`, `account`), `domain` (`prs`, `commits`, `status` or `blockers`), `observedAt`, `complete`, `reported` and `entries`; the fields are in docs/apps.md. Say `complete: true` only when you read the whole list without an error; otherwise false, with the errors. The whole batch is checked first and nothing is filed when any of it is refused; exit 4 with `partial` means some were written and the same `sync` again files only the rest.
+
+Read them with `flightdeck fact list <team folder> <process>/<run> --json`: each item's facts by source, each with its `state` and `words` ("PRs (bitbucket): 2 of 2 merged · complete · checked 3 hours ago."). Say them as they are: a domain that says "not checked" is unknown, never "none", and an incomplete or stale list is no sign there is nothing there.
+
+To ask for a to-do done on a fact's evidence, run `flightdeck todo suggest-done <team folder> <process>/<run> --todo <to-do id> --fact <fact id> --tool <name>@<version> --dry-run --json` first (no `--key`: the evidence names it). It is refused, with why, unless the fact is current, fresh, complete where it needs to be, shows the work done, and nothing else about the item disagrees. It is an ordinary request: a person decides it (or a delegation covers it), and applying it checks the evidence again.
+
+### Keep for next time
+
+To suggest that a to-do or a spread become a step of its checklist next time, run `flightdeck todo keep <team folder> <process>/<run> --todo <to-do id> --tool <name>@<version> --dry-run --json` (or `flightdeck spread keep ... --spread <spread id>`) first, then again without `--dry-run`. No `--key`: the run, the to-do, the place and the wording name it, so asking again is `already`. Phase and step to-dos go to the run's own checklist (the end of the phase, or after the step); spreads go to the checklist the loop's items run, at the end of the phase with their gate. A to-do on one item needs `--phase <phase id>` or `--after <step id>` in the items' checklist; without one it is kept as needing placement. `--text` keeps it in other words, as another alternative for the owner, and `--reason` says why. It changes nothing on the run. The checklist's owner reviews it with the other corrections in the app; never say it is in the checklist until a version is published with it. `held` (exit 4) names what couldn't be read: nothing was written.
+
+### A to-do another checklist settles
+
+To link a new to-do to a checklist whose run settles it, add `--checklist <process>@<version folder>` (and `--accepts <result>,<result>` for the results that count) to `flightdeck todo add`. It pins that exact version; a version that can't be read is `held` (exit 4). The person runs it with Run this checklist in Flightdeck.
+
+When a run of it completes, run `flightdeck todo suggest-done <team folder> <process>/<run> --todo <to-do id> --evidence-run <process>/<run id> --tool <name>@<version> --dry-run --json` first (no `--key`: the to-do and that run name it). Name the run its plan started; when more than one was, ask the person which.
+
+It is refused, with why, unless that run completed with a result the to-do accepts. A person decides it, and applying it checks that run again. `provenance` in `todo list` says when the run changed after the to-do was checked off.
+
 ## Evidence packs
 
-**Evidence packs:** when a person asks for a run's evidence, run `flightdeck export <team folder> --run <process>/<id> --out <a folder outside the team folder>` (or `--process <id> --from YYYY-MM-DD --through YYYY-MM-DD --tz Area/City` for the runs started on those days). It only reads. Exit code 0 is a complete pack, 4 a partial one (its top lists what changed or was missing), 1 no pack.
+**Evidence packs:** when a person asks for a run's evidence, run `flightdeck export <team folder> --run <process>/<id> --out <a folder outside the team folder>` (or `--process <id> --from YYYY-MM-DD --through YYYY-MM-DD --tz Area/City` for the runs started on those days). It only reads. Exit code 0 is a complete pack, 4 a partial one (its top lists what changed or was missing), 1 no pack. A run with to-dos is packed with every record its work rests on (its applications, requests and decisions, the facts and runs used as evidence, its loops' records, its receipt); anything missing, unreadable or changing makes the pack partial, named by path.
 
 Where the pack goes, and what to give the person with it, is in *What you may write* in `AGENTS.md`.

@@ -117,6 +117,8 @@ rule('The visible-content counter skips closed details bodies, screen-reader tex
    owner panel's Edit and the header's How runs go. Also raised in 2.16: the run's header gains Finish the run (1 button, 3 words) and
    its rail and picker say This run's follow-ups; the skip link says Back to the step list (9 words in all); New checklist gains its
    way back, ‹ Checklists (1 word, 1 button); Home's plan rows read Review the plan (1 word). */
+/* Raised in 4.0 on purpose: the run's checklist names its denominator (This checklist: X of Y, 4 words) and the current
+   phase has Add something to do with its Add button (1 button) and the gate it comes before. */
 const BUDGETS = {
   home: { words: 140, buttons: 13, chips: 1, target: { words: 120 } },
   /* Raised by 2 in 2.11 on purpose: the Find a checklist box's label. */
@@ -124,7 +126,7 @@ const BUDGETS = {
   /* The harness also counts the CSS-hidden phone picker and skip links, so its run and process numbers sit above the browser's. */
   'process page as a non-owner': { words: 280, buttons: 15, chips: 3, target: { words: 260, buttons: 16, chips: 12 } },
   'process page as its owner': { words: 427, buttons: 26, chips: 9, target: { words: 430 } },
-  'run, just started': { words: 370, buttons: 40, chips: 5, target: { words: 300, buttons: 36, chips: 6 } },
+  'run, just started': { words: 374, buttons: 41, chips: 5, target: { words: 300, buttons: 36, chips: 6 } },
   /* Raised by 3 words and 1 button in 2.16 on purpose (one header): the Finish page gains More (1 button) and its tool row
      says who is recording (Recording as <name>). */
   finish: { words: 51, buttons: 5, inputs: 0, target: { words: 70, inputs: 0 } },
@@ -147,7 +149,7 @@ const BUDGETS = {
      links and look-alikes it holds, and the draft's design tips fold under one summary line. */
   'process page with conditions, its owner': { words: 416, buttons: 26, chips: 9 },
   'process page with conditions, a non-owner': { words: 269, buttons: 15, chips: 3 },
-  'run with conditions, just started': { words: 364, buttons: 38, chips: 5 },
+  'run with conditions, just started': { words: 368, buttons: 39, chips: 5 },
   'builder with conditions, a step selected': { words: 692, buttons: 76, inputs: 11 },
   'builder, a step without conditions selected': { words: 632, buttons: 76, inputs: 10 },
   /* A process with a staged version (2.1): staging lives in the closed All versions disclosure, so the page fits the process
@@ -157,7 +159,7 @@ const BUDGETS = {
   /* A process with a test run on its stage (2.1 slice 5): the test run is one more labeled line in Recent runs and one more
      "you're recording" on Home, as any run being recorded is; its run page is the stage's checklist with its label. The
      budgets above are unchanged. */
-  'run, a test run just started': { words: 326, buttons: 42, chips: 5 },
+  'run, a test run just started': { words: 330, buttons: 42, chips: 5 },
   'home with a test run': { words: 160, buttons: 14, chips: 1 },
   'process page with a test run, its owner': { words: 434, buttons: 26, chips: 9 },
   'process page with a test run, a non-owner': { words: 287, buttons: 15, chips: 3 },
@@ -225,7 +227,7 @@ async function withSigned(out) {
   const st = await app.PF.repo.readStage(app.fs, 'release', folder);
   for (let i = 1; i <= 3; i++) {
     const r = completeRun(app.PF, app.PF.run.create(st, { test: true, title: 'Try ' + i, id: 'run-try' + i, details: { ticket: 'T', commit: 'c', environment: 'p', tag: 'v1' }, roles: { 'release-lead': 'person-avery', qa: 'person-blake', backend: 'person-casey' }, by: 'person-avery', session: 'w', now: '2026-10-22T09:00:00.000Z', app: '2.1.0' }), '2026-10-22T09:00:00.000Z');
-    await app.PF.repo.saveRun(app.fs, r, 'w');
+    await app.otherRepo().saveRun(app.fs, r, 'w');
   }
   app.click('refresh'); await app.tick(120);
   app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();

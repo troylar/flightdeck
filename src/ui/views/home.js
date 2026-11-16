@@ -86,6 +86,12 @@
       else if (nx) add('run', function () { return [tt + esc(r.title) + ': you\'re up', K.stepHtml(nx.step, K.refValue(r, map), false) + ' · ' + esc(nameOf(ctx, r.recorder.person)) + ' is recording']; }, 'open-run', runKey(r), 'Open the run');
       if (mine && nr) add('run', function () { return [nr + ' report' + (nr === 1 ? '' : 's') + ' to review on ' + esc(r.title), 'A tool says it did ' + (nr === 1 ? 'a step' : 'steps') + '. Accept or decline ' + (nr === 1 ? 'it' : 'each') + ' on the step.']; }, 'open-run', runKey(r), 'Review');
     });
+    /* Living runs (4.0): to-do requests waiting for this person's decision, one row for all of them; it opens exactly that list. */
+    var tdi = me && ctx.todoInbox ? ctx.todoInbox() : [];
+    /* Delegations this person may end, whether or not anything waits for them: a grant can always be revoked from here. */
+    var tdg = me && ctx.todoGrants ? ctx.todoGrants() : [];
+    if (tdg.length) add('todo-grants', function () { return [tdg.length + ' delegation' + (tdg.length === 1 ? '' : 's') + ' you can end', 'A tool or a person may change to-dos without asking on ' + (tdg.length === 1 ? 'a run' : 'runs') + ' you decide for.']; }, 'td-grants', '', 'Delegations');
+    if (tdi.length) add('todo-req', function () { var runs = []; tdi.forEach(function (x) { if (runs.indexOf(x.title) < 0) runs.push(x.title); }); return [tdi.length + ' to-do request' + (tdi.length === 1 ? ' needs' : 's need') + ' your decision', 'On ' + esc(K.capJoin(runs, null, ', ', null, function (left) { return ' and ' + left + ' more runs'; })) + '.']; }, 'td-inbox', '', 'Decide');
     /* A plan with a time shows here from 24 hours before it; one without a time shows until someone decides on it. */
     var now = ctx.now(), clash = 'Two decisions on it disagree; check Runs before starting it.';
     byWhen(d.plans.filter(function (p) { return !p._status && !p._decidedEarlier; })).forEach(function (p) {

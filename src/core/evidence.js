@@ -322,7 +322,19 @@ PF.evidence = (function () {
       h += '<p class="soft">Recorder: ' + esc(nameOf(col, r.recorder && r.recorder.person)) + (roles.length ? ' · ' + roles.map(function (k) { return esc(k) + ': ' + esc(nameOf(col, r.roles[k])); }).join(' · ') : '') + '</p>';
     }
     h += '<h3>Checks against the version it ran</h3><table>' + (rc.checks || []).map(function (c) { return '<tr><td>' + esc(c.what) + '</td><td class="' + (c.ok === true ? 'yes' : c.ok === false ? 'no' : 'soft') + '">' + (c.ok === true ? 'Yes' : c.ok === false ? 'No' : 'Can\'t tell') + '</td><td>' + esc(c.detail) + '</td></tr>'; }).join('') + '</table>';
-    return h + stepRows(col, rc) + notesHtml(col, rc) + correctionsHtml(col, rc) + followUpsHtml(col, rc) + filesHtml(col, rc, opts);
+    return h + stepRows(col, rc) + livingHtml(col, rc) + notesHtml(col, rc) + correctionsHtml(col, rc) + followUpsHtml(col, rc) + filesHtml(col, rc, opts);
+  }
+  /* A living run's work (4.0 slice 6): its application chain, its receipt, and anything it rests on that isn't in the pack. */
+  function livingHtml(col, rc) {
+    var L = rc.living;
+    if (!L) return '';
+    var rs = L.receipt, keeps = (rc.claims || []).filter(function (c) { return /^req-keep-/.test(c.correction || ''); });
+    var h = '<h3>Its to-dos and the work they changed</h3><p>' + (L.complete ? '<span class="yes">Everything the run\'s work rests on is in this pack</span>' : '<span class="no">Not everything the run\'s work rests on is in this pack</span>') + ' · ' + L.records.length + ' record' + (L.records.length === 1 ? '' : 's') + ' from <span class="mono">proposals/</span></p>';
+    h += '<p class="soft">Work head: <span class="mono">' + esc(L.head || 'none') + '</span> · ' + L.chain.length + ' application' + (L.chain.length === 1 ? '' : 's') + ' in its chain</p>';
+    if (rs) h += '<p>Receipt: ' + (rs.state === 'confirmed' ? '<span class="yes">in this pack and says what the run ended with</span> <span class="mono">' + esc(rs.id) + '</span>' : rs.state === 'none' ? '<span class="soft">It ended without a receipt record.</span>' : '<span class="no">' + esc(rs.why) + '</span>') + '</p>';
+    if (L.missing.length) h += '<ul>' + L.missing.map(function (m) { return '<li class="no">' + esc(m) + '</li>'; }).join('') + '</ul>';
+    if (keeps.length) h += '<table><tr><th>Kept for next time</th><th>Where it stands</th></tr>' + keeps.map(function (c) { return '<tr><td class="mono">' + esc(c.correction) + '</td><td>' + (c.verified ? '<b>' + esc(c.text) + '</b> <span class="yes">proof in this pack</span>' : '<span class="no">' + esc(c.status) + '</span>') + '</td></tr>'; }).join('') + '</table>';
+    return h;
   }
   /* The page. opts.report: the one-file readable report, which says plainly it isn't the pack and what it leaves out. */
   function page(col, opts) {
@@ -360,7 +372,7 @@ PF.evidence = (function () {
     var man = {
       format: FORMAT, app: col.app || '', madeWith: col.madeWith || '', status: col.status, createdAt: col.endedAt, scope: col.scope, tz: col.tz,
       collection: { startedAt: col.startedAt, endedAt: col.endedAt, attempts: col.attempts }, unresolved: col.unresolved, window: col.window || null,
-      runs: col.runs.map(function (r) { return { key: r.key, title: r.title || '', runJson: r.source.runJson, listing: r.source.listing, checks: r.checks, claims: (r.claims || []).map(function (c) { return { correction: c.correction, group: c.group, text: c.text, verified: c.verified, status: c.status, proof: c.proof }; }), malformed: r.notes.filter(function (n) { return n.malformed.length; }).map(function (n) { return { file: n.file, lines: n.malformed }; }), limited: r.limited || '' }; }),
+      runs: col.runs.map(function (r) { return { key: r.key, title: r.title || '', runJson: r.source.runJson, listing: r.source.listing, checks: r.checks, claims: (r.claims || []).map(function (c) { return { correction: c.correction, group: c.group, text: c.text, verified: c.verified, status: c.status, proof: c.proof }; }), malformed: r.notes.filter(function (n) { return n.malformed.length; }).map(function (n) { return { file: n.file, lines: n.malformed }; }), limited: r.limited || '', living: r.living || undefined }; }),
       files: col.files.map(function (f) { var o = { pack: f.pack, path: f.path, size: f.size, sha256: f.sha256, role: f.role, label: f.label }; if (f.flag) o.flag = f.flag; return o; }),
       generated: gen.map(function (g) { return { path: g.path, size: g.size, sha256: g.sha256 }; }),
       exclusions: col.exclusions, options: col.options, privacy: PRIVACY, integrity: VERIFY

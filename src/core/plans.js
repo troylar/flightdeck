@@ -13,6 +13,14 @@ PF.plans = (function () {
      through the plans that read. */
   var NAMED = /^(plan-[a-z0-9-]{1,100}|req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})(\.| \(|-[A-Z])/;
   function namesPlan(name) { return typeof name === 'string' && NAMED.test(name); }
+  /* Whether a file in proposals/ is this plan's, under every name the loader knows for it: the plan's own, a decision on it
+     (.status-…), or a OneDrive copy (" (1)", "-COMPUTER"), each followed by anything (the loader's rule, one function). */
+  function fileFor(name, id) {
+    name = String(name || ''); id = String(id || '');
+    if (!id || name.indexOf(id) !== 0) return false;
+    var c = name.charAt(id.length);
+    return c === '.' || c === ' ' || c === '-' || c === '(';
+  }
   /* A plan/2 or plan-status/2, by its dispatch field. */
   function isExact(o) { return isObj(o) && (o.format === FORMAT2 || o.format === STATUS2); }
   /* An exact version folder: { folder, version } and, in a plan's pin, its two fingerprints. */
@@ -136,5 +144,5 @@ PF.plans = (function () {
     var what = d.status === 'accepted' ? 'started' + (typeof d.run === 'string' && d.run ? ' (run ' + d.run + ')' : '') : d.status === 'declined' ? 'declined' : 'decided on';
     return 'Decided on an earlier version of this plan: ' + what + ' by ' + (who ? who.name : d.by ? String(d.by) : 'someone') + (d.at ? ', ' + PF.util.when(d.at) : '') + '.';
   }
-  return { FORMAT2: FORMAT2, STATUS2: STATUS2, namesPlan: namesPlan, heldWhy: planHeldWhy, earlierWords: earlierWords, clean: clean, planWhy: planWhy, statusWhy: statusWhy, familyOf: familyOf, isExact: isExact, make: make, decision: decision, pick: pick };
+  return { FORMAT2: FORMAT2, STATUS2: STATUS2, namesPlan: namesPlan, fileFor: fileFor, heldWhy: planHeldWhy, earlierWords: earlierWords, clean: clean, planWhy: planWhy, statusWhy: statusWhy, familyOf: familyOf, isExact: isExact, make: make, decision: decision, pick: pick };
 })();

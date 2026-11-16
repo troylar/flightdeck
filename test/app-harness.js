@@ -30,7 +30,8 @@ function locks() {
 function boot(opts) {
   opts = opts || {};
   /* opts.html: another build of the app (an older release, for the cross-version tests); this build by default. */
-  const html = opts.html || fs.readFileSync(path.join(__dirname, '..', 'dist', 'flightdeck.html'), 'utf8');
+  /* APP_HTML=<file>: every app in this run boots that build instead (an earlier commit's, to show a new rule failing first). */
+  const html = opts.html || fs.readFileSync(process.env.APP_HTML || path.join(__dirname, '..', 'dist', 'flightdeck.html'), 'utf8');
   const script = id => new RegExp('<script id="' + id + '">([\\s\\S]*?)</script>').exec(html)[1];
   const intervals = [], downloads = [];
   let lastBlob = null;
@@ -143,7 +144,8 @@ function boot(opts) {
       const id = unq(idm[1]), typ = (/\stype="([^"]*)"/.exec(tag) || [])[1] || (m[1] === 'input' ? 'text' : m[1]);
       const def = drawnValue(html, id), defChecked = /\schecked\b/.test(tag), at = m.index;
       const el = inputs.has(id) || (els[id] && els[id]._touched) ? els[id] : { id, value: def, checked: defChecked, dataset: {} };
-      el.tagName = m[1].toUpperCase(); if (!inputs.has(id) || !el.type) el.type = typ;
+      /* A SELECT on a page always has its options: a node without them (not liveForms) stays as it was, never a select that has none. */
+      if (!(m[1] === 'select' && !el.options)) el.tagName = m[1].toUpperCase(); if (!inputs.has(id) || !el.type) el.type = typ;
       Object.defineProperty(el, 'defaultValue', { configurable: true, get: () => def }); el.defaultChecked = defChecked;
       el.hasAttribute = a => new RegExp('\\s' + a + '(=|\\s|>|$)').test(tag);
       if (!el._ownClosest) el._ownClosest = el.closest || (() => null);
@@ -226,6 +228,8 @@ function boot(opts) {
   };
   const location = { protocol: 'file:', get href() { return hist.entries[hist.index].url; }, get hash() { return hashOf(hist.entries[hist.index].url); }, reload() { hist.reloads++; } };
   window.history = history; window.location = location;
+  /* Round 18: a loop write or scope record without its fresh guard throws here rather than refusing quietly. */
+  window.FLIGHTDECK_STRICT_GUARDS = true;
   function traverse(item) { hist.queue.push(item); pump(); }
   function pump() {
     if (hist.held || hist.busy || !hist.queue.length) return;
@@ -347,14 +351,15 @@ function boot(opts) {
   const timerQ = [], clock = { now: 0, id: 1 };
   const appSetTimeout = !opts.timers ? setTimeout : (fn, ms) => { if (!(ms > 0)) return setTimeout(fn, 0); const t = { id: 'm' + clock.id++, at: clock.now + ms, fn }; timerQ.push(t); return t.id; };
   const appClearTimeout = !opts.timers ? clearTimeout : id => { const i = timerQ.findIndex(t => t.id === id); if (i >= 0) timerQ.splice(i, 1); else clearTimeout(id); };
-  const ctx = vm.createContext({
+  const base = {
     window, document, history, location, localStorage: storage(), sessionStorage, navigator: Object.assign(opts.locks ? { locks: opts.locks } : {}, opts.navigator || {}), BroadcastChannel: opts.Channel, console, Date: opts.Date || Date, Math, JSON, Promise, Blob, fetch, btoa, Uint8Array,
     setTimeout: appSetTimeout, clearTimeout: appClearTimeout, setInterval: fn => { intervals.push(fn); return 0; }, requestAnimationFrame: fn => setTimeout(fn, 0), URL: opts.urlParser ? Object.assign(class extends URL {}, { createObjectURL: b => { lastBlob = b; return 'blob:x'; }, revokeObjectURL() {} }) : { createObjectURL: b => { lastBlob = b; return 'blob:x'; }, revokeObjectURL() {} },
     crypto: globalThis.crypto, TextEncoder, TextDecoder, indexedDB: opts.indexedDB, IntersectionObserver: opts.IntersectionObserver,
     // An elapsed-time clock the test moves (performance.now()); left out, the app falls back on Date.now().
     performance: opts.performance,
     getComputedStyle: opts.layout ? () => ({ getPropertyValue: () => '#1D7650', backgroundColor: 'rgba(0, 0, 0, 0)', position: 'static', visibility: 'visible', lineHeight: '20px' }) : undefined
-  });
+  };
+  const ctx = vm.createContext(Object.assign({}, base));
   vm.runInContext(script('pf-core'), ctx);
   /* Builds before 1.17 kept storage inside pf-app (the cross-version tests run those). */
   if (/<script id="pf-storage">/.test(html)) vm.runInContext(script('pf-storage'), ctx);
@@ -399,6 +404,18 @@ function boot(opts) {
     badge: () => els['tab-badge'].innerHTML,
     badgeInert: () => els['tab-badge'].hasAttribute('inert'),
     overlay: () => els.overlay.innerHTML,
+    /* Round 20: another window's storage code. The app installs its write gate on its own copy of repo, once; a test that
+       writes as another window or computer would (repo.saveRun) uses this one, its own copy of core and storage, which
+       never installs a gate. */
+    otherRepo() {
+      if (!this._otherRepo) {
+        const c = vm.createContext(Object.assign({}, base, { window: {} }));
+        vm.runInContext(script('pf-core'), c);
+        if (/<script id="pf-storage">/.test(html)) vm.runInContext(script('pf-storage'), c);
+        this._otherRepo = c.PF.repo;
+      }
+      return this._otherRepo;
+    },
     // Submit a form as a browser would: its data-* attributes, and its fields' values (typed with set(), else as drawn), come
     // from the page. dataset overrides what the page drew, to simulate a form drawn earlier.
     /* Who approves is chosen on the start and plan forms (2.10): a test that isn't about that choice picks the rotation's

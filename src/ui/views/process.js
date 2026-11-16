@@ -4,6 +4,8 @@
   var K = PF.vk, V = PF.views, U = PF.util, R = PF.run, M = PF.map, T = PF.types, I = PF.icons.icon, esc = U.esc;
   var ferr = function (s, id) { return K.ferr(s, id); };
   var person = K.person, nameOf = K.nameOf, avatar = K.avatar, notices = K.notices, ago = K.ago, runKey = K.runKey, freshness = K.freshness;
+  /* Who a correction's member came from: a keep a tool filed is named as a tool, never as the person a tool's name may match. */
+  function memberWho(ctx, m) { return m.byKind === 'tool' ? m.by + ' (a tool)' : nameOf(ctx, m.by); }
   /* ---------- process page ---------- */
   /* anchor, when given, ids each phase's heading so the flight plan can bring a phase into view. fixes, when given, counts open
      corrections per step ID (and "phase:<id>"), marked so whoever edits the draft sees them. */
@@ -304,15 +306,43 @@
     var focused = Object.create(null);
     ms.forEach(function (x) {
       var m = x.m, tag = function () { if (focused[x.i]) return ''; focused[x.i] = true; return ' id="' + esc(fid(x)) + '" tabindex="-1"'; };
-      if (m.why) dl += '<dt' + tag() + '>' + (g.change.op === 'describe' ? 'Problem' : 'Why') + ' · ' + esc(nameOf(ctx, m.by)) + '</dt><dd>' + esc(m.why) + '</dd>';
-      if (m.happened) dl += '<dt' + tag() + '>What happened · ' + esc(nameOf(ctx, m.by)) + '</dt><dd>' + esc(m.happened) + '</dd>';
+      if (m.why) dl += '<dt' + tag() + '>' + (g.change.op === 'describe' ? 'Problem' : 'Why') + ' · ' + esc(memberWho(ctx, m)) + '</dt><dd>' + esc(m.why) + '</dd>';
+      if (m.happened) dl += '<dt' + tag() + '>What happened · ' + esc(memberWho(ctx, m)) + '</dt><dd>' + esc(m.happened) + '</dd>';
     });
     if (dl) h += '<dl class="corr-dl">' + dl + '</dl>';
-    ms.forEach(function (x) { h += V.attachments(ctx, x.m.id, x.m.files, x.m.fileInfo, 'corr', ctx.findRun && ctx.findRun(x.m.process + '/' + x.m.run), x.m.note); });
+    /* Kept for next time (4.0 slice 5): from a run's to-do or spread, each wording as it was kept, the owner choosing one. */
+    if (g.keep) {
+      var alts = g.alternatives || [], cwy = PF.learn.copiesWhy(g);
+      if (cwy) h += '<div class="notice warn fx-copies" role="note"><span>' + esc(cwy) + '</span></div>';
+      h += '<p class="small fx-keep">Kept for next time from ' + (g.members.length === 1 ? (g.first.keep.source.spread ? 'a spread' : 'a to-do') : g.members.length + ' to-dos and spreads') + '.' + (alts.length > 1 ? ' ' + alts.length + ' wordings; review and apply one, or write your own:' : '') + '</p>';
+      /* Every wording, 50 at a time: Show more reveals the rest (OE). */
+      /* Each wording is keyed by the keep that first suggested it, never by its place in the list. */
+      var altNo = Object.create(null); alts.forEach(function (a, n) { altNo[a.members[0]] = n + 1; });
+      if (alts.length > 1) h += K.list(st, 'keep-alts-' + g.id, alts, { noun: 'wording',
+        draw: function (shown) { return '<ol class="small fx-alts">' + shown.map(function (a) { return '<li value="' + altNo[a.members[0]] + '" id="' + esc('kalt-' + K.domKey(g.id + '-' + a.members[0])) + '" tabindex="-1">' + esc(a.text) + ' <span class="small">(' + a.members.length + ')</span></li>'; }).join('') + '</ol>'; },
+        keyOf: function (a) { return a.members[0]; }, focusOf: function (key) { return K.byId('kalt-' + K.domKey(g.id + '-' + key)); } });
+      /* A place pushed past what one decision names (two computers at once, OB): said, with each keep no decision names, its
+         author's and, while it is over, the checklist owner's to withdraw. Nothing is applied or decided until it is within. */
+      var MAX = C.MEMBERS_MAX, n = g.members.length, named = Object.create(null), proof = Object.create(null);
+      (ctx.data.corrDecisions || []).forEach(function (d) { if (d && d.process === p.id && d.group === g.id) (d.members || []).forEach(function (m) { named[m] = true; if (d.status === 'applied' || d.status === 'included') proof[m] = true; }); });
+      /* Your own keeps here that no decision names: each withdrawn on its own. */
+      var mineFree = n > MAX || !st.me ? [] : g.members.filter(function (m) { return m.by === st.me && m.byKind !== 'tool' && !named[m.id]; });
+      if (mineFree.length) h += K.list(st, 'keep-mine-' + g.id, mineFree, { noun: 'keep',
+        draw: function (shown) { return '<ul class="small fx-mine">' + shown.map(function (m) { return '<li id="' + esc('kmy-' + K.domKey(m.id)) + '" tabindex="-1">You kept: ' + esc(m.change.text) + ' <button class="mini" data-act="keep-withdraw" data-id="' + esc(m.id) + '" data-process="' + esc(p.id) + '">Withdraw</button></li>'; }).join('') + '</ul>'; },
+        keyOf: function (m) { return m.id; }, focusOf: function (key) { return K.byId('kmy-' + K.domKey(key)); } });
+      if (n > MAX) {
+        var ow = ctx.keepOwnerWhy ? ctx.keepOwnerWhy(g, p.id) : 'no', free = g.members.filter(function (m) { return !proof[m.id]; }).slice().reverse();
+        h += '<div class="notice warn fx-over" role="note"><span>This place has ' + n.toLocaleString('en-US') + ' keeps, more than the ' + MAX + ' one decision can name, so nothing is applied or decided until ' + (n - MAX) + ' ' + (n - MAX === 1 ? 'is' : 'are') + ' withdrawn. Each keep no applied decision names can be withdrawn by whoever kept it, or by the checklist\'s owner while the place is over; the decisions stay as they are.</span></div>';
+        h += K.list(st, 'keep-over-' + g.id, free, { noun: 'keep',
+          draw: function (shown) { return '<ul class="small fx-over-list">' + shown.map(function (m) { var can = !!st.me && ((m.by === st.me && m.byKind !== 'tool') || !ow); return '<li id="' + esc('kov-' + K.domKey(m.id)) + '" tabindex="-1">' + esc(m.change.text) + ' · ' + esc(memberWho(ctx, m)) + (can ? ' <button class="mini" data-act="keep-withdraw" data-id="' + esc(m.id) + '" data-process="' + esc(p.id) + '">Withdraw</button>' : '') + '</li>'; }).join('') + '</ul>'; },
+          keyOf: function (m) { return m.id; }, focusOf: function (key) { return K.byId('kov-' + K.domKey(key)); } });
+      }
+    }
+    ms.forEach(function (x) { h += V.attachments(ctx, x.m.id, x.m.files, x.m.fileInfo, 'corr', ctx.findRun && ctx.findRun(x.m.runKey || x.m.process + '/' + x.m.run), x.m.note); });
     /* The runs behind it, with names inside: a count of runs, never a vote. */
     h += '<details class="corr-runs"><summary class="small">Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + '</summary><ul class="small">' + ms.map(function (x) {
       var m = x.m;
-      return '<li' + (focused[x.i] ? '' : ' id="' + esc(fid(x)) + '" tabindex="-1"') + '>' + esc(nameOf(ctx, m.by)) + ' · ' + esc(U.day(m.at)) + ' · <button class="linkish" data-act="open-run" data-id="' + esc(m.process + '/' + m.run) + '">' + esc(m.runTitle) + '</button> · ' + (m.test ? 'test run, staged v' : 'v') + esc(m.version) + '</li>';
+      return '<li' + (focused[x.i] ? '' : ' id="' + esc(fid(x)) + '" tabindex="-1"') + '>' + esc(memberWho(ctx, m)) + ' · ' + esc(U.day(m.at)) + ' · <button class="linkish" data-act="open-run" data-id="' + esc(m.runKey || m.process + '/' + m.run) + '">' + esc(m.runTitle) + '</button> · ' + (m.test ? 'test run, staged v' : 'v') + esc(m.version) + '</li>';
     }).join('') + '</ul></details>';
     var left = g.members.length - ms.length;
     if (left > 0) h += '<p class="small fx-more">' + left.toLocaleString('en-US') + ' more in this group</p>';
@@ -328,7 +358,8 @@
     if (C.changedSince(g, corrBase(ctx, p).text)) h += '<div class="small corr-since"><span class="pill review">Changed since applied</span> The draft\'s step no longer matches what was applied.</div>';
     if (!st.me || g.status === 'legacy') return h + '</li>';
     if (declining) return h + '<div class="row">' + ferr(st, 'corr-decline') + '<label class="sr" for="pick-input">Why not? The runs will show this.</label><input id="pick-input" maxlength="300" placeholder="Why not? The runs will show this." data-enter="corr-decline" data-id="' + esc(g.id) + '"' + (st.fieldErr && st.fieldErr.id === 'corr-decline' ? ' aria-invalid="true" aria-describedby="ferr-corr-decline"' : '') + '><button class="btn" data-act="corr-decline" data-id="' + esc(g.id) + '">Decline</button><button class="mini" data-act="unpick">Cancel</button></div></li>';
-    var acts = '';
+    var acts = '', ownerWhy = ctx.keepOwnerWhy ? ctx.keepOwnerWhy(g, p.id) : '';
+    if (ownerWhy) return h + '<p class="small fx-owner" role="note">' + esc(ownerWhy) + '</p>' + (g.status === 'open' && C.canWithdraw(g, st.me) ? '<div class="row"><button class="mini" data-act="corr-withdraw" data-id="' + esc(g.id) + '" data-process="' + esc(p.id) + '">Withdraw</button></div>' : '') + '</li>';
     if (g.status === 'open' || g.tie) acts += '<button class="btn" data-act="corr-review" data-id="' + esc(g.id) + '">' + (C.applies(g) ? 'Review and apply' : 'Review') + '</button><button class="mini" data-act="corr-applied" data-id="' + esc(g.id) + '">Mark as applied</button><button class="mini" data-act="pick" data-kind="corr-decline" data-id="' + esc(g.id) + '">Decline</button>';
     if (g.status !== 'open' || g.tie) acts += '<button class="mini" data-act="corr-reopen" data-id="' + esc(g.id) + '">Reopen</button>';
     if (g.status === 'open' && C.canWithdraw(g, st.me)) acts += '<button class="mini" data-act="corr-withdraw" data-id="' + esc(g.id) + '" data-process="' + esc(p.id) + '">Withdraw</button>';
@@ -825,8 +856,10 @@
     if (plan && planHeldWhy(plan, ctx.data)) h += '<div class="notice bad" role="alert"><span>' + esc(planHeldWhy(plan, ctx.data)) + '</span></div>';
     if (plan && plan._conflicting) h += '<div class="notice bad" role="alert"><span><b>Two decisions on this plan disagree</b>: it was started and declined, or started twice. Someone may have started it already; check Runs before you start it again.</span></div>';
     if (plan && pick.older) {
-      h += '<div class="notice warn"><span>' + (pick.chosen ? 'You switched this plan to v' : 'This plan was made for v') + esc(pub.info.version) + '. v' + esc(latest.info.version) + ' is now published.</span><span class="row"><button class="mini" type="button" data-act="plan-diff" aria-expanded="' + !!st.planDiff + '">See what changed</button>' +
-        (pick.exact ? '<button class="btn" type="button" data-act="plan-retarget" data-id="' + esc(plan.id) + '" data-folder="' + esc(latest.info.folder) + '">Start on v' + esc(latest.info.version) + ' instead</button>' : '<button class="btn" type="button" data-act="plan-latest" data-id="' + esc(plan.id) + '">Switch to v' + esc(latest.info.version) + '</button>') + '</span></div>';
+      /* A to-do's plan starts on the exact version its to-do pins (4.0): it is never switched, here or by Use the latest. */
+      var pinned = /^plan-ev-[0-9a-f]{24}$/.test(String(plan.id));
+      h += '<div class="notice warn"><span>' + (pick.chosen ? 'You switched this plan to v' : 'This plan was made for v') + esc(pub.info.version) + '. v' + esc(latest.info.version) + ' is now published.' + (pinned ? ' Its to-do pins v' + esc(pub.info.version) + ', so it starts there.' : '') + '</span><span class="row"><button class="mini" type="button" data-act="plan-diff" aria-expanded="' + !!st.planDiff + '">See what changed</button>' +
+        (pinned ? '' : pick.exact ? '<button class="btn" type="button" data-act="plan-retarget" data-id="' + esc(plan.id) + '" data-folder="' + esc(latest.info.folder) + '">Start on v' + esc(latest.info.version) + ' instead</button>' : '<button class="btn" type="button" data-act="plan-latest" data-id="' + esc(plan.id) + '">Switch to v' + esc(latest.info.version) + '</button>') + '</span></div>';
       if (st.planDiff) h += '<section class="panel" aria-label="Changes from v' + pub.info.version + ' to v' + latest.info.version + '">' + diffHtml(PF.publish.diff(pub.md, latest.md), st, 'plan-diff') + '</section>';
     } else if (plan && pick.missing) {
       /* Say why, when the version is in the folder but can't be used here (still syncing, damaged, or too new for this copy). */

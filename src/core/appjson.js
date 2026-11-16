@@ -100,17 +100,26 @@ PF.appjson = (function () {
     gates: [{ id: 'string', phase: 'string', title: 'string', implicit: 'boolean', owner: opt('string'), approves: 'string', pattern: opt('string') }],
     sets: [{ step: 'string', names: ['string'] }], children: [{ step: 'string', process: 'string', version: opt('number'), pass: ['string'], carry: ['string'] }],
     types: ['string'], teamTypes: ['string'], unknownTypes: ['string'], skills: [{ name: 'string', implements: opt('number'), steps: opt(['string']), status: 'string' }] };
+  /* Living runs (4.0, docs/design.md 45): only a run that has to-dos (r.living) carries these, read as every window reads them
+     (r._tdv, PF.todos.view, set by the reader with the run's to-do records). todoCounts: open and all to-dos, requests waiting
+     for a person, and whether a to-do record couldn't be read (held: approval waits). todoHolds: why any gate is held by them. */
+  var TODO_COUNTS = { open: 'number', total: 'number', waiting: 'number', held: 'boolean' };
+  var TODO_ROW = { id: 'string', text: 'string', state: 'string', beforeGate: opt('string'), gate: opt('string'), owner: opt(PERSON), reason: opt('string'), addedReason: opt('string'), to: opt('string') };
+  /* Who asked: a person, or a tool and its version, as the record says (and flightdeck todo list prints). */
+  var TODO_BY = { $or: [{ person: 'string' }, { tool: 'string', version: 'string' }] };
+  var TODO_REQ = { id: 'string', op: 'string', todo: opt('string'), status: 'string', why: opt('string'), by: opt(TODO_BY), requester: opt('string') };
+  var NEXT2 = extend(SCHEMA.next, { next: opt(extend(SCHEMA.next.next.$or[0], { step: opt(orResult(orSearch({ id: 'string', text: 'string', roles: [ROLE] }, 'run'), { heldBy: opt(HELD_BY), awaiting: opt(AWAITING) })) })) });
   var SCHEMA2 = {
     envelope: SCHEMA.envelope, error: SCHEMA.error, processes: SCHEMA.processes,
-    next: extend(SCHEMA.next, { next: opt(extend(SCHEMA.next.next.$or[0], { step: opt(orResult(orSearch({ id: 'string', text: 'string', roles: [ROLE] }, 'run'), { heldBy: opt(HELD_BY), awaiting: opt(AWAITING) })) })) }), followups: { followUps: [FOLLOWUP2] }, request: SCHEMA.request,
+    next: orResult(NEXT2, { todos: { open: 'number', holds: ['string'] } }), followups: { followUps: [FOLLOWUP2] }, request: SCHEMA.request,
     /* stage: the staged version shown (process --stage), else null. */
     process: orResult(extend(SCHEMA.process, { format: 'string', features: ['string'], stage: opt({ folder: 'string', proposed: 'number', stagedBy: 'string', stagedAt: 'string' }), details: [{ $or: [DETAIL, extend(DETAIL, { pattern: 'string' })] }],
       phases: [extend(SCHEMA.process.phases[0], { when: ['string'], steps: [orResult(orSearch(extend(SCHEMA.process.phases[0].steps[0], { when: ['string'], evidence: [extend(EVIDENCE2, { min: opt('string'), max: opt('string'), unit: opt('string') })] }), 'template'), { accepts: opt(['string']), imports: opt('string') })] })] }), { result: { name: 'string', options: ['string'], step: opt('string') } }),
     /* testRunsLeftOut: test runs that match but aren't listed (D3: left out unless asked for with --tests). */
-    runs: { runs: [orResult(SUMMARY2, RESULT2)], planned: [extend(SCHEMA.runs.planned[0], { format: 'string', pin: opt({ folder: 'string', version: 'number' }) })], testRunsLeftOut: 'number' },
-    run: { run: opt(orResult(orResult(extend(SUMMARY2, { roles: [ROLE], pins: map(PIN), migrations: [MIGRATION],
+    runs: { runs: [orResult(orResult(SUMMARY2, RESULT2), { todoCounts: TODO_COUNTS })], planned: [extend(SCHEMA.runs.planned[0], { format: 'string', pin: opt({ folder: 'string', version: 'number' }) })], testRunsLeftOut: 'number' },
+    run: { run: opt(orResult(orResult(orResult(extend(SUMMARY2, { roles: [ROLE], pins: map(PIN), migrations: [MIGRATION],
       steps: [orResult(orSearch(extend(SCHEMA.run.run.$or[0].steps[0], { values: map(VALUE), evidence: [EVIDENCE2], applies: APPLIES, held: opt('string') }), 'run'), { accepts: opt(['string']), result: opt('string'), heldBy: opt(HELD_BY), awaiting: opt(AWAITING) })],
-      gates: [extend(SCHEMA.run.run.$or[0].gates[0], { applies: APPLIES })], followUps: [FOLLOWUP2] }), RESULT2), { resultsChanged: [CHANGED] })) },
+      gates: [extend(SCHEMA.run.run.$or[0].gates[0], { applies: APPLIES })], followUps: [FOLLOWUP2] }), RESULT2), { resultsChanged: [CHANGED] }), { todoCounts: TODO_COUNTS, todos: [TODO_ROW], todoRequests: [TODO_REQ], todoHolds: ['string'], receipt: opt({ id: 'string', state: 'string', why: opt('string') }) })) },
     /* flightdeck draft check (2.13): the verdict the Publish dialog gives the text, from the folder as it is now. from: the draft
        in maps/drafts/ (ref its path) or the file given with --from (ref null); rev: SHA-256 of the text checked. */
     draftCheck: { process: 'string', from: { kind: 'string', ref: opt('string'), rev: 'string' }, checks: { blockers: ['string'], suggestions: ['string'],
@@ -237,6 +246,85 @@ PF.appjson = (function () {
     if (res && res.unusable) return { kind: res.newer || why.indexOf(P.NEWER) === 0 ? 'newer' : 'unusable', why: why };
     if (/^Still syncing|^Files don't match/.test(why)) return { kind: 'still-syncing', why: why };
     return { kind: 'malformed', why: why || 'This version can\'t be read.' };
+  }
+  /* ---- One run's verdict (runs, run and next, and every evidence read, CLI and app alike) ---- */
+  /* A run this copy can only list by name: saved by a newer Flightdeck (its format, fields this copy doesn't know, or its own
+     frozen checklist and step types using features this copy can't read). A run on a version that's only unusable here
+     still reads; its version is named instead. */
+  function newerRun(r) {
+    var why = r._unrunnable || '';
+    if (!why) return false;
+    if (r.snapshot === '' || why.indexOf(R.NEWER) === 0) return true;
+    return why.indexOf(P.NEWER) === 0 && !!P.unrunnable(r.snapshot, r.types);
+  }
+  /* Which times R.sanitize couldn't read (r._badTimes), in words, or ''. */
+  function badTimesWhy(b) {
+    if (!b) return '';
+    var names = { created: 'the start', ended: 'the end', pauses: 'an earlier pause', paused: 'the pause under way', log: 'a log entry' };
+    return Object.keys(b).map(function (k) { return k === 'log' && Array.isArray(b.log) && b.log.length > 1 ? b.log.length + ' log entries' : names[k] || k; }).join(', ');
+  }
+  /* Whether a place where the file and what the app reads differ is already named: the same place, one inside the other, or
+     another entry of the same list (dropping one entry shifts the rest). */
+  function explained(p, named) {
+    var base = function (x) { return x.replace(/\[\d+\].*$/, ''); }, starts = function (a, b) { return a.indexOf(b) === 0; };
+    return named.some(function (e) { return p === e || starts(p, e + '.') || starts(p, e + '[') || starts(e, p + '.') || starts(e, p + '[') || (/\[/.test(p) && /\[/.test(e) && base(p) === base(e)); });
+  }
+  function runProblems(r) {
+    var out = [], key = r.process + '/' + r.id, dir = 'runs/' + key + '/', isNewer = newerRun(r);
+    if (isNewer) out.push({ path: dir + 'run.json', kind: 'newer', why: '"' + r.title + '" (' + key + '): ' + r._unrunnable });
+    /* Times sanitize couldn't read, and every other record it dropped, cut or replaced: one problem for the file, naming each. */
+    var bt = isNewer ? '' : badTimesWhy(r._badTimes), fixed = isNewer ? [] : (r._repairs || []).map(function (x) { return x.at + ' (' + x.what + ')'; }), parts = [];
+    if (bt) parts.push('Some times in this file couldn\'t be read (' + bt + ').');
+    if (fixed.length) parts.push('Records this copy dropped or changed: ' + fixed.slice(0, 20).join(', ') + (fixed.length > 20 ? ', and ' + (fixed.length - 20) + ' more' : '') + '.');
+    /* The safety net: anywhere else sanitize's result differs from the file (R.unexplained), not already named above. */
+    var named = (r._repairs || []).map(function (x) { return x.at; }).concat(Object.keys(r._badTimes || {}));
+    var other = isNewer ? [] : (r._drift || []).filter(function (p) { return !explained(p, named); });
+    if (other.length) parts.push('Other places this copy reads differently from the file: ' + other.slice(0, 20).join(', ') + (other.length > 20 ? ', and ' + (other.length - 20) + ' more' : '') + '.');
+    if (parts.length) out.push({ path: dir + 'run.json', kind: 'malformed', why: parts.join(' ') + ' The run is shown as the app shows it, without them.' });
+    /* VE: its own checklist can't be run by this copy (a step type it doesn't have, for one) and nothing above says so: named at
+       the run, so a reader holds rather than reporting nothing. */
+    var snapWhy = isNewer || !r._unrunnable ? '' : P.unrunnable(r.snapshot, r.types);
+    if (snapWhy) out.push({ path: dir + 'run.json', kind: 'unusable', why: '"' + r.title + '" (' + key + '): its checklist can\'t be run by this copy: ' + snapWhy });
+    /* WB: a part of the run an ordinary read couldn't take in (repo's run._parts: a link, a notes file gone when read). */
+    (r._parts || []).forEach(function (x) { if (x && typeof x.path === 'string' && x.path.indexOf(dir) === 0) out.push({ path: x.path, kind: String(x.kind || 'unreadable'), why: String(x.why || '') }); });
+    if (r._conflicts && r._conflicts.length) out.push({ path: dir, kind: 'conflict', why: 'Conflict copies or lost saves beside this run: ' + r._conflicts.join(', ') + '. A person resolves them in the app.' });
+    return out;
+  }
+  /* One run, judged the same way by runs, run and next, so a summary never says other than the run itself: its version
+     (pub: what readVersion or the version list found; a version that isn't in the folder reads as missing files, as
+     readVersion finds it; null when the command doesn't read versions) decides why it's read-only, as the app decides it
+     (unusable here, or changed since the run started: R's own reason comes first), then every problem of the run file
+     and of that version. Sets r._unrunnable; returns the problems. */
+  function judgeRun(r, pub) {
+    /* A test run's version is its stage (2.1): staged/<process>/<stage>/, whose proposed number is the run's version. */
+    var test = R.isTest(r) && typeof r.folder === 'string' && P.STAGE.test(r.folder);
+    var out = [], valid = typeof r.folder === 'string' && (test || !!P.versionOf(r.folder)) && /^[a-z0-9][a-z0-9-]{0,59}$/.test(r.process);
+    var dir = R.pubDir(r);
+    if (pub && valid && !pub._readFailed) {
+      var info = pub.ok && test ? { folder: pub.info.folder, mapHash: pub.info.mapHash, version: pub.info.stage.proposed } : pub.info;
+      var why = pub.unusable ? pub.why : pub.ok ? PF.repo.runMismatch(r, info) : '';
+      if (why && !r._unrunnable) r._unrunnable = why;
+      if (!pub.ok) { var x = pubProblem(pub); out.push({ path: dir, kind: x.kind, why: x.why }); }
+      /* The version is fine; the run doesn't match it. Named at the run, so the version is never taken as unreadable. */
+      else if (why) out.push({ path: 'runs/' + r.process + '/' + r.id + '/run.json', kind: 'unusable', why: 'This run doesn\'t match its version ' + r.folder + ' (its checklist or version number differs from the version\'s record), so the app opens it read-only.' });
+    }
+    return out.concat(runProblems(r));
+  }
+  /* A source run's checked read (PF.repo.readRunOnly: { run, pub, bad, nofile }) and its version, judged as runs judges them:
+     one verdict for every writer that rests on a run, the command line's and the app's alike (WD). Every problem by path and
+     kind, from the read's own diagnostics (a run.json missing, malformed, with an unknown field, from a newer Flightdeck, or
+     with a damaged snapshot) to a version that couldn't be read at all. [] when it can be trusted. what: how the caller names
+     it ("The run this keeps from"), used: what can't be done ("nothing can be kept from it"). */
+  function sourceProblems(one, proc, runId, what, used) {
+    var out = [], add = function (q) { if (!out.some(function (x) { return x.path === q.path && x.kind === q.kind; })) out.push(q); }, runFile = 'runs/' + proc + '/' + runId + '/run.json';
+    (one.bad || []).filter(function (b) { return b && typeof b.path === 'string' && b.path.indexOf('runs/' + proc + '/' + runId + '/') === 0; }).forEach(function (b) { add({ path: b.path, kind: b.kind || 'unreadable', why: String(b.why || 'It couldn\'t be read.') }); });
+    if (one.nofile) add({ path: runFile, kind: 'nofile', why: what + ' has no run.json in the team folder, so ' + used + '.' });
+    var r = one.run;
+    if (!r) { if (!out.length) add({ path: runFile, kind: 'unreadable', why: what + ' couldn\'t be read, so ' + used + '.' }); return out; }
+    if (newerRun(r)) add({ path: runFile, kind: 'newer', why: 'This run was made with a newer Flightdeck: ' + r._unrunnable });
+    judgeRun(r, one.pub).forEach(add);
+    if (one.pub && one.pub._readFailed) add({ path: R.pubDir(r), kind: 'unreadable', why: 'The version this run was made from couldn\'t be read (' + String(one.pub.why || 'it couldn\'t be read') + '), so what rests on it can\'t be checked.' });
+    return out;
   }
   function version(p, clashes) {
     var info = p.info || {}, v = typeof info.version === 'number' ? info.version : P.versionOf(p.folder);
@@ -390,7 +478,33 @@ PF.appjson = (function () {
     var out = summary(r, nameOf), res = r._unrunnable ? null : R.resultOf(r);
     out.details = details2(r, R.mapOf(r), nameOf); head2(r, out); out.test = R.isTest(r); out.stage = r.test === true && r.stage ? { folder: s(r.stage.folder) } : null;
     if (!r._unrunnable && M.resultDef(R.mapOf(r))) { out.result = res ? { name: s(res.name), value: s(res.value) } : null; out.outcome = r.ended ? s(R.outcomeText(r)) : null; }
+    if (living(r)) out.todoCounts = todoCounts(r);
     return out;
+  }
+  /* ---- Living runs (4.0): a run's to-dos, as the reader read them (r._tdv). Without it, nothing is known: held. ---- */
+  /* A run with to-dos landed (r.living), or with to-do records that haven't landed yet (r._tdv set by the reader): pending
+     requests are visible before the run gains living (4.0 slice 6). A run with neither prints exactly as before. */
+  function living(r) { return !!r && !r._unrunnable && (!!r.living || !!r._tdv); }
+  function todoCounts(r) {
+    var V = r._tdv;
+    if (!V) return { open: 0, total: 0, waiting: 0, held: true };
+    var open = V.todos.filter(function (x) { return x.state === 'open'; }).length;
+    return { open: open, total: V.todos.length, waiting: PF.todos.requestsOf(V).filter(function (q) { return q.status === 'waiting'; }).length, held: !!(V.broken || V.unread.length || V.held.length || (r._todos && r._todos.missing && r._todos.missing.length)) };
+  }
+  function todoHolds(r) {
+    var mp = R.mapOf(r), out = [];
+    mp.phases.forEach(function (p, pi) { (R.phaseHeld(r, mp, pi) || []).forEach(function (w) { if (out.indexOf(s(w)) < 0) out.push(s(w)); }); });
+    return out;
+  }
+  function todoBy(b) { return !b || typeof b !== 'object' ? null : typeof b.tool === 'string' ? { tool: s(b.tool), version: s(b.version) } : typeof b.person === 'string' ? { person: s(b.person) } : null; }
+  function todoRows(r, nameOf) {
+    var V = r._tdv, mp = R.mapOf(r);
+    if (!V) return { todos: [], todoRequests: [] };
+    return {
+      todos: V.todos.map(function (x) { return { id: s(x.id), text: s(x.text), state: s(x.state), beforeGate: x.placement ? s(x.placement.beforeGate) : null, gate: x.placement ? s(PF.todos.gateTitle(mp, x.placement.beforeGate)) || null : null,
+        owner: x.owner ? nameOf(x.owner) : null, reason: x.why ? s(x.why) : null, addedReason: x.reason ? s(x.reason) : null, to: x.to ? s(x.to.ticket || x.to.run || x.to.link) : null }; }),
+      todoRequests: PF.todos.requestsOf(V).map(function (q) { return { id: s(q.id), op: s(q.op), todo: q.todo ? s(q.todo) : null, status: s(q.status), why: q.why ? s(q.why) : null, by: todoBy(q.by), requester: q.requester ? s(q.requester) : null }; })
+    };
   }
   /* A step that carries module results' fields: a linked step that accepts results, or whose link recorded one. */
   function resulted(r, step, a) { return step.type === 'run.process' && (!!R.acceptsOf(r, step) || !!(a && a.child && typeof a.child.result === 'string')); }
@@ -422,6 +536,7 @@ PF.appjson = (function () {
     if (wait && out.mine && later('step', out.mine.step.id)) out.mine = { phase: { index: wait.pi, id: s(ph.id), title: s(ph.title) }, step: { id: s(wait.step.id), text: s(wait.step.text) } };
     var st = out.next && out.next.step, x = st ? M.findStep(mp, st.id) : null;
     if (st && x && resulted(r, x.step, r.steps[st.id])) { st.heldBy = heldBy(r, x.step, r.steps[st.id]); st.awaiting = awaiting(r, x.step, r.steps[st.id], o && o.kids); }
+    if (living(r)) out.todos = { open: todoCounts(r).open, holds: todoHolds(r) };
     return out;
   }
   function followUps2(items, nameOf) { return { followUps: (items || []).map(function (x) { var o = followUp(x, nameOf); o.test = !!x.test; return o; }) }; }
@@ -514,6 +629,9 @@ PF.appjson = (function () {
       if (x && R.isSearchStep(x.step)) st.search = searchRun(r, mp, x.step);
     });
     out.gates.forEach(function (g, pi) { g.applies = R.applies(r, mp, pi).applies; });
+    if (living(r)) { var tr = todoRows(r, nameOf); out.todoCounts = base.todoCounts; out.todos = tr.todos; out.todoRequests = tr.todoRequests; out.todoHolds = todoHolds(r); }
+    /* The receipt an ended living run names (4.0 slice 6), as PF.receipts.stateOf reads it (r._rcpt, set by the reader). */
+    if (living(r) && r._rcpt) out.receipt = { id: s(r.living.receipt || ''), state: s(r._rcpt.state), why: r._rcpt.why ? s(r._rcpt.why) : null };
     return { run: out };
   }
 
@@ -548,5 +666,5 @@ PF.appjson = (function () {
   }
 
   return { CONTRACT: CONTRACT, CONTRACT2: CONTRACT2, WRITE1: WRITE1, reportOut: reportOut, targets: targets, SCHEMA2: SCHEMA2, process2: process2, next2: next2, runs2: runs2, followUps2: followUps2, run2: run2, summary2: summary2, CONTRACT_OF: contractOf, VERSIONS: VERSIONS, NOTE: NOTE, KINDS: KINDS, SCHEMA: SCHEMA, opt: opt, map: map, conforms: conforms, envelope: envelope, failure: failure, names: names,
-    v1Pub: v1Pub, v1Processes: v1Processes, v1Run: v1Run, pubProblem: pubProblem, processes: processes, process: process, runs: runs, run: run, next: next, followUps: followUps, summary: summary, request: request };
+    v1Pub: v1Pub, v1Processes: v1Processes, v1Run: v1Run, pubProblem: pubProblem, newerRun: newerRun, runProblems: runProblems, judgeRun: judgeRun, sourceProblems: sourceProblems, processes: processes, process: process, runs: runs, run: run, next: next, followUps: followUps, summary: summary, request: request };
 })();

@@ -1,0 +1,488 @@
+// flightdeck todo add --checklist and todo suggest-done --evidence-run (4.0, docs/apps.md, docs/design.md 45.4): a to-do
+// that a run of another checklist settles. add pins that checklist's exact version and the results it accepts, or refuses
+// (a pin that can't be read holds, exit 4, named). suggest-done --evidence-run asks for the to-do done on one run its plan
+// started: named by that evidence (no --key), so asking again is already; it waits for a person like any done, and a run
+// that can't be read holds it (exit 4) with the path named. --dry-run writes nothing; run.json is never written.
+'use strict';
+const assert = require('assert'), fs = require('fs'), os = require('os'), path = require('path');
+const { execFileSync } = require('child_process');
+const { load, rule, run } = require('./harness');
+const PF = load(), R = PF.run, T = PF.todos, D = PF.detours;
+const BIN = path.join(__dirname, '..', 'bin', 'flightdeck.js');
+const cli = (...a) => { try { return { out: execFileSync(process.execPath, [BIN, ...a], { encoding: 'utf8', stdio: 'pipe' }), code: 0 }; } catch (e) { return { out: String(e.stdout) + String(e.stderr), code: e.status }; } };
+const json = (...a) => { const r = cli(...a); try { return Object.assign(JSON.parse(r.out), { code: r.code }); } catch (e) { throw new Error('not JSON (' + r.code + '): ' + r.out); } };
+const AT = '2026-11-10T09:00:00.000Z';
+class DiskFS {
+  constructor(root) { this.root = root; this.kind = 'folder'; this.name = path.basename(root); }
+  p(rel) { return path.join(this.root, ...rel.split('/')); }
+  list(rel) { const d = rel ? this.p(rel) : this.root; return Promise.resolve(fs.existsSync(d) ? fs.readdirSync(d, { withFileTypes: true }).map(e => ({ name: e.name, kind: e.isDirectory() ? 'dir' : 'file' })) : []); }
+  read(rel) { const f = this.p(rel); return Promise.resolve(fs.existsSync(f) && fs.statSync(f).isFile() ? { text: fs.readFileSync(f, 'utf8'), mtime: fs.statSync(f).mtimeMs } : null); }
+  stat(rel) { const f = this.p(rel); return Promise.resolve(fs.existsSync(f) ? { size: fs.statSync(f).size, mtime: fs.statSync(f).mtimeMs } : null); }
+  blob(rel) { const f = this.p(rel); return Promise.resolve(fs.existsSync(f) ? new Blob([fs.readFileSync(f)]) : null); }
+  write(rel, data) { const f = this.p(rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, data); return Promise.resolve(); }
+  append(rel, text) { const f = this.p(rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.appendFileSync(f, text); return Promise.resolve(); }
+  remove(rel) { fs.unlinkSync(this.p(rel)); return Promise.resolve(); }
+}
+const SMOKE = ['---', 'process: smoke-test', 'title: Smoke test', 'owner: person-avery', 'context: verdict:choice(pass|fail)', 'result: verdict', '---', '',
+  '## Test · DO-CONFIRM {#test}', '- [!] {confirm} Run the smoke suite {#suite}', '- [!] {decide} Record the result {#call}', '  options: pass, fail', '  sets: verdict=decision', ''].join('\n');
+const PARENT = ['---', 'process: release-readiness', 'title: Release 4.1', 'owner: person-morgan', '---', '', '## Ship · READ-DO {#ship}', '- [!] {confirm} Ship it {#ship1}', ''].join('\n');
+const people = [{ id: 'person-morgan', name: 'Morgan' }, { id: 'person-avery', name: 'Avery' }];
+const PEOPLE = { people };
+const PR = 'release-readiness/r-41', TOOL = ['--tool', 'release-helper@1.4.0'];
+let seq = 0; const hex = () => (++seq).toString(16).padStart(8, '0');
+const ls = (root) => fs.existsSync(path.join(root, 'proposals')) ? fs.readdirSync(path.join(root, 'proposals')).filter(n => n[0] !== '.').sort() : [];
+const snap = (root) => { const out = {}; const walk = (x) => fs.readdirSync(x, { withFileTypes: true }).forEach(e => { const p = path.join(x, e.name); if (e.isDirectory()) walk(p); else out[path.relative(root, p)] = fs.readFileSync(p, 'utf8'); }); walk(root); return out; };
+const runFile = (root, key) => path.join(root, 'runs', key, 'run.json');
+async function read(d) { const all = await PF.repo.loadAll(d, {}); return { runs: all.runs, records: all.todos || [], unread: all.todosUnread || [], ev: { runs: all.runs, plans: all.plans } }; }
+async function decideAll(d, key, by) {
+  const W = await read(d), x = W.runs.find(y => y.process + '/' + y.id === key), its = T.inbox([x], { records: W.records, unread: W.unread, people: PEOPLE, me: by, evidence: W.ev });
+  for (const it of its) {
+    const dd = T.decide(x, { request: it.id, op: 'accept', by, shown: it.consequence.fingerprint, records: W.records, unread: W.unread, people: PEOPLE, at: AT, writer: 'w' + hex(), rev: hex(), app: '4.0.0', evidence: W.ev });
+    assert.ok(!dd.why, dd.why);
+    await d.write('proposals/' + dd.name, T.text(dd.file)); W.records.push(Object.assign(dd.record, { _file: dd.name }));
+  }
+}
+async function land(d, key) {
+  const raw = JSON.parse(fs.readFileSync(runFile(d.root, key), 'utf8')), rec = raw.recorder && raw.recorder.person;
+  for (let i = 0; i < 100; i++) {
+    const W = await read(d), x = W.runs.find(y => y.process + '/' + y.id === key), V = T.view(x, { records: W.records, unread: W.unread, people: PEOPLE, evidence: W.ev }), q = T.nextQueued(V);
+    if (!q) break;
+    const plan = T.applyPlan(x, V, q);
+    if (plan.adopt) raw.living = { head: plan.adopt.id };
+    else {
+      assert.ok(plan.write, JSON.stringify(plan));
+      const s = T.buildStatus(Object.assign({}, plan.write, { by: rec, at: AT, writer: 'rec', rev: hex(), app: '4.0.0' }));
+      await d.write('proposals/' + s.name, T.text(s.file));
+      raw.living = { head: s.file.id || T.filed(s.name, s.file).record.id };
+    }
+    if ((raw.features || []).indexOf('living-runs') < 0) raw.features = PF.envelope.FROZEN.filter(f => (raw.features || []).concat(['living-runs']).indexOf(f) >= 0);
+    fs.writeFileSync(runFile(d.root, key), JSON.stringify(raw, null, 2));
+  }
+}
+/* A release run and a smoke-test checklist, published. */
+async function folder() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-detour-')), d = new DiskFS(root);
+  await d.write('people.json', JSON.stringify(people));
+  await PF.repo.publish(d, SMOKE, { people, by: 'person-avery', changes: 'First', existing: [], now: AT, app: '4.0.0' });
+  let all = await PF.repo.loadAll(d, {});
+  await PF.repo.publish(d, PARENT, { people, by: 'person-morgan', changes: 'First', existing: [], now: AT, app: '4.0.0', processes: all.processes });
+  all = await PF.repo.loadAll(d, {});
+  const pubOf = (id) => all.processes.filter(p => p.process === id)[0].index.latest, pp = pubOf('release-readiness'), kp = pubOf('smoke-test');
+  const r = R.create(pp, { id: 'r-41', by: 'person-morgan', session: 'w', now: AT, app: '4.0.0', explicit: true });
+  r.recorder = { person: 'person-morgan' };
+  await d.write('runs/release-readiness/r-41/run.json', JSON.stringify(r, null, 2));
+  return { root, d, kp, pp, pin: 'smoke-test@' + kp.info.folder };
+}
+/* A linked to-do, landed; its plan; a run started on it (the plan's started decision names it); completed with verdict. */
+async function linked(F, accepts) {
+  const a = json('todo', 'add', F.root, PR, '--key', 't-1', '--text', 'Smoke test the build', '--phase', 'ship', '--checklist', F.pin, ...(accepts ? ['--accepts', accepts] : []), '--json', ...TOOL);
+  assert.strictEqual(a.code, 0, JSON.stringify(a));
+  await decideAll(F.d, PR, 'person-morgan'); await land(F.d, PR);
+  const W = await read(F.d), r = W.runs.find(y => y.id === 'r-41'), x = T.view(r, { records: W.records, unread: W.unread, people: PEOPLE }).byTodo[a.data.todo];
+  return { todo: x.id, x, r };
+}
+async function started(F, L, id, verdict) {
+  const P = D.planFor(L.r, L.x, F.kp, { by: 'person-avery', at: AT, app: '4.0.0' }).plan, f = 'proposals/' + P.id + '.json';
+  if (!fs.existsSync(path.join(F.root, f))) await F.d.write(f, JSON.stringify(P, null, 2) + '\n');
+  const g = PF.repo.groupPlans([Object.assign({}, P, { _file: P.id + '.json' })], [], [])[0];
+  await F.d.write('proposals/' + P.id + '.status-s' + id + '-d.json', JSON.stringify(PF.plans.decision(g, 'accepted', id, 'person-avery', AT, null, '4.0.0'), null, 2));
+  const c = R.create(F.kp, { id, by: 'person-avery', session: 'w2', now: AT, app: '4.0.0' });
+  if (verdict) { const m = R.mapOf(c); R.done(c, m, 'suite', 'person-avery', AT); R.done(c, m, 'call', 'person-avery', AT, { decision: verdict }); R.pass(c, m, 0, 'person-avery', AT); R.end(c, m, 'Completed', 'person-avery', 'Avery', AT); }
+  await F.d.write('runs/smoke-test/' + id + '/run.json', JSON.stringify(c, null, 2));
+  return { plan: P, run: c };
+}
+
+rule('todo add --checklist pins the exact version and the results it accepts; a pin that can\'t be made is refused, and one that can\'t be read holds', async () => {
+  const F = await folder();
+  const p = json('todo', 'add', F.root, PR, '--key', 't-1', '--text', 'Smoke test the build', '--phase', 'ship', '--checklist', F.pin, '--accepts', 'pass', '--dry-run', '--json', ...TOOL);
+  assert.strictEqual(p.code, 0, JSON.stringify(p));
+  assert.deepStrictEqual([p.data.status, p.data.checklist], ['would-request', { process: 'smoke-test', folder: F.kp.info.folder, version: 1, mapHash: F.kp.info.mapHash, typesHash: F.kp.info.typesHash, accepts: ['pass'] }]);
+  assert.ok(/settled by a run of smoke-test v1 that returns pass/.test(p.data.preview), p.data.preview);
+  assert.deepStrictEqual(ls(F.root), [], 'a preview writes nothing');
+  const a = json('todo', 'add', F.root, PR, '--key', 't-1', '--text', 'Smoke test the build', '--phase', 'ship', '--checklist', F.pin, '--accepts', 'pass', '--json', ...TOOL);
+  assert.deepStrictEqual([a.code, a.data.status], [0, 'requested']);
+  const f = JSON.parse(fs.readFileSync(path.join(F.root, a.data.request.file), 'utf8'));
+  assert.deepStrictEqual(f.checklist, p.data.checklist);
+  assert.strictEqual(json('todo', 'add', F.root, PR, '--key', 't-1', '--text', 'Smoke test the build', '--phase', 'ship', '--checklist', F.pin, '--accepts', 'pass', '--json', ...TOOL).data.status, 'already');
+  const moved = json('todo', 'add', F.root, PR, '--key', 't-1', '--text', 'Smoke test the build', '--phase', 'ship', '--checklist', F.pin, '--json', ...TOOL);
+  assert.deepStrictEqual([moved.code, moved.error.kind, /checklist/.test(moved.error.why)], [1, 'key-taken', true], moved.error && moved.error.why);
+  const bad = (args, kind, re) => { const x = json('todo', 'add', F.root, PR, '--key', 'k-' + hex(), '--text', 'x', '--phase', 'ship', ...args, '--json', ...TOOL); assert.deepStrictEqual([x.code, x.error && x.error.kind], [1, kind], JSON.stringify(x)); assert.ok(re.test(x.error.why), x.error.why); };
+  bad(['--checklist', 'nope@' + F.kp.info.folder], 'invalid', /no checklist nope/);
+  bad(['--checklist', 'smoke-test@v9-zzzzzzzz'], 'invalid', /no version v9-zzzzzzzz/);
+  bad(['--checklist', F.pin, '--accepts', 'pass,maybe'], 'invalid', /never returns maybe/);
+  bad(['--checklist', F.pin, '--accepts', ',,'], 'usage', /--accepts names/);
+  bad(['--checklist', F.pin, '--accepts', ''], 'usage', /--accepts names/);
+  bad(['--checklist', F.pin, '--accepts', 'pass, ,fail'], 'usage', /--accepts names/);
+  bad(['--checklist', 'smoke-test'], 'usage', /<process>@<version folder>/);
+  bad(['--accepts', 'pass'], 'usage', /--accepts goes with --checklist/);
+  const dn = json('todo', 'done', F.root, PR, '--key', 'k-x', '--todo', 'td-' + '0'.repeat(24), '--checklist', F.pin, '--json', ...TOOL);
+  assert.deepStrictEqual([dn.code, dn.error.kind], [1, 'usage']);
+  fs.writeFileSync(path.join(F.root, 'publications', 'smoke-test', F.kp.info.folder, 'map.md'), 'damaged');
+  const held = json('todo', 'add', F.root, PR, '--key', 'k-held', '--text', 'x', '--phase', 'ship', '--checklist', F.pin, '--json', ...TOOL);
+  assert.deepStrictEqual([held.code, held.data.status], [4, 'held'], JSON.stringify(held));
+  assert.ok(held.problems.some(q => q.path.indexOf('publications/smoke-test/' + F.kp.info.folder) === 0), JSON.stringify(held.problems));
+  assert.ok(!ls(F.root).some(n => n.indexOf(PF.todos.idFor('release-helper', 'k-held')) === 0), 'nothing written');
+});
+
+rule('suggest-done --evidence-run asks for the to-do done on one started run, named by its evidence; it waits for a person, and again is already', async () => {
+  const F = await folder(), L = await linked(F, 'pass');
+  const none = json('todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--json', ...TOOL);
+  assert.deepStrictEqual([none.code, none.error && none.error.kind], [1, 'invalid'], JSON.stringify(none));
+  assert.ok(/No run of smoke-test was started/.test(none.error.why), none.error.why);
+  await started(F, L, 'k1', 'pass');
+  const runBefore = fs.readFileSync(runFile(F.root, PR), 'utf8');
+  const p = json('todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--dry-run', '--json', ...TOOL);
+  assert.deepStrictEqual([p.code, p.data.status, p.data.evidence.run, p.data.evidence.result], [0, 'would-request', { process: 'smoke-test', id: 'k1' }, 'pass'], JSON.stringify(p));
+  const s = json('todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--json', ...TOOL);
+  assert.deepStrictEqual([s.code, s.data.status, s.data.authority.needs, /^req-evidence-[0-9a-f]{24}$/.test(s.data.request.id)], [0, 'requested', 'person', true], JSON.stringify(s));
+  const n = ls(F.root).length;
+  const again = json('todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--json', '--tool', 'other-bot@2.0');
+  assert.deepStrictEqual([again.code, again.data.status, ls(F.root).length], [0, 'already', n]);
+  const l = json('todo', 'list', F.root, PR, '--json');
+  assert.deepStrictEqual([l.code, l.data.todos[0].state, l.data.requests.filter(q => q.id === s.data.request.id)[0].status], [0, 'open', 'waiting'], 'never checked off on its own');
+  assert.strictEqual(fs.readFileSync(runFile(F.root, PR), 'utf8'), runBefore, 'run.json never written');
+  const both = json('todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--fact', 'req-x-' + '0'.repeat(24), '--json', ...TOOL);
+  assert.deepStrictEqual([both.code, both.error.kind], [1, 'usage']);
+  const keyed = json('todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--key', 'k1', '--json', ...TOOL);
+  assert.deepStrictEqual([keyed.code, keyed.error.kind], [1, 'usage']);
+});
+
+rule('suggest-done --evidence-run refuses a result the to-do doesn\'t accept and a run that wasn\'t started for it; competing starts are chosen by naming one', async () => {
+  const F = await folder(), L = await linked(F, 'pass');
+  await started(F, L, 'k1', 'fail');
+  const f = json('todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--json', ...TOOL);
+  assert.deepStrictEqual([f.code, f.error && f.error.kind], [1, 'invalid']);
+  assert.ok(/returned fail; this to-do accepts pass/.test(f.error.why), f.error.why);
+  await started(F, L, 'k2', 'pass');
+  const s = json('todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k2', '--json', ...TOOL);
+  assert.deepStrictEqual([s.code, s.data.status, s.data.evidence.run.id], [0, 'requested', 'k2'], JSON.stringify(s));
+  const c = R.create(F.kp, { id: 'k9', by: 'person-avery', session: 'w3', now: AT, app: '4.0.0' });
+  await F.d.write('runs/smoke-test/k9/run.json', JSON.stringify(c, null, 2));
+  const o = json('todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k9', '--json', ...TOOL);
+  assert.ok(o.code === 1 && /wasn't started for this to-do/.test(o.error.why), JSON.stringify(o));
+});
+
+rule('A run it rests on that can\'t be read holds the ask and the request (exit 4), named by its path; a change to it after landing is said', async () => {
+  const F = await folder(), L = await linked(F);
+  const S = await started(F, L, 'k1', 'pass');
+  const s = json('todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--json', ...TOOL);
+  assert.strictEqual(s.code, 0, JSON.stringify(s));
+  await decideAll(F.d, PR, 'person-morgan'); await land(F.d, PR);
+  let l = json('todo', 'list', F.root, PR, '--json');
+  const t = l.data.todos[0];
+  assert.deepStrictEqual([l.code, t.state, t.checklist && t.checklist.process, t.provenance], [0, 'done', 'smoke-test', null], JSON.stringify(t));
+  const n = ls(F.root).length, again = json('todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--json', ...TOOL);
+  assert.deepStrictEqual([again.code, again.data && again.data.status, again.data && again.data.request.id, ls(F.root).length], [0, 'already', s.data.request.id, n], 'the same request, applied, is still already: ' + JSON.stringify(again.error || again.data));
+  const c = S.run; c.steps.call.at = '2026-11-10T12:00:00.000Z'; c.steps.call.values.decision = 'fail'; c.details.verdict = 'fail'; c.ended.at = '2026-11-10T12:00:00.000Z';
+  fs.writeFileSync(runFile(F.root, 'smoke-test/k1'), JSON.stringify(c, null, 2));
+  l = json('todo', 'list', F.root, PR, '--json');
+  assert.ok(/changed since: it returned fail \(was pass\)/.test(l.data.todos[0].provenance), JSON.stringify(l.data.todos[0]));
+  assert.strictEqual(l.data.todos[0].state, 'done', 'never reopened by itself');
+  const F2 = await folder(), L2 = await linked(F2);
+  await started(F2, L2, 'k1', 'pass');
+  fs.writeFileSync(runFile(F2.root, 'smoke-test/k1'), '{ torn');
+  const h = json('todo', 'suggest-done', F2.root, PR, '--todo', L2.todo, '--evidence-run', 'smoke-test/k1', '--json', ...TOOL);
+  assert.deepStrictEqual([h.code, h.data && h.data.status], [4, 'held'], JSON.stringify(h));
+  assert.ok(h.problems.some(q => q.path === 'runs/smoke-test/k1/run.json'), JSON.stringify(h.problems));
+});
+
+rule('Evidence a pending request rests on, missing or unreadable, is every reader\'s problem: named by path and kind, incomplete, exit 4', async () => {
+  for (const how of ['missing', 'malformed']) {
+    const F = await folder(), L = await linked(F, 'pass');
+    await started(F, L, 'k1', 'pass');
+    const s = json('todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--json', ...TOOL);
+    assert.strictEqual(s.code, 0, JSON.stringify(s));
+    const ok = json('run', F.root, PR, '--contract', '2', '--json');
+    assert.deepStrictEqual([ok.code, ok.complete], [0, true], 'set-up: readable evidence is no problem: ' + JSON.stringify(ok.problems));
+    if (how === 'missing') fs.rmSync(path.join(F.root, 'runs', 'smoke-test', 'k1'), { recursive: true });
+    else fs.writeFileSync(runFile(F.root, 'smoke-test/k1'), '{ torn');
+    const readers = { run: json('run', F.root, PR, '--contract', '2', '--json'), next: json('next', F.root, PR, '--contract', '2', '--json'), 'todo list': json('todo', 'list', F.root, PR, '--json') };
+    if (how === 'missing') readers.runs = json('runs', F.root, '--contract', '2', '--json');
+    /* LC: the parent's runs alone are read with what their to-dos rest on, named like the other readers. */
+    readers['runs --process'] = json('runs', F.root, '--process', 'release-readiness', '--contract', '2', '--json');
+    Object.keys(readers).forEach((k) => {
+      const x = readers[k], hit = (x.problems || []).filter(q => q.path === 'runs/smoke-test/k1/run.json');
+      /* An absent run is nofile, the kind every reader uses for a file that isn't there. */
+      const kind = how === 'missing' ? 'nofile' : how;
+      assert.deepStrictEqual([k, how, x.code, x.complete, hit.length === 1 && hit[0].kind === kind], [k, how, 4, false, true], k + ' (' + how + '): ' + JSON.stringify(x.problems));
+    });
+  }
+});
+
+/* PC: a notes file of the evidence run that can't be read (unreadable, a link, too big) is runs --process's problem as it is
+   run's and next's: exit 4, incomplete, named at its path. */
+rule('An evidence run\'s notes file that can\'t be read is runs --process\'s problem as it is run\'s and next\'s', async () => {
+  const cases = {
+    unreadable: (f) => { fs.writeFileSync(f, '{"kind":"note"}\n'); fs.chmodSync(f, 0); },
+    link: (f) => { fs.writeFileSync(path.join(path.dirname(f), '..', 'elsewhere.jsonl'), '{"kind":"note"}\n'); fs.symlinkSync(path.join(path.dirname(f), '..', 'elsewhere.jsonl'), f); },
+    big: (f) => { fs.writeFileSync(f, Buffer.alloc(17 * 1048576, 32)); },
+  };
+  for (const how of Object.keys(cases).filter((h) => !process.env.PC_CASE || process.env.PC_CASE.split(',').indexOf(h) >= 0)) {
+    if (how === 'unreadable' && process.getuid && process.getuid() === 0) continue;
+    const F = await folder(), L = await linked(F, 'pass');
+    await started(F, L, 'k1', 'pass');
+    const s = json('todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--json', ...TOOL);
+    assert.strictEqual(s.code, 0, JSON.stringify(s));
+    const note = path.join(F.root, 'runs', 'smoke-test', 'k1', 'notes-wpc.jsonl');
+    cases[how](note);
+    const readers = { run: json('run', F.root, PR, '--contract', '2', '--json'), next: json('next', F.root, PR, '--contract', '2', '--json'), 'runs --process': json('runs', F.root, '--process', 'release-readiness', '--contract', '2', '--json') };
+    Object.keys(readers).forEach((k) => {
+      const x = readers[k], hit = (x.problems || []).some(q => q.path === 'runs/smoke-test/k1/notes-wpc.jsonl');
+      assert.deepStrictEqual([k, how, x.code, x.complete, hit], [k, how, 4, false, true], k + ' (' + how + '): ' + JSON.stringify(x.problems));
+    });
+    try { fs.chmodSync(note, 0o644); } catch (e) { /* a link or gone */ }
+  }
+});
+
+rule('Evidence that reads but isn\'t trusted, and an evidence plan or decision that can\'t be read, is every reader\'s problem as runs judges it: exit 4 and incomplete, always together', async () => {
+  const cases = {
+    newer: (F, S) => { const f = runFile(F.root, 'smoke-test/k1'), o = JSON.parse(fs.readFileSync(f, 'utf8')); o.format = 'preflight-run/99'; fs.writeFileSync(f, JSON.stringify(o)); },
+    unknown: (F, S) => { const f = runFile(F.root, 'smoke-test/k1'), o = JSON.parse(fs.readFileSync(f, 'utf8')); o.zzUnknown = 1; fs.writeFileSync(f, JSON.stringify(o)); },
+    snapshot: (F, S) => { const f = runFile(F.root, 'smoke-test/k1'), o = JSON.parse(fs.readFileSync(f, 'utf8')); o.snapshot = 42; fs.writeFileSync(f, JSON.stringify(o)); },
+    decision: (F, S) => { fs.writeFileSync(path.join(F.root, 'proposals', S.plan.id + '.status-sk1-d.json'), '{ torn'); },
+    plan: (F, S) => { fs.writeFileSync(path.join(F.root, 'proposals', S.plan.id + '.json'), '{ torn'); },
+    absent: (F, S) => { fs.rmSync(path.join(F.root, 'proposals', S.plan.id + '.json')); fs.rmSync(path.join(F.root, 'proposals', S.plan.id + '.status-sk1-d.json')); },
+    planonly: (F, S) => { fs.rmSync(path.join(F.root, 'proposals', S.plan.id + '.json')); },
+    /* The started decision is gone: the plan reads, but nothing proves it started the run. */
+    nostart: (F, S) => { fs.rmSync(path.join(F.root, 'proposals', S.plan.id + '.status-sk1-d.json')); },
+    /* The version's step types change and its fingerprints are updated, so it still verifies: not the pinned version. */
+    typesdrift: (F, S) => {
+      const dir = path.join(F.root, 'publications', 'smoke-test', F.kp.info.folder), t2 = fs.readFileSync(path.join(dir, 'types.json'), 'utf8') + '\n', info = JSON.parse(fs.readFileSync(path.join(dir, 'publication.json'), 'utf8'));
+      info.typesHash = PF.util.hash(t2);
+      if (info.payload) info.payload.types = PF.publish.exactOf({ 'map.md': new Uint8Array(fs.readFileSync(path.join(dir, 'map.md'))), 'types.json': new Uint8Array(Buffer.from(t2, 'utf8')) })['types.json'];
+      fs.writeFileSync(path.join(dir, 'types.json'), t2); fs.writeFileSync(path.join(dir, 'publication.json'), JSON.stringify(info, null, 2));
+    },
+    /* The plan file is a link, beside a readable OneDrive copy of it: refused, never read past. */
+    planlink: (F, S) => { const f = path.join(F.root, 'proposals', S.plan.id + '.json'), c = path.join(F.root, 'proposals', S.plan.id + ' (1).json'); fs.copyFileSync(f, c); fs.rmSync(f); fs.symlinkSync(c, f); },
+    /* A torn plan beside a readable OneDrive copy of it: still held. */
+    copytorn: (F, S) => { const f = path.join(F.root, 'proposals', S.plan.id + '.json'); fs.copyFileSync(f, path.join(F.root, 'proposals', S.plan.id + ' (1).json')); fs.writeFileSync(f, '{ torn'); },
+    /* OC: the plan's pin, one fingerprint changed: not the version the to-do pinned, everywhere. */
+    pinmap: (F, S) => { const f = path.join(F.root, 'proposals', S.plan.id + '.json'), o = JSON.parse(fs.readFileSync(f, 'utf8')); o.pin.mapHash = '0badc0de'; fs.writeFileSync(f, JSON.stringify(o, null, 2)); },
+    /* QB: the plan's process or pin folder changed to another valid value: unusable, named, exit 4 everywhere. */
+    planproc: (F, S) => { const f = path.join(F.root, 'proposals', S.plan.id + '.json'), o = JSON.parse(fs.readFileSync(f, 'utf8')); o.process = 'release-readiness'; fs.writeFileSync(f, JSON.stringify(o, null, 2)); },
+    planfolder: (F, S) => { const f = path.join(F.root, 'proposals', S.plan.id + '.json'), o = JSON.parse(fs.readFileSync(f, 'utf8')); o.pin.folder = o.pin.folder.replace(/-.*/, '-abcd1234'); fs.writeFileSync(f, JSON.stringify(o, null, 2)); },
+    pintypes: (F, S) => { const f = path.join(F.root, 'proposals', S.plan.id + '.json'), o = JSON.parse(fs.readFileSync(f, 'utf8')); o.pin.typesHash = '0badc0de'; fs.writeFileSync(f, JSON.stringify(o, null, 2)); },
+    /* OC: every OneDrive copy name the loader knows is tied to its plan: a torn (1) or -COMPUTER copy, or a linked (1) copy,
+       beside a readable plan, is held. */
+    copyone: (F, S) => { fs.writeFileSync(path.join(F.root, 'proposals', S.plan.id + ' (1).json'), '{ torn'); },
+    copycomputer: (F, S) => { fs.writeFileSync(path.join(F.root, 'proposals', S.plan.id + '-LAPTOP.json'), '{ torn'); },
+    copylink: (F, S) => { const t = path.join(F.root, 'elsewhere.json'); fs.copyFileSync(path.join(F.root, 'proposals', S.plan.id + '.json'), t); fs.symlinkSync(t, path.join(F.root, 'proposals', S.plan.id + ' (1).json')); },
+    /* The evidence run's version can't be read at all (EACCES): never usable evidence. */
+    pubread: (F, S) => { fs.chmodSync(path.join(F.root, 'publications', 'smoke-test', F.kp.info.folder, 'publication.json'), 0); }
+  };
+  for (const how of Object.keys(cases).filter(h => !process.env.CASES || process.env.CASES.split(",").indexOf(h) >= 0)) {
+    const F = await folder(), L = await linked(F, 'pass'), S = await started(F, L, 'k1', 'pass');
+    const s = json('todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--json', ...TOOL);
+    assert.strictEqual(s.code, 0, JSON.stringify(s));
+    cases[how](F, S);
+    const runPath = 'runs/smoke-test/k1/run.json', runs = json('runs', F.root, '--contract', '2', '--json');
+    /* What runs says of the run is the verdict; a plan or decision is named at its own file. */
+    const want = how === 'decision' ? { path: 'proposals/' + S.plan.id + '.status-sk1-d.json', kinds: ['unreadable', 'malformed'] }
+      : how === 'plan' || how === 'copytorn' ? { path: 'proposals/' + S.plan.id + '.json', kinds: ['unreadable', 'malformed'] }
+        : how === 'planlink' ? { path: 'proposals/' + S.plan.id + '.json', kinds: ['link'] }
+        : how === 'pinmap' || how === 'pintypes' || how === 'planproc' || how === 'planfolder' ? { path: 'proposals/' + S.plan.id + '.json', kinds: ['unusable'] }
+        : how === 'copyone' ? { path: 'proposals/' + S.plan.id + ' (1).json', kinds: ['unreadable', 'malformed'] }
+        : how === 'copycomputer' ? { path: 'proposals/' + S.plan.id + '-LAPTOP.json', kinds: ['unreadable', 'malformed'] }
+        : how === 'copylink' ? { path: 'proposals/' + S.plan.id + ' (1).json', kinds: ['link'] }
+        : how === 'absent' || how === 'planonly' || how === 'nostart' ? { path: 'proposals/' + S.plan.id + '.json', kinds: ['nofile'] }
+          : how === 'pubread' ? { path: 'publications/smoke-test/' + F.kp.info.folder + '/publication.json', prefix: 'publications/smoke-test/' + F.kp.info.folder, kinds: ['unreadable'] }
+          : { path: runPath, kinds: (runs.problems || []).filter(q => q.path === runPath).map(q => q.kind) };
+    assert.ok(want.kinds.length, how + ': set-up: runs names the run: ' + JSON.stringify(runs.problems));
+    const readers = { runs, 'runs --process': json('runs', F.root, '--process', 'release-readiness', '--contract', '2', '--json'), run: json('run', F.root, PR, '--contract', '2', '--json'), next: json('next', F.root, PR, '--contract', '2', '--json'), 'todo list': json('todo', 'list', F.root, PR, '--json'),
+      'suggest-done --dry-run': json('todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--dry-run', '--json', ...TOOL) };
+    Object.keys(readers).forEach((k) => {
+      const x = readers[k], at = (q) => q.path === want.path || (want.prefix && q.path.indexOf(want.prefix) === 0), hit = (x.problems || []).filter(q => at(q) && want.kinds.indexOf(q.kind) >= 0);
+      assert.strictEqual(x.code === 4, x.complete === false, k + ' (' + how + '): exit ' + x.code + ' with complete ' + x.complete);
+      assert.strictEqual(x.code === 4, (x.problems || []).length > 0, k + ' (' + how + '): exit ' + x.code + ' with problems ' + JSON.stringify(x.problems));
+      if (k === 'suggest-done --dry-run' && ['pinmap', 'pintypes', 'planproc', 'planfolder'].indexOf(how) < 0) return;
+      assert.deepStrictEqual([k, how, x.code, x.complete, hit.length > 0], [k, how, 4, false, true], k + ' (' + how + '): ' + JSON.stringify(x.problems));
+    });
+  }
+  /* The first suggest-done on a run, before any request names it: what it rests on is named all the same. */
+  for (const how of ['newer', 'gone', 'pubread']) {
+    const F = await folder(), L = await linked(F, 'pass'); await started(F, L, 'k1', 'pass');
+    const f = runFile(F.root, 'smoke-test/k1');
+    if (how === 'newer') { const o = JSON.parse(fs.readFileSync(f, 'utf8')); o.format = 'preflight-run/99'; fs.writeFileSync(f, JSON.stringify(o)); }
+    if (how === 'gone') fs.rmSync(path.dirname(f), { recursive: true });
+    if (how === 'pubread') fs.chmodSync(path.join(F.root, 'publications', 'smoke-test', F.kp.info.folder, 'publication.json'), 0);
+    const x = json('todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--dry-run', '--json', ...TOOL);
+    const kind = how === 'gone' ? 'nofile' : how === 'newer' ? 'newer' : 'unreadable', where = how === 'pubread' ? 'publications/smoke-test/' : 'runs/smoke-test/k1/';
+    assert.deepStrictEqual([how, x.code, x.complete, (x.problems || []).some(q => q.path.indexOf(where) === 0 && q.kind === kind)], [how, 4, false, true], 'first ' + how + ': ' + JSON.stringify([x.data && x.data.status, x.problems]));
+  }
+});
+
+rule('runs reads each proposals file once and reports what that one read found', async () => {
+  const F = await folder(), L = await linked(F, 'pass'); await started(F, L, 'k1', 'pass');
+  const s = json('todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--json', ...TOOL);
+  assert.strictEqual(s.code, 0, JSON.stringify(s));
+  /* Every open of a file under proposals/ counted, in the command's own process. */
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-opens-')), hook = path.join(dir, 'hook.js'), out = path.join(dir, 'opens.json');
+  fs.writeFileSync(hook, "const fs = require('fs'), seen = {}, open = fs.openSync; fs.openSync = function (p) { const s = String(p); if (s.indexOf('/proposals/') >= 0) seen[s] = (seen[s] || 0) + 1; return open.apply(this, arguments); }; process.on('exit', () => fs.writeFileSync(process.env.OPENS_OUT, JSON.stringify(seen)));");
+  let code = 0, text = '';
+  try { text = execFileSync(process.execPath, ['-r', hook, BIN, 'runs', F.root, '--contract', '2', '--json'], { encoding: 'utf8', stdio: 'pipe', env: Object.assign({}, process.env, { OPENS_OUT: out }) }); } catch (e) { code = e.status; text = String(e.stdout); }
+  const x = JSON.parse(text), opens = JSON.parse(fs.readFileSync(out, 'utf8')), twice = Object.keys(opens).filter(k => opens[k] > 1);
+  assert.deepStrictEqual([code, x.complete], [0, true], 'set-up: complete: ' + JSON.stringify(x.problems));
+  assert.ok(Object.keys(opens).length > 0, 'set-up: proposals were read');
+  assert.deepStrictEqual(twice.map(k => path.basename(k)), [], 'each proposals file is read once');
+});
+
+/* LA: a request is filed only against proposals/ as its final read finds it, after every other read it rests on. A plan
+   torn or repinned while the evidence run is read, and a torn or differing copy of a request that lands while the pinned
+   version is read, file nothing. */
+const hooked = (args, env) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-la-hook-')), hook = path.join(dir, 'hook.js');
+  fs.writeFileSync(hook, "const fs = require('fs'), path = require('path'); let done = false; const hit = (p) => { if (done || String(p).indexOf(process.env.LA_AT) < 0) return; done = true; const f = JSON.parse(process.env.LA_FILES); Object.keys(f).forEach((k) => fs.writeFileSync(path.join(process.env.LA_ROOT, k), f[k])); };" +
+    " for (const k of ['openSync', 'readFileSync']) { const o = fs[k]; fs[k] = function (p) { hit(p); return o.apply(this, arguments); }; } const pr = fs.promises; for (const k of ['open', 'readFile']) { const o = pr[k]; pr[k] = function (p) { hit(p); return o.apply(this, arguments); }; }");
+  let code = 0, out = '';
+  try { out = execFileSync(process.execPath, ['-r', hook, BIN, ...args], { encoding: 'utf8', stdio: 'pipe', env: Object.assign({}, process.env, env) }); } catch (e) { code = e.status; out = String(e.stdout); }
+  return Object.assign(JSON.parse(out), { code });
+};
+const pickLA = (h) => !process.env.LA_CASE || process.env.LA_CASE.split(',').indexOf(h) >= 0;
+rule('suggest-done --evidence-run whose plan is torn or repinned while the evidence run is read files nothing', async () => {
+  for (const how of ['torn', 'repin'].filter(pickLA)) {
+    const F = await folder(), L = await linked(F, 'pass'), S = await started(F, L, 'k1', 'pass');
+    const pf = 'proposals/' + S.plan.id + '.json', p = JSON.parse(fs.readFileSync(path.join(F.root, pf), 'utf8'));
+    if (p.pin) p.pin.folder = 'v9-zzzzzzzz'; else p.version = 9;
+    const before = ls(F.root);
+    const x = hooked(['todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--json', ...TOOL],
+      { LA_AT: '/runs/smoke-test/k1/run.json', LA_ROOT: F.root, LA_FILES: JSON.stringify({ [pf]: how === 'torn' ? '{ "format": ' : JSON.stringify(p, null, 2) + '\n' }) });
+    assert.ok(!ls(F.root).some(n => /^req-evidence-/.test(n) && before.indexOf(n) < 0), how + ': nothing filed: ' + JSON.stringify([x.code, x.data && x.data.status, x.error, x.problems]));
+    assert.ok(x.code !== 0, how + ': said so: ' + JSON.stringify([x.code, x.data && x.data.status]));
+  }
+});
+rule('todo add --checklist with a torn or differing copy of its request landing while the pinned version is read files nothing', async () => {
+  for (const how of ['torn', 'differs'].filter(pickLA)) {
+    const F = await folder(), copy = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-la-copy-')); fs.cpSync(F.root, copy, { recursive: true });
+    const args = (root) => ['todo', 'add', root, PR, '--key', 't-1', '--text', 'Smoke test the build', '--phase', 'ship', '--checklist', F.pin, '--json', ...TOOL];
+    const c = json(...args(copy));
+    assert.strictEqual(c.data.status, 'requested', 'set-up: it would be requested');
+    const o = JSON.parse(fs.readFileSync(path.join(copy, c.data.request.file), 'utf8')); o.text = 'Something else';
+    const name = c.data.request.id + ' (1).json';
+    fs.mkdirSync(path.join(F.root, 'proposals'), { recursive: true });
+    const x = hooked(args(F.root), { LA_AT: '/publications/smoke-test/', LA_ROOT: F.root, LA_FILES: JSON.stringify({ ['proposals/' + name]: how === 'torn' ? '{ "format": ' : JSON.stringify(o, null, 2) + '\n' }) });
+    assert.ok(!fs.existsSync(path.join(F.root, c.data.request.file)), how + ': not filed: ' + JSON.stringify([x.code, x.data && x.data.status, x.error, x.problems]));
+    assert.ok(x.code !== 0, how + ': said so: ' + JSON.stringify([x.code, x.data && x.data.status]));
+  }
+});
+
+/* SF: the run a to-do is added to or asked done on is judged as runs and run judge it, with the keep command's diagnostics:
+   one whose details are damaged, or whose version's publication.json can't be read, holds (exit 4, named) before any
+   preview or filing. */
+rule('todo add --checklist and suggest-done --evidence-run hold on a source run that run would not trust: nothing previewed or filed', async () => {
+  for (const how of ['details', 'pubjson'].filter((h) => !process.env.SF_CASE || process.env.SF_CASE.split(',').indexOf(h) >= 0)) {
+    const F = await folder(), L = await linked(F, 'pass'); await started(F, L, 'k1', 'pass');
+    if (how === 'details') { const f = runFile(F.root, PR), o = JSON.parse(fs.readFileSync(f, 'utf8')); o.details = []; fs.writeFileSync(f, JSON.stringify(o, null, 2)); }
+    else fs.writeFileSync(path.join(F.root, 'publications', 'release-readiness', F.pp.info.folder, 'publication.json'), '{ "format": ');
+    const rr = json('run', F.root, PR, '--json');
+    assert.strictEqual(rr.code, 4, how + ': set-up: run holds it: ' + JSON.stringify([rr.code, rr.problems]));
+    const before = ls(F.root);
+    const calls = {
+      'add-dry': ['todo', 'add', F.root, PR, '--key', 't-2', '--text', 'Smoke again', '--phase', 'ship', '--checklist', F.pin, '--dry-run', '--json', ...TOOL],
+      'add': ['todo', 'add', F.root, PR, '--key', 't-2', '--text', 'Smoke again', '--phase', 'ship', '--checklist', F.pin, '--json', ...TOOL],
+      'suggest-dry': ['todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--dry-run', '--json', ...TOOL],
+      'suggest': ['todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--json', ...TOOL]
+    };
+    for (const k of Object.keys(calls)) {
+      const x = json(...calls[k]);
+      assert.strictEqual(x.code, 4, how + ' ' + k + ': holds: ' + JSON.stringify([x.code, x.complete, x.data && x.data.status, x.problems]));
+      assert.strictEqual(x.complete, false, how + ' ' + k + ': not complete');
+      assert.ok((x.problems || []).length, how + ' ' + k + ': names what it rests on');
+      assert.ok(!x.data || x.data.status === 'held', how + ' ' + k + ': held, no preview: ' + (x.data && x.data.status));
+    }
+    assert.deepStrictEqual(ls(F.root), before, how + ': nothing filed');
+  }
+});
+
+/* UB: the run a checklist request rests on is judged first, with the shared source verdict, whatever is wrong with it: held,
+   exit 4, by path and kind, never an early failure with no problems. Exit 5 is only for a run that isn't there at all. */
+const ckCalls = (F, L) => ({
+  'add-dry': ['todo', 'add', F.root, PR, '--key', 't-2', '--text', 'Smoke again', '--phase', 'ship', '--checklist', F.pin, '--dry-run', '--json', ...TOOL],
+  'add': ['todo', 'add', F.root, PR, '--key', 't-2', '--text', 'Smoke again', '--phase', 'ship', '--checklist', F.pin, '--json', ...TOOL],
+  'suggest-dry': ['todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--dry-run', '--json', ...TOOL],
+  'suggest': ['todo', 'suggest-done', F.root, PR, '--todo', L.todo, '--evidence-run', 'smoke-test/k1', '--json', ...TOOL]
+});
+const heldOut = (x, label) => {
+  assert.strictEqual(x.code, 4, label + ': holds, exit 4: ' + JSON.stringify([x.code, x.complete, x.data && x.data.status, x.error, x.problems]));
+  assert.ok((x.problems || []).some(q => q.path && q.kind), label + ': names a path and kind');
+  assert.ok(!x.data || x.data.status === 'held', label + ': held, never a preview: ' + (x.data && x.data.status));
+};
+rule('todo add --checklist and suggest-done --evidence-run hold, named, on a source run torn, newer, with an unknown field, missing its run.json or with a damaged snapshot', async () => {
+  const cases = { torn: (o) => null, newer: (o) => Object.assign(o, { format: 'preflight-run/99' }), unknown: (o) => Object.assign(o, { zzzLater: 1 }), missing: (o) => undefined, snapshot: (o) => Object.assign(o, { snapshot: '---\nprocess: [\n## {#' }) };
+  for (const how of Object.keys(cases).filter((h) => !process.env.UB_CASE || process.env.UB_CASE.split(',').indexOf(h) >= 0)) {
+    const F = await folder(), L = await linked(F, 'pass'); await started(F, L, 'k1', 'pass');
+    const f = runFile(F.root, PR), o = JSON.parse(fs.readFileSync(f, 'utf8')), v = cases[how](o);
+    if (how === 'torn') fs.writeFileSync(f, '{ "format": ');
+    else if (how === 'missing') { fs.unlinkSync(f); fs.writeFileSync(path.join(path.dirname(f), 'notes-w.jsonl'), ''); }
+    else fs.writeFileSync(f, JSON.stringify(v, null, 2));
+    if (how !== 'missing') { const rr = json('run', F.root, PR, '--json'); assert.ok(rr.code === 4 || rr.code === 1, how + ': set-up: run doesn\'t trust it: ' + rr.code); }
+    const before = ls(F.root), calls = ckCalls(F, L);
+    for (const k of Object.keys(calls)) heldOut(json(...calls[k]), how + ' ' + k);
+    assert.deepStrictEqual(ls(F.root), before, how + ': nothing filed');
+  }
+  const F = await folder(), L = await linked(F, 'pass');
+  const gone = json('todo', 'add', F.root, 'release-readiness/r-99', '--key', 't-3', '--text', 'x', '--phase', 'ship', '--checklist', F.pin, '--json', ...TOOL);
+  assert.strictEqual(gone.code, 5, 'a run that isn\'t there is exit 5: ' + gone.code);
+  void L;
+});
+/* UB: the source and its version are read and judged again inside the final dependency read (and before a preview): damaged
+   during the later reads (the pinned version's, the evidence run's), they hold, and nothing is filed. */
+rule('todo add --checklist and suggest-done --evidence-run hold when the source run or its version is damaged during their later reads', async () => {
+  for (const how of ['details', 'pubjson'].filter((h) => !process.env.UB_CASE || process.env.UB_CASE.split(',').indexOf('late-' + h) >= 0)) {
+    for (const k of ['add-dry', 'add', 'suggest-dry', 'suggest']) {
+      const F = await folder(), L = await linked(F, 'pass'); await started(F, L, 'k1', 'pass');
+      const f = 'runs/' + PR + '/run.json', o = JSON.parse(fs.readFileSync(path.join(F.root, f), 'utf8')); o.details = [];
+      const files = how === 'details' ? { [f]: JSON.stringify(o, null, 2) } : { ['publications/release-readiness/' + F.pp.info.folder + '/publication.json']: '{ "format": ' };
+      const before = ls(F.root);
+      const x = hooked(ckCalls(F, L)[k], { LA_AT: '/publications/smoke-test/', LA_ROOT: F.root, LA_FILES: JSON.stringify(files) });
+      heldOut(x, how + ' ' + k);
+      assert.deepStrictEqual(ls(F.root), before, how + ' ' + k + ': nothing filed');
+    }
+  }
+});
+
+/* VE: a run whose own checklist can't be run here (a step type this copy doesn't have) is named at its path, as the source
+   or as the evidence: held, exit 4, never complete with no problems or a failure with no diagnostics. */
+rule('todo add --checklist and suggest-done --evidence-run hold, named, on a source or evidence run whose checklist this copy can\'t run', async () => {
+  for (const which of ['evidence', 'source'].filter((h) => !process.env.VE_CASE || process.env.VE_CASE.split(',').indexOf(h) >= 0)) {
+    const F = await folder(), L = await linked(F, 'pass'); await started(F, L, 'k1', 'pass');
+    const key = which === 'source' ? PR : 'smoke-test/k1', f = runFile(F.root, key), o = JSON.parse(fs.readFileSync(f, 'utf8'));
+    o.snapshot = o.snapshot.replace(which === 'source' ? '{confirm} Ship it' : '{confirm} Run the smoke suite', '{future.type} ' + (which === 'source' ? 'Ship it' : 'Run the smoke suite'));
+    assert.ok(/\{future\.type\}/.test(o.snapshot), which + ': set-up: the snapshot changed');
+    fs.writeFileSync(f, JSON.stringify(o, null, 2));
+    const before = ls(F.root), calls = ckCalls(F, L);
+    for (const k of Object.keys(calls).filter((k) => which === 'source' || /^suggest/.test(k))) heldOut(json(...calls[k]), which + ' ' + k);
+    assert.deepStrictEqual(ls(F.root), before, which + ': nothing filed');
+  }
+});
+
+/* VB: every input a checklist request rests on is read and judged again inside the final dependency read, dry and applied
+   alike: the pinned version (add --checklist) or the evidence run (suggest-done --evidence-run) torn or damaged once it was
+   first read, at the source's last read, holds (exit 4, named), and nothing is filed. */
+const armed = (args, env) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-vb-hook-')), hook = path.join(dir, 'hook.js');
+  fs.writeFileSync(hook, "const fs = require('fs'), path = require('path'); let armed = false, done = false; const hit = (p) => { p = String(p); if (done) return; if (p.indexOf(process.env.VB_ARM) >= 0) { armed = true; return; } if (!armed || p.indexOf(process.env.VB_AT) < 0) return; done = true; const f = JSON.parse(process.env.VB_FILES); Object.keys(f).forEach((k) => fs.writeFileSync(path.join(process.env.VB_ROOT, k), f[k])); };" +
+    " for (const k of ['openSync', 'readFileSync', 'readdirSync']) { const o = fs[k]; fs[k] = function (p) { hit(p); return o.apply(this, arguments); }; } const pr = fs.promises; for (const k of ['open', 'readFile', 'readdir']) { const o = pr[k]; pr[k] = function (p) { hit(p); return o.apply(this, arguments); }; }");
+  let code = 0, out = '';
+  try { out = execFileSync(process.execPath, ['-r', hook, BIN, ...args], { encoding: 'utf8', stdio: 'pipe', env: Object.assign({}, process.env, env) }); } catch (e) { code = e.status; out = String(e.stdout); }
+  return Object.assign(JSON.parse(out), { code });
+};
+rule('todo add --checklist and suggest-done --evidence-run hold when what they pin or rest on is damaged after it was first read', async () => {
+  const cases = { 'pub-map': 'add', 'pub-json': 'add', 'ev-torn': 'suggest', 'ev-changed': 'suggest' };
+  for (const how of Object.keys(cases).filter((h) => !process.env.VB_CASE || process.env.VB_CASE.split(',').indexOf(h) >= 0)) {
+    for (const k of [cases[how] + '-dry', cases[how]]) {
+      const F = await folder(), L = await linked(F, 'pass'); await started(F, L, 'k1', 'pass');
+      const pubDir = 'publications/smoke-test/' + F.pin.split('@')[1] + '/', evf = 'runs/smoke-test/k1/run.json';
+      let files;
+      if (how === 'pub-map') files = { [pubDir + 'map.md']: fs.readFileSync(path.join(F.root, pubDir + 'map.md'), 'utf8').replace('Run the smoke suite', 'Skip the smoke suite') };
+      else if (how === 'pub-json') files = { [pubDir + 'publication.json']: '{ "format": ' };
+      else if (how === 'ev-torn') files = { [evf]: '{ "format": ' };
+      else { const o = JSON.parse(fs.readFileSync(path.join(F.root, evf), 'utf8')); o.details = []; files = { [evf]: JSON.stringify(o, null, 2) }; }
+      const before = ls(F.root);
+      const x = armed(ckCalls(F, L)[k], { VB_ARM: cases[how] === 'add' ? '/' + pubDir : '/' + evf, VB_AT: '/runs/' + PR + '/run.json', VB_ROOT: F.root, VB_FILES: JSON.stringify(files) });
+      heldOut(x, how + ' ' + k);
+      assert.deepStrictEqual(ls(F.root), before, how + ' ' + k + ': nothing filed');
+    }
+  }
+});
+
+run();

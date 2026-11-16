@@ -214,6 +214,176 @@ rule('"Published in v2" comes with v2\'s checklist, types and record; without th
   assert.ok(html.includes('Can&#39;t be confirmed from this pack'));
 });
 
+rule('Python refuses a "Published in v2" claim confirmed without that version\'s files, a version that reads, its number or the correction in it', async () => {
+  if (!PY) return console.log('  (skipped: no Python)');
+  const LW = require('./living-worlds'), PF = load();
+  const { zip } = await pack(await folder(), { run: 'release/run1' });
+  const v2 = 'publications/release/' + fixture.v2 + '/', proofs = ['map.md', 'types.json', 'publication.json'].map((n) => v2 + n);
+  assert.ok(LW.checkPack(zip).ok, 'the control: ' + LW.checkPack(zip).out);
+  const claimOf = (man) => man.runs[0].claims.filter((c) => c.group === fixture.groupId)[0];
+  const cases = [
+    ['its version\'s files removed', (e, man) => { man.files.filter((f) => proofs.indexOf(f.path) >= 0).forEach((f) => { delete e[f.pack]; }); man.files = man.files.filter((f) => proofs.indexOf(f.path) < 0); }],
+    ['its proof list emptied', (e, man) => { claimOf(man).proof = []; }],
+    ['the version not listing the correction', (e, man, g) => { const y = g(v2 + 'publication.json'), o = JSON.parse(e[y.pack]); o.corrections = []; e[y.pack] = Buffer.from(JSON.stringify(o, null, 2)); }],
+    ['the claim naming another version', (e, man) => { const c = claimOf(man); c.text = c.status = 'Published in v3'; }]
+  ];
+  const misses = [];
+  for (const [what, edit] of cases) { const c = LW.checkPack(await LW.repacked(PF, zip, edit)); if (c.ok) misses.push(what + ': ' + c.out); }
+  assert.deepStrictEqual(misses, []);
+});
+
+/* SB: a decision proves a correction is in a version only as the app reads decisions: a correction decision its reader
+   keeps (envelope, attribution, the version its folder names), and the group's current one by the app's order (the highest
+   rev; two at the same rev are unresolved). */
+rule('Python takes a decision as proof of "Published in v2" only when the app would read it and it is the group\'s current decision', async () => {
+  if (!PY) return console.log('  (skipped: no Python)');
+  const LW = require('./living-worlds'), PF = load();
+  const { zip } = await pack(await folder(), { run: 'release/run1' });
+  const v2 = 'publications/release/' + fixture.v2 + '/', NOW = '2026-10-17T12:00:00.000Z', own = 'corrections/release/' + fixture.groupId + '.w4.1.json';
+  const unlisted = (e, g) => { const y = g(v2 + 'publication.json'), o = JSON.parse(e[y.pack]); o.corrections = []; e[y.pack] = Buffer.from(JSON.stringify(o, null, 2)); };
+  const put = (e, man, g, name, o) => { const y = g(own), path = 'corrections/release/' + name; e['originals/' + path] = Buffer.from(JSON.stringify(o, null, 2) + '\n'); man.files.push(Object.assign({}, y, { path, pack: 'originals/' + path })); };
+  const inc = (e, g, more) => Object.assign({ kind: 'correction-decision', process: 'release', group: fixture.groupId, members: JSON.parse(e[g(own).pack]).members, status: 'included', reason: '', by: 'person-avery', at: NOW, rev: 2, seen: fixture.groupId + '.w4.1.json', act: '', dv: 2, version: 2, folder: fixture.v2 }, more);
+  const withInc = (more, after) => (e, man, g) => { unlisted(e, g); const o = inc(e, g, more); Object.keys(o).forEach((k) => { if (o[k] === undefined) delete o[k]; }); put(e, man, g, fixture.groupId + '.w6.2.json', o); if (after) after(e, man, g); };
+  const ctl = LW.checkPack(await LW.repacked(PF, zip, withInc({})));
+  assert.ok(ctl.ok, 'the control, a valid "It\'s in v2" decision: ' + ctl.out);
+  const upper = LW.checkPack(await LW.repacked(PF, zip, (e, man, g) => { unlisted(e, g); put(e, man, g, fixture.groupId + '.w6.2.JSON', inc(e, g, {})); }));
+  assert.ok(upper.ok, 'the control, named .JSON: ' + upper.out);
+  const cases = [
+    ['a bare {group, status, folder}', (e, man, g) => { unlisted(e, g); put(e, man, g, fixture.groupId + '.w6.2.json', { group: fixture.groupId, status: 'included', folder: fixture.v2 }); }],
+    ['dv 99', withInc({ dv: 99 })],
+    ['version 3 with v2\'s folder', withInc({ version: 3 })],
+    ['no attribution', withInc({ by: undefined })],
+    ['a later declined decision', withInc({}, (e, man, g) => { put(e, man, g, fixture.groupId + '.w7.3.json', inc(e, g, { status: 'declined', reason: 'Not now', rev: 3, seen: fixture.groupId + '.w6.2.json', version: undefined, folder: undefined })); })],
+    ['another decision at the same rev', withInc({}, (e, man, g) => { put(e, man, g, fixture.groupId + '.w7.2.json', inc(e, g, { status: 'declined', reason: 'Not now', version: undefined, folder: undefined })); })],
+    /* TC: only files the app reads as decisions (a .json name, any ASCII case) count; WB: a long s (U+017F) isn't an s. */
+    ...['ignored.txt', fixture.groupId + '.w6.2.json.bak', fixture.groupId + '.w6.2', fixture.groupId + '.w6.2.j\u017Fon'].map((name) => ['an "It\'s in v2" decision named ' + name, (e, man, g) => { unlisted(e, g); put(e, man, g, name, inc(e, g, {})); }])
+  ];
+  const misses = [];
+  for (const [what, edit] of cases) { const c = LW.checkPack(await LW.repacked(PF, zip, edit)); if (c.ok) misses.push(what + ': ' + c.out); }
+  /* The reader itself, held to PF.corrections.cleanDecision on each place of a decision. */
+  const base = { kind: 'correction-decision', process: 'release', group: 'g1', members: [], status: 'included', reason: '', by: 'person-avery', at: NOW, rev: 2, seen: null, act: '', dv: 2, version: 2, folder: 'v2-abc' };
+  const vars = [{}, { dv: 99 }, { dv: -1 }, { dv: 2.5 }, { dv: '2' }, { dv: null }, { dv: 0 }, { format: 'flightdeck-correction-decision/2' }, { format: 'flightdeck-correction-decision/3' }, { features: ['zzz'] },
+    { by: 42 }, { at: null }, { group: 'bad id!' }, { group: 'g'.repeat(41) }, { status: 'nope' }, { status: 'applied' }, { version: 3 }, { version: '2' }, { version: 2.0 }, { folder: 'v2' }, { folder: 'v2-ABC' },
+    { folder: 'v2-abc\n' }, { rev: -1 }, { rev: 'x' }, { rev: 2.7 }, { kind: 'fix-decision' },
+    { result: { step: 'deploy', sig: '0123abcd' } }, { result: { step: 'Bad Step!', sig: '0123abcd' } }, { result: { sig: '0123ABCD' } }, { result: { step: 'deploy' } }, { result: 'x' },
+    { status: 'applied', addressed: true, result: { step: 'deploy', sig: '0123abcd' } }, { status: 'applied', addressed: 'yes' }, { addressed: true }].map((v) => Object.assign({}, base, v));
+  vars.push((() => { const o = Object.assign({}, base); delete o.by; return o; })(), (() => { const o = Object.assign({}, base); delete o.dv; return o; })());
+  const C = PF.corrections, js = vars.map((o) => { const d = C.cleanDecision(JSON.parse(JSON.stringify(o)), 'release'); return d && d.kind === 'correction-decision' ? { group: d.group, status: d.status, rev: d.rev, folder: d.folder || null, result: d.result || null, addressed: d.addressed } : null; });
+  const py = JSON.parse(require('child_process').execFileSync(PY, ['-I', '-c', 'import sys, json; sys.path.insert(0, sys.argv[1]); import check_pack as P; print(json.dumps([P.decision_of(o) for o in json.load(sys.stdin)]))', __dirname], { input: JSON.stringify(vars), encoding: 'utf8' }));
+  vars.forEach((o, i) => { if (JSON.stringify(py[i]) !== JSON.stringify(js[i])) misses.push('the reader on ' + JSON.stringify(o) + ': ' + JSON.stringify(py[i]) + ' against ' + JSON.stringify(js[i])); });
+  assert.deepStrictEqual(misses, []);
+});
+
+/* TB: the claim is bound to the correction it names, read from the run's packed notes with its group worked out from them,
+   and to v2's own checklist making the change: v2 holding v1's unchanged text with its listing kept, or the claim naming
+   another note, and Python refuses. */
+rule('Python refuses a "Published in v2" claim whose version doesn\'t make the change or whose correction isn\'t the one it names', async () => {
+  if (!PY) return console.log('  (skipped: no Python)');
+  const LW = require('./living-worlds'), PF = load();
+  const { zip } = await pack(await folder(), { run: 'release/run1' });
+  const v2 = 'publications/release/' + fixture.v2 + '/', alt = await build(load(), { v2same: true });
+  assert.ok(alt.v2 === fixture.v2, 'set-up: the same version folder');
+  const claimOf = (man) => man.runs[0].claims.filter((c) => c.group === fixture.groupId)[0];
+  const misses = [];
+  for (const [what, edit] of [
+    ['v2 holding v1\'s unchanged text, its listing kept', (e, man, g) => { ['map.md', 'types.json', 'publication.json'].forEach((n) => { e[g(v2 + n).pack] = alt.files[v2 + n]; }); }],
+    ['the claim naming another note', (e, man) => { claimOf(man).correction = 'c-nothing'; }]
+  ]) { const c = LW.checkPack(await LW.repacked(PF, zip, edit)); if (c.ok) misses.push(what + ': ' + c.out); }
+  assert.deepStrictEqual(misses, []);
+});
+
+/* TB's port held to the app: the outline as landing reads it, step signatures and satisfied, on every example checklist
+   and mutations of it (lines removed, doubled, swapped and reworded, roles, tracks, notes, Windows line endings, line
+   separators), for corrections of every kind on every step and phase, with and without a person's recorded result. */
+rule('check_pack.py reads a version\'s checklist and decides whether it makes a change as the app does', async () => {
+  if (!PY) return console.log('  (skipped: no Python)');
+  const PF = load(), C = PF.corrections, M = PF.map, O = PF.outline, dir = path.join(__dirname, '..', 'example-folder', 'maps', 'drafts');
+  const bases = fs.readdirSync(dir).filter((n) => /\.md$/.test(n)).sort().map((n) => fs.readFileSync(path.join(dir, n), 'utf8'));
+  let seed = 7; const rnd = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
+  const texts = [];
+  bases.forEach((t) => {
+    texts.push(t, t.replace(/\n/g, '\r\n'));
+    for (let k = 0; k < 6; k++) {
+      const L = t.split('\n'), i = rnd(L.length), j = rnd(L.length);
+      const muts = [
+        () => { L.splice(i, 1); }, () => { L.splice(i, 0, L[i]); }, () => { const x = L[i]; L[i] = L[j]; L[j] = x; },
+        () => { L[i] = L[i].replace(/(- \[.\] )(.*?)( \{#|$)/, '$1$2 again$3'); }, () => { L[i] = L[i].replace(/(- \[.\] [^{]*?)( \{#|$)/, '$1 @qa$2'); },
+        () => { L.splice(i, 0, '### Track: Second @ops'); }, () => { L.splice(i + 1, 0, '  > A note with a separator'); }, () => { L[i] = L[i] + '\t '; }
+      ];
+      muts[rnd(muts.length)](); muts[rnd(muts.length)]();
+      texts.push(L.join('\n'));
+    }
+  });
+  const outlineOf = (t) => { const o = O.parse(t); return { phases: o.phases.map((p) => ({ id: p.id, key: p.key, note: p.note, gate: p.gate ? { id: p.gate.id, note: p.gate.note } : null, tracks: p.tracks.map((x) => x.roles) })),
+    steps: o.steps.map((x) => ({ id: x.id, key: x.key, text: x.text, roles: x.roles, track: x.track, phase: x.phase.index, note: x.note })) }; };
+  const cases = [], sigs = [];
+  texts.forEach((t, ti) => {
+    const o = O.parse(t), ids = o.steps.map((x) => x.id).filter(Boolean), phs = o.phases.map((p) => p.id).filter(Boolean);
+    ids.forEach((id) => sigs.push([ti, id, C.stepSig(M.parse(t), id)]));
+    const pick = (a) => a[rnd(a.length)];
+    for (let k = 0; k < 12 && ids.length; k++) {
+      const step = pick(ids), ph = pick(phs), other = o.steps.filter((x) => x.id === step)[0];
+      const changes = [{ op: 'wording', to: other ? other.text : 'x' }, { op: 'wording', to: 'Something else' }, { op: 'add', text: pick(o.steps).text, where: pick(['after', 'end']) },
+        { op: 'remove' }, { op: 'move', to: { after: pick(ids) } }, { op: 'move', to: { phase: ph, where: pick(['start', 'end']) } }, { op: 'roles', to: pick([[], ['qa'], ['ops', 'qa']]) }, { op: 'screenshot' }];
+      const ch = pick(changes), target = k % 4 === 3 ? { phase: ph, step: null } : { phase: ph, step: step };
+      const note = k % 5 === 4 ? { op: 'wording', to: pick(o.phases).note || 'A note' } : null;
+      const sig = pick(o.steps) && C.stepSig(M.parse(t), pick(ids));
+      const dec = k % 3 === 0 ? { status: 'applied', result: { step: pick(ids), sig: sig || '00000000' }, addressed: false } : null;
+      const g = { target: note ? { phase: ph, step: null } : target, change: note || ch, legacy: false, newer: false, decision: dec };
+      cases.push([ti, g, C.satisfied(Object.assign({}, g, { first: {}, decision: dec }), t)]);
+    }
+  });
+  const input = { texts, sigs, cases };
+  const out = JSON.parse(cp.execFileSync(PY, ['-I', '-c', [
+    'import sys, json; sys.path.insert(0, sys.argv[1]); import check_pack as P',
+    'd = json.load(sys.stdin)',
+    'def ol(t):',
+    '    o = P.outline(t)',
+    '    return {"phases": [{"id": p["id"], "key": p["key"], "note": p["note"], "gate": {"id": p["gate"]["id"], "note": p["gate"]["note"]} if p["gate"] else None, "tracks": [x["roles"] for x in p["tracks"]]} for p in o["phases"]],',
+    '            "steps": [{"id": x["id"], "key": x["key"], "text": x["text"], "roles": x["roles"], "track": x["track"], "phase": x["phase"]["index"], "note": x["note"]} for x in o["steps"]]}',
+    'print(json.dumps({"outlines": [ol(t) for t in d["texts"]], "sigs": [P.step_sig(P.outline(d["texts"][ti]), i) for ti, i, _ in d["sigs"]], "sat": [P.satisfied(g, d["texts"][ti]) for ti, g, _ in d["cases"]]}))'
+  ].join('\n'), __dirname], { input: JSON.stringify(input), encoding: 'utf8', maxBuffer: 1 << 28 }));
+  const misses = [];
+  texts.forEach((t, i) => { if (JSON.stringify(out.outlines[i]) !== JSON.stringify(outlineOf(t))) misses.push('outline of text ' + i); });
+  sigs.forEach((x, i) => { if (out.sigs[i] !== x[2]) misses.push('stepSig of ' + x[1] + ' in text ' + x[0]); });
+  cases.forEach((x, i) => { if (out.sat[i] !== x[2]) misses.push('satisfied ' + JSON.stringify(x[1]) + ' in text ' + x[0] + ': ' + out.sat[i] + ' against ' + x[2]); });
+  assert.ok(cases.length > 300 && sigs.length > 300, 'set-up: ' + cases.length + ' cases, ' + sigs.length + ' signatures');
+  assert.deepStrictEqual(misses.slice(0, 10), []);
+});
+
+/* VC: only notes-<window>.jsonl directly in the run folder are notes the app reads: the notes renamed so the app ignores them,
+   and Python refuses a claim resting on them. */
+rule('Python reads a "Published in v2" claim\'s correction only from notes files the app reads', async () => {
+  if (!PY) return console.log('  (skipped: no Python)');
+  const LW = require('./living-worlds'), PF = load();
+  const { zip } = await pack(await folder(), { run: 'release/run1' });
+  const c = LW.checkPack(await LW.repacked(PF, zip, (e, man, g) => { const y = g(fixture.notesPath); y.path = y.path.replace(/notes-w2\.jsonl$/, 'notes-w2.ignored.jsonl'); const old = y.pack; y.pack = y.pack.replace(/notes-w2\.jsonl$/, 'notes-w2.ignored.jsonl'); e[y.pack] = e[old]; delete e[old]; }));
+  assert.ok(!c.ok, 'the notes renamed notes-w2.ignored.jsonl: ' + c.out);
+});
+/* VD: the claim's correction is read from the run's notes as the app reads them: only notes-<window>.jsonl directly in
+   the run folder, each line by the checked parse (nothing nested past 64 levels, no NaN). The notes file renamed so the app
+   ignores it, or the correction's line one the app drops as torn, and Python refuses. */
+rule('Python reads a "Published in v2" claim\'s correction only from notes the app reads, line by line as it parses them', async () => {
+  if (!PY) return console.log('  (skipped: no Python)');
+  const LW = require('./living-worlds'), PF = load();
+  const { zip } = await pack(await folder(), { run: 'release/run1' });
+  const claimOf = (man) => man.runs[0].claims.filter((c) => c.group === fixture.groupId)[0];
+  const cid = claimOf(LW.manifestOf(zip)).correction;
+  const lineEdit = (fn) => (e, man, g) => { const y = g(fixture.notesPath), lines = e[y.pack].toString('utf8').split('\n');
+    const i = lines.findIndex((l) => { try { return JSON.parse(l).id === cid; } catch (x) { return false; } });
+    assert.ok(i >= 0, 'set-up: the correction\'s line'); lines[i] = fn(lines[i]); e[y.pack] = Buffer.from(lines.join('\n')); };
+  const misses = [];
+  for (const [what, edit] of [
+    ['the correction\'s line with "extra": NaN', lineEdit((l) => l.replace(/^\{/, '{"extra": NaN, '))],
+    ['the correction\'s line with 70 nested arrays', lineEdit((l) => l.replace(/^\{/, '{"extra": ' + '['.repeat(70) + ']'.repeat(70) + ', '))]
+  ]) { const c = LW.checkPack(await LW.repacked(PF, zip, edit)); if (c.ok) misses.push(what + ': ' + c.out); }
+  /* The manifest itself, by the same strict parse. */
+  const ent = LW.unzip(zip); ent['manifest.json'] = Buffer.from(ent['manifest.json'].toString('utf8').replace(/^\{/, '{"extra": NaN, '));
+  const nan = LW.checkPack(await LW.rezip(PF, ent));
+  if (nan.ok) misses.push('the manifest with "extra": NaN: ' + nan.out);
+  assert.deepStrictEqual(misses, []);
+});
+
 rule('A /2 v2 proves "Published in v2" by its exact bytes: a byte-order mark added to its map.md (which the app refuses) leaves the claim unconfirmed', async () => {
   const fx = await build(load(), { v2note: true }), v2 = 'publications/release/' + fx.v2 + '/';
   assert.strictEqual(JSON.parse(fx.files[v2 + 'publication.json'].toString('utf8')).format, 'preflight-publication/2', 'v2 is a /2 version');
@@ -448,7 +618,8 @@ rule('One snapshot per file for the whole pack: a version file that changes mid-
     const texts = {}; ['map.md', 'types.json', 'publication.json'].forEach(n2 => { texts[n2] = z['originals/publications/release/' + fixture.v1 + '/' + n2].data.toString('utf8'); });
     same(rc.checks, E.checks(rc.raw, texts), rc.key + ': its checks are of the bytes in the pack');
   });
-  assert.ok(res.status === 'complete' ? packed === f.files.get(map).toString('utf8') : res.col.unresolved.some(u => /map\.md/.test(u)), 'either collected again (and consistent with the folder) or said so');
+  /* Said so: by map.md, or by its version, which no longer matches its record once changed (SD names such a version). */
+  assert.ok(res.status === 'complete' ? packed === f.files.get(map).toString('utf8') : res.col.unresolved.some(u => /map\.md/.test(u) || u.indexOf('publications/release/' + fixture.v1 + ' ') >= 0), 'either collected again (and consistent with the folder) or said so ' + res.status + JSON.stringify(res.col.unresolved));
 });
 
 rule('Attachments in folders under files/ are attachments too: left out with the others', async () => {
@@ -524,18 +695,19 @@ rule('Files added while a pack is checked are sized and checked against the cap 
   assert.ok(reads.indexOf(big) < 0, 'the new file was never read');
 });
 
-rule('The collection never holds more than its budget in memory: past it, nothing more is read and the pack is partial, saying what was left out', async () => {
+rule('The collection never holds more than its budget in memory: files that grow past their stat are never read past it, and the pack is partial, naming them', async () => {
   const files = Object.assign({}, fixture.files);
   for (let i = 0; i < 6; i++) files['runs/release/run1/files/20261017-ff' + i + '-w2-part.bin'] = crypto.randomBytes(1048576);
   const f = new BytesFS(files), parts = [];
-  // A cap the estimate allows, with files that grow once they're listed, so only the accounting while reading can stop it.
+  // A cap the estimate allows, with files that grow once they're listed: each is read no further than its stat, so what the
+  // pack holds stays within the cap, and each is named as grown.
   const stat = f.stat.bind(f);
   f.stat = q => /-part\.bin$/.test(q) ? stat(q).then(st => st && Object.assign({}, st, { size: 1 })) : stat(q);
   const res = await repo.exportEvidence(f, { run: 'release/run1' }, { sink: u => parts.push(u), cap: 3 * 1048576, tz: 'UTC' }).then(r => r, e => ({ error: e }));
   assert.ok(res.col, res.error && res.error.message);
   assert.ok(res.col.retained.peak <= 3 * 1048576, 'peak ' + res.col.retained.peak);
   assert.strictEqual(res.status, 'partial');
-  assert.ok(res.col.exclusions.some(x => /-part\.bin$/.test(x.path) && /memory/.test(x.reason)) && res.col.unresolved.some(u => /memory/.test(u)), JSON.stringify(res.col.unresolved));
+  assert.ok(res.col.unresolved.some(u => /-part\.bin grew/.test(u)), JSON.stringify(res.col.unresolved));
 });
 
 /* ---------- Fourth review (efc021d) ---------- */
@@ -607,4 +779,20 @@ rule('2.0: Evidence checks every screenshot in the version\'s payload: a corrupt
   assert.strictEqual(check(bom).ok, false, 'a byte-order mark in map.md fails it too (the payload is over exact bytes): ' + check(bom).detail);
 });
 
+/* ZA: the pack write refuses any change of size, growth included: an attachment that grew or shrank after it was hashed is
+   never packed as a prefix (the command line rereads it), and the app packs the bytes it hashed. */
+rule('An attachment that grows or shrinks between hashing and the pack write stops the pack, never packed as its old prefix', async () => {
+  for (const [what, to] of [['grows', (b) => Buffer.concat([b, Buffer.from('appended evidence\n')])], ['shrinks', (b) => b.slice(0, b.length - 1)]]) {
+    let n = 0;
+    const f = await folder({ hooks: { blob: (q, x) => { if (q === fixture.log && ++n === 2) x.files.set(q, to(x.files.get(q))); } } });
+    await assert.rejects(repo.exportEvidence(f, { run: 'release/run1' }, { sink: () => {}, keepBytes: false, tz: 'UTC' }), /changed while/, what);
+    assert.strictEqual(n, 2, what + ': read again to write it');
+    /* The app keeps what it hashed: the pack holds one whole state of the file, never a prefix of the new one. */
+    let m = 0, was = null;
+    const g = await folder({ hooks: { blob: (q, x) => { if (q === fixture.log && ++m === 1) { was = Buffer.from(x.files.get(q)); setImmediate(() => x.files.set(q, to(was))); } } } });
+    const { zip, res } = await pack(g, { run: 'release/run1' });
+    const e = unzip(zip)['originals/' + fixture.log];
+    assert.ok(res.status === 'partial' || (e && (Buffer.from(e.data).equals(was) || Buffer.from(e.data).equals(to(was)))), what + ', app: ' + res.status);
+  }
+});
 run();

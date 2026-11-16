@@ -1115,7 +1115,7 @@ rule('Correct this step: the published text stays; the wording starts filled in,
   let ins = insOf(V.run(ctx));
   assert.ok(/<h2 id="ins-h" class="rw-ins-h" tabindex="-1">Change request approved for tonight&#39;s window<\/h2>/.test(ins), 'the step\'s own text is never replaced');
   assert.ok(/<p class="small corr-says"><b>Checklist says<\/b> \(v1\): Change request approved for tonight&#39;s window<\/p>/.test(ins));
-  assert.ok(/<textarea id="corr-to" rows="3" maxlength="2000" data-bound aria-describedby="corr-same">Change request approved for tonight&#39;s window<\/textarea><p class="small corr-same" id="corr-same">No wording changed\.<\/p>/.test(ins), 'no change yet, said next to the field');
+  assert.ok(/<textarea id="corr-to" rows="3" maxlength="2000" data-bound data-corr-id="[^"]*" aria-describedby="corr-same">Change request approved for tonight&#39;s window<\/textarea><p class="small corr-same" id="corr-same">No wording changed\.<\/p>/.test(ins), 'no change yet, said next to the field');
   assert.ok(/data-act="corr-save" data-id="approved" aria-disabled="true" aria-describedby="corr-conseq corr-same">Save correction/.test(ins) && /Saves a proposal for the checklist\. It doesn't answer the step\./.test(ins));
   assert.ok(/data-act="record" data-id="approved">/.test(ins), 'Done stays: a correction doesn\'t answer the step');
   state.corrForm.to = 'Change request approved by the board for <b>tonight</b>';
@@ -1133,10 +1133,10 @@ rule('Correct this step: the published text stays; the wording starts filled in,
   assert.ok(/<b>Remove this step from future versions\?<\/b>/.test(ins) && /for="corr-why">Why remove it\? \(required\)/.test(ins) && /data-act="corr-op" data-id="wording"|Edit the wording/.test(ins.replace('aria-expanded="false"', '')) || /Change something else/.test(ins));
   state.fieldErr = { id: 'corr', msg: 'Remove this step from future versions? Say why.', field: 'corr-why' };
   ins = insOf(V.run(ctx));
-  assert.ok(/<textarea id="corr-why" rows="2" maxlength="2000" data-bound aria-invalid="true" aria-describedby="ferr-corr"><\/textarea><p class="ferr" id="ferr-corr" role="alert">Remove this step/.test(ins), 'the error sits under its field');
+  assert.ok(/<textarea id="corr-why" rows="2" maxlength="2000" data-bound data-corr-id="[^"]*" aria-invalid="true" aria-describedby="ferr-corr"><\/textarea><p class="ferr" id="ferr-corr" role="alert">Remove this step/.test(ins), 'the error sits under its field');
   state.fieldErr = null;
   state.corrForm.op = 'move'; ins = insOf(V.run(ctx));
-  assert.ok(/<select id="corr-move" data-bound data-kselect data-cur=""><option value="">Choose…<\/option><optgroup label="Before production changes"><option value="start:prep">At the start of Before production changes<\/option><option value="after:tests">/.test(ins) && !/value="after:approved"/.test(ins));
+  assert.ok(/<select id="corr-move" data-bound data-corr-id="[^"]*" data-kselect data-cur=""><option value="">Choose…<\/option><optgroup label="Before production changes"><option value="start:prep">At the start of Before production changes<\/option><option value="after:tests">/.test(ins) && !/value="after:approved"/.test(ins));
   state.corrForm.op = 'roles'; ins = insOf(V.run(ctx));
   assert.ok(/<input type="checkbox" id="corr-role-release-lead" data-bound checked> @release-lead \(Casey Nguyen\)/.test(ins) && /id="corr-role-qa" data-bound>/.test(ins));
   state.corrForm.op = 'add'; ins = insOf(V.run(ctx));
@@ -1156,7 +1156,7 @@ rule('Done differently: what happened first, Just this run or Fix the checklist 
   ins = insOf(V.run(ctx));
   assert.ok(/id="corr-to"/.test(ins) && /Marks this step done differently and proposes a checklist correction\./.test(ins));
   state.fieldErr = { id: 'corr', msg: 'Say what happened.', field: 'corr-happened' };
-  assert.ok(/id="corr-happened" rows="2" maxlength="500" data-bound aria-invalid="true" aria-describedby="ferr-corr"><\/textarea><p class="ferr" id="ferr-corr" role="alert">Say what happened\./.test(insOf(V.run(ctx))));
+  assert.ok(/id="corr-happened" rows="2" maxlength="500" data-bound data-corr-id="[^"]*" aria-invalid="true" aria-describedby="ferr-corr"><\/textarea><p class="ferr" id="ferr-corr" role="alert">Say what happened\./.test(insOf(V.run(ctx))));
 });
 
 rule('A step\'s record: done differently with who and when, View correction and Change answer; its corrections with status, escaped', () => {
@@ -1322,6 +1322,20 @@ function landedSetup(o) {
   }
   return { ctx, state, p, g, r1, r2, v1, v2 };
 }
+
+/* PE: a keep in Why is this here? links the run it was kept from (its own process, never the version's) and names a tool
+   that kept it as a tool, whatever it is called. */
+rule('Why is this here? links a keep to the run it came from and names a tool that kept it as a tool', () => {
+  const { ctx, state, r2 } = landedSetup();
+  const base = (pid) => C.forProcess(ctx.data.runs, pid, ctx.data.corrDecisions, ctx.processes().filter((x) => x.id === pid)[0]);
+  ctx.corrections = (pid) => { const gs = base(pid); gs.forEach((g) => g.members.forEach((m) => { if (m.change && m.change.op === 'wording') Object.assign(m, { keep: true, run: 'r-41', runKey: 'qa-checks/r-41', by: 'person-avery', byKind: 'tool' }); })); return gs; };
+  state.view = 'run'; ctx.run = () => r2; state.sel = 'approved';
+  const ins = insOf(V.run(ctx));
+  assert.ok(/data-act="open-run" data-id="qa-checks\/r-41"/.test(ins) && !/data-id="release\/r-41"/.test(ins), 'the source run: ' + (ins.match(/data-act="open-run" data-id="[^"]*"/g) || []).join(' '));
+  assert.ok(/Why · person-avery \(a tool\)<\/dt>/.test(ins), 'the reason names the tool');
+  assert.ok(/\(person-avery \(a tool\), v1\)/.test(ins), 'the run names the tool');
+  assert.ok(!/Avery Lee \(|Why · Avery Lee/.test(ins), 'never as the person');
+});
 
 rule('Publishing says how many corrections the version includes, and names applied ones left out because they changed since', () => {
   const { ctx, state, p, g } = landedSetup({ unpublished: true });
