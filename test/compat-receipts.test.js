@@ -215,7 +215,7 @@ rule(TAG + '\'s command and checker name the receipt as newer and write nothing;
     const l = cli(OLD, 'run', dir, 'release-notes/run-l', '--contract', '2', '--json');
     assert.ok(l.code !== 0 && (l.json.problems || []).some(x => x.path.indexOf('runs/release-notes/run-l') === 0 && x.kind === 'newer'), 'the run is newer: ' + JSON.stringify(l.json).slice(0, 400));
     if (PY) {
-      const ck = path.join(root, 'check_folder.py'); fs.writeFileSync(ck, b.files['check_folder.py']);
+      const ck = path.join(root, 'check_folder.py'); fs.writeFileSync(ck, b.files['check_folder.py']); if (b.files['run_verdict.py']) fs.writeFileSync(path.join(root, 'run_verdict.py'), b.files['run_verdict.py']);
       const res = JSON.parse(cp.execFileSync(PY, ['-I', ck, dir], { encoding: 'utf8' }));
       assert.ok(res.refused.some(x => x.file === 'proposals/' + receipt && /newer/.test(x.why)), JSON.stringify(res.refused));
     }
