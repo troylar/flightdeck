@@ -21,8 +21,8 @@
       "reviewed": "release 4.0.0 fold of slice 6 (ee1ec1b3) onto facts and slice 5: both sides' reviewed text merged; hand resolutions only read and name problems (one problem formatter, proposals/ listing named as a part, receipt ownership, cleanLiving union, effect_of cut, duplicate run verdict removed); checked for direct writes and unconditional deletes"
     },
     "docs/apps.md": {
-      "sha256": "5313dee58a749f2f9dbc3241221581a35770d8101b140699f55e53e26be8625b",
-      "reviewed": "4.1.1 #123: the fact sync example's reported matches its one entry; docs only; checked for direct writes and unconditional deletes"
+      "sha256": "05da4e3a4d475b172fa5ac03d1868690a754f7321c2a283bb002b9d806b6a627",
+      "reviewed": "4.1.1 #123: apps.md's opening table and On this page reach the 4.0 command families; docs only; checked for direct writes and unconditional deletes"
     },
     "docs/commands.md": {
       "sha256": "f33bc80d24e4336b12ae8c76b8fcad652f3d3c39c43155554c0988872f8318ef",

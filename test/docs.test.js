@@ -473,4 +473,13 @@ rule('docs/design.md: every numbered section is in the contents and the topic in
   assert.deepStrictEqual(missing, []);
 });
 
+/* #123 (4.1.1): docs/apps.md's opening reaches every part of the page, the 4.0 command families included. */
+rule('docs/apps.md: On this page links every section, and the opening table has a row for each 4.0 command family', () => {
+  const d = read('docs/apps.md'), slug = h => '#' + h.toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s/g, '-');
+  const nav = (/^\*\*On this page:\*\*.*$/m.exec(d) || [''])[0], table = d.slice(0, d.indexOf('**On this page:**'));
+  const missing = (d.match(/^## .*$/gm) || []).map(h => slug(h.slice(3))).filter(a => !nav.includes('](' + a + ')')).map(a => 'On this page: ' + a);
+  ['To-dos on a living run', 'Spreads', 'Facts', 'Keep for next time', 'Checklist-linked to-dos'].forEach(s => { if (!table.includes('](' + slug(s) + ')')) missing.push('table: ' + s); });
+  assert.deepStrictEqual(missing, []);
+});
+
 run();

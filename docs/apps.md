@@ -15,6 +15,11 @@ Flightdeck is a checklist tool for people: a monthly backup check, a quarterly a
 | **Check a draft** as the Publish dialog does ([draft check](#draft-check)), with design tips (3.0) | `flightdeck draft check` | 2.13 | Never |
 | **Look across the library**: every checklist normalized, what links to what, and what looks alike ([library inspect](#library-inspect)) | `flightdeck library inspect` | 3.0 | Never |
 | **Keep a loop's scope**: read a release's stories and their results, and ask for stories to be added, removed, restored, excused or reviewed ([Loops](#loops)) | `flightdeck loop` | 3.0 | Writes one file in `proposals/` (`read` never) |
+| **Ask for to-dos on a living run**: work found along the way, before one of its gates; a person decides ([To-dos on a living run](#to-dos-on-a-living-run)) | `flightdeck todo` | 4.0 | Writes one record in `proposals/` per change it asks for (`list` never) |
+| **Ask for a spread**: a requirement every item of a loop must meet ([Spreads](#spreads)) | `flightdeck spread` | 4.0 | Writes one record in `proposals/` per change it asks for (`list` never) |
+| **File facts**: what a tool observed about a loop's items, information only ([Facts](#facts)) | `flightdeck fact` | 4.0 | Writes one record in `proposals/` per new observation (`list` never) |
+| **Keep a to-do or a spread for next time**: a suggestion its checklist's owner reviews ([Keep for next time](#keep-for-next-time)) | `flightdeck todo keep`, `spread keep` | 4.0 | Writes one record in `proposals/` |
+| **Link a to-do to a checklist** whose run settles it ([Checklist-linked to-dos](#checklist-linked-to-dos)) | `flightdeck todo add --checklist`, `todo suggest-done --evidence-run` | 4.0 | Writes one record in `proposals/` per change it asks for |
 | **Register a skill** against the exact version it was built from (AI assistants, [Registering a skill](#registering-a-skill-for-ai-assistants)) | `flightdeck skill register` | 2.0 | Writes one file in `skill-registrations/`, and may turn `skills/<name>.json` into a pointer |
 | **Make an evidence pack** of one run, or of the runs started on some days ([Evidence packs](evidence.md)) | `flightdeck export` | 1.17 | Never: the pack goes outside the folder |
 
@@ -22,7 +27,7 @@ A report never checks a step by itself, and a request never starts a run by itse
 
 Every command, sorted by what it may change in the folder and who decides next, is in [What each command may do](commands.md), with what a file in the folder can and can't prove.
 
-**On this page:** [What reading promises](#what-reading-promises) · [Commands](#commands) · [The envelope](#the-envelope) · [The data](#the-data) · [Contract 2](#contract-2-flightdeck-20) · [A walkthrough](#a-walkthrough) · [Asking for a run](#asking-for-a-run) · [Reporting work](#reporting-work) · [Writing drafts](#writing-drafts-for-ai-assistants) · [Registering a skill](#registering-a-skill-for-ai-assistants)
+**On this page:** [What reading promises](#what-reading-promises) · [Commands](#commands) · [The envelope](#the-envelope) · [The data](#the-data) · [Contract 2](#contract-2-flightdeck-20) · [A walkthrough](#a-walkthrough) · [Asking for a run](#asking-for-a-run) · [Reporting work](#reporting-work) · [Writing drafts](#writing-drafts-for-ai-assistants) · [Loops](#loops) · [To-dos](#to-dos-on-a-living-run) · [Spreads](#spreads) · [Facts](#facts) · [Keep for next time](#keep-for-next-time) · [Checklist-linked to-dos](#checklist-linked-to-dos) · [Writing step types](#writing-step-types-for-ai-assistants) · [Registering a skill](#registering-a-skill-for-ai-assistants)
 
 ## What reading promises
 
