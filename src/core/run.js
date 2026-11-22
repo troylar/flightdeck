@@ -470,6 +470,34 @@ PF.run = (function () {
     if (!acc || !a || a.s !== 'blocked' || !a.child || a.child.failed || typeof a.child.result !== 'string') return '';
     return acc.indexOf(a.child.result) < 0 ? a.reason || '' : '';
   }
+  /* Every linked step of a run in checklist order, for the run screen's Linked runs (4.1): the run it started (findRun(key),
+     the folder's copy), how that run stands and its result, and whether the step counted it. Reads only; settling stays
+     settleChild's. state: not-needed (why), na (marked N/A, no run), not-started, not-visible (linked, but not in this folder yet), running or ended
+     (outcome, result). counted: the step's own answer once its run ended: done, held (reason) or open (not settled yet). */
+  function linkedRuns(r, map, findRun) {
+    var out = [];
+    (map.phases || []).forEach(function (p, pi) {
+      p.steps.forEach(function (s) {
+        if (s.type !== 'run.process') return;
+        var a = r.steps && r.steps[s.id], link = a && a.child, row = { phase: p.id, step: s.id, process: String(fieldsOf(r, s).process || ''), state: 'not-started', key: '', run: null, outcome: '', result: '', counted: '', why: '', reason: '' };
+        var ap = applies(r, map, pi, s);
+        if (ap.applies === false) { row.state = 'not-needed'; row.why = ap.why; out.push(row); return; }
+        if (!link) { if (a && a.s === 'na') row.state = 'na'; out.push(row); return; }
+        row.key = link.process + '/' + link.id;
+        var cr = findRun ? findRun(row.key) : null;
+        if (!cr || cr.process !== link.process || cr.id !== link.id) { row.state = 'not-visible'; out.push(row); return; }
+        row.run = cr;
+        if (!cr.ended) { row.state = 'running'; out.push(row); return; }
+        row.state = 'ended'; row.outcome = outcomeText(cr);
+        var res = cr.ended.outcome === 'Completed' && !cr._unrunnable ? resultOf(cr) : null;
+        row.result = res && res.value ? String(res.value) : '';
+        row.counted = a.s === 'done' ? 'done' : a.s === 'blocked' ? 'held' : 'open';
+        if (row.counted === 'held') row.reason = String(a.reason || '');
+        out.push(row);
+      });
+    });
+    return out;
+  }
   function heldWords(child, value, acc) { return String(child.title || child.process).slice(0, 50) + ' returned ' + (value || 'no result') + '; this step accepts ' + acc.join(' or '); }
   /* After a step that sets run details is checked or corrected, its values become the run's details, re-checking later
      steps tied to them, but never the step that set them. */
@@ -2789,7 +2817,7 @@ PF.run = (function () {
     childCheck: childCheck, childMarks: childMarks, edgeHolds: edgeHolds, linkShape: linkShape, CHILD_HEIGHT: CHILD_HEIGHT, CHILD_LINKS: CHILD_LINKS, isSearchStep: isSearchStep, searchSteps: searchSteps, searchState: searchState, searchProblem: searchProblem, reopenNotice: reopenNotice, searchId: searchId, searchCheck: searchCheck, genDamaged: genDamaged, refreshSearch: refreshSearch, rereadable: rereadable, mergeOverflow: mergeOverflow, SEARCH_PREFIX: SEARCH_PREFIX,
     RUN_ID: RUN_ID, isTest: isTest, pubDir: pubDir, testProblem: testProblem, testLast: testLast,
     FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, endProblem: endProblem, livingProblem: livingProblem, rawProblem: rawProblem, livingWork: livingWork, repairs: repairs, unexplained: unexplained, canonical: canonical, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk, phaseHeld: phaseHeld,
-    phaseOpen: phaseOpen, applies: applies, held: held, stepNeeded: stepNeeded, canStartChild: canStartChild, phaseSkipped: phaseSkipped, condFields: condFields, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, fillOffered: fillOffered, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence, checkFill: checkFill,
+    phaseOpen: phaseOpen, applies: applies, linkedRuns: linkedRuns, held: held, stepNeeded: stepNeeded, canStartChild: canStartChild, phaseSkipped: phaseSkipped, condFields: condFields, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, fillOffered: fillOffered, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence, checkFill: checkFill,
     pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, resultMoved: resultMoved, resultChanged: resultChanged, resultMarks: resultMarks, RESULT_CHANGED: RESULT_CHANGED, unsettleResult: unsettleResult, todoLand: todoLand, unsettleLoop: unsettleLoop, resultFit: resultFit, answerOf: answerOf, resultOf: resultOf, outcomeText: outcomeText, resultHeld: resultHeld, acceptsOf: acceptsOf, boundSource: boundSource, teamUnrecorded: teamUnrecorded, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, jiraFor: jiraFor, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, effStep: effStep, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,
     pass: pass, waive: waive, fail: fail, reopen: reopen, setDetail: setDetail, setRole: setRole,

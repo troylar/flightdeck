@@ -3,7 +3,7 @@
 // sticky review when a result changes; "Completed · <result>" wherever a run's outcome shows.
 'use strict';
 const assert = require('assert');
-const { load, rule, run } = require('./harness');
+const { example, load, rule, run } = require('./harness');
 const PF = load(), M = PF.map, P = PF.publish, R = PF.run, E = PF.envelope;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 const same = (a, b, m) => assert.deepStrictEqual(plain(a), plain(b), m);
@@ -407,6 +407,83 @@ rule('R06-2/3: the awaiting step displaces only later work, in next and mine; a 
   R.linkChild(r, map, 'story', { process: 'validate-story', id: k.id, inputs: { issue: 'ABC-104' }, folder: kp.info.folder, format: k.format, pin: r.pins.children.story }, 'person-avery', AT, { run: k, procOf });
   nx = A.next2(r, nameOf, 'person-avery', { kids: { 'validate-story/kid7': k } });
   same([nx.next.step.id, nx.mine && nx.mine.step.id], ['notes', 'notes']);
+});
+
+/* ---------- The example family (example-folder): a thin parent that only links and routes ---------- */
+const FAMILY = (n) => example('maps/drafts/' + n + '.md');
+function family() {
+  const parentMd = FAMILY('service-change'), pm = M.parse(parentMd), steps = pm.phases.reduce((a, p) => a.concat(p.steps), []);
+  const kids = steps.map(s => s.fields.process).filter((v, i, a) => a.indexOf(v) === i);
+  const pubs = {}, procs = {};
+  kids.forEach(k => { pubs[k] = publish(FAMILY(k)); procs[k] = proc([pubs[k]]); });
+  const procOf = (id) => procs[id] || null, pp = publish(parentMd, { childProcs: procs });
+  return { pm, steps, kids, pubs, procs, procOf, pp };
+}
+function familyRun(F, id) {
+  const r = R.create(F.pp, { id: id || 'chg1', by: 'person-avery', session: 'w', now: AT, app: '4.1.0', details: { service: 'billing-api', ticket: 'ABC-123' }, roles: { 'change-lead': 'person-avery' }, pins: PF.pins.atStart(F.pp.map, F.pp.info.payload ? F.pp.info.payload.pins : null, F.procOf) });
+  return { r, map: R.mapOf(r) };
+}
+/* A child run of the family, every step answered and ended Completed; a review records the verdict given. */
+function familyKid(F, proc, id, verdict) {
+  const c = R.create(F.pubs[proc], { id, by: 'person-avery', session: 'w', now: AT, app: '4.1.0', details: { service: 'billing-api', ticket: 'ABC-123' } }), map = R.mapOf(c);
+  map.phases.forEach((ph, pi) => { ph.steps.forEach(s => R.done(c, map, s.id, 'person-avery', AT, s.type === 'decide' ? { decision: verdict } : R.evidenceFor(c, s).list.reduce((o, d) => { if (d.required) o[d.name] = d.kind === 'number' ? '1' : 'https://example.com/' + d.name; return o; }, {}))); R.pass(c, map, pi, 'person-avery', AT); });
+  R.end(c, map, 'Completed', 'person-avery', 'Avery', AT);
+  return c;
+}
+function familyLink(F, P, stepId, c) {
+  R.linkChild(P.r, P.map, stepId, { process: c.process, id: c.id, inputs: { service: 'billing-api', ticket: 'ABC-123' }, folder: F.pubs[c.process].info.folder, format: c.format, pin: P.r.pins.children[stepId] }, 'person-avery', AT, { run: c, procOf: F.procOf });
+  return R.settleChild(P.r, P.map, stepId, c, 'person-avery', LATER, F.procOf);
+}
+
+rule('The example family: a thin parent that only links and routes, two or three children, and one route chosen by a child\'s result', () => {
+  const F = family(), pm = F.pm;
+  assert.ok(F.steps.length >= 3 && F.steps.every(s => s.type === 'run.process'), 'every parent step starts a linked run: ' + F.steps.map(s => s.type).join(', '));
+  assert.ok(F.kids.length >= 2 && F.kids.length <= 3, 'two or three children: ' + F.kids.join(', '));
+  const route = F.steps.filter(s => M.setsOf(s.fields.sets).some(x => x.from === 'result'));
+  assert.strictEqual(route.length, 1, 'one step brings a child\'s result back');
+  const detail = M.setsOf(route[0].fields.sets)[0].name, routed = pm.phases.filter(p => (p.when || []).some(w => w.name === detail));
+  assert.ok(routed.length >= 1, 'a later phase applies only for one result of ^' + detail);
+  same(blockers(FAMILY('service-change'), { children: (id) => { const m = M.parse(FAMILY(id)); return { map: m, title: m.meta.title, version: 1, latest: true }; } }), []);
+  /* The route, both ways. */
+  const ri = pm.phases.indexOf(routed[0]);
+  const A = familyRun(F, 'chg1');
+  assert.strictEqual(familyLink(F, A, route[0].id, familyKid(F, route[0].fields.process, 'rev1', 'approved')), 'done');
+  same([A.r.details[detail], R.applies(A.r, A.map, ri).applies], ['approved', false], 'approved skips the routed phase');
+  const B = familyRun(F, 'chg2');
+  assert.strictEqual(familyLink(F, B, route[0].id, familyKid(F, route[0].fields.process, 'rev2', 'needs-work')), 'done');
+  same([B.r.details[detail], R.applies(B.r, B.map, ri).applies], ['needs-work', true], 'needs-work takes the routed phase');
+});
+
+rule('Linked runs: each linked step of a run, the run it started, how that run stands and its result, in checklist order', () => {
+  const F = family(), A = familyRun(F, 'chg3'), kids = {}, find = (k) => kids[k] || null;
+  const L = () => R.linkedRuns(A.r, A.map, find).map(x => [x.step, x.state, x.result, x.counted, x.why || x.reason || '']);
+  same(L(), [['first-review', 'not-started', '', '', ''], ['fix', 'not-needed', '', '', 'only when ^review is needs-work (review is not set)'],
+    ['second-review', 'not-needed', '', '', 'only when ^review is needs-work (review is not set)'], ['roll-out', 'not-started', '', '', '']]);
+  /* Started and still running: its key and title come with it. */
+  const B = familyRun(F, 'chg4'), going = R.create(F.pubs['change-review'], { id: 'rev3', by: 'person-avery', session: 'w', now: AT, app: '4.1.0', details: { service: 'billing-api', ticket: 'ABC-123' } });
+  R.linkChild(B.r, B.map, 'first-review', { process: 'change-review', id: 'rev3', inputs: { service: 'billing-api', ticket: 'ABC-123' }, folder: F.pubs['change-review'].info.folder, format: going.format, pin: B.r.pins.children['first-review'] }, 'person-avery', AT, { run: going, procOf: F.procOf });
+  assert.strictEqual(R.linkedRuns(B.r, B.map, find)[0].state, 'not-visible', 'linked, but not in this folder yet');
+  kids['change-review/rev3'] = going;
+  const row = R.linkedRuns(B.r, B.map, find)[0];
+  same([row.state, row.key, row.run && row.run.id, row.phase, row.process], ['running', 'change-review/rev3', 'rev3', 'review', 'change-review']);
+  /* Ended needs-work: counted, its result shown, and the route it chose now applies. */
+  const nw = familyKid(F, 'change-review', 'rev4', 'needs-work'); kids['change-review/rev4'] = nw;
+  assert.strictEqual(familyLink(F, A, 'first-review', nw), 'done');
+  same(L(), [['first-review', 'ended', 'needs-work', 'done', ''], ['fix', 'not-started', '', '', ''], ['second-review', 'not-started', '', '', ''], ['roll-out', 'not-started', '', '', '']]);
+  assert.strictEqual(R.linkedRuns(A.r, A.map, find)[0].outcome, 'Completed · needs-work');
+  /* The second review returns needs-work again: held, with the reason the step gives. */
+  R.pass(A.r, A.map, 0, 'person-avery', LATER);
+  const again = familyKid(F, 'change-review', 'rev5', 'needs-work'); kids['change-review/rev5'] = again;
+  assert.strictEqual(familyLink(F, A, 'second-review', again), 'held');
+  same(L()[2], ['second-review', 'ended', 'needs-work', 'held', 'Review a service change returned needs-work; this step accepts approved']);
+  /* A linked step marked N/A started no run, and says so. */
+  const md = ['---', 'process: two-links', 'title: Two links', 'context: service, ticket', '---', '', '## Work · READ-DO {#work}',
+    '- [ ] {run.process} Rework it {#a}', '  process: change-rework', '- [ ] {run.process} Rework it again {#b}', '  process: change-rework', ''].join('\n');
+  const tp = publish(md, { childProcs: F.procs }), T = R.create(tp, { id: 'two1', by: 'person-avery', session: 'w', now: AT, app: '4.1.0', details: { service: 'billing-api', ticket: 'ABC-123' } }), tm = R.mapOf(T);
+  R.na(T, tm, 'a', 'person-avery', AT);
+  same(R.linkedRuns(T, tm, find).map(x => [x.step, x.state]), [['a', 'na'], ['b', 'not-started']]);
+  /* A run with no linked step has none; a step that isn't linked never shows. */
+  same(R.linkedRuns(child('cleared', 'kid9'), R.mapOf(child('cleared', 'kid9')), find), []);
 });
 
 run();
