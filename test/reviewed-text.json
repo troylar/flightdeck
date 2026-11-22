@@ -473,8 +473,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/ui/views/builder.js": {
-      "sha256": "4664390cff145c28a9d9b0a82865774d7fa21891a0e63d89f0c257a04b47e322",
-      "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
+      "sha256": "2ba3f757d40218f27ce25aec2b403925a8b5661962e576e4eda804235754e7f6",
+      "reviewed": "4.1.1 #110: the builder row shows the step's sentence as written, each ^detail an escaped chip in its place; checked for direct writes and unconditional deletes"
     },
     "src/ui/views/common.js": {
       "sha256": "e019b101c5cd2de3d50ba2553b5ca1d20fa56bfb18f20d0563b06efea7afa2a5",

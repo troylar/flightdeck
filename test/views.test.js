@@ -3287,4 +3287,21 @@ rule('Run screen: Linked runs lists each linked step, the run it started, how it
   assert.ok(/Linked to a run that isn&#39;t in this folder yet|Linked to a run that isn't in this folder yet/.test(linkedOf(V.run(F.ctx))));
 });
 
+/* #110 (4.1.1): a step sentence with run details reads in full in the builder, each detail in its place. */
+rule('Draft builder: a step sentence with two run details reads in full, each detail where it is written', () => {
+  const { ctx, state } = setup();
+  const latest = ctx.data.processes[0].index.latest;
+  const md = latest.md.replace(/^(## [^\n]*\n)/m, '$1- [ ] Deploy record shows ^tag in ^environment @release-lead {#deploy-record}\n');
+  assert.ok(md !== latest.md && /deploy-record/.test(md));
+  const p = { id: 'release', title: 'Production release', latest, all: [latest], clashes: [], broken: [], skills: [], draft: { file: 'release.md', md }, draftChanged: true };
+  ctx.processes = () => [p]; ctx.data.validations = []; state.processId = 'release'; state.ptab = 'edit';
+  state.editor = { pid: 'release', base: md, baseHash: 'x', text: md };
+  const html = V.process(ctx), i = html.lastIndexOf('<li class="ob-step', html.indexOf('Deploy record')), row = html.slice(i, html.indexOf('</li>', i));
+  assert.ok(html.indexOf('Deploy record') > 0 && i > 0, 'the step is in the outline');
+  const words = row.slice(row.indexOf('<span class="ob-txt">')).replace(/<span class="ob-meta">[\s\S]*$/, '').replace(/<[^>]+>/g, '').trim();
+  assert.strictEqual(words, 'Deploy record shows ^tag in ^environment', row);
+  assert.ok(!/<span class="ob-meta">[\s\S]*\^tag/.test(row), 'the details aren\'t repeated in the label row');
+  assert.ok(/@release-lead|Release lead|release-lead/.test(row), 'the role still shows');
+});
+
 run();
