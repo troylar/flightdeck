@@ -438,7 +438,7 @@ rule('evidenceFor and checkEvidence with an explicit map are exactly the run\'s 
   let n = 0;
   ids.forEach(id => {
     const b = PF.publish.build(H.example('maps/drafts/' + id + '.md'), { people, ...EX, by: 'person-avery', changes: 'First version', existing: [], now: NOW, rand: 'abcd1234' });
-    const v = PF.publish.verify(b.folder, b.files), meta = v.map.meta, roles = {}, details = {};
+    const v = PF.publish.verify(b.folder, b.files, H.exactOf(PF, b.files)), meta = v.map.meta, roles = {}, details = {};
     meta.context.forEach(k => { details[k] = 'sample-' + k; }); meta.roles.forEach(ro => { roles[ro] = 'person-casey'; });
     const r = R.create(v, { title: meta.title, details, roles, by: 'person-casey', session: 's1', now: NOW, workflows: EX.workflows }), map = R.mapOf(r);
     map.phases.forEach(ph => ph.steps.forEach(s => {
@@ -456,10 +456,12 @@ rule('checkFill answers exactly what setFields does, without changing the run', 
   let n = 0, refused = 0;
   ids.forEach(id => {
     const b = PF.publish.build(H.example('maps/drafts/' + id + '.md'), { people, ...EX, by: 'person-avery', changes: 'First version', existing: [], now: NOW, rand: 'abcd1234' });
-    const v = PF.publish.verify(b.folder, b.files), meta = v.map.meta, roles = {}, details = {};
+    const v = PF.publish.verify(b.folder, b.files, H.exactOf(PF, b.files)), meta = v.map.meta, roles = {}, details = {};
     meta.context.forEach(k => { details[k] = 'sample-' + k; }); meta.roles.forEach(ro => { roles[ro] = 'person-casey'; });
     const base = R.create(v, { title: meta.title, details, roles, by: 'person-casey', session: 's1', now: NOW, workflows: EX.workflows });
     R.mapOf(base).phases.forEach(ph => ph.steps.forEach(s => {
+      /* setFields refuses a step that isn't needed before it asks checkFill, which judges only the fields (4.1's family has a phase under only when). */
+      if (R.stepNeeded(base, R.mapOf(base), s.id)) return;
       const allowed = PF.types.editable(PF.types.get(s.type, base.types));
       const tries = allowed.map(f => ({ [f]: '  Filled ' + f + '  ' })).concat([{ notAField: 'x' }]);
       tries.forEach(fields => {

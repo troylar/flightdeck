@@ -2,7 +2,7 @@
 // switching folders, paused at exact moments.
 'use strict';
 const assert = require('assert');
-const { rule, run } = require('./harness');
+const { rule, run, exactOf } = require('./harness');
 const { boot, gate, bus, locks, folderHandle, memoryIDB } = require('./app-harness');
 
 // A file that really is a PNG: attachments are checked against their first bytes.
@@ -3965,7 +3965,7 @@ rule('App: a version this copy doesn\'t understand says why, can\'t be picked or
   app.choose('person-casey'); await app.tick();
   // The examples' own versions and runs, played through this copy's rules, are all runnable here.
   app.files('runs/').filter(p => /\/run\.json$/.test(p)).forEach(p => { const r = app.PF.run.sanitize(JSON.parse(app.fs.files[p].t)); assert.ok(r && !r._unrunnable, p + ': ' + (r && r._unrunnable)); });
-  app.files('publications/').filter(p => /\/publication\.json$/.test(p)).forEach(p => { const d = p.replace(/publication\.json$/, ''), f = n => (app.fs.files[d + n] || {}).t; const v = app.PF.publish.verify(d.split('/')[2], { 'map.md': f('map.md'), 'types.json': f('types.json'), 'publication.json': f('publication.json') }); assert.ok(v.ok, p + ': ' + v.why); });
+  app.files('publications/').filter(p => /\/publication\.json$/.test(p)).forEach(p => { const d = p.replace(/publication\.json$/, ''), f = n => (app.fs.files[d + n] || {}).t; const files = { 'map.md': f('map.md'), 'types.json': f('types.json'), 'publication.json': f('publication.json') }, v = app.PF.publish.verify(d.split('/')[2], files, exactOf(app.PF, files)); assert.ok(v.ok, p + ': ' + v.why); });
   const U = app.PF.util, md = app.fs.files['maps/drafts/release.md'].t.replace(/^(- \[[ !~]\] \{.*)$/m, '$1\n  when: ^environment is production');
   // v3, written by a newer Flightdeck: every file matches its record, so only the content check can stop it.
   const src = app.files('publications/release/').find(p => /publication\.json$/.test(p)).replace(/publication\.json$/, '');
