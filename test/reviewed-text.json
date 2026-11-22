@@ -453,8 +453,8 @@
       "reviewed": "saveRun asks opts.still once before each write after the slice 3 fold: the guard ahead of the gate's recheck reads fresh only; checked for direct writes and unconditional deletes: none added, every write still through the gated write path"
     },
     "src/ui/app.js": {
-      "sha256": "d936d1c4bf27293aa1963099a620486bad44336d119a299a295ec60c4a0eed57",
-      "reviewed": "4.0.0 release fold of slice 3 (b365f237): guard order in saveRun and checkedWith (4.0 fresh, then slice 3's recheck, then still), stillSame rereads people.json last, todoStill on the fresh snapshot, recovery backup rechecked on the to-dos; the 4.0.0 entry; checked for direct writes and unconditional deletes: every write goes through the gated write path"
+      "sha256": "e35a7c32566b3a1272fbfee61a4a1637ca4578063f035526e7a088f0b62457b8",
+      "reviewed": "4.1.1 #130: recover() says a run that needs a newer Flightdeck is why a browser copy wasn't kept, and returns before any write; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "7db943140369906843961189dc3f34c8ec9430164cca3cb0f3a9f5bdd6ab946f",

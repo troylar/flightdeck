@@ -47674,6 +47674,8 @@ PF.examples = (function () {
       if (!c) { say('That copy can\'t be read.', 'bad'); return; }
       /* Keeping it would save only what this copy understands of it, erasing the rest. */
       if (c._unrunnable) { say(c._unrunnable + ' That copy can only be read here, so it wasn\'t kept.', 'warn'); return; }
+      /* #130 (4.1.1): the run itself needs a newer Flightdeck, so nothing here can be written over it; say that, not a loop. */
+      if (cur._unrunnable) { say('The copy wasn\'t kept: this run needs a newer copy of Flightdeck. ' + cur._unrunnable + ' The copy is still there. Keep it from a copy of Flightdeck that can read this run.', 'warn'); return; }
       text = snapshot(cur);
       /* The guard captured at the click, with the to-dos it keeps (todoStill, as a landing's) asked before every write; when it
          fails, the kept copy is put back in this window (loopEdit) and the copy stays. */

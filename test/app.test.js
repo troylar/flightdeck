@@ -9312,4 +9312,29 @@ rule('Start: a saved plan keeps its approver; one written with the approver left
   assert.ok(/<option value="person-morgan" selected>/.test(at('qa')) && /<option value="person-casey" selected>/.test(at('backend')), 'the other roles are kept');
 });
 
+/* #130 (4.1.1): keeping a browser copy of a run that needs a newer Flightdeck writes nothing, and says it's the newer run. */
+rule('App: Restore on a browser copy of a run that needs a newer Flightdeck writes nothing and says a newer copy is needed, not a loop', async () => {
+  const other = folderHandle('Other', { 'people.json': '[]' });
+  const app = boot({ picker: other, indexedDB: memoryIDB() }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  let r = app.run(); app.click('open-run', r.key); await app.tick(); app.click('pickup'); await app.tick(40); r = app.run();
+  const j = typeof r.json === 'string' ? JSON.parse(r.json) : r.json, map = app.PF.map.parse(j.snapshot);
+  const id = (app.html().match(/data-act="toggle" data-id="[\w-]+"/g) || []).map(x => /data-id="([\w-]+)"/.exec(x)[1])
+    .find(x => !(j.steps[x] && j.steps[x].s === 'done') && app.PF.map.findStep(map, x).step.type !== 'run.process' && app.PF.run.evidenceFor(j, app.PF.map.findStep(map, x).step).list.every(d => !d.required));
+  const newer = JSON.parse(app.fs.files[r.path].t); newer.format = 'preflight-run/3'; newer.features = ['from-a-later-release']; newer.app = '99.0.0';
+  app.fs.files[r.path] = { t: JSON.stringify(newer, null, 2), m: Date.now() }; app.fs.persist();
+  app.click('toggle', id); await app.tick(80);
+  app.click('connect'); await app.tick(200);
+  assert.ok(Object.keys(app.store).some(k => /^preflight:unsaved:/.test(k)), 'the refused change went to browser storage');
+  const b = boot({ localStore: Object.assign({}, app.store) }); await b.tick(80); b.choose('person-casey'); await b.tick();
+  b.click('open-run', r.key); await b.tick(40);
+  const snap = () => { const o = {}; Object.keys(b.fs.files).sort().forEach(p => { o[p] = b.fs.files[p].t; }); return o; };
+  const before = snap();
+  const pg = b.html(); assert.ok(/A copy kept in this browser/.test(pg) && /newer copy of Flightdeck|Flightdeck 99/.test(pg), 'listed, and the page says why');
+  b.click('restore-local'); await b.tick(120);
+  const after = snap(); assert.deepStrictEqual(Object.keys(after).filter(p => after[p] !== before[p]), [], 'nothing written');
+  assert.ok(/wasn't kept/.test(b.live()) && /still there/.test(b.live()), b.live());
+  assert.ok(/newer copy of Flightdeck/.test(b.live()) && !/loop/.test(b.live()), 'it says a newer copy is needed: ' + b.live());
+});
+
 run();
