@@ -68,6 +68,7 @@ These are plain `SKILL.md` files in `.flightdeck/skills/` (or wherever the team 
 | `/flightdeck-skill-brief <process or skill>` | The brief for creating a skill from a signed-off version, or updating one after the process changed |
 | `/flightdeck-living-run <process>/<run>: <what>` | Read a run's to-dos, and ask for one change to them through `flightdeck todo` |
 | `/flightdeck-status` | Summarize checklists, drafts, runs, plans and problems (read-only) |
+| `/flightdeck-walk-run <process>/<run>` | Walk a person through a running run: what's next, reports for work done, a stop at every gate and decision |
 
 ## Commands
 

@@ -20,7 +20,7 @@ const BASE = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'baselines.json')
 const FIXTURE = fs.readFileSync(path.join(__dirname, 'fixtures', 'agents-2.14.0.md'), 'utf8');
 const AGENTS = read('AGENTS.md');
 /* AGENTS.md's ceiling: 2.14.0's copy less the room the design keeps for team notes and the index rows (design section 4). */
-const ROOM_CEILING = 19688 + 141 + 358 + 1029 + 593 + 243 + 270; /* 3.0: the library inspect row in Commands (assistant-start.test.js); the loop row and the scope-records rule (loops, design section 44); 3.0.1: the loop row in What you may write, scope decisions, the 3.0-on-every-computer rule, the test-run readiness note and reading results and loops. 4.0: the todo row, the living-run skill row and the to-do-records rule (living runs, design section 45); the spread row (spreads, design section 45.1); the fact row (facts, design section 45.2) */
+const ROOM_CEILING = 19688 + 141 + 358 + 1029 + 593 + 243 + 270 + 152; /* 3.0: the library inspect row in Commands (assistant-start.test.js); the loop row and the scope-records rule (loops, design section 44); 3.0.1: the loop row in What you may write, scope decisions, the 3.0-on-every-computer rule, the test-run readiness note and reading results and loops. 4.0: the todo row, the living-run skill row and the to-do-records rule (living runs, design section 45); the spread row (spreads, design section 45.1); the fact row (facts, design section 45.2). 4.1: the walk-run skill row */
 const WHY_WORDS = /\b(never|must|only)\b/i;
 const GUIDANCE = /\b(never|must|don't|do not|check|checks|read|leave out|only|ignore|skip|should|unless|instead|avoid|make sure|was meant|reopens)\b|\bis only\b/i;
 const GRANT = /\byou (may|can)\b|\b(is|are) (fine|ok|okay|allowed)\b|\bfeel free\b|\ballowed to\b/i;
@@ -423,6 +423,7 @@ const ADDED = [
   { home: H.never, text: "To-do records (`proposals/` files with `\"format\": \"flightdeck-plan/4\"` or `\"flightdeck-plan-status/4\"`): a run's to-dos and the decisions on them, written by Flightdeck windows and by `flightdeck todo`.", class: 'C4', why: "new in 4.0 (living runs, design section 45): the todo commands, and that to-do records are written only by Flightdeck and them" },
   { home: H.never, text: "Never write, edit or delete one.", class: 'C4', why: "new in 4.0 (living runs, design section 45): the todo commands, and that to-do records are written only by Flightdeck and them" },
   { home: H.skills, text: "| `/flightdeck-living-run <process>/<run>: <what>` | Read a run's to-dos, and ask for one change to them through `flightdeck todo` |", class: 'C5', why: "new in 4.0 (living runs, design section 45): the living-run skill" },
+  { home: H.skills, text: "| `/flightdeck-walk-run <process>/<run>` | Walk a person through a running run: what's next, reports for work done, a stop at every gate and decision |", class: 'C5', why: "new in 4.1: the walk-run skill, which walks a run with next, run, report and todo only" },
   { home: H.commands, text: "| `flightdeck todo list`, `todo add`, `todo done`, `todo wont`, `todo move`, `todo reopen` | A run's to-dos, and asking for one change to them; never decides, never writes a run | *Asking for a run* in the command guide |", class: 'C1', why: "new in 4.0 (living runs, design section 45): the todo commands, and that to-do records are written only by Flightdeck and them" },
   { home: H.commands, text: "| `flightdeck spread list`, `spread add`, `spread sync`, `spread include`, `spread stop` | A requirement on every item of a loop, and asking each item's run for it; never decides, never writes a run | *Asking for a run* in the command guide |", class: 'C1', why: "new in 4.0 (spreads, design section 45.1): the spread commands, which ask and never decide" },
   { home: H.commands, text: "| `flightdeck fact sync`, `fact list`, `todo suggest-done` | What a tool observed about a loop's items (PRs, commits, status, blockers), and asking for a to-do done on that evidence; facts never change work, never write a run | *Asking for a run* in the command guide |", class: 'C1', why: "new in 4.0 (facts, design section 45.2): the fact commands, which record information and ask, never decide" },
@@ -773,6 +774,11 @@ const DIRECT_WRITES = {
       why: "prohibition" },
     { at: "When the command can't save: the person's route in Flightdeck", lead: "", n: 1,
       text: "Then look in `step-types/` read only to see what's there, and don't write the file instead.",
+      why: "prohibition" }
+  ],
+  [SKD + "flightdeck-walk-run/SKILL.md"]: [
+    { at: "", lead: "", n: 1,
+      text: "You never write `run.json`, never answer a step, never pass a gate and never write a file in `reports/` or `proposals/` by hand.",
       why: "prohibition" }
   ],
   [SKD + "flightdeck-status/SKILL.md"]: [
