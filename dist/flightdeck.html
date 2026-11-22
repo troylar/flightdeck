@@ -32441,7 +32441,7 @@ PF.vk = (function () {
   function linkedPanel(ctx, r, map) {
     var rows = R.linkedRuns(r, map, ctx.findRun);
     if (rows.length < 2) return '';
-    var byId = {}; M.steps(map).forEach(function (x) { byId[x.step.id] = x; });
+    var byId = Object.create(null); M.steps(map).forEach(function (x) { byId[x.step.id] = x; });
     var said = { done: 'Counted', open: 'Not counted yet. The recorder\'s window counts it.' };
     return '<section class="rw-panel rw-linked" id="rw-linked" aria-labelledby="rw-linked-h"><h2 class="rw-h2" id="rw-linked-h">Linked runs</h2><ul class="rl-list">' + rows.map(function (x) {
       var at = byId[x.step], st = at.step, cr = x.run, how;
