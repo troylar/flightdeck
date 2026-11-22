@@ -508,6 +508,18 @@
         "run_verdict.py": "a4c0467f3703f5efeeba4cadb1053287216ff0d1d320e4d2851d8bec36622634",
         "storage.js": "bfe02339f475d0951c345c40bb26a945f6dce1e55ec03bf578de9a978ef85faa"
       }
+    },
+    "v4.1.0": {
+      "commit": "9a23eb2767cb8861e02847627d3b217398bc3ae7",
+      "sha256": {
+        "check_folder.py": "0201f9fb9e66b0d1682334fbf5c1589cd1f61d4103ae325a1c194fa8c9f2b4c6",
+        "core.js": "adfa66cc6edd6f55afc0d2c9430df2f8d08c73f3b0f66872598570066ebd97e3",
+        "flightdeck.html": "3e1cdde4bf1197bd894b55e9ddcb3d017113cc79e9a648c40147302813dccccb",
+        "flightdeck.js": "021c1017349a4474d85a4184527931a8c9124272a5410adbd20a1d7a0331ba0d",
+        "fs.js": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",
+        "run_verdict.py": "a4c0467f3703f5efeeba4cadb1053287216ff0d1d320e4d2851d8bec36622634",
+        "storage.js": "bfe02339f475d0951c345c40bb26a945f6dce1e55ec03bf578de9a978ef85faa"
+      }
     }
   }
 }
