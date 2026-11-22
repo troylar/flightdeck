@@ -1,28 +1,28 @@
 {
   "texts": {
     "CHANGELOG.md": {
-      "sha256": "1259ec6d7987ddd0b312bc7dd71299b7b04a746b9a91e9321e45f620145d1da3",
-      "reviewed": "4.0.0 entry dated 2026-11-15 with the folded slices (facts, 5, 6, 3's loops, spreads and write guards); checked for direct writes and unconditional deletes: text only, no code"
+      "sha256": "71192302e74eb44cd0d473d83fedebfa9d6c64226e96727434f252787b1266ad",
+      "reviewed": "4.1.0: next --json adds waitingOn (people in the checklist's roles, linked runs, with contract 2 undecided reports and open to-dos); next --contract 2 reads this run's reports and report decisions through a read-only view; release entry and baselines; checked for direct writes and unconditional deletes: none, the new view has no write, append or remove"
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1: a license text, shipped unchanged; no instruction."
     },
     "README.md": {
-      "sha256": "cd36d7e71d5d4d92098340e21b22df60ff9530d5bccc6c8cc2c254cb19b50bc0",
-      "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
+      "sha256": "9f03f889a0ceaa723a8dac5782409340d8c72557702e3cab93c74c3880821ade",
+      "reviewed": "4.1.0: README's manual download names 4.1.0; dist rebuilt with the 4.1.0 baselines; checked for direct writes and unconditional deletes: text only"
     },
     "bin/flightdeck.js": {
-      "sha256": "5eb7ce812fc489f0ddaa1f29fe9aac7d078266a6ef52f864663eacfe7b5f7d8f",
-      "reviewed": "release 4.0.0 fold of slice 3 (b365f237): its reviewed write gate merged with facts', slice 5's and slice 6's guards; every record and run write keeps its 4.0 guard (fresh, still) and asks slice 3's fresh guard last for its token (keeps, receipts and the end included); facts' raw writes moved to putFile; checked for direct writes and unconditional deletes"
+      "sha256": "021c1017349a4474d85a4184527931a8c9124272a5410adbd20a1d7a0331ba0d",
+      "reviewed": "4.1.0: next --json adds waitingOn (people in the checklist's roles, linked runs, with contract 2 undecided reports and open to-dos); next --contract 2 reads this run's reports and report decisions through a read-only view; release entry and baselines; checked for direct writes and unconditional deletes: none, the new view has no write, append or remove"
     },
     "build.py": {
       "sha256": "4930aee232c7766241927d231c2eb0729443450de507161a3f0e85b7e7f5fb8e",
       "reviewed": "release 4.0.0 fold of slice 6 (ee1ec1b3) onto facts and slice 5: both sides' reviewed text merged; hand resolutions only read and name problems (one problem formatter, proposals/ listing named as a part, receipt ownership, cleanLiving union, effect_of cut, duplicate run verdict removed); checked for direct writes and unconditional deletes"
     },
     "docs/apps.md": {
-      "sha256": "d4f64de952ad03f1ca7630844828119c9f50b307fbed43f82803a13cba96105d",
-      "reviewed": "release 4.0.0 fold of slice 3 (b365f237): its reviewed write gate merged with facts', slice 5's and slice 6's guards; every record and run write keeps its 4.0 guard (fresh, still) and asks slice 3's fresh guard last for its token (keeps, receipts and the end included); facts' raw writes moved to putFile; checked for direct writes and unconditional deletes"
+      "sha256": "a6c76b4136cee2a95b4750a7feb7ede9dae8da9ae1cec1054047552b00065352",
+      "reviewed": "4.1.0: next --json adds waitingOn (people in the checklist's roles, linked runs, with contract 2 undecided reports and open to-dos); next --contract 2 reads this run's reports and report decisions through a read-only view; release entry and baselines; checked for direct writes and unconditional deletes: none, the new view has no write, append or remove"
     },
     "docs/design.md": {
       "sha256": "b5fa1a3f491274c11dc7d2190513ad7f67fbb86b9a793389da2edafdec2cacde",
@@ -181,8 +181,8 @@
       "reviewed": "Round 20, at 64e1c01: the file list npm packs (npm pack --dry-run on a mirror of the tree), read in full: CHANGELOG.md, LICENSE, README.md, bin/flightdeck.js, the two dist files, package.json. Each is pinned whole or checked by parity. No new text."
     },
     "package.json": {
-      "sha256": "377c52c7f28ba508e01826e26d0ba81d3139aff9918252fb4cc6273c4686c831",
-      "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
+      "sha256": "eac09ecf7c23ff789c10740454a2c65128c5bd64891221d7dace68ec1e638ee6",
+      "reviewed": "4.1.0: next --json adds waitingOn (people in the checklist's roles, linked runs, with contract 2 undecided reports and open to-dos); next --contract 2 reads this run's reports and report decisions through a read-only view; release entry and baselines; checked for direct writes and unconditional deletes: none, the new view has no write, append or remove"
     },
     "rendered: the merge README, AGENTS.md held": {
       "sha256": "587c6fe0a4080614f1661c880aa058e9dd8180b5595d72bfaaf90b9f297f8d95",
@@ -201,12 +201,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "20119d73d3983ee82eb87afd3e155b368f6c21d291b133c9dbd5111173846a17",
-      "reviewed": "release 4.0.0 fold of slice 3 (b365f237): its reviewed write gate merged with facts', slice 5's and slice 6's guards; every record and run write keeps its 4.0 guard (fresh, still) and asks slice 3's fresh guard last for its token (keeps, receipts and the end included); facts' raw writes moved to putFile; checked for direct writes and unconditional deletes"
+      "sha256": "c55e9198ad180a84dcf223636420782c76b3ec38f7f8ef0282c8c4e3a4278fe9",
+      "reviewed": "4.1.0: next --json adds waitingOn (people in the checklist's roles, linked runs, with contract 2 undecided reports and open to-dos); next --contract 2 reads this run's reports and report decisions through a read-only view; release entry and baselines; checked for direct writes and unconditional deletes: none, the new view has no write, append or remove"
     },
     "src/core/appjson.js": {
-      "sha256": "4a3cc8c52dbe89cf222e6d0df99e23d95bbc9b3858696d791de19b93340674fc",
-      "reviewed": "release 4.0.0 fold of slice 6 (ee1ec1b3) onto facts and slice 5: both sides' reviewed text merged; hand resolutions only read and name problems (one problem formatter, proposals/ listing named as a part, receipt ownership, cleanLiving union, effect_of cut, duplicate run verdict removed); checked for direct writes and unconditional deletes"
+      "sha256": "11e34bc4fac1219d75104336f0eae278fd0b4b942707c753a4c3867f4a8c33ec",
+      "reviewed": "4.1.0: next --json adds waitingOn (people in the checklist's roles, linked runs, with contract 2 undecided reports and open to-dos); next --contract 2 reads this run's reports and report decisions through a read-only view; release entry and baselines; checked for direct writes and unconditional deletes: none, the new view has no write, append or remove"
     },
     "src/core/attach.js": {
       "sha256": "0e75bc0c0d748fe10aaf5657662e4ce8679c27f9d10d85c1e34891b1c9d58df0",
@@ -417,8 +417,8 @@
       "reviewed": "FD: every fact line reachable on the run screen (count left out, Show all), contrary lines first; checked for direct writes and unconditional deletes"
     },
     "src/releases.json": {
-      "sha256": "69b351c172e51c21c5055cef79e7aed33b4e8d8503eb83a1032941b8a3547ee6",
-      "reviewed": "4.0.0 entry dated 2026-11-15 with the folded slices (facts, 5, 6, 3's loops, spreads and write guards); checked for direct writes and unconditional deletes: text only, no code"
+      "sha256": "1a95a1107c84bac846bb06c32fd9ea21eb8d0518dcea1671b539a06226135770",
+      "reviewed": "4.1.0: next --json adds waitingOn (people in the checklist's roles, linked runs, with contract 2 undecided reports and open to-dos); next --contract 2 reads this run's reports and report decisions through a read-only view; release entry and baselines; checked for direct writes and unconditional deletes: none, the new view has no write, append or remove"
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",
