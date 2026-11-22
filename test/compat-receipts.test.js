@@ -9,7 +9,7 @@ const { rule, run } = require('./harness');
 const H = require('./compat-harness');
 const G = require('../tools/old-folders');
 
-const TAG = 'v3.0.0', AT = '2026-11-09T09:00:00.000Z', ROOT = path.join(__dirname, '..');
+const TAGS = ['v3.0.0', 'v3.0.1'], AT = '2026-11-09T09:00:00.000Z', ROOT = path.join(__dirname, '..');
 const MD = ['---', 'process: release-notes', 'title: Release notes', 'context: fix_version, kind:choice(minor|major)', '---', '',
   '## Draft · DO-CONFIRM {#draft}', '- [!] {confirm} Write the notes {#write}', '',
   '## Review · READ-DO {#review}', '- [!] {confirm} Read them {#read}', ''].join('\n');
@@ -193,42 +193,50 @@ rule('This version: export packs the ended run with its chain and receipt, compl
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-rule(TAG + ' (exact, as shipped): shows the ended living run by name only, can\'t save it, never offers its receipt, writes nothing', async () => {
-  const OLD = H.loadCopy(TAG); assert.ok(OLD, TAG + ' is recorded (node tools/old-bundles.js)');
-  const { files, records } = await folder(), m = H.memFolder(OLD, files);
-  const d = await OLD.repo.loadAll(m, { deep: true }), runs = Object.fromEntries(d.runs.map(r => [r.id, r]));
-  assert.ok(runs['run-l'] && runs['run-l']._unrunnable, 'run-l: name only: ' + (runs['run-l'] && runs['run-l']._unrunnable));
-  const ids = records.map(f => f.replace(/\.json$/, ''));
-  assert.ok(!(d.plans || []).some(x => ids.indexOf(x.id) >= 0) && !(d.scopes || []).some(x => ids.indexOf(x.id) >= 0), 'never a plan or a scope record');
-  const before = snap(m);
-  await assert.rejects(() => OLD.repo.saveRun(m, runs['run-l'], 'w-avery'));
-  assert.strictEqual(snap(m), before, 'nothing written');
-  assert.ok(runs['run-p'] && !runs['run-p']._unrunnable, 'the run without to-dos is recordable');
+/* #123 (4.1.1): living runs are checked against every 3.x release that shipped, so the exact release before 4.0 is covered. */
+rule('These checks cover every recorded 3.x release, the newest one before living runs included', () => {
+  const recorded = H.bundles.tags().filter(t => t.major === 3).map(t => t.tag);
+  same(TAGS, recorded);
 });
 
-rule(TAG + '\'s command and checker name the receipt as newer and write nothing; run and next print the same for the run without to-dos', async () => {
-  const b = H.bundles.get(TAG); assert.ok(b, TAG + ' is recorded');
-  const { files, receipt } = await folder(), { root, dir } = tree(files);
-  try {
-    fs.mkdirSync(path.join(root, 'bin')); fs.mkdirSync(path.join(root, 'dist'));
-    fs.writeFileSync(path.join(root, 'bin', 'flightdeck.js'), b.files['flightdeck.js']); fs.writeFileSync(path.join(root, 'dist', 'flightdeck.html'), b.files['flightdeck.html']);
-    const OLD = path.join(root, 'bin', 'flightdeck.js'), before = JSON.stringify(H.readTree(dir));
-    const all = cli(OLD, 'runs', dir, '--contract', '2', '--json');
-    assert.ok((all.json.problems || []).some(x => x.path === 'proposals/' + receipt && x.kind === 'newer'), 'the receipt is newer there: ' + JSON.stringify(all.json.problems));
-    const l = cli(OLD, 'run', dir, 'release-notes/run-l', '--contract', '2', '--json');
-    assert.ok(l.code !== 0 && (l.json.problems || []).some(x => x.path.indexOf('runs/release-notes/run-l') === 0 && x.kind === 'newer'), 'the run is newer: ' + JSON.stringify(l.json).slice(0, 400));
-    if (PY) {
-      const ck = path.join(root, 'check_folder.py'); fs.writeFileSync(ck, b.files['check_folder.py']); if (b.files['run_verdict.py']) fs.writeFileSync(path.join(root, 'run_verdict.py'), b.files['run_verdict.py']);
-      const res = JSON.parse(cp.execFileSync(PY, ['-I', ck, dir], { encoding: 'utf8' }));
-      assert.ok(res.refused.some(x => x.file === 'proposals/' + receipt && /newer/.test(x.why)), JSON.stringify(res.refused));
-    }
-    assert.strictEqual(JSON.stringify(H.readTree(dir)), before, TAG + ' wrote nothing');
-    for (const a of [['run', dir, 'release-notes/run-p'], ['next', dir, 'release-notes/run-p', '--as', 'person-avery']]) {
-      const theirs = cli(OLD, ...a, '--contract', '2', '--json'), mine = cli(MINE, ...a, '--contract', '2', '--json');
-      same([mine.code, added(mine.json)], [theirs.code, bare(theirs.json)], a[0] + ' run-p prints what ' + TAG + ' prints');
-    }
-    assert.strictEqual(JSON.stringify(H.readTree(dir)), before, 'this version\'s reads wrote nothing');
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+TAGS.forEach((TAG) => {
+  rule(TAG + ' (exact, as shipped): shows the ended living run by name only, can\'t save it, never offers its receipt, writes nothing', async () => {
+    const OLD = H.loadCopy(TAG); assert.ok(OLD, TAG + ' is recorded (node tools/old-bundles.js)');
+    const { files, records } = await folder(), m = H.memFolder(OLD, files);
+    const d = await OLD.repo.loadAll(m, { deep: true }), runs = Object.fromEntries(d.runs.map(r => [r.id, r]));
+    assert.ok(runs['run-l'] && runs['run-l']._unrunnable, 'run-l: name only: ' + (runs['run-l'] && runs['run-l']._unrunnable));
+    const ids = records.map(f => f.replace(/\.json$/, ''));
+    assert.ok(!(d.plans || []).some(x => ids.indexOf(x.id) >= 0) && !(d.scopes || []).some(x => ids.indexOf(x.id) >= 0), 'never a plan or a scope record');
+    const before = snap(m);
+    await assert.rejects(() => OLD.repo.saveRun(m, runs['run-l'], 'w-avery'));
+    assert.strictEqual(snap(m), before, 'nothing written');
+    assert.ok(runs['run-p'] && !runs['run-p']._unrunnable, 'the run without to-dos is recordable');
+  });
+
+  rule(TAG + '\'s command and checker name the receipt as newer and write nothing; run and next print the same for the run without to-dos', async () => {
+    const b = H.bundles.get(TAG); assert.ok(b, TAG + ' is recorded');
+    const { files, receipt } = await folder(), { root, dir } = tree(files);
+    try {
+      fs.mkdirSync(path.join(root, 'bin')); fs.mkdirSync(path.join(root, 'dist'));
+      fs.writeFileSync(path.join(root, 'bin', 'flightdeck.js'), b.files['flightdeck.js']); fs.writeFileSync(path.join(root, 'dist', 'flightdeck.html'), b.files['flightdeck.html']);
+      const OLD = path.join(root, 'bin', 'flightdeck.js'), before = JSON.stringify(H.readTree(dir));
+      const all = cli(OLD, 'runs', dir, '--contract', '2', '--json');
+      assert.ok((all.json.problems || []).some(x => x.path === 'proposals/' + receipt && x.kind === 'newer'), 'the receipt is newer there: ' + JSON.stringify(all.json.problems));
+      const l = cli(OLD, 'run', dir, 'release-notes/run-l', '--contract', '2', '--json');
+      assert.ok(l.code !== 0 && (l.json.problems || []).some(x => x.path.indexOf('runs/release-notes/run-l') === 0 && x.kind === 'newer'), 'the run is newer: ' + JSON.stringify(l.json).slice(0, 400));
+      if (PY) {
+        const ck = path.join(root, 'check_folder.py'); fs.writeFileSync(ck, b.files['check_folder.py']); if (b.files['run_verdict.py']) fs.writeFileSync(path.join(root, 'run_verdict.py'), b.files['run_verdict.py']);
+        const res = JSON.parse(cp.execFileSync(PY, ['-I', ck, dir], { encoding: 'utf8' }));
+        assert.ok(res.refused.some(x => x.file === 'proposals/' + receipt && /newer/.test(x.why)), JSON.stringify(res.refused));
+      }
+      assert.strictEqual(JSON.stringify(H.readTree(dir)), before, TAG + ' wrote nothing');
+      for (const a of [['run', dir, 'release-notes/run-p'], ['next', dir, 'release-notes/run-p', '--as', 'person-avery']]) {
+        const theirs = cli(OLD, ...a, '--contract', '2', '--json'), mine = cli(MINE, ...a, '--contract', '2', '--json');
+        same([mine.code, added(mine.json)], [theirs.code, bare(theirs.json)], a[0] + ' run-p prints what ' + TAG + ' prints');
+      }
+      assert.strictEqual(JSON.stringify(H.readTree(dir)), before, 'this version\'s reads wrote nothing');
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
 });
 
 rule('4.0.0\'s release notes name receipts, plan versus now, and the one 3.0 loop behavior 4.0 changes: an approval stays put while a story\'s run can\'t be read', () => {
