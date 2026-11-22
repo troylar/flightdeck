@@ -1,5 +1,19 @@
 [
   {
+    "version": "4.1.0",
+    "date": "2026-11-21",
+    "headline": "A worked family of linked checklists",
+    "changes": [
+      {
+        "kind": "new",
+        "area": "Examples",
+        "title": "Ship a service change: a thin parent checklist that only links and routes",
+        "now": "The example folder has a family of four checklists. Ship a service change starts a review, keeps its result, runs a rework and a second review only when the review returned needs-work, then starts the rollout. The skills for AI assistants describe the pattern, so a new checklist with parts and a verdict is written the same way.",
+        "where": "The example folder, the assistants' skills"
+      }
+    ]
+  },
+  {
     "version": "4.0.0",
     "date": "2026-11-15",
     "headline": "Living runs: to-dos, facts and receipts a run takes on while it runs",

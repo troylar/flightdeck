@@ -5,7 +5,7 @@ const assert = require('assert');
 const { load, example, exampleSetup, rule, run } = require('./harness');
 const PF = load(), M = PF.map, O = PF.outline;
 const EX = exampleSetup(PF);
-const MAPS = ['release', 'check-in', 'sprint-start', 'new-skill', 'incident', 'jira-cleanup', 'github-pr'];
+const MAPS = ['release', 'check-in', 'sprint-start', 'new-skill', 'incident', 'jira-cleanup', 'github-pr', 'service-change', 'change-review', 'change-rework', 'change-rollout'];
 const RELEASE = example('maps/drafts/release.md');
 
 const lines = t => t.split('\n');
@@ -256,12 +256,19 @@ rule('Builder: CRLF files stay CRLF', () => {
   assert.ok(/Flags off \^environment @backend \{#flags\}\r\n/.test(t));
 });
 
+/* Whether a step sets a detail some only when line of the checklist reads. */
+const routes = (md, s) => {
+  const m = M.parse(md), tested = new Set();
+  m.phases.forEach(p => [p].concat(p.steps).forEach(t => (t.when || []).forEach(w => tested.add(w.name))));
+  return M.setNames((s.fields || {}).sets).some(n => tested.has(n));
+};
 rule('Builder: every step of every example moves up and down without changing an ID or adding a problem', () => {
   MAPS.forEach(name => {
     const md = example('maps/drafts/' + name + '.md');
     O.parse(md).steps.forEach(s => [-1, 1].forEach(dir => {
       const r = O.moveStep(md, s.key, dir);
-      if (r.error) { assert.ok(/already (first|last)/.test(r.error), name + ' ' + s.key + ': ' + r.error); return; }
+      /* A step whose sets: feeds an only when can't move into or past what it decides: the builder refuses that move whole. */
+      if (r.error) { assert.ok(/already (first|last)/.test(r.error) || (/change what other lines mean/.test(r.error) && routes(md, s)), name + ' ' + s.key + ': ' + r.error); return; }
       same(sorted(ids(r.text)), sorted(ids(md)), name + ' ' + s.key);
       same(sorted(lines(r.text)), sorted(lines(md)), name + ' ' + s.key + ': only reordered');
       healthy(md, r.text, name + ' ' + s.key);
