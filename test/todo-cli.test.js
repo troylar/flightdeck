@@ -145,6 +145,20 @@ rule('run, next and runs (contract 2) list a living run\'s to-dos and say what h
   const { root: r2 } = await folder(), plain = json('run', r2, 'release-notes/r-1', '--contract', '2', '--json').data.run;
   assert.deepStrictEqual(['todos', 'todoCounts', 'todoHolds'].filter(k => k in plain), []);
 });
+rule('next (contract 2) says the run waits on each open to-do before the gate it is heading to, by id; a run with no to-dos waits on none', async () => {
+  const { root, d } = await folder();
+  const r = JSON.parse(fs.readFileSync(path.join(root, 'runs/release-notes/r-1/run.json'), 'utf8')), todo = await seed(d, r);
+  const n = json('next', root, 'release-notes/r-1', '--as', 'person-avery', '--contract', '2', '--json');
+  assert.strictEqual(n.code, 0, JSON.stringify(n).slice(0, 600));
+  const gate = json('run', root, 'release-notes/r-1', '--contract', '2', '--json').data.run.gates[0];
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(n.data.next.waitingOn.filter(x => x.kind === 'todo'))), [{ kind: 'todo', id: todo, text: 'Seeded', gate: gate.id }]);
+  /* Contract 1 reads a living run as newer, as before: no next, so no to-do. */
+  const one = json('next', root, 'release-notes/r-1', '--as', 'person-avery', '--json');
+  assert.strictEqual(one.data.next, null);
+  /* A run with no to-dos waits on none. */
+  const { root: r2 } = await folder();
+  assert.deepStrictEqual(json('next', r2, 'release-notes/r-1', '--as', 'person-avery', '--contract', '2', '--json').data.next.waitingOn.filter(x => x.kind === 'todo'), []);
+});
 rule('A run/2 with no to-dos yet is still held by a to-do record of it that can\'t be read, as every window holds it, and shows it; with no record naming it, nothing', async () => {
   const { root, d } = await folder(MD.replace('context: kind:choice(minor|major)\n', ''));
   const r = JSON.parse(fs.readFileSync(path.join(root, 'runs/release-notes/r-1/run.json'), 'utf8')), map = R.mapOf(R.sanitize(r));

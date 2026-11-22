@@ -911,6 +911,71 @@ rule('READ: next --json says what\'s waiting and on whom, as the run screen does
   assert.strictEqual(m.mine.step.id, mine.step.id);
 });
 
+/* What the run waits on (4.1): next's waitingOn, built from run.json alone under contract 1. */
+const runJson = (f) => JSON.parse(f['runs/release/run1/run.json']);
+const setRun = (f, r) => { f['runs/release/run1/run.json'] = JSON.stringify(r, null, 2); };
+const casey = { id: 'person-casey', name: 'Casey Nguyen' };
+const same = (a, b, msg) => assert.deepStrictEqual(JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b)), msg);
+/* Changes to run1 made with the run's own rules, as a window would make them. */
+const DONE = require('./harness').sampleDone(SRC);
+const editRun = (f, fn) => { const r = SRC.run.sanitize(runJson(f)), mp = SRC.run.mapOf(r); fn(r, mp); setRun(f, r); };
+const answer = (...ids) => (r, mp) => ids.forEach(id => DONE(r, mp, id, 'person-casey', RF.NOW));
+const allBut = (...keep) => (r, mp) => mp.phases[0].steps.forEach(st => { if (keep.indexOf(st.id) < 0 && !SRC.run.answered(r, st)) DONE(r, mp, st.id, 'person-casey', RF.NOW); });
+const linkNotes = (r, mp) => SRC.run.linkChild(r, mp, 'notes', { process: 'check-in', id: 'run-c1', inputs: SRC.run.childDetails(r, SRC.map.findStep(mp, 'notes').step, Object.keys(r.details)) }, 'person-casey', RF.NOW);
+const atGate = (f) => editRun(f, allBut());
+rule('READ: next --json says who the run waits on: each role the next step names, with the person holding it, or null when nobody does', async () => {
+  for (const contract of [[], ['--contract', '2']]) {
+    const toFlags = (f) => editRun(f, answer('tests'));
+    const dir = await readFolder(toFlags), r = agree(readCli('next', dir, 'release/run1', ...contract, '--json'));
+    assert.strictEqual(r.code, 0, r.out + r.err); shape(r, 'next');
+    const n = r.json.data.next, local = runJson(rfBuilt.files);
+    assert.ok(n.step.roles.length >= 1, 'set-up: the next step names a role');
+    same(n.waitingOn, n.step.roles.map(x => ({ kind: 'person', role: x.role, person: x.person, step: n.step.id, gate: null })), contract.join(' ') || 'contract 1');
+    const ro = n.step.roles[0].role;
+    const dir2 = await readFolder(f => { toFlags(f); const x = runJson(f); delete x.roles[ro]; setRun(f, x); });
+    const w = agree(readCli('next', dir2, 'release/run1', ...contract, '--json')).json.data.next.waitingOn.filter(x => x.role === ro);
+    same(w, [{ kind: 'person', role: ro, person: null, step: n.step.id, gate: null }], 'a role nobody holds');
+    assert.ok(local.roles[ro], 'set-up: the role was held');
+  }
+  assert.ok(!/email|@example/.test(JSON.stringify(agree(readCli('next', await readFolder(f => editRun(f, answer('tests'))), 'release/run1', '--json')).json.data.next.waitingOn)), 'never an email');
+});
+rule('READ: at a gate, next --json says the run waits on the gate\'s owner role and who holds it', async () => {
+  const dir = await readFolder(atGate), r = agree(readCli('next', dir, 'release/run1', '--json'));
+  assert.strictEqual(r.code, 0, r.out + r.err); shape(r, 'next');
+  const n = r.json.data.next;
+  assert.deepStrictEqual([n.kind, n.gate.id, n.gate.owner], ['gate', 'ready', 'release-lead'], 'set-up: at the Ready to deploy gate');
+  same(n.waitingOn, [{ kind: 'person', role: 'release-lead', person: casey, step: null, gate: 'ready' }]);
+});
+rule('READ: next --json names a linked run the run waits on: the step that started it and which run, read from run.json alone', async () => {
+  const kid = (f) => editRun(f, (r, mp) => { answer('tests')(r, mp); linkNotes(r, mp); });
+  const dir = await readFolder(kid), r = agree(readCli('next', dir, 'release/run1', '--json'));
+  assert.strictEqual(r.code, 0, r.out + r.err); shape(r, 'next');
+  const n = r.json.data.next;
+  assert.notStrictEqual(n.step.id, 'notes', 'set-up: the next step is another one in the phase');
+  same(n.waitingOn.filter(x => x.kind === 'run'), [{ kind: 'run', step: 'notes', process: 'check-in', id: 'run-c1' }]);
+  assert.ok(n.waitingOn.some(x => x.kind === 'person'), 'and still the next step\'s people');
+  /* With only the linked step left, it is next, and the run still waits on its run. */
+  const g = agree(readCli('next', await readFolder(f => editRun(f, (x, mp) => { linkNotes(x, mp); allBut('notes')(x, mp); })), 'release/run1', '--json')).json.data.next;
+  assert.deepStrictEqual([g.kind, g.step && g.step.id], ['step', 'notes'], 'the linked step itself is next');
+  same(g.waitingOn.filter(x => x.kind === 'run'), [{ kind: 'run', step: 'notes', process: 'check-in', id: 'run-c1' }]);
+  /* Settled by its run, it waits on nothing more. */
+  const done = agree(readCli('next', await readFolder(f => editRun(f, answer('tests', 'notes'))), 'release/run1', '--json')).json.data.next;
+  same(done.waitingOn.filter(x => x.kind === 'run'), [], 'a settled linked step');
+  /* Contract 1 still reads only its own run: the linked run isn't read. */
+  const seen = [], files = Object.assign({}, rfBuilt.files); kid(files);
+  const rr = await FD.readData({ PF: SRC, version: 'test' }, strictFolder(files, seen), REQ.next);
+  assert.strictEqual(rr.code, 0, JSON.stringify(rr.json.problems));
+  assert.ok(!seen.some(x => /runs\/check-in/.test(x)), 'the linked run isn\'t read: ' + seen.join(', '));
+});
+rule('READ: a run that is paused, complete or ended waits on nobody: waitingOn is []', async () => {
+  const p = agree(readCli('next', await readFolder(f => { const x = runJson(f); x.paused = { by: 'person-casey', at: RF.NOW }; setRun(f, x); }), 'release/run1', '--json')).json.data.next;
+  assert.strictEqual(p.kind, 'paused', 'set-up: paused');
+  same(p.waitingOn, []);
+  const e = agree(readCli('next', await readFolder(), 'release/run2', '--json')).json.data.next;
+  assert.strictEqual(e.kind, 'ended', 'set-up: ended');
+  same(e.waitingOn, []);
+});
+
 rule('READ: followups --json lists every follow-up with its current decision; --status open leaves out the decided ones', async () => {
   const dir = await readFolder(), r = agree(readCli('followups', dir, '--json'));
   assert.strictEqual(r.code, 0, r.out + r.err); shape(r, 'followups');
@@ -2518,6 +2583,40 @@ function repAgree(r, name) {
   return r;
 }
 const reportsIn = (dir) => fs.existsSync(path.join(dir, 'reports', 'release')) ? fs.readdirSync(path.join(dir, 'reports', 'release')).sort() : [];
+
+/* What the run waits on (4.1): a report a tool wrote that nobody has decided yet, under flightdeck-read/2 only. */
+const REP_NAME = 'reports/release/run1.tests.ci-check.k3m9p2q8x7.json';
+const PENDING = { kind: 'report', step: 'tests', producer: { name: 'ci-check', version: '1.4.0' }, id: 'k3m9p2q8x7', verdict: 'pass' };
+rule('READ: next --contract 2 says the run waits on a report a tool wrote on an unanswered step until someone decides it; contract 1 never reads reports/', async () => {
+  const dir = await readFolder(f => { f[REP_NAME] = JSON.stringify(REPORT); });
+  const r = repAgree(readCli('next', dir, 'release/run1', '--contract', '2', '--json'), 'next');
+  assert.strictEqual(r.code, 0, r.out + r.err);
+  same(r.json.data.next.waitingOn.filter(x => x.kind === 'report'), [PENDING]);
+  /* Contract 1 reads only its own run, as before: no report. */
+  const one = agree(readCli('next', dir, 'release/run1', '--json'));
+  same(one.json.data.next.waitingOn.filter(x => x.kind === 'report'), []);
+  /* Once the step is answered, nothing waits on the report. */
+  const answered = await readFolder(f => { f[REP_NAME] = JSON.stringify(REPORT); editRun(f, answer('tests')); });
+  same(repAgree(readCli('next', answered, 'release/run1', '--contract', '2', '--json'), 'next').json.data.next.waitingOn.filter(x => x.kind === 'report'), [], 'the step was answered');
+  /* A report that can't be read is a problem, never a guess at what it says. */
+  const broken = await readFolder(f => { f[REP_NAME] = '{"format": "flightdeck-report/1", '; });
+  const b = repAgree(readCli('next', broken, 'release/run1', '--contract', '2', '--json'), 'next');
+  assert.ok(b.json.problems.some(p => p.path === REP_NAME), 'named: ' + JSON.stringify(b.json.problems));
+  same(b.json.data.next.waitingOn.filter(x => x.kind === 'report'), []);
+});
+rule('READ: next --contract 2 reads this run\'s reports and report decisions and nothing else of reports/ or report-decisions/', async () => {
+  await readFolder();
+  const files = Object.assign({}, rfBuilt.files);
+  files[REP_NAME] = JSON.stringify(REPORT);
+  files['reports/release/run2.tests.ci-check.k3m9p2q8x7.json'] = JSON.stringify(Object.assign({}, REPORT, { run: 'release/run2' }));
+  files['reports/other/run9.read.ci-check.k3m9p2q8x7.json'] = '{}';
+  const seen = [], r = await FD.readData({ PF: SRC, version: 'test' }, strictFolder(files, seen), Object.assign({}, REQ.next, { contract: 2 }));
+  assert.strictEqual(r.code, 0, JSON.stringify(r.json).slice(0, 500));
+  same(r.json.data.next.waitingOn.filter(x => x.kind === 'report'), [PENDING]);
+  const reps = seen.filter(s => /^(read|blob) (reports|report-decisions)\//.test(s)).map(s => s.replace(/^\w+ /, ''));
+  same(reps, [REP_NAME], 'only this run\'s report is read: ' + seen.join(', '));
+  assert.ok(!seen.some(s => /reports\/other|report-decisions\/other/.test(s)), 'no other process: ' + seen.join(', '));
+});
 
 rule('REPORT: targets lists running runs and the steps a report can be written for, under flightdeck-read/2', async () => {
   const dir = await readFolder(), r = repAgree(readCli('report', 'targets', dir, '--json'), 'targets');
