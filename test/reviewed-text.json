@@ -29,8 +29,8 @@
       "reviewed": "4.1.0 combined: the four 4.1 branches and #62 merged; one 4.1.0 release entry; baselines, changelog and the page rebuilt; checked for direct writes and unconditional deletes: none added by the merge"
     },
     "docs/design.md": {
-      "sha256": "9cfb5a8dd9f7a054912a20482f8184b2fbcf2a2afd818cd4cd0cc4d412cbc198",
-      "reviewed": "4.1.0 combined: the four 4.1 branches and #62 merged; one 4.1.0 release entry; baselines, changelog and the page rebuilt; checked for direct writes and unconditional deletes: none added by the merge"
+      "sha256": "88493dc7af11831fda50bab8f1e97c4e719ab9941beefb06446e461c6ada839a",
+      "reviewed": "4.1.1 #123: design.md contents, topic index and release map reach §40-45; §44 status line; §45 status says built in 4.0.0; docs only; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "f6aa6267ae03a0401aff464615ca57b4930fee28f0acf338d4ea295c23650ecc",

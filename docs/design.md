@@ -18,13 +18,13 @@ Status: **current to Flightdeck 2.6.1**, which changed documentation and the ins
 
 | Topic | Sections |
 |---|---|
-| The model: processes, checklists, versions, typed steps and values | [1](#1-what-flightdeck-is), [3](#3-concepts), [5](#5-checklists), [6](#6-publishing-and-versioning), [10](#10-step-types-v1), [30](#30-conditions-only-when-21-slice-2), [38](#38-typed-values-20) |
-| Runs and gates | [7](#7-runs-v1), [8](#8-gates), [9](#9-time), [11](#11-screens-and-the-delight-bar), [35](#35-run-screen-polish-231) |
+| The model: processes, checklists, versions, typed steps and values | [1](#1-what-flightdeck-is), [3](#3-concepts), [5](#5-checklists), [6](#6-publishing-and-versioning), [10](#10-step-types-v1), [30](#30-conditions-only-when-21-slice-2), [38](#38-typed-values-20), [40](#40-nested-processes-that-know-what-the-child-needs-28), [43](#43-module-results-done-is-not-ready-30-slice-2), [44](#44-loops-one-run-per-item-approved-from-the-list-30-slice-3) |
+| Runs and gates | [7](#7-runs-v1), [8](#8-gates), [9](#9-time), [11](#11-screens-and-the-delight-bar), [35](#35-run-screen-polish-231), [45](#45-living-runs-to-dos-that-change-a-run-while-it-runs-40-slice-1) |
 | Editing checklists | [18](#18-navigation-and-managing-templates-1100), [20](#20-visual-builder-flight-plan-and-outline-builder-built-both-shipped-early-in-111-parts-box-in-112), [27](#27-editing-a-draft-with-your-ai-assistant-proposals-the-soft-lock-and-live-apply-119-slices-1-and-2), [34](#34-practice-the-draft-22-on-the-run-screen-since-23), [37](#37-entry-boxes-that-explain-themselves-26), [39](#39-boxes-that-know-your-run-details-27) |
 | Versions, staging, test runs and skills | [13](#13-process-to-skill-traceability-190), [19](#19-versions-and-staging-staging-built-in-21), [31](#31-staging-stage-promote-retire-21-slice-4), [32](#32-test-runs-21-slice-5), [33](#33-readiness-and-sign-offs-from-test-runs-21-slice-6) |
 | The shared folder, its writers and scale | [4](#4-team-folder-and-writers), [21](#21-team-confidence-115), [25](#25-large-folders-117) |
 | Search, insights and evidence | [22](#22-search-117), [23](#23-insights-how-runs-go-117), [24](#24-evidence-export-117) |
-| Other apps and AI assistants | [12](#12-ai-assistant-contract-agentsmd-part-of-v1), [26](#26-other-apps-read-118-request-120-and-report-20), [27](#27-editing-a-draft-with-your-ai-assistant-proposals-the-soft-lock-and-live-apply-119-slices-1-and-2) |
+| Other apps and AI assistants | [12](#12-ai-assistant-contract-agentsmd-part-of-v1), [26](#26-other-apps-read-118-request-120-and-report-20), [27](#27-editing-a-draft-with-your-ai-assistant-proposals-the-soft-lock-and-live-apply-119-slices-1-and-2), [41](#41-team-values-29), [42](#42-ai-assistant-files-in-the-app-212) |
 | File formats and older copies | [28](#28-file-formats-and-compatibility-the-cross-version-harness-20-slice-1a-and-the-121-bridge-slice-1b), [38](#38-typed-values-20) |
 | Look, navigation and accessibility | [11](#11-screens-and-the-delight-bar), [29](#29-back-and-forward-1220), [36](#36-fresh-coat-24) |
 | The team and the project | [2](#2-team-decisions-2026-10-17), [14](#14-team-ownership), [15](#15-v1-boundary-and-acceptance-test), [16](#16-later-only-when-a-real-run-asks-for-it), [17](#17-still-open) |
@@ -83,7 +83,12 @@ Status: **current to Flightdeck 2.6.1**, which changed documentation and the ins
 | 37 | [Entry boxes that explain themselves (2.6)](#37-entry-boxes-that-explain-themselves-26) | Current |
 | 38 | [Typed values (2.0)](#38-typed-values-20) | Current |
 | 39 | [Boxes that know your run details (2.7)](#39-boxes-that-know-your-run-details-27) | Current |
+| 40 | [Nested processes that know what the child needs (2.8)](#40-nested-processes-that-know-what-the-child-needs-28) | Current |
+| 41 | [Team values (2.9)](#41-team-values-29) | Current |
 | 42 | [AI assistant files in the app (2.12)](#42-ai-assistant-files-in-the-app-212) | Current |
+| 43 | [Module results: done is not ready (3.0 slice 2)](#43-module-results-done-is-not-ready-30-slice-2) | Current |
+| 44 | [Loops: one run per item, approved from the list (3.0 slice 3)](#44-loops-one-run-per-item-approved-from-the-list-30-slice-3) | Current |
+| 45 | [Living runs: to-dos that change a run while it runs (4.0 slice 1)](#45-living-runs-to-dos-that-change-a-run-while-it-runs-40-slice-1) | Current |
 
 ### Releases and sections
 
@@ -114,7 +119,11 @@ Status: **current to Flightdeck 2.6.1**, which changed documentation and the ins
 | 2.6 | [37](#37-entry-boxes-that-explain-themselves-26) |
 | 2.6.1 | [38](#38-typed-values-20), this navigation and the status lines |
 | 2.7 | [39](#39-boxes-that-know-your-run-details-27) |
+| 2.8 | [40](#40-nested-processes-that-know-what-the-child-needs-28) |
+| 2.9 | [41](#41-team-values-29) |
 | 2.12 | [42](#42-ai-assistant-files-in-the-app-212) |
+| 3.0 | [43](#43-module-results-done-is-not-ready-30-slice-2), [44](#44-loops-one-run-per-item-approved-from-the-list-30-slice-3) |
+| 4.0 | [45](#45-living-runs-to-dos-that-change-a-run-while-it-runs-40-slice-1) |
 
 ### Planned, built differently and not built
 
@@ -1283,6 +1292,8 @@ Until 2.0, every run detail and every evidence value was text. A checklist can n
 
 ## 44. Loops: one run per item, approved from the list (3.0 slice 3)
 
+**Status:** Current.
+
 A `{for.each}` step starts one run of a child checklist for each item in a list, such as every story in a release, and is approved only when every item in scope has an accepted result or an approval without a run. The child must give a `result:` (section 43); the loop's `accepts:` says which results clear an item.
 
 - **Syntax.** `{for.each}` is a built-in type frozen as types.json version 5: `process:` (required), `from: #<jira.search step>`, `items:` (required: `jira.issue`, or `item` for any list, §44.1), `source:` and `noun:` (§44.1), `max:` (1 to 500, 200 by default), and the pins `version:`, `pass:` (with `item:key` and `item:title`) and `accepts:`. `carry:` and `sets: <detail>=result` are refused: results stay per item. `PF.map` checks (`loopChecks`) and `check_folder.py` (`loop_blockers`) word the blockers the same.
@@ -1350,7 +1361,7 @@ Every scope record is checked as a reader will read it before it is filed (`PF.l
 
 ## 45. Living runs: to-dos that change a run while it runs (4.0 slice 1)
 
-Status: **Built for slices 1 to 3.** Slice 1: the records, their reduction, authority, holds and the recorder's application. Slice 2: the run screen's easy actions, the inbox, `flightdeck todo`, the readers and the checker (below). Slice 3: spreads (45.1). Slice 4 adds facts (45.2). The design is `flightdeck-living-runs-design` (the plan of record, kept with the project's notes).
+Status: **Built** (4.0.0). Slice 1: the records, their reduction, authority, holds and the recorder's application. Slice 2: the run screen's easy actions, the inbox, `flightdeck todo`, the readers and the checker (below). Slice 3: spreads (45.1). Slice 4: facts (45.2). Slice 5: keep for next time (45.3) and checklist-linked to-dos (45.4). Slice 6: plan versus now and the receipt (45.5). The design is `flightdeck-living-runs-design` (the plan of record, kept with the project's notes).
 
 A living run gains to-dos while it runs: work added to a phase, a step or an item's loop row, then done, declined (Won't do), moved elsewhere (a ticket, a link or another run: a request, compound or application naming its own run as the destination is refused, since that would release the work while it went nowhere) or reopened. A to-do is never stored in `run.json`. Like a loop's scope (§44), it is the reduction of immutable records in `proposals/`:
 

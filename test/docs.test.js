@@ -458,4 +458,19 @@ rule('The Module results example in docs/map-format.md publishes as written: no 
   assert.deepStrictEqual(JSON.parse(JSON.stringify(PF.library.lints(example).map((t) => t.text))), []);
 });
 
+/* #123 (4.1.1): design.md's navigation reaches every numbered section: the contents, the topic index and the release map. */
+rule('docs/design.md: every numbered section is in the contents and the topic index, and in the release map under the release its heading names', () => {
+  const d = read('docs/design.md'), cut = (from, to) => d.slice(d.indexOf(from), d.indexOf(to, d.indexOf(from) + from.length));
+  const contents = cut('### Contents', '\n### '), topics = cut('### Topic index', '\n### '), map = cut('### Releases and sections', '\n### ');
+  const slug = h => '#' + h.toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s/g, '-');
+  const secs = (d.match(/^## \d+\. .*$/gm) || []).map(l => ({ n: /^## (\d+)\./.exec(l)[1], a: slug(l.slice(3)), rel: (/\((\d+\.\d+)/.exec(l) || [])[1] }));
+  const missing = [];
+  secs.forEach(s => {
+    if (!contents.includes('](' + s.a + ')')) missing.push('contents: §' + s.n);
+    if (!topics.includes('](' + s.a + ')')) missing.push('topic index: §' + s.n);
+    if (s.rel && +s.n >= 40) { const row = (map.match(new RegExp('^\\| ' + s.rel.replace('.', '\\.') + '[ ,|].*$', 'm')) || [''])[0]; if (!row.includes('](' + s.a + ')')) missing.push('release map ' + s.rel + ': §' + s.n); }
+  });
+  assert.deepStrictEqual(missing, []);
+});
+
 run();
