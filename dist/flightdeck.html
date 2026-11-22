@@ -113,6 +113,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   --chart-mark: #5A55A8; --chart-track: #E3E6EF; --chart-axis: #7D877F; --chart-mid: #16202A;
   --mark: #FCE38A; --on-mark: #16202A;
   --incoming: #2E6BD3; --on-incoming: #1B4A99;
+  --rn-shadow: 0 0 0 1px rgba(22,32,42,.04), 0 24px 64px rgba(22,32,42,.22); --rn-backdrop: rgba(22,32,42,.55);
   --display: 'Barlow Condensed', 'Bahnschrift SemiCondensed', 'Arial Narrow', sans-serif;
   --body: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
   --mono: 'Cascadia Mono', Consolas, ui-monospace, Menlo, monospace;
@@ -125,14 +126,16 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   --go: #3CC08A; --go-soft: #163327; --stop: #F2776C; --stop-soft: #3A1F1D; --plan: #A9A5F2; --plan-soft: #25243F;
   --chart-mark: #A9A5F2; --chart-track: #26303D; --chart-axis: #6E7D88; --chart-mid: #E6ECEF;
   --focus: #86B4FF; --shadow: 0 1px 0 rgba(0,0,0,.3); color-scheme: dark;
-  --mark: #6B5410; --on-mark: #FFF4CF; --incoming: #86B4FF; --on-incoming: #B9D3FF; } }
+  --mark: #6B5410; --on-mark: #FFF4CF; --incoming: #86B4FF; --on-incoming: #B9D3FF;
+  --rn-shadow: 0 0 0 1px rgba(255,255,255,.04), 0 24px 64px rgba(0,0,0,.45); --rn-backdrop: rgba(4,7,10,.9); } }
 :root[data-theme="dark"] {
   --paper: #0E1418; --card: #162027; --ink: #E6ECEF; --muted: #98A6B0; --line: #29353F; --field: #6E7D88; --chip: #1E2A33;
   --amber: #F2B705; --on-amber: #1A1300; --stripe: #0E1418; --amber-soft: #3A3010;
   --go: #3CC08A; --go-soft: #163327; --stop: #F2776C; --stop-soft: #3A1F1D; --plan: #A9A5F2; --plan-soft: #25243F;
   --chart-mark: #A9A5F2; --chart-track: #26303D; --chart-axis: #6E7D88; --chart-mid: #E6ECEF;
   --focus: #86B4FF; --shadow: 0 1px 0 rgba(0,0,0,.3); color-scheme: dark;
-  --mark: #6B5410; --on-mark: #FFF4CF; --incoming: #86B4FF; --on-incoming: #B9D3FF; }
+  --mark: #6B5410; --on-mark: #FFF4CF; --incoming: #86B4FF; --on-incoming: #B9D3FF;
+  --rn-shadow: 0 0 0 1px rgba(255,255,255,.04), 0 24px 64px rgba(0,0,0,.45); --rn-backdrop: rgba(4,7,10,.9); }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--paper); color: var(--ink); }
@@ -1161,8 +1164,8 @@ pre.source { white-space: pre-wrap; word-break: break-word; max-height: 70vh; ov
 .wn .ver { color: var(--muted); }
 .wn-dot { position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 50%; background: var(--go); border: 2px solid var(--card); }
 .pill.newer { background: var(--amber-soft); color: var(--ink); }
-.rn-box { background: var(--card); color: var(--ink); border-radius: 14px; width: min(1400px, calc(100vw - 48px)); height: min(960px, calc(100vh - 48px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--line); box-shadow: 0 0 0 1px rgba(255,255,255,.04), 0 24px 64px rgba(0,0,0,.45); }
-.overlay:has(.rn-box) { background: rgba(4,7,10,.9); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
+.rn-box { background: var(--card); color: var(--ink); border-radius: 14px; width: min(1400px, calc(100vw - 48px)); height: min(960px, calc(100vh - 48px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--line); box-shadow: var(--rn-shadow); }
+.overlay:has(.rn-box) { background: var(--rn-backdrop); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
 .rn-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
 .rn-head h2 { margin: 0; font-size: 22px; }
 .rn-head h2 span { font-family: var(--body); font-size: 13px; font-weight: 500; color: var(--muted); margin-left: 10px; }
