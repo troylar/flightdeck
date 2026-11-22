@@ -1017,6 +1017,33 @@ function dependsOn(fs, prefixes) {
   return v;
 }
 
+/* One run's reports and the decisions on them (4.1, next --contract 2), read through a view that lists and reads only
+   reports/<process>/<run>.* and report-decisions/<process>/<run>.*: { list, decisions }. scope(p) adds those paths to what the
+   output depends on; take(problems) names each one. */
+async function runReports(PF, L, proc, run, scope, take) {
+  const X = PF.reports, repo = PF.repo;
+  const inRun = (dir) => (p) => p === dir || p === dir + '/' + proc || (p.startsWith(dir + '/' + proc + '/') && p.slice(dir.length + proc.length + 2).startsWith(run + '.'));
+  const rep = inRun(X.DIR), dec = inRun(X.DDIR), ok = (p) => p === '' || rep(p) || dec(p);
+  scope((p) => rep(p) || dec(p));
+  const fs = L.fs, v = {};
+  v.list = (p, o) => (ok(p) ? fs.list(p, o).then((items) => (items || []).filter((i) => ok(p + '/' + i.name))) : Promise.resolve([]));
+  ['read', 'stat', 'blob'].forEach((m) => { if (fs[m]) v[m] = (p, o) => (ok(p) ? fs[m](p, o) : Promise.resolve(null)); });
+  const got = await repo.loadRunReports(v, proc, run);
+  if (got.failed) take([{ path: X.DIR + '/' + proc + '/', kind: got.kind || 'unreadable', why: fileWhy(got.failed) }]);
+  (got.badNames || []).forEach((b) => take([{ path: X.DIR + '/' + proc + '/' + (b.name || b), kind: 'malformed', why: 'This file\'s name isn\'t one a report has, so it isn\'t read as one.' }]));
+  got.list.forEach((g) => {
+    (g.copies || []).filter((c) => !c.ok).forEach((c) => take([{ path: X.DIR + '/' + proc + '/' + c.name, kind: c.kind || 'malformed', why: fileWhy(c.why || 'This report can\'t be read.') }]));
+    if (g.differ) take([{ path: X.DIR + '/' + proc + '/' + g.copies[0].name, kind: 'malformed', why: 'Copies of this report say different things, so it can\'t be accepted.' }]);
+  });
+  const all = await repo.loadReportDecisions(v).catch((e) => { take([{ path: X.DDIR + '/' + proc + '/', kind: 'unreadable', why: fileWhy(e && e.message || String(e)) }]); return []; });
+  const decisions = [];
+  all.forEach((d) => {
+    if (d._unread) take([{ path: X.DDIR + '/' + d.process + '/' + d._file, kind: d.kind || 'unreadable', why: fileWhy(d.why || 'This decision can\'t be read.') }]);
+    else if (d.process === proc && d.run === run) decisions.push(d);
+  });
+  return { list: got.list, decisions };
+}
+
 /* eng: { PF, version } (loadEngine()). adapter: a folder with list, read, stat and blob (and links and skipped, as the
    command line's has); it's only ever read through PF.repo.readOnly, inside a problem ledger (PF.repo.ledger) that names
    every failed list or read, every listed file gone when read, and everything the loaders found malformed. req: { cmd,
@@ -1151,7 +1178,12 @@ async function readData(eng, adapter, req) {
         }
       }
       if (req.cmd === 'run') return done(keep, usable ? (two ? (rr, it, nm) => A.run2(rr, it, nm, { kids }) : A.run)(r, F.list([r], one.fuDecisions), nameOf) : { run: null });
-      return done(keep, usable ? (two ? (rr, nm, pp) => A.next2(rr, nm, pp, { kids }) : A.next)(r, nameOf, req.person || null) : { run: key, person: req.person ? nameOf(req.person) : null, next: null, mine: null });
+      /* What the run waits on (4.1): next with contract 2 reads this run's reports and the decisions on them, and nothing else
+         of reports/ or report-decisions/. Each problem is named on the file it's about; a report that can't be read is never
+         a guess at what it says. */
+      let reports = null;
+      if (req.cmd === 'next' && two && usable) reports = await runReports(PF, L, m[1], m[2], (p) => { const was = relevant; relevant = (q) => was(q) || p(q); }, take);
+      return done(keep, usable ? (two ? (rr, nm, pp) => A.next2(rr, nm, pp, { kids, reports }) : A.next)(r, nameOf, req.person || null) : { run: key, person: req.person ? nameOf(req.person) : null, next: null, mine: null });
     }
     /* Each command reads only what its output depends on (needs()), so every problem the ledger holds is one that output
        depends on, and all of them are reported: there's no scope to fall behind what's read. */
