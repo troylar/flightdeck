@@ -33707,7 +33707,7 @@ PF.vk = (function () {
   function isNew(ctx, kind, key, track) { var f = ctx.state.obFlash; return !!f && f.kind === kind && f.key === key && (track == null || +f.track === +track); }
   /* #110 (4.1.1): the step's sentence as written, each ^detail in its place (a chip), so "shows ^tag in ^environment" never
      reads "shows in". The outline's text has the references taken out, so this reads the line's own words; '' when it can't. */
-  function sentence(s) {
+  function stepSentence(s) {
     var rest = s.parts && typeof s.parts.rest === 'string' ? s.parts.rest : null;
     if (rest == null || !s.binds.length) return '';
     var words = plain(rest.replace(/\s*@[\w-]+/g, '')).trim(), out = '', re = /\^([\w-]+)/g, last = 0, m;
@@ -33715,7 +33715,7 @@ PF.vk = (function () {
     return out + esc(words.slice(last));
   }
   function stepRow(ctx, p, s, sel, B) {
-    var t = T.get(s.type, teamTypes(ctx)), on = sel && sel.kind === 'step' && sel.key === s.key, inline = sentence(s);
+    var t = T.get(s.type, teamTypes(ctx)), on = sel && sel.kind === 'step' && sel.key === s.key, inline = stepSentence(s);
     var meta = (s.must ? '<span class="badge b-must">Must do</span>' : '') + (s.planned ? '<span class="badge b-plan">Automation planned</span>' : '') +
       (s.roles.length ? '<span class="ob-role">' + esc(K.atRoles(s.roles, 'ob-step-roles')) + '</span>' : '') + (inline ? '' : s.binds.map(function (b) { return '<span class="ob-chip">^' + esc(b) + '</span>'; }).join('')) + fixBadge(B, s.id);
     var inc = incoming(ctx, 'step', s.key);

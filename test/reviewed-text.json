@@ -473,8 +473,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/ui/views/builder.js": {
-      "sha256": "2ba3f757d40218f27ce25aec2b403925a8b5661962e576e4eda804235754e7f6",
-      "reviewed": "4.1.1 #110: the builder row shows the step's sentence as written, each ^detail an escaped chip in its place; checked for direct writes and unconditional deletes"
+      "sha256": "8f7e12126d6d0e8e525e0f362bebef068ab781a95c6d6dbe2bbe812b945d2047",
+      "reviewed": "4.1.1 #110 follow-up: the step-sentence helper renamed stepSentence so it no longer replaces the parts box's sentence(); checked for direct writes and unconditional deletes"
     },
     "src/ui/views/common.js": {
       "sha256": "e019b101c5cd2de3d50ba2553b5ca1d20fa56bfb18f20d0563b06efea7afa2a5",
