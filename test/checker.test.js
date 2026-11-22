@@ -467,7 +467,7 @@ rule('Each older release\'s checker reads its own folder and this version\'s, an
     for (const t of H.bundles.tags()) {
       const b = H.bundles.get(t.tag);
       if (!b) continue;
-      const ck = path.join(root, t.tag + '.py'); fs.writeFileSync(ck, b.files['check_folder.py']);
+      const cd = path.join(root, t.tag); fs.mkdirSync(cd); const ck = path.join(cd, 'check_folder.py'); fs.writeFileSync(ck, b.files['check_folder.py']); if (b.files['run_verdict.py']) fs.writeFileSync(path.join(cd, 'run_verdict.py'), b.files['run_verdict.py']);
       for (const [name, files] of [['own', H.readTree(path.join(G.DIR, t.tag))], ['this version', main]]) {
         const dir = path.join(root, t.tag + '-' + name.replace(' ', '-')); put(dir, withV2(files));
         const p = JSON.parse(cp.execFileSync(py, ['-I', ck, dir], { encoding: 'utf8' })).publications.backup;
