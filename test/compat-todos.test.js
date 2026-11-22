@@ -69,6 +69,9 @@ rule(TAG + ' (exact, as shipped): shows the run with to-dos by name only, can\'t
 
 function cli(bin, ...a) { const r = cp.spawnSync(process.execPath, [bin, ...a], { encoding: 'utf8' }); let j = null; try { j = JSON.parse(r.stdout || r.stderr); } catch (e) { j = { raw: r.stdout + r.stderr }; } return { code: r.status, json: j }; }
 const bare = (j) => { const o = JSON.parse(JSON.stringify(j)); delete o.app; delete o.readAt; return o; };
+/* Fields this version added since that release (a contract only gains fields): next's waitingOn (4.1). Taken from this
+   version's output only, after checking it's there, so everything else still has to match exactly. */
+const added = (j) => { const o = bare(j), n = o.data && o.data.next; if (n && o.data.run && typeof o.data.run === 'string') { assert.ok(Array.isArray(n.waitingOn), 'next says what the run waits on'); delete n.waitingOn; } return o; };
 rule(TAG + '\'s command and checker name the run with to-dos and its records as newer and write nothing; run, next and runs print the same for the run without to-dos', async () => {
   const b = H.bundles.get(TAG); assert.ok(b, TAG + ' is recorded');
   const { files, records } = await folder(), root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-compat-todos-'));
@@ -83,14 +86,14 @@ rule(TAG + '\'s command and checker name the run with to-dos and its records as 
     records.forEach((f) => assert.ok((all.json.problems || []).some(x => x.path === 'proposals/' + f && x.kind === 'newer'), f + ' is newer there: ' + JSON.stringify(all.json.problems)));
     let py = null; for (const c of ['python3', 'python']) { try { cp.execFileSync(c, ['--version'], { stdio: 'ignore' }); py = c; break; } catch (e) { /* next */ } }
     if (py) {
-      const ck = path.join(root, 'check_folder.py'); fs.writeFileSync(ck, b.files['check_folder.py']);
+      const ck = path.join(root, 'check_folder.py'); fs.writeFileSync(ck, b.files['check_folder.py']); if (b.files['run_verdict.py']) fs.writeFileSync(path.join(root, 'run_verdict.py'), b.files['run_verdict.py']);
       const res = JSON.parse(cp.execFileSync(py, ['-I', ck, dir], { encoding: 'utf8' }));
       records.forEach((f) => assert.ok(res.refused.some(x => x.file === 'proposals/' + f && /newer/.test(x.why)), f + ': ' + JSON.stringify(res.refused)));
     }
     assert.strictEqual(JSON.stringify(H.readTree(dir)), before, TAG + ' wrote nothing');
     for (const a of [['run', dir, 'release-notes/run-p'], ['next', dir, 'release-notes/run-p', '--as', 'person-avery']]) {
       const theirs = cli(OLD, ...a, '--contract', '2', '--json'), mine = cli(MINE, ...a, '--contract', '2', '--json');
-      same([mine.code, bare(mine.json)], [theirs.code, bare(theirs.json)], a[0] + ' run-p prints what ' + TAG + ' prints');
+      same([mine.code, added(mine.json)], [theirs.code, bare(theirs.json)], a[0] + ' run-p prints what ' + TAG + ' prints');
     }
     const theirs = cli(OLD, 'runs', dir, '--contract', '2', '--json'), mine = cli(MINE, 'runs', dir, '--contract', '2', '--json');
     same(mine.json.data.runs.find(r => r.id === 'run-p'), theirs.json.data.runs.find(r => r.id === 'run-p'), 'runs lists run-p as ' + TAG + ' does');

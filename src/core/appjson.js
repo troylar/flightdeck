@@ -30,6 +30,9 @@ PF.appjson = (function () {
   var FOLLOWUP = { key: 'string', process: 'string', run: 'string', runTitle: 'string', runEnded: 'boolean', id: 'string', text: 'string', owner: opt(PERSON),
     ticket: 'string', step: 'string', at: 'string', status: 'string', label: 'string', tie: 'boolean', decision: opt(DECISION) };
   var ROLE = { role: 'string', person: opt(PERSON) };
+  /* What a run waits on (4.1, next's waitingOn): a person in a role, a linked run, a report nobody decided, or a to-do. */
+  var WAIT = { $or: [{ kind: 'string', role: 'string', person: opt(PERSON), step: opt('string'), gate: opt('string') }, { kind: 'string', step: 'string', process: 'string', id: 'string' },
+    { kind: 'string', step: 'string', producer: { name: 'string', version: 'string' }, id: 'string', verdict: 'string' }, { kind: 'string', id: 'string', text: 'string', gate: 'string' }] };
   /* A {jira.search} step (2.16, design section 6.1) carries search: the template in a version, resolved from the run's details
      and its copied address in a run. Every other step is exactly as before, without the key. */
   var SEARCH_TPL = { query: opt('string'), filter: opt('string'), results: 'string', what: 'string', site: opt('string'), uses: ['string'] };
@@ -56,7 +59,7 @@ PF.appjson = (function () {
     next: { run: 'string', person: opt(PERSON),
       next: opt({ kind: 'string', headline: HEADLINE, phase: opt({ index: 'number', id: 'string', title: 'string' }), step: opt(orSearch({ id: 'string', text: 'string', roles: [ROLE] }, 'run')),
         gate: opt({ id: 'string', title: 'string', status: 'string', owner: opt('string') }),
-        tracks: [{ id: 'string', title: 'string', left: 'number', step: opt({ id: 'string', text: 'string' }), people: [PERSON] }] }),
+        tracks: [{ id: 'string', title: 'string', left: 'number', step: opt({ id: 'string', text: 'string' }), people: [PERSON] }], waitingOn: [WAIT] }),
       mine: opt({ phase: { index: 'number', id: 'string', title: 'string' }, step: { id: 'string', text: 'string' } }) },
     followups: { followUps: [FOLLOWUP] },
     /* flightdeck plan request (1.20): what it did, and the plan as written, as already in the folder, or as it would be written. */
@@ -446,6 +449,40 @@ PF.appjson = (function () {
     out.followUps = mine.map(function (x) { return followUp(x, nameOf); });
     return { run: out };
   }
+  /* What the run waits on (4.1), for the step or gate next points at (n, next's own output): the open to-dos before that
+     phase's gate, the linked runs its steps started that haven't settled them, the reports nobody has decided yet on an
+     unanswered step of an open phase, then the roles the checklist names (the step's, or the gate's owner) with who holds
+     each. o: { todos, reports } under contract 2 only; contract 1 reads run.json alone. A paused, complete or ended run
+     waits on nobody. */
+  function waitingOn(r, mp, n, nameOf, o) {
+    o = o || {};
+    if (!n || (n.kind !== 'step' && n.kind !== 'blocked' && n.kind !== 'gate') || !n.phase || !mp.phases[n.phase.index]) return [];
+    var ph = mp.phases[n.phase.index], out = [];
+    (o.todos || []).forEach(function (x) { if (x && x.state === 'open' && x.placement && x.placement.beforeGate === ph.gate.id) out.push({ kind: 'todo', id: s(x.id), text: s(x.text), gate: s(ph.gate.id) }); });
+    ph.steps.forEach(function (x) {
+      var a = r.steps[x.id];
+      if (x.type === 'run.process' && a && a.child && !a.child.failed && a.s !== 'blocked' && !R.answered(r, x)) out.push({ kind: 'run', step: s(x.id), process: s(a.child.process), id: s(a.child.id) });
+    });
+    if (o.reports) reportsWaiting(r, mp, o.reports).forEach(function (x) { out.push(x); });
+    if (n.kind === 'gate') { var ow = n.gate && n.gate.owner; if (ow) out.push({ kind: 'person', role: s(ow), person: nameOf(r.roles[ow]), step: null, gate: s(n.gate.id) }); }
+    else if (n.step) (n.step.roles || []).forEach(function (x) { out.push({ kind: 'person', role: x.role, person: x.person, step: n.step.id, gate: null }); });
+    return out;
+  }
+  /* A report waits on the recorder while nobody has decided it (or it was reopened, or two decisions tie: PF.reports'
+     undecided), on a step of an open phase not answered yet. rep: { list (PF.reports.group's), decisions }. */
+  function reportsWaiting(r, mp, rep) {
+    if (r.ended || r.state !== 'running') return [];
+    var X = PF.reports, cur = X.current(rep.decisions || []), out = [];
+    (rep.list || []).forEach(function (g) {
+      if (!g || !g.report || g.differ || (g.unreadable || []).length) return;
+      var x = M.findStep(mp, g.step);
+      if (!x || R.answered(r, x.step) || !R.phaseOpen(r, mp, x.phaseIndex)) return;
+      var st = X.decided(g, cur, r, x.step).state;
+      if (st !== 'none' && st !== 'open' && st !== 'tie') return;
+      out.push({ kind: 'report', step: s(g.step), producer: { name: s(g.report.producer.name), version: s(g.report.producer.version) }, id: s(g.report.id), verdict: s(g.report.verdict) });
+    });
+    return out;
+  }
   /* What's waiting and on whom: R.nextUp exactly, the same for everyone who asks; with a person, R.myNext too (mine). */
   function next(r, nameOf, personId) {
     var mp = R.mapOf(r), nu = R.nextUp(r, mp), ph = nu.phaseIndex != null && mp.phases[nu.phaseIndex] ? mp.phases[nu.phaseIndex] : null;
@@ -454,6 +491,7 @@ PF.appjson = (function () {
       gate: nu.gate ? { id: s(nu.gate.id), title: s(nu.gate.title), status: s(nu.status), owner: orNull(nu.gate.owner) } : null,
       tracks: (nu.tracks || []).map(function (t) { return { id: s(t.track.id), title: s(t.track.title), left: t.left, step: t.step ? { id: s(t.step.id), text: s(t.step.text) } : null, people: t.people.map(nameOf).filter(Boolean) }; }) };
     if (nu.step && R.isSearchStep(nu.step)) out.step.search = searchRun(r, mp, nu.step);
+    out.waitingOn = waitingOn(r, mp, out, nameOf);
     var my = personId ? R.myNext(r, mp, personId) : null, mph = my ? mp.phases[my.phaseIndex] : null;
     return { run: r.process + '/' + r.id, person: personId ? nameOf(personId) : null, next: out,
       mine: my ? { phase: { index: my.phaseIndex, id: s(mph.id), title: s(mph.title) }, step: { id: s(my.step.id), text: s(my.step.text) } } : null };
@@ -537,6 +575,7 @@ PF.appjson = (function () {
     var st = out.next && out.next.step, x = st ? M.findStep(mp, st.id) : null;
     if (st && x && resulted(r, x.step, r.steps[st.id])) { st.heldBy = heldBy(r, x.step, r.steps[st.id]); st.awaiting = awaiting(r, x.step, r.steps[st.id], o && o.kids); }
     if (living(r)) out.todos = { open: todoCounts(r).open, holds: todoHolds(r) };
+    if (out.next) out.next.waitingOn = waitingOn(r, mp, out.next, nameOf, { todos: living(r) && r._tdv ? r._tdv.todos : null, reports: o && o.reports });
     return out;
   }
   function followUps2(items, nameOf) { return { followUps: (items || []).map(function (x) { var o = followUp(x, nameOf); o.test = !!x.test; return o; }) }; }

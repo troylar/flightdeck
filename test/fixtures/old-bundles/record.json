@@ -485,6 +485,29 @@
         "fs.js": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",
         "storage.js": "6587fdf8dda56936d593a39d3be93c5c769f2e1a8352f05313b4c4386c53d39c"
       }
+    },
+    "v3.0.1": {
+      "commit": "bdf28a9e2cce70bf252e0609d4305ba5a7daef27",
+      "sha256": {
+        "check_folder.py": "24c5a846ef74e5b1d549fd6039dafee044d13f9be55b22b693c87d85df3c3192",
+        "core.js": "90def2160f7cbdaaea15c60cb58794f8746eaf0eab1f97d812f089a3593542ca",
+        "flightdeck.html": "d1dcde869caabe73884fdacf1c2c28fe5da0b5e135a1849a8bdf49fdc2d45a90",
+        "flightdeck.js": "1c19f0abd8237f2122a6a4562c3632b66a0d029cb71a5ddffc43e7d211947755",
+        "fs.js": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",
+        "storage.js": "f4711445fd43c0072c071b8324b85ff321b6f36659d2e63ab21e5812101effaa"
+      }
+    },
+    "v4.0.0": {
+      "commit": "c09f5d80882f445a5957acdb6eb8a36d8d876241",
+      "sha256": {
+        "check_folder.py": "0201f9fb9e66b0d1682334fbf5c1589cd1f61d4103ae325a1c194fa8c9f2b4c6",
+        "core.js": "5c5c701b0874392ed86f78455b17325635bde40505fc91a3554db1de2ae02325",
+        "flightdeck.html": "5b75158e4f0c09b8a5c215d93e09d16804651e5caa43f00ee019846862e8efc0",
+        "flightdeck.js": "5eb7ce812fc489f0ddaa1f29fe9aac7d078266a6ef52f864663eacfe7b5f7d8f",
+        "fs.js": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",
+        "run_verdict.py": "a4c0467f3703f5efeeba4cadb1053287216ff0d1d320e4d2851d8bec36622634",
+        "storage.js": "bfe02339f475d0951c345c40bb26a945f6dce1e55ec03bf578de9a978ef85faa"
+      }
     }
   }
 }

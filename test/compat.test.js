@@ -642,6 +642,9 @@ eachTag('In its app, a refused change is kept only in that window: on screen, ne
   b.click('restore-local'); await b.tick(120);
   const after = snap(), changed = Object.keys(after).filter(p => after[p] !== before[p]);
   if (below(t.version)) { same(changed, [], 'below the floor: nothing'); return; }
+  /* 4.0's recovery is guarded (docs/design.md section 45): on a run it can't read it writes nothing at all, not even that record. */
+  /* Known (4.0.0): its message blames a loop's run or version, not the newer run; the copy stays and nothing is written. */
+  if (at(t.version, '4.0.0')) { same(changed, [], 'from 4.0: nothing'); assert.ok(/wasn't kept/.test(b.live()) && /still there/.test(b.live()), 'and it says the copy stays: ' + b.live()); return; }
   assert.strictEqual(changed.length, 1, JSON.stringify(changed));
   const rec = JSON.parse(after[changed[0]]);
   assert.ok(/\/replaced-[^/]+\.json$/.test(changed[0]) && rec.format === 'preflight-run/2' && !Object.keys(rec.steps).length && rec.snapshot === '', 'a name-only record');

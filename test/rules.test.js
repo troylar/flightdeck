@@ -1,7 +1,7 @@
 // Flightdeck's rules, one test each. Read these to learn how Flightdeck behaves.
 'use strict';
 const assert = require('assert');
-const { completeRun, load, example, exampleSetup, rule, run, sampleDone } = require('./harness');
+const { completeRun, exactOf, load, example, exampleSetup, rule, run, sampleDone } = require('./harness');
 const PF = load(), M = PF.map, R = PF.run, P = PF.publish, U = PF.util;
 const EX = exampleSetup(PF);
 const done = sampleDone(PF);
@@ -9,13 +9,14 @@ const NOW = '2026-10-17T21:00:00.000Z';
 // Objects from the sandbox have their own prototypes, so compare plain JSON copies.
 const same = (a, b, msg) => assert.deepStrictEqual(JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b)), msg);
 const people = JSON.parse(example('people.json'));
-const MAPS = ['release', 'check-in', 'sprint-start', 'new-skill', 'incident', 'jira-cleanup', 'github-pr'];
+const MAPS = ['release', 'check-in', 'sprint-start', 'new-skill', 'incident', 'jira-cleanup', 'github-pr', 'service-change', 'change-review', 'change-rework', 'change-rollout'];
 
 function pub(name) {
   const md = example('maps/drafts/' + name + '.md');
   const b = P.build(md, { people, ...EX, by: 'person-avery', changes: 'First version', existing: [], now: NOW, rand: 'abcd1234' });
   assert.ok(!b.blockers, (b.blockers || []).join(' | '));
-  const v = P.verify(b.folder, b.files);
+  /* The exact bytes, as the folder reader passes them: a /2 version (typed details, results) is checked on them. */
+  const v = P.verify(b.folder, b.files, exactOf(PF, b.files));
   assert.ok(v.ok, v.why);
   return v;
 }

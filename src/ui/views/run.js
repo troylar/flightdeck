@@ -1410,8 +1410,27 @@
     } });
     var picker = '<div class="rw-picker">' + ph.box + '<label class="small" for="rw-phase">Phase</label>' + ph.select + ph.more + (P ? '' : utilities(ctx, r, items.length, late, 'picker')) + '</div>';
     return '<div class="fpe-panes rw-panes"><nav class="fpe-pane rw-rail" aria-label="Phases"><h2 class="rw-h2">Phases</h2>' + railHtml(ctx, r, map, nx, items.length, late) + '</nav>' +
-      '<section class="fpe-pane rw-list" id="rw-list" aria-label="Checklist">' + (selOf(ctx) ? '<button class="linkish rw-skip" data-act="to-ins">Skip to the selected step</button>' : '') + '<div class="rw-dock">' + nextBar(ctx, r, map, nx, rec) + (P ? '' : counts(ctx, r, map)) + picker + '</div>' + (P ? '' : timeline(ctx, r, map, items) + followUps(ctx, r, rec) + (V.reportPanel ? V.reportPanel(ctx, r, map) : '')) + '<div class="deck">' + deck + '</div></section>' +
+      '<section class="fpe-pane rw-list" id="rw-list" aria-label="Checklist">' + (selOf(ctx) ? '<button class="linkish rw-skip" data-act="to-ins">Skip to the selected step</button>' : '') + '<div class="rw-dock">' + nextBar(ctx, r, map, nx, rec) + (P ? '' : counts(ctx, r, map)) + picker + '</div>' + (P ? '' : linkedPanel(ctx, r, map) + timeline(ctx, r, map, items) + followUps(ctx, r, rec) + (V.reportPanel ? V.reportPanel(ctx, r, map) : '')) + '<div class="deck">' + deck + '</div></section>' +
       inspector(ctx, r, map, rec) + '</div>';
+  }
+  /* Linked runs (4.1): a run with two or more linked steps lists them in one place, each with the run it started, how that
+     run stands and its result (R.linkedRuns). Read-only: starting, linking and settling stay on each step. */
+  function linkedPanel(ctx, r, map) {
+    var rows = R.linkedRuns(r, map, ctx.findRun);
+    if (rows.length < 2) return '';
+    var byId = Object.create(null); M.steps(map).forEach(function (x) { byId[x.step.id] = x; });
+    var said = { done: 'Counted', open: 'Not counted yet. The recorder\'s window counts it.' };
+    return '<section class="rw-panel rw-linked" id="rw-linked" aria-labelledby="rw-linked-h"><h2 class="rw-h2" id="rw-linked-h">Linked runs</h2><ul class="rl-list">' + rows.map(function (x) {
+      var at = byId[x.step], st = at.step, cr = x.run, how;
+      if (x.state === 'not-needed') how = 'Not needed: ' + esc(x.why);
+      else if (x.state === 'na') how = 'Marked N/A';
+      else if (x.state === 'not-started') how = 'Not started';
+      else if (x.state === 'not-visible') how = 'Linked to a run that isn\'t in this folder yet';
+      else if (x.state === 'running') how = '<b>' + esc(cr.title) + '</b> · ' + esc(K.headline(cr, R.mapOf(cr)).text);
+      else how = '<b>' + esc(cr.title) + '</b> · ' + esc(R.outcomeText(cr, K.outcomeWord)) + ' · ' + (x.counted === 'held' ? 'Held: ' + esc(x.reason) : esc(said[x.counted] || ''));
+      return '<li class="rl-row" data-s="' + esc(x.state) + '"><span class="rl-step"><button class="linkish" data-act="goto" data-id="step-' + esc(st.id) + '">' + esc(K.stepPlain(st, K.refValue(r, map))) + '</button><span class="small"> · ' + esc(at.phase.title) + '</span></span>' +
+        '<span class="rl-how">' + how + '</span>' + (cr ? '<button type="button" class="mini" data-act="open-run" data-id="' + esc(x.key) + '" aria-label="Open ' + esc(cr.title) + '">Open</button>' : '') + '</li>';
+    }).join('') + '</ul></section>';
   }
   /* Practice (2.3): this screen over the draft as it's in the editor. The header and notices are Practice's own
      (views/practice.js); the checklist, gates, Next up and the selected step are the run's, with what a run records left out. */

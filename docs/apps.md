@@ -20,6 +20,8 @@ Flightdeck is a checklist tool for people: a monthly backup check, a quarterly a
 
 A report never checks a step by itself, and a request never starts a run by itself. A person always decides.
 
+Every command, sorted by what it may change in the folder and who decides next, is in [What each command may do](commands.md), with what a file in the folder can and can't prove.
+
 **On this page:** [What reading promises](#what-reading-promises) · [Commands](#commands) · [The envelope](#the-envelope) · [The data](#the-data) · [Contract 2](#contract-2-flightdeck-20) · [A walkthrough](#a-walkthrough) · [Asking for a run](#asking-for-a-run) · [Reporting work](#reporting-work) · [Writing drafts](#writing-drafts-for-ai-assistants) · [Registering a skill](#registering-a-skill-for-ai-assistants)
 
 ## What reading promises
@@ -195,9 +197,18 @@ A plan made with Flightdeck 2.0 for one exact version (`flightdeck-plan/2`: `for
 | Field | What it is |
 |---|---|
 | `run` | The run's key |
-| `next` | What the run screen points at, the same for everyone: `kind` (`step`, `gate`, `blocked`, `complete`, `paused` or `ended`), `headline`, `phase` (`index`, `id`, `title`), `step` (`id`, `text`, `roles` with each role's `person`), `gate` (`id`, `title`, `status`, `owner`) and `tracks` (each parallel track's `id`, `title`, steps `left`, its next `step` and its `people`) |
+| `next` | What the run screen points at, the same for everyone: `kind` (`step`, `gate`, `blocked`, `complete`, `paused` or `ended`), `headline`, `phase` (`index`, `id`, `title`), `step` (`id`, `text`, `roles` with each role's `person`), `gate` (`id`, `title`, `status`, `owner`), `tracks` (each parallel track's `id`, `title`, steps `left`, its next `step` and its `people`) and `waitingOn` (what the run waits on, below) |
 | `person` | With `--person`, that person; else `null` |
 | `mine` | With `--person`, that person's own next step (`phase` and `step`), or `null` when nothing is waiting on them |
+
+**What the run waits on** (4.1). `next.waitingOn` is a list, in this order, of what the step or gate `next` points at waits on. Each entry has a `kind` and says which one:
+
+- `todo` (contract 2 only): an open to-do before the gate of that phase: `id`, `text` and `gate` (the gate's ID).
+- `run`: a linked run a `{run.process}` step in that phase started and that hasn't settled the step yet: `step` (the step's ID), `process` and `id` (the linked run). It's read from the run's own file: the linked run itself isn't read, so it may already have ended; under contract 2, a step that accepts results says so in its `awaiting`.
+- `report` (contract 2 only): a report a tool wrote on an unanswered step of an open phase that nobody has decided yet (or it was reopened, or two decisions tie), so it waits on the run's recorder: `step`, `producer` (`name`, `version`), `id` and `verdict`. A report that can't be read, or whose copies differ, isn't listed; it's a problem on its file.
+- `person`: a role the checklist names, with who holds it: `role`, `person` (`id` and `name`, or `null` when nobody holds the role), and `step` (the step's ID) or `gate` (the gate's ID, for the gate's `owner`), the other one `null`. A step or gate that names no role adds none.
+
+A run that is `paused`, `complete` or `ended` waits on nothing: `[]`. Contract 1 reads only the run's own file, so it lists `run` and `person` entries; contract 2 also reads the run's to-dos, its reports in `reports/<process>/<run>.*` and the decisions on them in `report-decisions/<process>/<run>.*`, and nothing else there.
 
 ### followups
 

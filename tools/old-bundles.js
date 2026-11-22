@@ -1,6 +1,6 @@
 // Older releases as they shipped, for the cross-version tests (test/compat.test.js, docs/design.md section 28).
 // For each release tag in test/fixtures/old-bundles/record.json it takes, with git show, the shipped app (dist/flightdeck.html), the
-// command (bin/flightdeck.js) and, where the tag had one, the skills' checker (check_folder.py). It caches them in .old-bundles/
+// command (bin/flightdeck.js) and, where the tag had one, the skills' checker (check_folder.py, with run_verdict.py beside it from 4.0). It caches them in .old-bundles/
 // (not committed) and checks every file against the SHA-256 recorded for that tag, so a moved tag or a changed cache fails loudly.
 // Once cached, nothing needs git: the tests run offline.
 //   node tools/old-bundles.js            extract what isn't cached yet, check everything, list the tags
@@ -34,6 +34,9 @@ function fromGit(tag) {
   const html = git('show', tag + ':dist/flightdeck.html'), cli = git('show', tag + ':bin/flightdeck.js');
   let checker = null;
   try { checker = git('show', tag + ':example-folder/.flightdeck/skills/_flightdeck/check_folder.py'); } catch (e) { /* not in this tag */ }
+  /* From 4.0 the checker imports run_verdict.py from its own folder, so a release that ships one is recorded with it. */
+  let verdict = null;
+  try { verdict = git('show', tag + ':example-folder/.flightdeck/skills/_flightdeck/run_verdict.py'); } catch (e) { /* not in this tag */ }
   const core = block(html, 'pf-core'), app = block(html, 'pf-app'), storageBlock = block(html, 'pf-storage');
   if (core == null || app == null) throw new Error(tag + ': its dist/flightdeck.html has no pf-core or pf-app block');
   const fsSrc = safe(git('show', tag + ':src/storage/fs.js')), repoSrc = safe(git('show', tag + ':src/storage/repo.js'));
@@ -53,6 +56,7 @@ function fromGit(tag) {
   }
   const files = { 'flightdeck.html': html, 'flightdeck.js': cli, 'core.js': core, 'storage.js': storage, 'fs.js': app.slice(fsAt, fsAt + fsSrc.length) };
   if (checker != null) files['check_folder.py'] = checker;
+  if (verdict != null) files['run_verdict.py'] = verdict;
   return { commit, files };
 }
 
@@ -87,7 +91,7 @@ function mismatch(tag, got) {
 
 const memo = {};
 /* One release: { tag, version, supported, commit, files: { 'flightdeck.html', 'flightdeck.js', 'core.js', 'storage.js', 'fs.js',
-   'check_folder.py'? } }, from the cache when it matches the record, else from git (and cached). null, with a message, when
+   'check_folder.py'?, 'run_verdict.py'? } }, from the cache when it matches the record, else from git (and cached). null, with a message, when
    neither has it; in CI that throws instead. */
 function get(tag) {
   if (tag in memo) return memo[tag];

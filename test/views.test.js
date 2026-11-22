@@ -3239,4 +3239,52 @@ rule('Wording: what the screens and the CLI help call a checklist says checklist
   assert.ok(/A checklist is your process written down/.test(read('src/ui/views/setup.js')), 'the team\'s real-world process stays a process');
   assert.ok(/Checklists were called Processes before 2\.10/.test(read('src/ui/views/home.js')), 'and so does the note about the rename');
 });
+/* ---------- Linked runs (4.1): every linked run of a parent, in one place ---------- */
+function familyView() {
+  const pubOf = (n, rand, extra) => { const b = P.build(example('maps/drafts/' + n + '.md'), Object.assign({ people, ...EX, by: 'person-avery', changes: 'First', existing: [], now: NOW, rand }, extra || {})); assert.ok(!b.blockers, JSON.stringify(b.blockers)); const v = P.verify(b.folder, b.files, exactOf(PF, b.files)); assert.ok(v.ok, v.why); return v; };
+  const kids = { 'change-review': pubOf('change-review', 'view0101'), 'change-rework': pubOf('change-rework', 'view0102'), 'change-rollout': pubOf('change-rollout', 'view0103') };
+  const procs = {}; Object.keys(kids).forEach(k => { const i = P.index([kids[k]]); procs[k] = { latest: i.latest, all: i.all, clashes: i.clashes, broken: [] }; });
+  const procOf = (id) => procs[id] || null, pp = pubOf('service-change', 'view0104', { childProcs: procs });
+  const r = R.create(pp, { title: 'Ship billing-api', details: { service: 'billing-api', ticket: 'ABC-123' }, roles: { 'change-lead': 'person-casey' }, by: 'person-casey', session: 'me', now: NOW, id: 'chg1', pins: PF.pins.atStart(pp.map, pp.info.payload ? pp.info.payload.pins : null, procOf) });
+  const { ctx, state } = setup(); r._notes = []; r._conflicts = [];
+  const runs = [r]; ctx.run = () => r; ctx.data.runs = runs; ctx.findRun = k => runs.find(x => x.process + '/' + x.id === k) || null;
+  ctx.data.processes = [{ process: 'service-change', pubs: [pp], index: { latest: pp } }].concat(Object.keys(kids).map(k => ({ process: k, pubs: [kids[k]], index: { latest: kids[k] } })));
+  ctx.latestPub = id => kids[id] || (id === 'service-change' ? pp : null); ctx.procOf = procOf;
+  const kid = (proc, id, title, verdict) => {
+    const c = R.create(kids[proc], { id, title, details: { service: 'billing-api', ticket: 'ABC-123' }, roles: {}, by: 'person-casey', session: 'me', now: NOW, parent: { process: 'service-change', id: r.id, step: 'first-review' } }), map = R.mapOf(c);
+    if (verdict) { map.phases.forEach((ph, pi) => { ph.steps.forEach(s => R.done(c, map, s.id, 'person-casey', NOW, s.type === 'decide' ? { decision: verdict } : {})); R.pass(c, map, pi, 'person-casey', NOW); }); R.end(c, map, 'Completed', 'person-casey', 'Casey', NOW); }
+    runs.push(c); return c;
+  };
+  const link = (step, c) => R.linkChild(r, R.mapOf(r), step, { process: c.process, id: c.id, inputs: { service: 'billing-api', ticket: 'ABC-123' }, folder: kids[c.process].info.folder, format: c.format, pin: r.pins.children[step] }, 'person-casey', NOW, { run: c, procOf });
+  return { r, ctx, state, kid, link, procOf };
+}
+const linkedOf = (html) => { const a = html.indexOf('<section class="rw-panel rw-linked"'); return a < 0 ? '' : html.slice(a, html.indexOf('</section>', a) + 10); };
+
+rule('Run screen: Linked runs lists each linked step, the run it started, how it stands and its result, escaped, with labeled buttons', () => {
+  /* A run with one linked step has its child box, not a list. */
+  const one = setup();
+  assert.strictEqual(linkedOf(V.run(one.ctx)), '', 'one linked step: no Linked runs list');
+  const F = familyView();
+  let html = linkedOf(V.run(F.ctx));
+  assert.ok(/<section class="rw-panel rw-linked" id="rw-linked" aria-labelledby="rw-linked-h"><h2 class="rw-h2" id="rw-linked-h">Linked runs<\/h2>/.test(html), html.slice(0, 300));
+  assert.strictEqual((html.match(/<li /g) || []).length, 4, 'one row per linked step');
+  assert.ok(/Review the change<\/button>/.test(html) && /data-act="goto" data-id="step-first-review"/.test(html), 'each row goes to its step');
+  assert.ok(/Not started/.test(html) && /Not needed: only when \^review is needs-work \(review is not set\)/.test(html), 'not started, and not needed with why');
+  /* A running review, with a title from a file: escaped, and its button names it. */
+  const going = F.kid('change-review', 'rev1', 'Review <b>now</b> & "then"'); F.link('first-review', going);
+  html = linkedOf(V.run(F.ctx));
+  assert.ok(html.includes('Review &lt;b&gt;now&lt;/b&gt; &amp; &quot;then&quot;') && !html.includes('<b>now</b>'), 'the run title is escaped');
+  assert.ok(/<button type="button" class="mini" data-act="open-run" data-id="change-review\/rev1" aria-label="Open Review &lt;b&gt;now&lt;\/b&gt; &amp; &quot;then&quot;">Open<\/button>/.test(html), 'Open names the run it opens');
+  assert.ok(!/\son[a-z]+=/.test(html), 'no inline listeners: every button is a data-act');
+  /* Ended: its outcome and result, and whether the step counted it. */
+  const map = R.mapOf(F.r); F.r.steps['first-review'].child.failed = true;
+  const nw = F.kid('change-review', 'rev2', 'Second look', 'needs-work'); F.link('first-review', nw); R.settleChild(F.r, map, 'first-review', nw, 'person-casey', NOW, F.procOf);
+  html = linkedOf(V.run(F.ctx));
+  assert.ok(/Second look<\/b> · Completed · needs-work · Counted/.test(html), html);
+  assert.ok(!/Not needed/.test(html) && (html.match(/Not started/g) || []).length === 3, 'the route it chose now applies');
+  /* Not in this folder yet. */
+  F.ctx.findRun = () => null;
+  assert.ok(/Linked to a run that isn&#39;t in this folder yet|Linked to a run that isn't in this folder yet/.test(linkedOf(V.run(F.ctx))));
+});
+
 run();

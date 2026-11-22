@@ -1,9 +1,9 @@
 // Lightness: the examples can be finished, folded lists stay reachable, and each screen keeps to a budget of visible content.
 'use strict';
 const assert = require('assert'), fs = require('fs'), path = require('path');
-const { load, example, exampleSetup, rule, run, completeRun } = require('./harness');
+const { load, example, exactOf, exampleSetup, rule, run, completeRun } = require('./harness');
 const { boot } = require('./app-harness');
-const PF = load(), R = PF.run, P = PF.publish;
+const PF = load(), R = PF.run, P = PF.publish, M = PF.map;
 const EX = exampleSetup(PF), people = JSON.parse(example('people.json'));
 const NOW = '2026-10-21T15:00:00.000Z';
 const MAPS = fs.readdirSync(path.join(__dirname, '..', 'example-folder', 'maps', 'drafts')).filter(f => /\.md$/.test(f)).map(f => f.replace(/\.md$/, ''));
@@ -12,7 +12,7 @@ const MAPS = fs.readdirSync(path.join(__dirname, '..', 'example-folder', 'maps',
 function pub(id) {
   const b = P.build(example('maps/drafts/' + id + '.md'), { people, ...EX, by: 'person-avery', changes: 'First version', existing: [], now: NOW, rand: 'abcd1234' });
   assert.ok(!b.blockers, id + ': ' + (b.blockers || []).join(' | '));
-  const v = P.verify(b.folder, b.files);
+  const v = P.verify(b.folder, b.files, exactOf(PF, b.files));
   assert.ok(v.ok, v.why);
   return v;
 }
@@ -22,22 +22,29 @@ function complete(id, details, parent, trail) {
   const v = pub(id), meta = v.map.meta, roles = {};
   const full = {}; meta.context.forEach(k => { full[k] = (details || {})[k] || 'sample-' + k; });
   meta.roles.forEach(ro => { roles[ro] = 'person-casey'; });
-  const r = R.create(v, { title: meta.title, details: full, roles, by: 'person-casey', session: 's1', now: NOW, workflows: EX.workflows, parent }), map = R.mapOf(r);
+  /* A run/3 version pins each linked checklist when the run starts (PF.pins), so its children are published first. */
+  const procs = {}, procOf = (p) => procs[p] || null;
+  M.steps(v.map).forEach(x => { if (x.step.type === 'run.process') { const f = x.step.fields.process; if (!procs[f]) { const i = P.index([pub(f)]); procs[f] = { latest: i.latest, all: i.all, clashes: i.clashes, broken: [] }; } } });
+  const two = v.info.format !== 'preflight-publication/2', pins = two ? undefined : PF.pins.atStart(v.map, v.info.payload ? v.info.payload.pins : null, procOf);
+  /* A detail a linked run returns (sets: <detail>=result) isn't given at the start. */
+  M.steps(v.map).forEach(x => M.setsOf(x.step.fields.sets).forEach(e => { if (e.from === 'result') delete full[e.name]; }));
+  const r = R.create(v, { title: meta.title, details: full, roles, by: 'person-casey', session: 's1', now: NOW, workflows: EX.workflows, parent, pins }), map = R.mapOf(r);
   map.phases.forEach((ph, pi) => {
     ph.steps.forEach(s => {
       const where = trail + ' › ' + s.id;
+      if (R.stepNeeded(r, map, s.id)) return;
       if (s.type === 'run.process') {
         const f = R.fieldsOf(r, s), cv = pub(f.process), inputs = R.childDetails(r, s, cv.map.meta.context);
         const child = complete(f.process, inputs, { process: id, id: r.id, step: s.id, inputs }, where);
-        R.linkChild(r, map, s.id, { process: child.process, id: child.id, inputs }, 'person-casey', NOW);
-        assert.strictEqual(R.settleChild(r, map, s.id, child, 'person-casey', NOW), 'done', where + ': settled by its child run');
+        R.linkChild(r, map, s.id, { process: child.process, id: child.id, inputs, folder: cv.info.folder, format: child.format, pin: r.pins && r.pins.children ? r.pins.children[s.id] : undefined }, 'person-casey', NOW, { run: child, procOf });
+        assert.strictEqual(R.settleChild(r, map, s.id, child, 'person-casey', NOW, procOf), 'done', where + ': settled by its child run');
         return;
       }
       const values = {};
       R.evidenceFor(r, s).list.forEach(d => { if (d.required) values[d.name] = d.kind === 'url' ? 'https://example.com/' + d.name : d.kind === 'choice' ? d.options[0] : 'sample ' + d.name; });
       try { R.done(r, map, s.id, 'person-casey', NOW, values); } catch (e) { assert.fail(where + ': ' + e.message); }
     });
-    R.pass(r, map, pi, 'person-casey', NOW);
+    if (R.gateStatus(r, map, pi) !== 'skipped') R.pass(r, map, pi, 'person-casey', NOW);
   });
   R.end(r, map, 'Completed', 'person-casey', 'Casey Nguyen', NOW);
   assert.strictEqual(r.state, 'completed', trail);
@@ -121,8 +128,9 @@ rule('The visible-content counter skips closed details bodies, screen-reader tex
    phase has Add something to do with its Add button (1 button) and the gate it comes before. */
 const BUDGETS = {
   home: { words: 140, buttons: 13, chips: 1, target: { words: 120 } },
-  /* Raised by 2 in 2.11 on purpose: the Find a checklist box's label. */
-  processes: { words: 97, buttons: 13, chips: 3, target: { chips: 8 } },
+  /* Raised by 2 in 2.11 on purpose: the Find a checklist box's label. Raised in 4.1 on purpose: the example folder gains the
+     Ship a service change family, four checklists in a new group (Engineering / Changes): 23 words, 4 buttons. */
+  processes: { words: 120, buttons: 17, chips: 3, target: { chips: 8 } },
   /* The harness also counts the CSS-hidden phone picker and skip links, so its run and process numbers sit above the browser's. */
   'process page as a non-owner': { words: 280, buttons: 15, chips: 3, target: { words: 260, buttons: 16, chips: 12 } },
   'process page as its owner': { words: 427, buttons: 26, chips: 9, target: { words: 430 } },

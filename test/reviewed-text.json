@@ -1,32 +1,36 @@
 {
   "texts": {
     "CHANGELOG.md": {
-      "sha256": "1259ec6d7987ddd0b312bc7dd71299b7b04a746b9a91e9321e45f620145d1da3",
-      "reviewed": "4.0.0 entry dated 2026-11-15 with the folded slices (facts, 5, 6, 3's loops, spreads and write guards); checked for direct writes and unconditional deletes: text only, no code"
+      "sha256": "f87386ad937f87eeb7c40aed2ab31afbafdeab6e769c5fcd079d5bf8730f044c",
+      "reviewed": "4.1.0 combined: the four 4.1 branches and #62 merged; one 4.1.0 release entry; baselines, changelog and the page rebuilt; checked for direct writes and unconditional deletes: none added by the merge"
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1: a license text, shipped unchanged; no instruction."
     },
     "README.md": {
-      "sha256": "cd36d7e71d5d4d92098340e21b22df60ff9530d5bccc6c8cc2c254cb19b50bc0",
-      "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
+      "sha256": "be609a053d4284a030c4fd8621ab06e9c02a31d5ba71621bef6a39f04360dd2a",
+      "reviewed": "4.1.0 combined: the four 4.1 branches and #62 merged; one 4.1.0 release entry; baselines, changelog and the page rebuilt; checked for direct writes and unconditional deletes: none added by the merge"
     },
     "bin/flightdeck.js": {
-      "sha256": "5eb7ce812fc489f0ddaa1f29fe9aac7d078266a6ef52f864663eacfe7b5f7d8f",
-      "reviewed": "release 4.0.0 fold of slice 3 (b365f237): its reviewed write gate merged with facts', slice 5's and slice 6's guards; every record and run write keeps its 4.0 guard (fresh, still) and asks slice 3's fresh guard last for its token (keeps, receipts and the end included); facts' raw writes moved to putFile; checked for direct writes and unconditional deletes"
+      "sha256": "021c1017349a4474d85a4184527931a8c9124272a5410adbd20a1d7a0331ba0d",
+      "reviewed": "4.1.0 combined: the four 4.1 branches and #62 merged; one 4.1.0 release entry; baselines, changelog and the page rebuilt; checked for direct writes and unconditional deletes: none added by the merge"
     },
     "build.py": {
       "sha256": "4930aee232c7766241927d231c2eb0729443450de507161a3f0e85b7e7f5fb8e",
       "reviewed": "release 4.0.0 fold of slice 6 (ee1ec1b3) onto facts and slice 5: both sides' reviewed text merged; hand resolutions only read and name problems (one problem formatter, proposals/ listing named as a part, receipt ownership, cleanLiving union, effect_of cut, duplicate run verdict removed); checked for direct writes and unconditional deletes"
     },
     "docs/apps.md": {
-      "sha256": "d4f64de952ad03f1ca7630844828119c9f50b307fbed43f82803a13cba96105d",
-      "reviewed": "release 4.0.0 fold of slice 3 (b365f237): its reviewed write gate merged with facts', slice 5's and slice 6's guards; every record and run write keeps its 4.0 guard (fresh, still) and asks slice 3's fresh guard last for its token (keeps, receipts and the end included); facts' raw writes moved to putFile; checked for direct writes and unconditional deletes"
+      "sha256": "1f414f56984039fc02855a8d03b88af67ad5805415c5977a3e657252f2d34857",
+      "reviewed": "4.1.0 combined: the four 4.1 branches and #62 merged; one 4.1.0 release entry; baselines, changelog and the page rebuilt; checked for direct writes and unconditional deletes: none added by the merge"
+    },
+    "docs/commands.md": {
+      "sha256": "f33bc80d24e4336b12ae8c76b8fcad652f3d3c39c43155554c0988872f8318ef",
+      "reviewed": "4.1.0 combined: the four 4.1 branches and #62 merged; one 4.1.0 release entry; baselines, changelog and the page rebuilt; checked for direct writes and unconditional deletes: none added by the merge"
     },
     "docs/design.md": {
-      "sha256": "b5fa1a3f491274c11dc7d2190513ad7f67fbb86b9a793389da2edafdec2cacde",
-      "reviewed": "release 4.0.0 fold of slice 3 (b365f237): its reviewed write gate merged with facts', slice 5's and slice 6's guards; every record and run write keeps its 4.0 guard (fresh, still) and asks slice 3's fresh guard last for its token (keeps, receipts and the end included); facts' raw writes moved to putFile; checked for direct writes and unconditional deletes"
+      "sha256": "9cfb5a8dd9f7a054912a20482f8184b2fbcf2a2afd818cd4cd0cc4d412cbc198",
+      "reviewed": "4.1.0 combined: the four 4.1 branches and #62 merged; one 4.1.0 release entry; baselines, changelog and the page rebuilt; checked for direct writes and unconditional deletes: none added by the merge"
     },
     "docs/evidence.md": {
       "sha256": "f6aa6267ae03a0401aff464615ca57b4930fee28f0acf338d4ea295c23650ecc",
@@ -45,8 +49,8 @@
       "reviewed": "health.js: the older-copies warning names results and loops (Flightdeck 3.0 features) for copies before 3.0; recovery.md says the same; checked for direct writes and unconditional deletes"
     },
     "docs/skills.md": {
-      "sha256": "91d52c9663630ea66b3b26636c7d74073492e9508664c7d1fb425660ce156acb",
-      "reviewed": "4.0 slice 2 commit 6: flightdeck todo (list, add, done, wont, move, reopen) asks through PF.todos.prepare and writes one request in proposals/ once; run/next/runs add to-do fields only on a living run; the checker reads to-do records as the app does; docs, AGENTS.md rows, command guide To-dos, status skill and the new living-run skill. Checked for direct writes and unconditional deletes: the skill and guide forbid writing proposals/ and run.json by hand; the CLI creates one file exclusively and never deletes"
+      "sha256": "2abd71764f795ab1c9caafb1153eedee7275635fdfe2f6ef7e58156ea1b2cfb2",
+      "reviewed": "4.1: the walk-run skill, its rows in AGENTS.md and docs/skills.md, the release entry; checked for direct writes and unconditional deletes"
     },
     "docs/updating.md": {
       "sha256": "b7afa89b3756d82b7df5172d24f1542486f688ba6433c2bbde0440236128fff3",
@@ -57,8 +61,8 @@
       "reviewed": "release 4.0.0 fold, slice 6 parity: readDeps names to-do records with unreadProblem; run and next count a failed proposals/ listing as the ledger names it; runs judges no missing record against a proposals/ it couldn't list; living.head '' read by run_verdict.py and check_folder.py as the app reads it; read-only, checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
-      "sha256": "197779e5fb047d6137527db0211659a2db320470f3086d61b5126d6e868b0cf8",
-      "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
+      "sha256": "afae1ab44e661c642dce889fc07d97a48e8c01655beec1bc0ba505cacb133fe6",
+      "reviewed": "4.1.0 combined: the four 4.1 branches and #62 merged; one 4.1.0 release entry; baselines, changelog and the page rebuilt; checked for direct writes and unconditional deletes: none added by the merge"
     },
     "example-folder/.flightdeck/skills/_flightdeck/command-guide.md": {
       "sha256": "8e284adf5ba57a75d4941e911b6768231187c16e3b31818d9be8b7189e5c2d32",
@@ -93,8 +97,8 @@
       "reviewed": "release 4.0.0 fold of slice 3 (b365f237): its reviewed write gate merged with facts', slice 5's and slice 6's guards; every record and run write keeps its 4.0 guard (fresh, still) and asks slice 3's fresh guard last for its token (keeps, receipts and the end included); facts' raw writes moved to putFile; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/flightdeck-new-checklist/SKILL.md": {
-      "sha256": "3a6eb58e264583f36fb072835912f61bbb9a3fcf619f5932b2f0bdea2cfa6099",
-      "reviewed": "Merge of 3.0.1 (origin/main, PR #103) into 4.0: its checker, skills, map-format, command guide, AGENTS.md and release entry combined with 4.0's to-do additions; checked for direct writes and unconditional deletes (none)"
+      "sha256": "3056e270a34d37bd97af34fa3c911753027b022a8882e7962bdb27b9f8b2b513",
+      "reviewed": "4.1.0 combined: the four 4.1 branches and #62 merged; one 4.1.0 release entry; baselines, changelog and the page rebuilt; checked for direct writes and unconditional deletes: none added by the merge"
     },
     "example-folder/.flightdeck/skills/flightdeck-new-step-type/SKILL.md": {
       "sha256": "93a792da09f9cbb58c9275e75dff4ef9f1bdb87160f2e4a06c9259e8c7227f1b",
@@ -116,13 +120,29 @@
       "sha256": "667fb29b4a649b34dd4a21bd86ec97d7ca4618f33463a08d753a8440c07e6273",
       "reviewed": "release 4.0.0 fold of slice 6 (ee1ec1b3) onto facts and slice 5: both sides' reviewed text merged; hand resolutions only read and name problems (one problem formatter, proposals/ listing named as a part, receipt ownership, cleanLiving union, effect_of cut, duplicate run verdict removed); checked for direct writes and unconditional deletes"
     },
+    "example-folder/.flightdeck/skills/flightdeck-walk-run/SKILL.md": {
+      "sha256": "a03dfb54f654f92d28bc3b7d7733949b39a937592bb92b4e730f600979d336b0",
+      "reviewed": "4.1: the walk-run skill, its rows in AGENTS.md and docs/skills.md, the release entry; checked for direct writes and unconditional deletes"
+    },
     "example-folder/AGENTS.md": {
-      "sha256": "b268bb79484bf49fe1ef8704007498b9202199280e9f4b5788fa780f871ec8a5",
-      "reviewed": "4.0 slice 4 commit 4: fact sync/list and todo suggest-done (writes only through writeOnce, created once; no deletes), now threaded into every to-do view and guard, application save re-asks its plan, loop fact lines and evidence/ack in the to-do row, docs and skills; checked for direct writes and unconditional deletes"
+      "sha256": "33ffab8d70fbf7c81db6392c998a13245127787134ac464325be8465d69de8ae",
+      "reviewed": "4.1: the walk-run skill, its rows in AGENTS.md and docs/skills.md, the release entry; checked for direct writes and unconditional deletes"
     },
     "example-folder/jira/workflows.json": {
       "sha256": "b5a29ccf5b1a5e5c9b0e464d1d3b380a4e4dac04eea81608e90d5ae142f9eb99",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1: example data the build embeds (a checklist, a plan, a skill record, a step type or people); reviewed, no instruction to an assistant in it."
+    },
+    "example-folder/maps/drafts/change-review.md": {
+      "sha256": "f396a292e8de00a8d8b83cea43b11599814abae3442171b38e36ec593008fcd2",
+      "reviewed": "4.1.0 combined: the four 4.1 branches and #62 merged; one 4.1.0 release entry; baselines, changelog and the page rebuilt; checked for direct writes and unconditional deletes: none added by the merge"
+    },
+    "example-folder/maps/drafts/change-rework.md": {
+      "sha256": "91c83d8ee2cd4d53d20a00526fd747ba33c3c1b707ae52e23c94dfb06d0f0275",
+      "reviewed": "4.1.0 combined: the four 4.1 branches and #62 merged; one 4.1.0 release entry; baselines, changelog and the page rebuilt; checked for direct writes and unconditional deletes: none added by the merge"
+    },
+    "example-folder/maps/drafts/change-rollout.md": {
+      "sha256": "1c3efa8606ce3f1dc6748e0a387f83399058ff38a6550265865a08702e7c5e94",
+      "reviewed": "4.1.0 combined: the four 4.1 branches and #62 merged; one 4.1.0 release entry; baselines, changelog and the page rebuilt; checked for direct writes and unconditional deletes: none added by the merge"
     },
     "example-folder/maps/drafts/check-in.md": {
       "sha256": "149bd77a884d8ce16d465dab065c606c2a030c26099845c810cc436c2e1260e5",
@@ -147,6 +167,10 @@
     "example-folder/maps/drafts/release.md": {
       "sha256": "bc34807bfcf6ccce064462e8c4a80a95f9452a4f9cdd3033e162d46a0ca83409",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1: example data the build embeds (a checklist, a plan, a skill record, a step type or people); reviewed, no instruction to an assistant in it."
+    },
+    "example-folder/maps/drafts/service-change.md": {
+      "sha256": "f9d632683e74e638705d9b39723d74e0f34241caf34a2b7fddb4a8035083c517",
+      "reviewed": "4.1.0 combined: the four 4.1 branches and #62 merged; one 4.1.0 release entry; baselines, changelog and the page rebuilt; checked for direct writes and unconditional deletes: none added by the merge"
     },
     "example-folder/maps/drafts/sprint-start.md": {
       "sha256": "bccc94f843d2383960f397f931dda9badaedc2cd2de87bde1868c80e3c607e26",
@@ -181,8 +205,8 @@
       "reviewed": "Round 20, at 64e1c01: the file list npm packs (npm pack --dry-run on a mirror of the tree), read in full: CHANGELOG.md, LICENSE, README.md, bin/flightdeck.js, the two dist files, package.json. Each is pinned whole or checked by parity. No new text."
     },
     "package.json": {
-      "sha256": "377c52c7f28ba508e01826e26d0ba81d3139aff9918252fb4cc6273c4686c831",
-      "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
+      "sha256": "eac09ecf7c23ff789c10740454a2c65128c5bd64891221d7dace68ec1e638ee6",
+      "reviewed": "4.1: the walk-run skill, its rows in AGENTS.md and docs/skills.md, the release entry; checked for direct writes and unconditional deletes"
     },
     "rendered: the merge README, AGENTS.md held": {
       "sha256": "587c6fe0a4080614f1661c880aa058e9dd8180b5595d72bfaaf90b9f297f8d95",
@@ -201,12 +225,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "20119d73d3983ee82eb87afd3e155b368f6c21d291b133c9dbd5111173846a17",
-      "reviewed": "release 4.0.0 fold of slice 3 (b365f237): its reviewed write gate merged with facts', slice 5's and slice 6's guards; every record and run write keeps its 4.0 guard (fresh, still) and asks slice 3's fresh guard last for its token (keeps, receipts and the end included); facts' raw writes moved to putFile; checked for direct writes and unconditional deletes"
+      "sha256": "bdb54ee189030d6a81c064f74f00fba26efa0a034449f5b63331db1623b57877",
+      "reviewed": "4.1.0 combined: the four 4.1 branches and #62 merged; one 4.1.0 release entry; baselines, changelog and the page rebuilt; checked for direct writes and unconditional deletes: none added by the merge"
     },
     "src/core/appjson.js": {
-      "sha256": "4a3cc8c52dbe89cf222e6d0df99e23d95bbc9b3858696d791de19b93340674fc",
-      "reviewed": "release 4.0.0 fold of slice 6 (ee1ec1b3) onto facts and slice 5: both sides' reviewed text merged; hand resolutions only read and name problems (one problem formatter, proposals/ listing named as a part, receipt ownership, cleanLiving union, effect_of cut, duplicate run verdict removed); checked for direct writes and unconditional deletes"
+      "sha256": "11e34bc4fac1219d75104336f0eae278fd0b4b942707c753a4c3867f4a8c33ec",
+      "reviewed": "4.1.0 combined: the four 4.1 branches and #62 merged; one 4.1.0 release entry; baselines, changelog and the page rebuilt; checked for direct writes and unconditional deletes: none added by the merge"
     },
     "src/core/attach.js": {
       "sha256": "0e75bc0c0d748fe10aaf5657662e4ce8679c27f9d10d85c1e34891b1c9d58df0",
@@ -329,8 +353,8 @@
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "src/core/run.js": {
-      "sha256": "4514ce5cb9a9f62e6ed91b0e037227f1bcafc7cc58f1faa3686fbb0f3c885d90",
-      "reviewed": "release 4.0.0 fold of slice 3 (b365f237): its reviewed write gate merged with facts', slice 5's and slice 6's guards; every record and run write keeps its 4.0 guard (fresh, still) and asks slice 3's fresh guard last for its token (keeps, receipts and the end included); facts' raw writes moved to putFile; checked for direct writes and unconditional deletes"
+      "sha256": "eb253a89ee9f843f88679996dda68b57843ab04cdffcdf15443d5daa8e41ff78",
+      "reviewed": "4.1.0 combined: the four 4.1 branches and #62 merged; one 4.1.0 release entry; baselines, changelog and the page rebuilt; checked for direct writes and unconditional deletes: none added by the merge"
     },
     "src/core/save.js": {
       "sha256": "096b8282d8dd62623b608ad2a9ae6a8f78e5a8260615eaf74aa9c9fb9c3a3f26",
@@ -413,12 +437,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1: an embedded font file, binary; no text."
     },
     "src/page.html": {
-      "sha256": "1b2df7a6664d7cdd4cb75b000eddacbcadaf996a3ba7f5d9fb927f437637979f",
-      "reviewed": "FD: every fact line reachable on the run screen (count left out, Show all), contrary lines first; checked for direct writes and unconditional deletes"
+      "sha256": "4950db60b78a3178809fe73303efff0674fc50ddd271f2d9b53176a7a9ff78a1",
+      "reviewed": "4.1.0 combined: the four 4.1 branches and #62 merged; one 4.1.0 release entry; baselines, changelog and the page rebuilt; checked for direct writes and unconditional deletes: none added by the merge"
     },
     "src/releases.json": {
-      "sha256": "69b351c172e51c21c5055cef79e7aed33b4e8d8503eb83a1032941b8a3547ee6",
-      "reviewed": "4.0.0 entry dated 2026-11-15 with the folded slices (facts, 5, 6, 3's loops, spreads and write guards); checked for direct writes and unconditional deletes: text only, no code"
+      "sha256": "35e0cb841fdc9a6e1bea6fcf263bb3ddfaf9329cf4ba50e05b4cec79b39a9a3f",
+      "reviewed": "4.1.0 combined: the four 4.1 branches and #62 merged; one 4.1.0 release entry; baselines, changelog and the page rebuilt; checked for direct writes and unconditional deletes: none added by the merge"
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",
@@ -505,8 +529,8 @@
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "src/ui/views/run.js": {
-      "sha256": "fd3890713224208c6a14b6466321ac790b654df2e0ba35398709bbe6b94ba78b",
-      "reviewed": "release 4.0.0 fold of slice 6 (ee1ec1b3) onto facts and slice 5: both sides' reviewed text merged; hand resolutions only read and name problems (one problem formatter, proposals/ listing named as a part, receipt ownership, cleanLiving union, effect_of cut, duplicate run verdict removed); checked for direct writes and unconditional deletes"
+      "sha256": "6faacd69c3e22cad1ad6fac8d49674947afa35824d4ac760f63f3a50fa93ef1c",
+      "reviewed": "4.1.0 combined: the four 4.1 branches and #62 merged, then #133's fix re-merged (linkedPanel's byId is a null-prototype object); checked for direct writes and unconditional deletes: none added"
     },
     "src/ui/views/setup.js": {
       "sha256": "2393b54abde45fa1ba4ac110f394984d29b04ca728c3f1a46e8c22fb2c60dd80",
@@ -521,8 +545,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. A maintainer tool, not shipped. Not read line by line."
     },
     "tools/old-bundles.js": {
-      "sha256": "57f3625a1a6edc436b1ce51f441cdb7ca01f024b6fcb6ced0f135c4b38b0891a",
-      "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. A maintainer tool, not shipped. Not read line by line."
+      "sha256": "bea5256b20012c46324473c3da3cede94ea99cf0b84af592dcb125ff99bd2cfd",
+      "reviewed": "old-bundles.js records run_verdict.py beside a release's checker when the tag ships one; test tooling only, reads git and writes the local cache and record; checked for direct writes and unconditional deletes: none in the team folder"
     },
     "tools/old-folders.js": {
       "sha256": "968956f709882e01b70c6ad63fdd76120cc91feb4b2c9ae5355b56a85bd233e5",
