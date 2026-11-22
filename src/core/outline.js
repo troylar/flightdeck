@@ -1230,6 +1230,166 @@ PF.outline = (function () {
   }
 
   /* One entry point for the app: op names what to do. */
+  /* ---------- move part of a checklist to a new checklist (docs/design.md section 46) ----------
+     A run of steps in one phase and lane, a whole lane, or a whole phase with its gate becomes a new checklist, and one
+     {run.process} step that runs it takes its place. No new syntax: the details the moved steps read are passed down with
+     carry:, and a detail they set that the rest of the checklist uses is refused, never guessed. */
+  var EX_COPY = ['category', 'group', 'tags', 'owner', 'backup', 'runs'];
+  var EX_PLAIN = 'Use a plain title for the new checklist, without @, ^, { or line breaks.';
+  /* The file name a new checklist's title gives, unique among the names taken. */
+  function extractId(title, taken) {
+    var base = String(title || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 56).replace(/-+$/, '');
+    if (!base) return '';
+    var has = function (x) { return (taken || []).indexOf(x) >= 0; }, id = base, k = 2;
+    while (has(id)) id = base + '-' + (k++);
+    return id;
+  }
+  /* The steps a run of steps can end at: the chosen one and the ones after it in its phase and lane. */
+  function extractRange(text, key) {
+    var o = parse(text), s = stepBy(o, key); if (!s) return [];
+    return s.phase.steps.filter(function (x) { return x.track === s.track && x.index >= s.index; });
+  }
+  function effRoles(s) { var tr = s.track >= 0 ? s.phase.tracks[s.track] : null; return s.roles.length ? s.roles : tr ? tr.roles : []; }
+  /* What a selection cuts out: its steps, the lines [start, end), and what stays around them. */
+  function cutOf(o, sel) {
+    sel = sel && typeof sel === 'object' ? sel : {};
+    var ph, steps, start, end, tr = null;
+    if (sel.kind === 'phase') {
+      ph = phaseBy(o, sel.phase); if (!ph) return { error: ERR.gone };
+      steps = ph.steps;
+      if (!steps.length) return { error: 'This phase has no steps to move.' };
+      if (ph.gate && ph.gate.odd) return { error: ERR.odd };
+      start = Math.min.apply(null, steps.map(function (x) { return x.line; }).concat(ph.tracks.map(function (t) { return t.line; }), ph.gate ? [ph.gate.line] : []));
+      end = ph.contentEnd;
+    } else if (sel.kind === 'track') {
+      ph = phaseBy(o, sel.phase); tr = trackAt(o, sel.phase, sel.track); if (!ph || !tr) return { error: ERR.gone };
+      steps = ph.steps.filter(function (x) { return x.track === tr.index; });
+      if (!steps.length) return { error: 'This lane has no steps to move.' };
+      start = steps[0].line; end = steps[steps.length - 1].end;
+    } else if (sel.kind === 'steps') {
+      var a = stepBy(o, sel.from), b = stepBy(o, sel.to == null || sel.to === '' ? sel.from : sel.to);
+      if (!a || !b) return { error: ERR.gone };
+      if (a.phase !== b.phase || a.track !== b.track || b.index < a.index) return { error: 'Choose steps in one phase and one lane, from the first to the last.' };
+      ph = a.phase; tr = a.track >= 0 ? ph.tracks[a.track] : null;
+      steps = ph.steps.filter(function (x) { return x.track === a.track && x.index >= a.index && x.index <= b.index; });
+      start = a.line; end = b.end;
+    } else return { error: 'Nothing to do.' };
+    if (steps.some(function (x) { return x.odd; })) return { error: ERR.odd };
+    return { kind: sel.kind, phase: ph, track: tr, steps: steps, start: start, end: end };
+  }
+  /* The run details each line names: every ^name, and the names a sets: or carry: line lists. */
+  function namesIn(o, from, to, known) {
+    var out = [];
+    for (var i = from; i < to; i++) {
+      var l = bare(o.lines[i]), re = /\^([\w-]+)/g, m, lm = /^\s{2,}(sets|carry):\s*(.*)$/.exec(l);
+      while ((m = re.exec(l))) out.push({ name: m[1], line: i });
+      if (lm) (lm[1] === 'sets' ? M.setNames(lm[2]) : list_(lm[2])).forEach(function (n) { out.push({ name: n, line: i }); });
+    }
+    return out.filter(function (x) { return known.indexOf(x.name) >= 0; });
+  }
+  /* The last front matter line for a key, as written. */
+  function frontLine(o, key) {
+    var at = -1, re = new RegExp('^' + key + ':\\s*(.*)$');
+    if (o.front) for (var i = o.front.start + 1; i < o.front.end - 1; i++) if (re.test(bare(o.lines[i]))) at = i;
+    return at < 0 ? null : { line: at, value: re.exec(bare(o.lines[at]))[1].trim() };
+  }
+  /* child: { id, title }. Gives the original's new text (at: the new step's line, id: its ID) and child: { id, title, text },
+     carry (the details passed down), moved (how many steps) and warnings (what now reads differently). */
+  function extract(text, sel, child) {
+    var g = guard(text); if (g.error) return { error: g.error };
+    var o = g.o, map = M.parse(text), meta = map.meta;
+    child = child && typeof child === 'object' ? child : {};
+    var title = lineValue(child.title), id = String(child.id == null ? '' : child.id);
+    if (!title) return { error: 'Give the new checklist a title.', field: 'title' };
+    if (/[@^{}]/.test(title) || title.length > 120) return { error: EX_PLAIN, field: 'title' };
+    if (!M.PROCESS_ID.test(id)) return { error: 'The new checklist\'s file name is lowercase letters, numbers and dashes, like deploy-the-build.', field: 'title' };
+    if (id === meta.process) return { error: 'The new checklist needs its own name, not this checklist\'s.', field: 'title' };
+    if (o.front && (o.front.end < 2 || bare(o.lines[o.front.end - 1]).trim() !== '---')) return { error: 'The front matter at the top has no closing --- line, so this can\'t be done safely. Add one under it.' };
+    var c = cutOf(o, sel); if (c.error) return c;
+    var inCut = function (i) { return i >= c.start && i < c.end; }, from0 = o.front ? o.front.end : 0;
+    var known = meta.context, setIn = [], setBy = Object.create(null);
+    c.steps.forEach(function (s) { M.setNames(s.fields.sets).forEach(function (n) { if (setIn.indexOf(n) < 0) { setIn.push(n); setBy[n] = s; } }); });
+    var around = function (i) {
+      var s = o.steps.filter(function (x) { return i >= x.line && i < Math.max(x.end, x.line + 1); })[0];
+      if (s) return 'the step ' + quote(s.text);
+      var gt = null; o.phases.forEach(function (p) { if (p.gate && i >= p.gate.line && i < p.gate.end) gt = p.gate; });
+      return gt ? 'the gate ' + quote(gt.title) : 'line ' + (i + 1);
+    };
+    /* A detail set inside and used (or set again) outside would lose its value: refused, naming both places. */
+    var outside = namesIn(o, from0, c.start, known).concat(namesIn(o, c.end, o.lines.length, known));
+    for (var k = 0; k < outside.length; k++) {
+      var n = outside[k].name;
+      if (setIn.indexOf(n) >= 0) return { error: 'The step ' + quote(setBy[n].text) + ' sets ^' + n + ', and ' + around(outside[k].line) + ' uses it too. Keep them together: move both, or neither.' };
+    }
+    if (meta.result && setIn.indexOf(meta.result) >= 0) return { error: 'The step ' + quote(setBy[meta.result].text) + ' sets ^' + meta.result + ', the result this checklist returns, so it stays here.' };
+    var moving = Object.create(null); c.steps.forEach(function (s) { if (s.id) moving[s.id] = true; });
+    for (var x = 0; x < o.steps.length; x++) {
+      var st = o.steps[x], ref = st.type === 'for.each' && /^#/.test(String(st.fields.from || '').trim()) ? String(st.fields.from).trim().slice(1).toLowerCase() : '';
+      var mine = c.steps.indexOf(st) >= 0;
+      if (ref && mine !== !!moving[ref] && o.steps.some(function (y) { return y.id === ref; })) return { error: 'The step ' + quote(st.text) + ' reads the results of #' + ref + ' (from:). Keep them together: move both, or neither.' };
+      if (mine && st.type === 'run.process' && st.fields.carry == null) return { error: 'The step ' + quote(st.text) + ' passes its run details to ' + (st.fields.process || 'its checklist') + ' by name. Give it a carry: line first, so Flightdeck knows which ones to pass on.' };
+    }
+    var usedIn = namesIn(o, c.start, c.end, known).map(function (y) { return y.name; });
+    var carry = known.filter(function (nm) { return usedIn.indexOf(nm) >= 0 && setIn.indexOf(nm) < 0; });
+    var childNames = known.filter(function (nm) { return usedIn.indexOf(nm) >= 0 || setIn.indexOf(nm) >= 0; });
+    var cl = frontLine(o, 'context'), raw = cl ? M.contextEntries(cl.value) : [];
+    var entries = childNames.map(function (nm) { return raw.filter(function (e) { var at = e.indexOf(':'); return (at < 0 ? e : e.slice(0, at).trim()) === nm; })[0] || nm; });
+    /* Roles: what the moved steps (and a moved phase's lanes and gate) are worked by, in the checklist's order. */
+    var roles = [];
+    var addR = function (r) { if (roles.indexOf(r) < 0) roles.push(r); };
+    c.steps.forEach(function (s) { effRoles(s).forEach(addR); });
+    if (c.kind === 'phase') { c.phase.tracks.forEach(function (t) { t.roles.forEach(addR); }); if (c.phase.gate && c.phase.gate.owner) addR(c.phase.gate.owner); }
+    var declared = frontRoles(o);
+    roles = declared.filter(function (r) { return roles.indexOf(r) >= 0; }).concat(roles.filter(function (r) { return declared.indexOf(r) < 0; }));
+    /* The new checklist's lines: a step that took its lane's roles gets them written on it, since the lane stays here. */
+    var body = [];
+    for (var i = c.start; i < c.end; i++) {
+      var s0 = c.kind !== 'phase' ? c.steps.filter(function (y) { return y.line === i; })[0] : null;
+      body.push(s0 && !s0.roles.length && effRoles(s0).length ? withRoles(o, s0, effRoles(s0)) : o.lines[i]);
+    }
+    while (body.length && blank(body[body.length - 1])) body.pop();
+    var cr = o.cr, head = c.kind === 'phase' ? bare(o.lines[c.phase.line]) : phaseLine(c.kind === 'track' && c.track.title ? c.track.title : c.phase.title || 'Steps', c.phase.mode, c.kind === 'steps' ? c.phase.idSuffix : '');
+    var front = ['---', 'process: ' + id, 'title: ' + title];
+    EX_COPY.forEach(function (key) { var fl = frontLine(o, key); if (fl && fl.value) front.push(key + ': ' + fl.value); });
+    if (entries.length) front.push('context: ' + entries.join(', '));
+    if (roles.length) front.push('roles: ' + roles.join(', '));
+    front.push('---', '', head);
+    var childText = front.map(function (l) { return l + cr; }).concat(body.map(function (l) { return bare(l) + cr; })).join('\n') + '\n';
+    /* The step that runs it. Must-do if anything moved was, so it can't be marked N/A past one. */
+    var newKey = newId(o, title, 'run');
+    var mark = c.steps.some(function (s) { return s.must; }) ? '!' : ' ';
+    var one = c.steps.map(function (s) { return effRoles(s).join(' '); }), role = c.kind !== 'track' && one[0] && one[0].indexOf(' ') < 0 && one.every(function (r) { return r === one[0]; }) ? ' @' + one[0] : '';
+    var stepLines = ['- [' + mark + '] {run.process} ' + title + role + ' {#' + newKey + '}' + cr, '  process: ' + id + cr];
+    if (carry.length) stepLines.push('  carry: ' + carry.join(', ') + cr);
+    var lines = o.lines.slice();
+    lines.splice.apply(lines, [c.start, c.end - c.start].concat(stepLines));
+    var lineNos = c.steps.map(function (s) { return s.line + 1; }), pi = c.phase.index, at = c.start;
+    var res = done(o, text, lines, function (A, B) {
+      if (!lineNos.every(function (ln) { return !!pull(A, ln); })) return false;
+      var y = pull(B, at + 1), ns = y && y.step;
+      if (!ns || y.phase !== pi || ns.id !== newKey || ns.type !== 'run.process' || ns.text !== title || ns.fields.process !== id || ns.must !== (mark === '!')) return false;
+      if (json(ns.fields) !== json(carry.length ? { process: id, carry: carry.join(', ') } : { process: id })) return false;
+      if (c.kind === 'phase') { if (!B.phases[pi].gate.implicit || B.phases[pi].tracks.length) return false; A.phases[pi].gate = B.phases[pi].gate; A.phases[pi].tracks = []; }
+    }, at);
+    if (res.error || res.same) return res.same ? { error: 'Nothing to do.' } : res;
+    /* The new checklist says exactly what the moved lines said: the same steps (roles from a lane now on them) and gate. */
+    var was = sigOf(text), now = sigOf(childText), wasSteps = [];
+    was.phases.forEach(function (p) { p.steps.forEach(function (s) { if (lineNos.indexOf(s._line) >= 0) wasSteps.push(s); }); });
+    var keep = function (s) { return json({ id: s.id, type: s.type, text: s.text, must: s.must, planned: s.planned, roles: s.roles, binds: s.binds, fields: s.fields, note: s.note, shots: s.shots, when: s.when }); };
+    var nowSteps = []; now.phases.forEach(function (p) { nowSteps = nowSteps.concat(p.steps); });
+    var same = now.phases.length === 1 && nowSteps.length === wasSteps.length && wasSteps.every(function (s, j) { return keep(s) === keep(nowSteps[j]); }) &&
+      (c.kind !== 'phase' || json(now.phases[0].gate) === json(was.phases[pi].gate)) && now.errors.every(function (e) { return was.errors.indexOf(e) >= 0; });
+    if (!same) return { error: ERR.meaning };
+    /* A detail only the moved steps set is theirs now: it leaves this checklist's run details, so a run doesn't ask for it. */
+    var out = res.text;
+    for (var r = 0; r < setIn.length; r++) { var mm = editMeta(out, 'context', { remove: setIn[r] }); if (mm.error) return { error: mm.error }; out = mm.text; }
+    var warnings = [];
+    if (c.steps.some(function (s) { return s.fields.after != null || s.fields.due != null; }) || (c.kind === 'phase' && c.phase.gate && /^\s{2,}(after|due):/m.test(o.lines.slice(c.phase.gate.line, c.phase.gate.end).join('\n'))))
+      warnings.push('Times like after: and due: on the moved steps now count from when a run of ' + title + ' starts.');
+    var here = parse(out).steps.filter(function (s) { return s.id === newKey; })[0];
+    return { text: out, at: here ? here.line : at, id: newKey, carry: carry, moved: c.steps.length, warnings: warnings, child: { id: id, title: title, text: childText } };
+  }
+
   function apply(text, op) {
     op = op || {};
     switch (op.op) {
@@ -1266,6 +1426,7 @@ PF.outline = (function () {
       case 'questions': return editQuestions(text, op.text);
       case 'removeQuestions': return removeQuestions(text);
       case 'addRoleTo': return addRoleTo(text, op.name, op.to || {});
+      case 'extract': return extract(text, op.sel, op.child);
     }
     return { error: 'Nothing to do.' };
   }
@@ -1290,5 +1451,6 @@ PF.outline = (function () {
   return { MODES: MODES, phaseNote: phaseNote, gateNote: gateNote, parse: parse, apply: apply, moveStep: moveStep, moveStepTo: moveStepTo, editStep: editStep, editLink: editLink, editStepText: editStepText, inPlace: inPlace, renameDetail: renameDetail, usesOf: usesOf, addStep: addStep, deleteStep: deleteStep,
     addPhase: addPhase, editPhase: editPhase, movePhase: movePhase, setGate: setGate, removeGate: removeGate, deletePhase: deletePhase,
     addTrack: addTrack, editTrack: editTrack, deleteTrack: deleteTrack, caption: caption, editShots: editShots, places: places, nearest: nearest, diff: diff, keyAt: keyAt, follow: follow, nextPlace: nextPlace,
+    extract: extract, extractId: extractId, extractRange: extractRange,
     checkName: checkName, mapStep: mapStep, personOk: function (id) { return typeof id === 'string' && PERSON_RE.test(id) && !reserved(id); } };
 })();

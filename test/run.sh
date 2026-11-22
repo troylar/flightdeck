@@ -113,6 +113,7 @@ test/ui-states.test.js -
 test/reports.test.js -
 test/insights.test.js -
 test/outline.test.js -
+test/extract.test.js -
 test/refs.test.js -
 test/links.test.js -
 test/jira-search.test.js -
@@ -156,6 +157,7 @@ test/sync.test.js -
 test/guide.test.js -
 test/guide-editor.test.js 0/2
 test/guide-editor.test.js 1/2
+test/extract-app.test.js -
 test/docs.test.js -
 test/checker.test.js -
 test/checker-todos.test.js -

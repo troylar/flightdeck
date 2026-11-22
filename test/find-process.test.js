@@ -786,6 +786,7 @@ const callsAny = (body, names) => [...names].filter(h => new RegExp('(^|[^\\w$.]
 /* Every hit, with why it's allowed: covered by a bound, a person picker (D6), or a list that doesn't grow with the folder. */
 const PERSON = 'a person picker, a native select by name (D6)';
 const D10_OK = [
+  { file: 'builder.js', has: '(i === 0 ? \'Just this step\'', why: 'the steps after the selected one in its phase and lane, choices a person must be able to make; options of a select, not drawn as text' },
   { file: 'builder.js', has: 'esc(x) + \'"\' + (x === v', why: 'a step type\'s own choices, set by the type' },
   { file: 'common.js', has: 'is marked started, but', why: 'this window\'s own unsaved starts, not the folder\'s' },
   { file: 'common.js', has: '(o === v ? \' selected\'', why: 'a step\'s choices, set by its type' },
@@ -863,6 +864,8 @@ const D10_JOIN_OK = [
   { file: 'run.js', has: 'i.planConflict.options.map(', why: 'a story\'s plans in conflict, every one, since each is a choice a person must be able to make (round 9); options of a select, not drawn as text, each naming at most 5 inputs' },
   { file: 'run.js', has: 'last.items.slice(0, 50).map(', why: 'a held loop\'s last readable view, at most 50 stories named, with how many more' },
   { file: 'run.js', has: 'S.skip.slice(0, 50).map(', why: 'the Start all preview\'s skipped stories, at most 50 named' },
+  { file: 'app.js', has: 'done.carry.slice(0, 10).map(', why: 'the run details passed to a new checklist, the first 10, with how many more' },
+  { file: 'app.js', has: 'done.warnings.join(', why: 'what Move to a new checklist changed in meaning: at most one sentence (O.extract)' },
   { file: 'app.js', has: 'failed.slice(0, 5).join', why: 'the stories Start all couldn\'t start, at most 5 named' },
   { file: 'app.js', has: 'done.slice(0, 20).join', why: 'the stories a start request started, at most 20 named, with how many more' },
   { file: 'run.js', has: 'shown.map(function (q)', why: 'a loop\'s requests still to settle, and the latest 10 applied or refused (Show them for the rest, paged by the person), each naming at most 20 stories' },

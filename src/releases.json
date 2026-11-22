@@ -1,5 +1,19 @@
 [
   {
+    "version": "4.2.0",
+    "date": "2026-11-22",
+    "headline": "Move part of a checklist into a new checklist of its own",
+    "changes": [
+      {
+        "kind": "new",
+        "area": "Editor",
+        "title": "Move steps, a lane or a phase to a new checklist",
+        "now": "In the builder, choose Move to a new checklist on a step, a lane or a phase, and give it a title. Flightdeck writes a new draft with those steps and puts one step here that runs it, passing down the run details they use. Undo puts them back. Publish the new checklist first. A step that sets a detail the rest still uses must move with the steps that use it.",
+        "where": "A checklist's Edit tab, in the builder"
+      }
+    ]
+  },
+  {
     "version": "4.1.0",
     "date": "2026-11-21",
     "headline": "Walk a run with your assistant, see every linked run in one place, and let other apps see what a run is waiting on",

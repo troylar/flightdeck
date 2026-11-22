@@ -80,7 +80,7 @@ const ALLOWED = {
   'app.js|#|bid': [2, 'ob-add-role or ob-add-ctx'],
   'app.js|#|box': [2, BOXID + '; a type form option box (tf-f-k1-optadd)'],
   'app.js|#|f.mode': [1, 'not a selector: a draft key (step#mode)'],
-  'app.js|#|field': [3, BOXID + '; the add-to-run dialog\'s own box ids'],
+  'app.js|#|field': [4, BOXID + '; the add-to-run dialog\'s own box ids; ob-ex-title or ob-ex-to'],
   'app.js|#|focus': [1, 'ob-add-role or ob-add-ctx, tested beside it'],
   'app.js|#|id': [7, BOXID + '; a type form control\'s own id'],
   'app.js|#|pf': [1, BOXID],

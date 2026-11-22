@@ -735,6 +735,22 @@
     return start < 0 ? html : html.slice(0, start) + box + html.slice(start);
   }
   V.obHoldIn = holdIn;
+  /* Move to a new checklist (docs/design.md section 46): a button on a step, a lane or a phase, and in place its small form:
+     the new checklist's title and, for steps, the last step of the run. The rule (what moves, what's carried, what's
+     refused) is O.extract's; this only asks. */
+  function exOf(ctx, p, kind, key, track) { var x = ctx.state.obExtract; return x && x.pid === p.id && x.fk === ctx.fsKey && x.kind === kind && x.key === key && (track == null || +x.track === +track) ? x : null; }
+  function extractPart(ctx, p, text, kind, key, track, what) {
+    var x = exOf(ctx, p, kind, key, track), btn = '<button type="button" class="mini" data-act="ob-ex-open" data-id="' + esc(key) + '" data-kind="' + kind + '"' + (track != null ? ' data-track="' + track + '"' : '') + '>Move to a new checklist</button>';
+    if (!x) return btn;
+    var h = '<div class="notice stack ob-extract" role="group" aria-labelledby="ob-ex-h"><strong id="ob-ex-h">Move ' + esc(what) + ' to a new checklist</strong>' +
+      '<p class="small" id="ob-ex-why">Flightdeck makes a new draft with ' + (kind === 'steps' ? 'these steps' : 'its steps') + ' and puts one step here that runs it. The run details they use are passed to it. Undo puts the steps back; the new draft stays.</p>';
+    if (kind === 'steps') {
+      var range = O.extractRange(text, key), to = x.to != null ? String(x.to) : key;
+      if (range.length > 1) h += '<label class="field" for="ob-ex-to">Through<select id="ob-ex-to" data-nav-safe' + errAt(ctx, 'ob-ex-to') + '>' + range.map(function (r, i) { return '<option value="' + esc(r.key) + '"' + (r.key === to ? ' selected' : '') + '>' + (i === 0 ? 'Just this step' : esc(plain(r.text))) + '</option>'; }).join('') + '</select></label>' + errMsg(ctx, 'ob-ex-to');
+    }
+    h += formBox(ctx, 'ob-ex-title', 'ex-title', 'input', ' maxlength="120" data-nav-safe data-enter="ob-ex-go" value="' + esc(x.title || '') + '"');
+    return h + '<div class="row"><button type="button" class="btn" data-act="ob-ex-go" id="ob-ex-go"' + (ctx.state.extracting ? ' disabled' : '') + '>Create the checklist and move</button><button type="button" class="mini" data-act="ob-ex-cancel">Cancel</button></div></div>';
+  }
   function builderForm(ctx, p, text) {
     var sel = selOf(ctx, p); here = null; if (!sel) return '';
     var o = O.parse(text); if (o.unsupported) return '';
@@ -760,8 +776,9 @@
       h += '<details class="ob-more-opts" data-disc="ob-more"' + (open ? ' open' : '') + (busy ? ' data-busy="1"' : '') + '><summary>More options' + (busy ? ' <span class="small">(apply or clear what you typed first)</span>' : '') + '</summary>' +
         inside.map(function (g) { return groupHtml(g, G4.groups[g[0]]); }).join('') + source(ctx, s.id, 'step', U.slug(s.text, 24), '<p class="small">Type <code>{' + esc(s.type || '?') + '}</code>' + (names.length ? ' · fields ' + names.map(function (f) { return '<code>' + esc(f) + '</code>'; }).join(' ') : '') + '</p>') + '</details>';
       h += '<div class="row"><button type="button" class="mini" data-act="ob-move" data-id="' + esc(s.key) + '" data-dir="up">Move up</button><button type="button" class="mini" data-act="ob-move" data-id="' + esc(s.key) + '" data-dir="down">Move down</button>' +
-        '<button type="button" class="mini" data-act="ob-add-after" data-id="' + esc(s.key) + '">' + I('plus') + 'Add a step after it</button><button type="button" class="mini" data-act="ob-del" data-id="' + esc(s.key) + '">Delete this step</button>' +
+        '<button type="button" class="mini" data-act="ob-add-after" data-id="' + esc(s.key) + '">' + I('plus') + 'Add a step after it</button><button type="button" class="mini" data-act="ob-del" data-id="' + esc(s.key) + '">Delete this step</button>' + (exOf(ctx, p, 'steps', s.key) ? '' : extractPart(ctx, p, text, 'steps', s.key, null, 'steps')) +
         '<button type="button" class="mini" data-act="hist-open" data-id="draft" data-item="step:' + esc(s.key) + '" aria-haspopup="dialog">' + I('clock') + 'History of this step</button></div>';
+      if (exOf(ctx, p, 'steps', s.key)) h += extractPart(ctx, p, text, 'steps', s.key, null, 'steps');
       return h + '</section>';
     }
     var ph = o.phases.filter(function (x) { return x.key === sel.key; })[0]; if (!ph) return '';
@@ -775,7 +792,7 @@
         formBox(ctx, 'ob-tr-title', 'tr-title', 'input', ' maxlength="120" data-enter="ob-commit" value="' + esc(tr.title) + '"') +
         roleSelect(ctx, 'ob-tr-role', 'tr-role', lroles, tr.roles[0] || '') + addRole(ctx, 'track') +
         source(ctx, tr.id, 'lane', U.slug(name, 24)) +
-        '<div class="row"><button type="button" class="mini" data-act="ob-add" data-id="' + esc(ph.key) + '" data-track="' + tr.index + '">' + I('plus') + 'Add a step to this lane</button><button type="button" class="mini" data-act="ob-ask" data-id="track">Delete this lane</button></div>';
+        '<div class="row"><button type="button" class="mini" data-act="ob-add" data-id="' + esc(ph.key) + '" data-track="' + tr.index + '">' + I('plus') + 'Add a step to this lane</button><button type="button" class="mini" data-act="ob-ask" data-id="track">Delete this lane</button>' + (exOf(ctx, p, 'track', ph.key, tr.index) ? '' : extractPart(ctx, p, text, 'track', ph.key, tr.index, 'the lane')) + '</div>' + (exOf(ctx, p, 'track', ph.key, tr.index) ? extractPart(ctx, p, text, 'track', ph.key, tr.index, 'the ' + name + ' lane') : '');
       if (ask) t += '<div class="notice warn" role="group" aria-labelledby="ob-ask-t"><span id="ob-ask-t">' + (n ? 'Delete the ' + esc(name) + ' lane? Its ' + n + ' step' + (n === 1 ? '' : 's') + ' can move up into the phase, or go with it.' : 'Delete the ' + esc(name) + ' lane?') + '</span>' +
         (n ? '<button type="button" class="btn" data-act="ob-del-track" data-id="keep" id="ob-ask-go">Keep its steps</button><button type="button" class="btn stop" data-act="ob-del-track" data-id="all">Delete lane and steps</button>' : '<button type="button" class="btn stop" data-act="ob-del-track" data-id="all" id="ob-ask-go">Delete lane</button>') +
         '<button type="button" class="mini" data-act="ob-ask-cancel">Cancel</button></div>';
@@ -790,7 +807,7 @@
       (ph.odd ? '<p class="small">This phase has lines under its heading the builder can\'t change safely. Edit its note and screenshots in Markdown.</p>' : shotsSection(ctx, p, ph, 'phase')) +
       source(ctx, ph.id, 'phase', U.slug(ph.title, 24)) +
       '<div class="row"><button type="button" class="mini" data-act="ob-ph-move" data-id="' + esc(ph.key) + '" data-dir="up">Move phase up</button><button type="button" class="mini" data-act="ob-ph-move" data-id="' + esc(ph.key) + '" data-dir="down">Move phase down</button><button type="button" class="mini" data-act="ob-add-phase" data-id="' + esc(ph.key) + '">' + I('plus') + 'Add a phase after it</button><button type="button" class="mini" data-act="ob-ask" data-id="phase">Delete this phase</button>' +
-      '<button type="button" class="mini" data-act="hist-open" data-id="draft" data-item="phase:' + esc(ph.key) + '" aria-haspopup="dialog">' + I('clock') + 'History of this phase</button></div>';
+      '<button type="button" class="mini" data-act="hist-open" data-id="draft" data-item="phase:' + esc(ph.key) + '" aria-haspopup="dialog">' + I('clock') + 'History of this phase</button>' + (exOf(ctx, p, 'phase', ph.key) ? '' : extractPart(ctx, p, text, 'phase', ph.key, null, 'the phase')) + '</div>' + (exOf(ctx, p, 'phase', ph.key) ? extractPart(ctx, p, text, 'phase', ph.key, null, ph.title || 'this phase') : '');
     if (pask) f += '<div class="notice warn" role="group" aria-labelledby="ob-ask-t"><span id="ob-ask-t">Delete ' + esc(ph.title || 'this phase') + (ph.steps.length ? ' and its ' + ph.steps.length + ' step' + (ph.steps.length === 1 ? '' : 's') : '') + (gt ? ', with its approval' : '') + '? Undo brings it back.</span>' +
       '<button type="button" class="btn stop" data-act="ob-del-phase" data-id="' + esc(ph.key) + '" id="ob-ask-go">Delete phase</button><button type="button" class="mini" data-act="ob-ask-cancel">Cancel</button></div>';
     f += gt ? '<p class="ob-apline">Approval: ' + esc(gt.title) + ' · <button type="button" class="link" data-act="ob-sel-gate" data-id="' + esc(ph.key) + '" aria-label="Edit approval ' + esc(gt.title) + '">Edit</button></p>' :

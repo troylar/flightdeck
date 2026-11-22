@@ -133,6 +133,7 @@ PF.guide = (function () {
   var FORMS = {
     when: e('Only when…?', '^environment is production', 'One condition a line. When it isn\'t true in a run, the step shows as Not needed. Left empty, this step adds no condition of its own; its stage\'s conditions still apply.', true),
     caption: e('What does it show?', 'The deploy button, top right', 'Shown under the picture during a run, and read out by screen readers. Needed: a screenshot can\'t be added or kept without one.', true),
+    'ex-title': e('What\'s the new checklist called?', 'Deploy the build', 'Its file name comes from it, like deploy-the-build. Needed: an empty title is refused.', true),
     'ph-title': e('What\'s this stage called?', 'Deploy', 'Shown as a heading in runs. Needed: an empty name is refused.', true),
     'ph-mode': e('How is it worked?', '', 'Read, then do: one step at a time. Do, then confirm: do it all, then confirm together.', true),
     'ph-note': e('Anything to know before this stage?', 'Bring the signed offer letter', 'Shown at the top of the stage in runs. Left empty, nothing is shown.', true),

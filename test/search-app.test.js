@@ -418,8 +418,10 @@ rule('R3-7: every typed box the builder draws is pending input (OB_TYPED) or lis
   const ids = new Set();
   for (const m of b.matchAll(/(?:formBox\(ctx, |<input[^>]*?id=")'?(ob-[\w-]+)/g)) ids.add(m[1]);
   for (const m of b.matchAll(/<(?:input|textarea)\b[^>]*?id="(ob-[\w-]+)/g)) ids.add(m[1]);
-  /* Not typed authoring text: checkboxes, radios, the file picker, the outline filter. */
-  const EXEMPT = ['ob-must', 'ob-planned', 'ob-link-ver-latest', 'ob-link-ver-pin', 'ob-shot-file', 'ob-shot-new', 'ob-part-q'];
+  /* Not typed authoring text: checkboxes, radios, the file picker, the outline filter, and the new checklist's title
+     (Move to a new checklist: nothing in the draft changes until its button is pressed, so typing there can't be lost by a
+     change to the draft). */
+  const EXEMPT = ['ob-must', 'ob-planned', 'ob-link-ver-latest', 'ob-link-ver-pin', 'ob-shot-file', 'ob-shot-new', 'ob-part-q', 'ob-ex-title'];
   assert.ok(ids.has('ob-pat-name') && ids.has('ob-g-title') && ids.has('ob-note'), 'the scan finds the boxes: ' + [...ids].join(' '));
   const missing = [...ids].map(id => /-$/.test(id) ? id + 'x' : id).filter(id => !typed.test(id) && EXEMPT.indexOf(id) < 0);
   assert.deepStrictEqual(missing, [], 'boxes not kept as pending input');

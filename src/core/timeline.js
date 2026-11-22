@@ -22,9 +22,10 @@ PF.timeline = (function () {
     meta: ['checklist details change', 'Changed the checklist details'], note: ['note change', 'Changed the note of {s}'], when: ['condition change', 'Changed when {s} applies'],
     renameDetail: ['run detail rename', 'Renamed a run detail'],
     editLink: ['linked step edit', 'Changed what a linked step runs or passes'],
+    extract: ['move to a new checklist', 'Moved steps to the new checklist {s}'],
     questions: ['Questions change', 'Changed the Questions section'], removeQuestions: ['Questions removal', 'Removed the Questions section']
   };
-  var PREP = { typing: ' in ', paste: ' in ', cut: ' in ', drop: ' in ', correction: ' in ', indent: ' in ', 'new step': ' ', 'new phase': ' ', 'new lane': ' ', 'new field': ' ', 'new evidence': ' ', 'applied correction': ' to ', 'new screenshot': ' to ', 'screenshot removal': ' from ' };
+  var PREP = { typing: ' in ', paste: ' in ', cut: ' in ', drop: ' in ', correction: ' in ', indent: ' in ', 'new step': ' ', 'new phase': ' ', 'new lane': ' ', 'new field': ' ', 'new evidence': ' ', 'applied correction': ' to ', 'move to a new checklist': ' ', 'new screenshot': ' to ', 'screenshot removal': ' from ' };
 
   function create() { return { entries: [], pos: 0, barrier: 0, chars: 0, marks: [], seq: 0 }; }
   function patch(a, b) {

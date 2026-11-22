@@ -7084,6 +7084,44 @@
     }
     return res;
   }
+  /* Move part of a draft to a new checklist (docs/design.md section 46). PF.outline.extract works out both texts. The new
+     draft is written first, as a new file only (a draft already there is never replaced); then the steps here are replaced
+     through builderEdit, as one Undo entry, unsaved like every builder edit. If this draft changed while the new one was
+     written, nothing here changes and the message says so. */
+  function extractPart() {
+    var p = currentProcess(), x = state.obExtract; if (!p || !x || x.pid !== p.id || x.fk !== fsKey() || state.extracting || builderBlocked(p)) return;
+    if (!state.fs) { say('Open your team folder first.', 'warn'); render(); return; }
+    var title = String(val('ob-ex-title') || '').trim(), to = x.kind === 'steps' ? (val('ob-ex-to') || x.key) : null;
+    x.title = title; if (to != null) x.to = to;
+    var fail = function (field, msg) { state.fieldErr = { id: 'ob', field: field, msg: msg }; state.focus = '#' + field; say(null); render(); };
+    if (!title) return fail('ob-ex-title', 'Give the new checklist a title.');
+    var taken = [];
+    processes().forEach(function (q) { taken.push(q.id); if (q.draft && q.draft.file) taken.push(String(q.draft.file).replace(/\.md$/, '')); });
+    var id = PF.outline.extractId(title, taken);
+    if (!id) return fail('ob-ex-title', 'Use letters or numbers in the title, so the new checklist gets a file name.');
+    var sel = x.kind === 'steps' ? { kind: 'steps', from: x.key, to: to } : x.kind === 'track' ? { kind: 'track', phase: x.key, track: x.track } : { kind: 'phase', phase: x.key };
+    var op = { op: 'extract', sel: sel, child: { id: id, title: title } };
+    var cur = edText(p), plan = PF.outline.apply(cur, op);
+    if (plan.error) return fail(plan.field === 'title' ? 'ob-ex-title' : x.kind === 'steps' && document.getElementById('ob-ex-to') ? 'ob-ex-to' : 'ob-ex-title', plan.error);
+    if (obHeld(p, 'then move the steps')) return;
+    var big = U.draftTooBig(plan.child.text); if (big) return fail('ob-ex-title', big.why);
+    var sfs = state.fs, g = gen, key = fsKey(), pid = p.id, md = plan.child.text;
+    state.extracting = true; render();
+    queued(function () { return repo.saveDraft(sfs, id + '.md', md, null, { lock: LOCKS ? lock : null, expectText: null }); }).then(function (res) {
+      if (g !== gen) return;
+      if (res.conflict) { fail('ob-ex-title', 'A draft called "' + id + '" appeared in the folder meanwhile. Choose another title.'); return; }
+      logSave(sfs, key, { kind: 'draft-edit', id: id, from: null, to: res.hash, before: '', after: md, source: 'new', units: ['Created the draft from ' + p.title], items: [] });
+      var cp = currentProcess(), same = cp && cp.id === pid && fsKey() === key && state.view === 'process' && edText(cp) === cur;
+      if (!same) { say('Created the draft ' + title + '. This checklist changed meanwhile, so its steps weren\'t replaced. Open ' + p.title + ' and replace them by hand.', 'warn'); state.obExtract = null; return loadAfterWrite().then(function () { if (g === gen) render(); }); }
+      var done = builderEdit(op, 'ob-ex-title');
+      if (!done) { say('Created the draft ' + title + ', but the steps here weren\'t replaced. Replace them by hand.', 'warn'); render(); return loadAfterWrite().then(function () { if (g === gen) render(); }); }
+      state.obExtract = null; state.obSel = { pid: pid, kind: 'step', key: done.id }; state.obFlash = { kind: 'step', key: done.id };
+      var n = done.moved, more = done.carry.length - 10, passed = done.carry.length ? ' It passes ' + done.carry.slice(0, 10).map(function (c) { return '^' + c; }).join(', ') + (more > 0 ? ' and ' + more + ' more' : '') + ' to it.' : '';
+      sayUndo('Moved ' + n + ' step' + (n === 1 ? '' : 's') + ' to the new checklist ' + title + '.' + passed + ' Save this draft to keep the change. Publish ' + title + ' first: until it has a published version, this step can\'t start it.' + (done.warnings.length ? ' ' + done.warnings.join(' ') : ''));
+      state.focus = '[data-act="ob-sel"][data-id="' + cssEsc(done.id) + '"]';
+      return loadAfterWrite().then(function () { if (g === gen) render(); });
+    }).catch(function (err) { if (g === gen) say('Couldn\'t create the new checklist: ' + err.message + ' Nothing here changed.', 'bad'); render(); }).then(function () { state.extracting = false; if (g === gen) scheduleRender(); });
+  }
   /* ---------- screenshots in the builder (docs/design.md section 20) ---------- */
   /* Images being added, per folder and process: unsaved work while they're written, so live apply waits, Apply and
      corrections wait, presence holds the draft and leaving the page asks first. */
@@ -7245,6 +7283,7 @@
   /* The step or phase an outline operation is about, in words and as a History item. */
   function opSubject(text, op) {
     if (op.op === 'meta' || op.op === 'questions' || op.op === 'removeQuestions') return '';
+    if (op.op === 'extract') return String((op.child && op.child.title) || '').trim();
     if (op.op === 'add') return String(op.text || '').trim();
     if (op.op === 'addPhase' || op.op === 'addTrack') return String(op.title || '').trim();
     if (op.op === 'editTrack' || op.op === 'deleteTrack') { var ph = PF.outline.parse(text).phases.filter(function (y) { return y.key === String(op.phase); })[0], tr = ph && ph.tracks[+op.track]; return tr ? String(tr.title || '') : ''; }
@@ -7254,6 +7293,7 @@
   function opItems(op, res) {
     if (op.op === 'add') return res.id ? ['step:' + res.id] : [];
     if (op.op === 'addPhase') return res.id ? ['phase:' + res.id] : [];
+    if (op.op === 'extract') return res.id ? ['step:' + res.id] : [];
     return op.step != null ? ['step:' + op.step] : op.phase != null ? ['phase:' + op.phase] : [];
   }
   var INPUT_KINDS = { insertFromPaste: ['paste', 'paste'], insertFromPasteAsQuotation: ['paste', 'paste'], deleteByCut: ['cut', 'cut'], insertFromDrop: ['drop', 'drag and drop', 'join'], deleteByDrag: ['drop', 'drag and drop', 'wait'], insertReplacementText: ['correction', 'spelling correction'] };
@@ -9407,6 +9447,15 @@
       ensureListItemVisible('ob-meta-context', to, { focus: '[data-act="ob-ren"][data-id="' + cssEsc(to) + '"]', word: 'renamed' }); render();
     },
     'ob-ask-cancel': function () { state.obAsk = null; state.focus = '[data-act="ob-ask"]'; render(); },
+    /* Move to a new checklist (docs/design.md section 46). */
+    'ob-ex-open': function (id, b) {
+      var p = currentProcess(), kind = b && b.dataset && b.dataset.kind; if (!p || !id || ['steps', 'track', 'phase'].indexOf(kind) < 0) return;
+      obClearErr(); state.obAsk = null;
+      state.obExtract = { pid: p.id, kind: kind, key: String(id), track: kind === 'track' ? +b.dataset.track : null, title: '', fk: fsKey() };
+      state.focus = '#ob-ex-title'; render();
+    },
+    'ob-ex-cancel': function () { var x = state.obExtract; state.obExtract = null; obClearErr(); state.focus = x ? '[data-act="ob-ex-open"][data-id="' + cssEsc(x.key) + '"]' : null; render(); },
+    'ob-ex-go': function () { extractPart(); },
     'ob-del-track': function (how) {
       var s = state.obSel, p = currentProcess(); if (!s || s.kind !== 'track' || !p) return;
       var ph = PF.outline.parse(edText(p)).phases.filter(function (x) { return x.key === s.key; })[0], tr = ph && ph.tracks[+s.track], name = tr && tr.title || 'untitled';
