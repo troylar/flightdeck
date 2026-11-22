@@ -4,11 +4,19 @@
 
 ## 4.1.0 · Nov 21, 2026
 
-An assistant can walk you through a run, step by step.
+Walk a run with your assistant, see every linked run in one place, and let other apps see what a run is waiting on.
 
 ### New
 
 - **Walk a run with your assistant** (AI assistants). Ask your assistant to walk you through a running run with the new walk-run skill. It reads what's next with flightdeck next and run, says it in plain words, files a report for work it did on a step, and asks for to-dos it finds. It stops for you at every gate, decision and irreversible action. You still check each step in Flightdeck. *Where:* The assistants' skills, docs/skills.md
+- **Ship a service change: a thin parent checklist that only links and routes** (Examples). The example folder has a family of four checklists. Ship a service change starts a review, keeps its result, runs a rework and a second review only when the review returned needs-work, then starts the rollout. The skills for AI assistants describe the pattern, so a new checklist with parts and a verdict is written the same way. *Where:* The example folder, the assistants' skills
+- **See every linked run of a run in one place** (Runs). A run with two or more steps that start other checklists lists them under Linked runs on its screen: each step, the run it started, how that run stands or how it ended with its result, and whether the step counted it or is held and why. Open goes to that run. *Where:* A run's screen
+- **flightdeck next --json says what a run is waiting on** (Other apps). Next now lists what the step or gate it points at is waiting on: the person in each role the checklist names (or that nobody holds it yet), a linked run that hasn't finished, and with --contract 2 a tool's report nobody has decided yet and the open to-dos before the gate. A reminder bot can now say who to nudge and why without reading the whole run. *Where:* flightdeck next --json, docs/apps.md
+- **A page that says what each command may do** (Command line). A new page sorts every flightdeck command by what it may change in the team folder and who decides what happens next, and says what a file in the folder can and can't prove. Read it before you let a script, a bot or an AI assistant use the command. *Where:* docs/commands.md, linked from the README
+
+### Improved
+
+- **A wider release notes dialog that stands out from the page** (Release notes). What's new opens wider and taller, with more room for each change, a visible edge, a deeper shadow and a darker backdrop, in light and dark themes. *Where:* What's new
 
 ## 4.0.0 · Nov 15, 2026
 
