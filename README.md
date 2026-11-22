@@ -482,6 +482,7 @@ Flightdeck was called Preflight before 1.9.0. Team folders, runs and published v
 | [When something goes wrong](https://github.com/troylar/flightdeck/blob/main/docs/recovery.md) | Anyone who sees a warning | What each problem means and what to do, step by step |
 | [Evidence packs](https://github.com/troylar/flightdeck/blob/main/docs/evidence.md) | Anyone who needs proof of a run | What's in a pack and how to check it |
 | [Using Flightdeck from other apps](https://github.com/troylar/flightdeck/blob/main/docs/apps.md) | Script and tool authors, AI assistants | The JSON commands, run requests, reports, drafts and skill registration |
+| [What each command may do](https://github.com/troylar/flightdeck/blob/main/docs/commands.md) | Anyone who lets a script or an AI assistant use the command | Every command by what it may change and who decides next, and what a file in the folder can and can't prove |
 | [Design](https://github.com/troylar/flightdeck/blob/main/docs/design.md) | Contributors | The full specification and its decisions |
 
 ## License

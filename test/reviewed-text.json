@@ -9,8 +9,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1: a license text, shipped unchanged; no instruction."
     },
     "README.md": {
-      "sha256": "cd36d7e71d5d4d92098340e21b22df60ff9530d5bccc6c8cc2c254cb19b50bc0",
-      "reviewed": "4.0 slice 1, commit 2: who may authorize a to-do, and what open or disputed work holds; living runs in the run file"
+      "sha256": "14e92a6a45344d4349c247ed6f9d31ce9a2547a04d50d20929ffff54d752b058",
+      "reviewed": "New docs/commands.md (every command by what it may change and who decides next, and the trust model), linked from the README's docs table and docs/apps.md; docs/design.md section 26 now says a step that sets details takes a report since 2.16; checked for direct writes and unconditional deletes: none, the page tells nobody to write or remove a file by hand"
     },
     "bin/flightdeck.js": {
       "sha256": "5eb7ce812fc489f0ddaa1f29fe9aac7d078266a6ef52f864663eacfe7b5f7d8f",
@@ -21,12 +21,16 @@
       "reviewed": "release 4.0.0 fold of slice 6 (ee1ec1b3) onto facts and slice 5: both sides' reviewed text merged; hand resolutions only read and name problems (one problem formatter, proposals/ listing named as a part, receipt ownership, cleanLiving union, effect_of cut, duplicate run verdict removed); checked for direct writes and unconditional deletes"
     },
     "docs/apps.md": {
-      "sha256": "d4f64de952ad03f1ca7630844828119c9f50b307fbed43f82803a13cba96105d",
-      "reviewed": "release 4.0.0 fold of slice 3 (b365f237): its reviewed write gate merged with facts', slice 5's and slice 6's guards; every record and run write keeps its 4.0 guard (fresh, still) and asks slice 3's fresh guard last for its token (keeps, receipts and the end included); facts' raw writes moved to putFile; checked for direct writes and unconditional deletes"
+      "sha256": "e0feffcdb17eeb58b6bac25974cf2fd29ce5f68f5b9b8a1df6f6360e03a8b379",
+      "reviewed": "New docs/commands.md (every command by what it may change and who decides next, and the trust model), linked from the README's docs table and docs/apps.md; docs/design.md section 26 now says a step that sets details takes a report since 2.16; checked for direct writes and unconditional deletes: none, the page tells nobody to write or remove a file by hand"
+    },
+    "docs/commands.md": {
+      "sha256": "f33bc80d24e4336b12ae8c76b8fcad652f3d3c39c43155554c0988872f8318ef",
+      "reviewed": "New docs/commands.md (every command by what it may change and who decides next, and the trust model), linked from the README's docs table and docs/apps.md; docs/design.md section 26 now says a step that sets details takes a report since 2.16; checked for direct writes and unconditional deletes: none, the page tells nobody to write or remove a file by hand"
     },
     "docs/design.md": {
-      "sha256": "b5fa1a3f491274c11dc7d2190513ad7f67fbb86b9a793389da2edafdec2cacde",
-      "reviewed": "release 4.0.0 fold of slice 3 (b365f237): its reviewed write gate merged with facts', slice 5's and slice 6's guards; every record and run write keeps its 4.0 guard (fresh, still) and asks slice 3's fresh guard last for its token (keeps, receipts and the end included); facts' raw writes moved to putFile; checked for direct writes and unconditional deletes"
+      "sha256": "368963c9c84f57a9689ea8480134421eca189f3e8fc900954ddf1f1e59e5c933",
+      "reviewed": "New docs/commands.md (every command by what it may change and who decides next, and the trust model), linked from the README's docs table and docs/apps.md; docs/design.md section 26 now says a step that sets details takes a report since 2.16; checked for direct writes and unconditional deletes: none, the page tells nobody to write or remove a file by hand"
     },
     "docs/evidence.md": {
       "sha256": "f6aa6267ae03a0401aff464615ca57b4930fee28f0acf338d4ea295c23650ecc",
