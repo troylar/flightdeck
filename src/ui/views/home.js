@@ -105,7 +105,7 @@
       /* A draft and skills that need attention go to whoever looks after the checklist (K.keepers); to everyone when nobody does. */
       /* The number publishing would take: one past every number used, an unusable or still-syncing folder's too (as the dialog says). */
       var nextV = PF.publish.nextVersion(p.taken || (p.all || []).map(function (x) { return x.info; }));
-      if (p.draft && p.draftChanged && mine) add('draft', function () { return [esc(p.title) + ': the draft has unpublished changes', p.latest ? 'Publish it as v' + nextV + ' when it\'s ready.' : 'Not published yet.']; }, 'home-publish', p.id, 'Publish v' + nextV + '…');
+      if (p.draft && p.draftChanged && mine) add('draft', function () { return [esc(p.draftTitle || p.title) + ': the draft has unpublished changes', p.latest ? 'Publish it as v' + nextV + ' when it\'s ready.' : 'Not published yet.']; }, 'home-publish', p.id, 'Publish v' + nextV + '…');
       if (p.staleSkills && mine) add('skill', function () { return [esc(p.title) + ': ' + p.staleSkills + ' skill' + (p.staleSkills === 1 ? ' needs' : 's need') + ' attention', 'The checklist changed since they were built.']; }, 'home-skills', p.id, 'Skills of ' + p.title);
       var signer = p.latest && owner ? PF.skills.signer(p.latest, d.people, me, !!(d.failed || {}).people) : '';
       if (signer && !PF.skills.signoffs(d.validations, p.latest).length && !PF.skills.signUnknown(d, p.latest) && PF.skills.readiness(ctx.countedRuns ? ctx.countedRuns(p.latest.map.meta.process) : d.runs, p.latest, null).enough) add('sign', function () { return [esc(p.title) + ' v' + p.latest.info.version + ' is ready for a skill', signer === 'backup' ? 'Enough clean runs. Its owner is away, so as backup owner, you sign it off.' : 'Enough clean runs. As its owner, you sign it off.']; }, 'open-process', p.id, 'Sign it off');
@@ -250,12 +250,12 @@
       K.list(st, 'lost-drafts', lost, { keyOf: function (id) { return id; }, focusOf: function (k) { return K.byAct('open-process', k); }, draw: function (shown) { return '<ul class="small">' + shown.map(function (id) { return '<li><button class="linkish" data-act="open-process" data-id="' + esc(id) + '">' + esc(id) + '</button></li>'; }).join('') + '</ul>'; } }) +
       '</details></span></div>';
     var chosen = st.tags || [], tagged = procs.filter(function (p) { return has(p.tags); }), q = K.findQ(st, 'processes'), hit = K.finds(q);
-    var found = q ? tagged.filter(function (p) { return hit([p.title, p.id, (p.group || []).join(' / '), p.category, (p.tags || []).join(' ')]); }) : tagged;
+    var found = q ? tagged.filter(function (p) { return hit([p.title, p.draftTitle || '', p.id, (p.group || []).join(' / '), p.category, (p.tags || []).join(' ')]); }) : tagged;
     h += '<section class="panel" id="procs-all">' + (K.findOn(st, 'processes', procs.length > 0) ? K.findBox(st, 'processes', 'Find a checklist', found.length, tagged.length, 'checklist', { by: tagWords(chosen) }) : '') + K.tagBar(allTags(ctx, chosen), chosen, st.disc, st) + (procs.length ? K.treeList(st, 'processes', found, function (p) { return p.group && p.group.length ? p.group : [p.category]; }, function (p) {
       PF.perf.add('procs.rows');
       var pub = p.latest, info = pub ? 'v' + pub.info.version : p.proposedOnly ? 'Proposed, not drafted yet' : 'not published yet';
       var flags = [];
-      if (p.draftChanged) flags.push('draft changes');
+      if (p.draftChanged) flags.push(p.draftTitle ? 'renamed to ' + p.draftTitle + ' in the draft' : 'draft changes');
       if (p.clashes.length) flags.push('version clash');
       if (p.proposed && p.proposed.list.some(function (x) { return x.fit === 'ready' || x.fit === 'older' || x.fit === 'review' || x.fit === 'already'; })) flags.push('proposed changes');
       /* Its skills by name, each with its status and a link to its own page: the first 5, and how many more (all of them are on

@@ -533,7 +533,7 @@
     h += '<div class="pgrid"><div class="stack">';
     if (p.draft && p.draftChanged) {
       var c = M.check(M.parse(p.draft.md), V.checkOptions(ctx));
-      h += '<section class="panel"><div class="row between"><h2 style="margin:0">Draft · ' + esc(p.draft.file) + '</h2><span class="small">' + (p.typesChanged && p.typesChanged.length ? 'Step type ' + esc(K.capJoin(p.typesChanged)) + ' changed since v' + pub.info.version + '; publish to use it' : p.draftChanged ? 'Has changes not yet published' : 'Same as the published version') + '</span></div>' + checkList(c, ctx.state, 'checks-ov') + designTips(ctx, p.draft.md, p.id, 'tips-ov');
+      h += '<section class="panel"><div class="row between"><h2 style="margin:0">Draft · ' + esc(p.draft.file) + '</h2><span class="small">' + (p.typesChanged && p.typesChanged.length ? 'Step type ' + esc(K.capJoin(p.typesChanged)) + ' changed since v' + pub.info.version + '; publish to use it' : p.draftChanged ? 'Has changes not yet published' : 'Same as the published version') + '</span></div>' + (p.draftTitle ? '<p class="small">Renamed to ' + esc(p.draftTitle) + ' in the draft. Publishing makes it the checklist\'s name.</p>' : '') + checkList(c, ctx.state, 'checks-ov') + designTips(ctx, p.draft.md, p.id, 'tips-ov');
       if (p.draftChanged) {
         /* Publishing takes the draft in the folder: while newer edits wait unsaved in the editor, it would publish the older text. */
         var base = corrBase(ctx, p), shots = ctx.shotBusy ? ctx.shotBusy(p.id) : 0, held = base.dirty || base.conflict || shots;

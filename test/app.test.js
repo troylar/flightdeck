@@ -9350,4 +9350,30 @@ rule('App: Restore on a browser copy of a run that needs a newer Flightdeck writ
   assert.ok(/newer copy of Flightdeck/.test(b.live()) && !/loop/.test(b.live()), 'it says a newer copy is needed: ' + b.live());
 });
 
+/* #111 (4.1.1): a draft given a new title shows it where the screen is about the draft; lists keep the published name and say
+   it's renamed in the draft; publishing makes the new name official. */
+rule('App: a renamed draft shows its new title in the editor, the checklist page\'s draft part and Home, and lists say it\'s renamed until it\'s published', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const p = 'maps/drafts/release.md', old = /^title: (.*)$/m.exec(app.fs.files[p].t)[1];
+  app.fs.files[p] = { t: app.fs.files[p].t.replace(/^title: .*$/m, 'title: Ship to production'), m: Date.now() }; app.fs.persist();
+  app.click('refresh'); await app.tick(80);
+  app.click('nav', 'processes'); await app.tick();
+  const list = app.html();
+  assert.ok(list.includes(old) && /renamed to Ship to production in the draft/.test(list), 'the list keeps the published name and says the new one');
+  app.click('nav', 'home'); await app.tick();
+  assert.ok(/Ship to production: the draft has unpublished changes/.test(app.html()), 'Home\'s card names the draft');
+  app.click('open-process', 'release'); await app.tick();
+  const page = app.html();
+  assert.ok(/Has changes not yet published<\/span><\/div><p class="small">Renamed to Ship to production in the draft\./.test(page), 'the page\'s draft part says the new title');
+  assert.ok(/<span class="hd-t" title="Production release">Production release<\/span>/.test(page), 'and the page keeps the published name');
+  app.click('ptab', 'edit'); await app.tick();
+  assert.ok(/<h1 id="ed-h"><span class="hd-t" title="Ship to production">Ship to production<\/span>/.test(app.html()), 'the editor\'s header is the draft\'s title');
+  /* Publishing makes it official: the list shows the new name, and nothing says renamed. */
+  app.click('ed-done'); await app.tick();
+  app.set('change-note', 'New name'); app.click('publish', 'release'); await app.tick(80);
+  app.click('nav', 'processes'); await app.tick();
+  assert.ok(/<span class="t">Ship to production<\/span>/.test(app.html()) && !/renamed to/.test(app.html()), 'after publishing, the new name is the name');
+});
+
 run();

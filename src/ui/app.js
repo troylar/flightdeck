@@ -647,6 +647,9 @@
       }
       e.draft = d; e.draftMeta = { owner: m.meta.owner, backup: m.meta.backup };
       if (!e.latest) { e.title = m.meta.title || id; e.category = m.meta.category || 'Other'; e.group = m.meta.group; e.tags = m.meta.tags; }
+      /* #111 (4.1.1): a published checklist keeps its published name; a new title in the draft shows where a screen is about the
+         draft, and lists say it's renamed, until publishing makes it official. */
+      else e.draftTitle = m.meta.title && m.meta.title !== e.title ? String(m.meta.title) : '';
       e.draftChanged = !e.latest || U.hash(d.md) !== e.latest.info.mapHash;
       /* A team step type the map uses changed since it was frozen into the publication: republishing picks it up. */
       if (e.latest && !e.draftChanged) {

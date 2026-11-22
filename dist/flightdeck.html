@@ -29861,7 +29861,7 @@ PF.vk = (function () {
       /* A draft and skills that need attention go to whoever looks after the checklist (K.keepers); to everyone when nobody does. */
       /* The number publishing would take: one past every number used, an unusable or still-syncing folder's too (as the dialog says). */
       var nextV = PF.publish.nextVersion(p.taken || (p.all || []).map(function (x) { return x.info; }));
-      if (p.draft && p.draftChanged && mine) add('draft', function () { return [esc(p.title) + ': the draft has unpublished changes', p.latest ? 'Publish it as v' + nextV + ' when it\'s ready.' : 'Not published yet.']; }, 'home-publish', p.id, 'Publish v' + nextV + '…');
+      if (p.draft && p.draftChanged && mine) add('draft', function () { return [esc(p.draftTitle || p.title) + ': the draft has unpublished changes', p.latest ? 'Publish it as v' + nextV + ' when it\'s ready.' : 'Not published yet.']; }, 'home-publish', p.id, 'Publish v' + nextV + '…');
       if (p.staleSkills && mine) add('skill', function () { return [esc(p.title) + ': ' + p.staleSkills + ' skill' + (p.staleSkills === 1 ? ' needs' : 's need') + ' attention', 'The checklist changed since they were built.']; }, 'home-skills', p.id, 'Skills of ' + p.title);
       var signer = p.latest && owner ? PF.skills.signer(p.latest, d.people, me, !!(d.failed || {}).people) : '';
       if (signer && !PF.skills.signoffs(d.validations, p.latest).length && !PF.skills.signUnknown(d, p.latest) && PF.skills.readiness(ctx.countedRuns ? ctx.countedRuns(p.latest.map.meta.process) : d.runs, p.latest, null).enough) add('sign', function () { return [esc(p.title) + ' v' + p.latest.info.version + ' is ready for a skill', signer === 'backup' ? 'Enough clean runs. Its owner is away, so as backup owner, you sign it off.' : 'Enough clean runs. As its owner, you sign it off.']; }, 'open-process', p.id, 'Sign it off');
@@ -30006,12 +30006,12 @@ PF.vk = (function () {
       K.list(st, 'lost-drafts', lost, { keyOf: function (id) { return id; }, focusOf: function (k) { return K.byAct('open-process', k); }, draw: function (shown) { return '<ul class="small">' + shown.map(function (id) { return '<li><button class="linkish" data-act="open-process" data-id="' + esc(id) + '">' + esc(id) + '</button></li>'; }).join('') + '</ul>'; } }) +
       '</details></span></div>';
     var chosen = st.tags || [], tagged = procs.filter(function (p) { return has(p.tags); }), q = K.findQ(st, 'processes'), hit = K.finds(q);
-    var found = q ? tagged.filter(function (p) { return hit([p.title, p.id, (p.group || []).join(' / '), p.category, (p.tags || []).join(' ')]); }) : tagged;
+    var found = q ? tagged.filter(function (p) { return hit([p.title, p.draftTitle || '', p.id, (p.group || []).join(' / '), p.category, (p.tags || []).join(' ')]); }) : tagged;
     h += '<section class="panel" id="procs-all">' + (K.findOn(st, 'processes', procs.length > 0) ? K.findBox(st, 'processes', 'Find a checklist', found.length, tagged.length, 'checklist', { by: tagWords(chosen) }) : '') + K.tagBar(allTags(ctx, chosen), chosen, st.disc, st) + (procs.length ? K.treeList(st, 'processes', found, function (p) { return p.group && p.group.length ? p.group : [p.category]; }, function (p) {
       PF.perf.add('procs.rows');
       var pub = p.latest, info = pub ? 'v' + pub.info.version : p.proposedOnly ? 'Proposed, not drafted yet' : 'not published yet';
       var flags = [];
-      if (p.draftChanged) flags.push('draft changes');
+      if (p.draftChanged) flags.push(p.draftTitle ? 'renamed to ' + p.draftTitle + ' in the draft' : 'draft changes');
       if (p.clashes.length) flags.push('version clash');
       if (p.proposed && p.proposed.list.some(function (x) { return x.fit === 'ready' || x.fit === 'older' || x.fit === 'review' || x.fit === 'already'; })) flags.push('proposed changes');
       /* Its skills by name, each with its status and a link to its own page: the first 5, and how many more (all of them are on
@@ -30607,7 +30607,7 @@ PF.vk = (function () {
     h += '<div class="pgrid"><div class="stack">';
     if (p.draft && p.draftChanged) {
       var c = M.check(M.parse(p.draft.md), V.checkOptions(ctx));
-      h += '<section class="panel"><div class="row between"><h2 style="margin:0">Draft · ' + esc(p.draft.file) + '</h2><span class="small">' + (p.typesChanged && p.typesChanged.length ? 'Step type ' + esc(K.capJoin(p.typesChanged)) + ' changed since v' + pub.info.version + '; publish to use it' : p.draftChanged ? 'Has changes not yet published' : 'Same as the published version') + '</span></div>' + checkList(c, ctx.state, 'checks-ov') + designTips(ctx, p.draft.md, p.id, 'tips-ov');
+      h += '<section class="panel"><div class="row between"><h2 style="margin:0">Draft · ' + esc(p.draft.file) + '</h2><span class="small">' + (p.typesChanged && p.typesChanged.length ? 'Step type ' + esc(K.capJoin(p.typesChanged)) + ' changed since v' + pub.info.version + '; publish to use it' : p.draftChanged ? 'Has changes not yet published' : 'Same as the published version') + '</span></div>' + (p.draftTitle ? '<p class="small">Renamed to ' + esc(p.draftTitle) + ' in the draft. Publishing makes it the checklist\'s name.</p>' : '') + checkList(c, ctx.state, 'checks-ov') + designTips(ctx, p.draft.md, p.id, 'tips-ov');
       if (p.draftChanged) {
         /* Publishing takes the draft in the folder: while newer edits wait unsaved in the editor, it would publish the older text. */
         var base = corrBase(ctx, p), shots = ctx.shotBusy ? ctx.shotBusy(p.id) : 0, held = base.dirty || base.conflict || shots;
@@ -34539,7 +34539,7 @@ PF.vk = (function () {
       '<button type="button" id="ws-practice"' + (pr ? ' aria-current="page"' : ' data-act="pr-open"') + (got ? ' aria-label="Practice, ' + cnt.done + ' of ' + cnt.total + ' steps answered"' : '') + '>' + I('play') + 'Practice' + (got ? '<span class="ws-cnt">' + got + '</span>' : '') + '</button></nav>';
     /* ‹ Overview always replaces (nav §1.4): wsLeave, through its guards. The title beside it is the visible h1. */
     var back = V.backc(pr ? 'pr-leave' : 'ed-done', null, 'Overview', null, '', 'Back to Overview of ' + p.title);
-    return V.workHead({ hid: o.hid, cls: o.cls, h1: esc(p.title), h1tail: '<span class="sr">, ' + (pr ? 'Practice' : 'Edit') + '</span>', back: back,
+    return V.workHead({ hid: o.hid, cls: o.cls, h1: esc(p.draftTitle || p.title), h1tail: '<span class="sr">, ' + (pr ? 'Practice' : 'Edit') + '</span>', back: back,
       status: o.status.concat(prim.sub ? [{ kind: 'act', cls: 'ws-test', html: prim.sub }] : []), views: nav, prog: o.prog, sa: o.sa,
       acts: prim.html, more: V.moreMenu(ctx, V.moreGroup('On this screen', o.phone || '') + V.appGroup(ctx, { pr: pr }), pr), why: prim.why });
   }
@@ -37199,6 +37199,9 @@ PF.examples = (function () {
       }
       e.draft = d; e.draftMeta = { owner: m.meta.owner, backup: m.meta.backup };
       if (!e.latest) { e.title = m.meta.title || id; e.category = m.meta.category || 'Other'; e.group = m.meta.group; e.tags = m.meta.tags; }
+      /* #111 (4.1.1): a published checklist keeps its published name; a new title in the draft shows where a screen is about the
+         draft, and lists say it's renamed, until publishing makes it official. */
+      else e.draftTitle = m.meta.title && m.meta.title !== e.title ? String(m.meta.title) : '';
       e.draftChanged = !e.latest || U.hash(d.md) !== e.latest.info.mapHash;
       /* A team step type the map uses changed since it was frozen into the publication: republishing picks it up. */
       if (e.latest && !e.draftChanged) {

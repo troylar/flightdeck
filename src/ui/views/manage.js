@@ -74,7 +74,7 @@
       '<button type="button" id="ws-practice"' + (pr ? ' aria-current="page"' : ' data-act="pr-open"') + (got ? ' aria-label="Practice, ' + cnt.done + ' of ' + cnt.total + ' steps answered"' : '') + '>' + I('play') + 'Practice' + (got ? '<span class="ws-cnt">' + got + '</span>' : '') + '</button></nav>';
     /* ‹ Overview always replaces (nav §1.4): wsLeave, through its guards. The title beside it is the visible h1. */
     var back = V.backc(pr ? 'pr-leave' : 'ed-done', null, 'Overview', null, '', 'Back to Overview of ' + p.title);
-    return V.workHead({ hid: o.hid, cls: o.cls, h1: esc(p.title), h1tail: '<span class="sr">, ' + (pr ? 'Practice' : 'Edit') + '</span>', back: back,
+    return V.workHead({ hid: o.hid, cls: o.cls, h1: esc(p.draftTitle || p.title), h1tail: '<span class="sr">, ' + (pr ? 'Practice' : 'Edit') + '</span>', back: back,
       status: o.status.concat(prim.sub ? [{ kind: 'act', cls: 'ws-test', html: prim.sub }] : []), views: nav, prog: o.prog, sa: o.sa,
       acts: prim.html, more: V.moreMenu(ctx, V.moreGroup('On this screen', o.phone || '') + V.appGroup(ctx, { pr: pr }), pr), why: prim.why });
   }
