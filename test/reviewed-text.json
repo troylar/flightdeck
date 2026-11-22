@@ -521,8 +521,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. A maintainer tool, not shipped. Not read line by line."
     },
     "tools/old-bundles.js": {
-      "sha256": "57f3625a1a6edc436b1ce51f441cdb7ca01f024b6fcb6ced0f135c4b38b0891a",
-      "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. A maintainer tool, not shipped. Not read line by line."
+      "sha256": "bea5256b20012c46324473c3da3cede94ea99cf0b84af592dcb125ff99bd2cfd",
+      "reviewed": "old-bundles.js records run_verdict.py beside a release's checker when the tag ships one; test tooling only, reads git and writes the local cache and record; checked for direct writes and unconditional deletes: none in the team folder"
     },
     "tools/old-folders.js": {
       "sha256": "968956f709882e01b70c6ad63fdd76120cc91feb4b2c9ae5355b56a85bd233e5",

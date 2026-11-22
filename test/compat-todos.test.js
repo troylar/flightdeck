@@ -83,7 +83,7 @@ rule(TAG + '\'s command and checker name the run with to-dos and its records as 
     records.forEach((f) => assert.ok((all.json.problems || []).some(x => x.path === 'proposals/' + f && x.kind === 'newer'), f + ' is newer there: ' + JSON.stringify(all.json.problems)));
     let py = null; for (const c of ['python3', 'python']) { try { cp.execFileSync(c, ['--version'], { stdio: 'ignore' }); py = c; break; } catch (e) { /* next */ } }
     if (py) {
-      const ck = path.join(root, 'check_folder.py'); fs.writeFileSync(ck, b.files['check_folder.py']);
+      const ck = path.join(root, 'check_folder.py'); fs.writeFileSync(ck, b.files['check_folder.py']); if (b.files['run_verdict.py']) fs.writeFileSync(path.join(root, 'run_verdict.py'), b.files['run_verdict.py']);
       const res = JSON.parse(cp.execFileSync(py, ['-I', ck, dir], { encoding: 'utf8' }));
       records.forEach((f) => assert.ok(res.refused.some(x => x.file === 'proposals/' + f && /newer/.test(x.why)), f + ': ' + JSON.stringify(res.refused)));
     }

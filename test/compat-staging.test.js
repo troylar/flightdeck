@@ -200,7 +200,7 @@ rule('Every release\'s folder checker, and this one, still reads a folder with a
   try {
     H.writeTree(dir, files);
     const checkers = [['this version', path.join(__dirname, '..', 'example-folder', '.flightdeck', 'skills', '_flightdeck', 'check_folder.py')]];
-    TAGS.forEach(t => { const b = H.bundles.get(t.tag); if (b && b.files['check_folder.py']) { const ck = path.join(root, t.tag + '.py'); fsN.writeFileSync(ck, b.files['check_folder.py']); checkers.push([t.tag, ck]); } });
+    TAGS.forEach(t => { const b = H.bundles.get(t.tag); if (b && b.files['check_folder.py']) { const d = path.join(root, t.tag); fsN.mkdirSync(d); const ck = path.join(d, 'check_folder.py'); fsN.writeFileSync(ck, b.files['check_folder.py']); if (b.files['run_verdict.py']) fsN.writeFileSync(path.join(d, 'run_verdict.py'), b.files['run_verdict.py']); checkers.push([t.tag, ck]); } });
     assert.ok(checkers.length > TAGS.length / 2, 'the old checkers are there');
     for (const [name, ck] of checkers) {
       const p = JSON.parse(cp.execFileSync(py, ['-I', ck, dir], { encoding: 'utf8' })).publications.backup, st = {};
@@ -238,7 +238,7 @@ rule('Every release\'s folder checker, and this one, calls a /1 version carrying
   try {
     H.writeTree(dir, f);
     const checkers = [['this version', path.join(__dirname, '..', 'example-folder', '.flightdeck', 'skills', '_flightdeck', 'check_folder.py')]];
-    TAGS.forEach(t => { const b = H.bundles.get(t.tag); if (b && b.files['check_folder.py']) { const ck = path.join(root, t.tag + '.py'); fsN.writeFileSync(ck, b.files['check_folder.py']); checkers.push([t.tag, ck]); } });
+    TAGS.forEach(t => { const b = H.bundles.get(t.tag); if (b && b.files['check_folder.py']) { const d = path.join(root, t.tag); fsN.mkdirSync(d); const ck = path.join(d, 'check_folder.py'); fsN.writeFileSync(ck, b.files['check_folder.py']); if (b.files['run_verdict.py']) fsN.writeFileSync(path.join(d, 'run_verdict.py'), b.files['run_verdict.py']); checkers.push([t.tag, ck]); } });
     assert.ok(checkers.length > TAGS.length / 2, 'the old checkers are there');
     for (const [name, ck] of checkers) {
       const p = JSON.parse(cp.execFileSync(py, ['-I', ck, dir], { encoding: 'utf8' })).publications.backup, st = {};
