@@ -160,6 +160,34 @@ rule('Docs: AGENTS.md routes every command the CLI\'s help lists to a place that
   assert.deepStrictEqual(helpCommands('  flightdeck draft read <team folder>\n  flightdeck open                     open the app\n  flightdeck skills --to <folder>\n'), ['draft read', 'open', 'skills']);
 });
 
+/* docs/commands.md sorts every command by what it may change in the team folder. Each group is a `## ` section whose table
+   names its commands in the first cell; a command in two groups, or in none, would tell a tool author the wrong thing. */
+const GROUPS = ['Read', 'Propose', 'Report', 'Request', 'Set up'];
+function ungrouped(md, commands) {
+  const cells = {}; let group = null;
+  md.split('\n').forEach(line => {
+    const h = /^## (.+)$/.exec(line);
+    if (h) group = GROUPS.indexOf(h[1]) >= 0 ? h[1] : null;
+    else if (group && /^\| `flightdeck /.test(line)) (cells[group] = cells[group] || []).push(line.split('|')[1]);
+  });
+  const out = GROUPS.filter(g => !cells[g]).map(g => 'no commands under ' + g);
+  commands.forEach(c => {
+    const re = new RegExp('`flightdeck ' + c + '(?![a-z-])'), found = GROUPS.filter(g => (cells[g] || []).some(cell => re.test(cell)));
+    if (found.length !== 1) out.push(c + ': ' + (found.length ? 'in ' + found.join(' and ') : 'in no group'));
+  });
+  return out;
+}
+rule('Docs: docs/commands.md puts every command the CLI\'s help lists in exactly one group: Read, Propose, Report, Request or Set up', () => {
+  const help = require('../bin/flightdeck.js').main(['help']).out, commands = helpCommands(help), md = read('docs/commands.md');
+  assert.deepStrictEqual(ungrouped(md, commands), [], 'docs/commands.md');
+  /* The check sees a new command, a command listed twice, and a group that lost its table. */
+  assert.deepStrictEqual(ungrouped(md, helpCommands(help + '\n  flightdeck health <team folder> [--json]\n')), ['health: in no group']);
+  assert.deepStrictEqual(ungrouped(md.replace('| `flightdeck report write` |', '| `flightdeck report write`, `flightdeck run` |'), commands), ['run: in Read and Report']);
+  assert.deepStrictEqual(ungrouped(md.replace('## Set up', '## Setting up'), commands), ['no commands under Set up', 'install: in no group', 'skills: in no group']);
+  /* It names no group for commands that act on another system, and says why. */
+  assert.ok(/There is no group for commands that act on another system, because none does\./.test(md), 'no fifth class');
+});
+
 /* Round 12 (review round 2): a delete instruction for AGENTS.md or a staged copy is never unconditional. Someone may have added a
    team rule to a waiting copy, and deleting it would lose the rule's only copy. Every such sentence, anywhere Flightdeck ships
    text (docs, the README, the changelog and release notes, the installed AGENTS.md, skills and references, and the words the

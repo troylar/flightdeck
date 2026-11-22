@@ -20,6 +20,8 @@ Flightdeck is a checklist tool for people: a monthly backup check, a quarterly a
 
 A report never checks a step by itself, and a request never starts a run by itself. A person always decides.
 
+Every command, sorted by what it may change in the folder and who decides next, is in [What each command may do](commands.md), with what a file in the folder can and can't prove.
+
 **On this page:** [What reading promises](#what-reading-promises) · [Commands](#commands) · [The envelope](#the-envelope) · [The data](#the-data) · [Contract 2](#contract-2-flightdeck-20) · [A walkthrough](#a-walkthrough) · [Asking for a run](#asking-for-a-run) · [Reporting work](#reporting-work) · [Writing drafts](#writing-drafts-for-ai-assistants) · [Registering a skill](#registering-a-skill-for-ai-assistants)
 
 ## What reading promises
