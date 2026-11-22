@@ -4,11 +4,12 @@
 
 ## 4.1.0 · Nov 21, 2026
 
-A worked family of linked checklists.
+A worked family of linked checklists, and every linked run in one place.
 
 ### New
 
 - **Ship a service change: a thin parent checklist that only links and routes** (Examples). The example folder has a family of four checklists. Ship a service change starts a review, keeps its result, runs a rework and a second review only when the review returned needs-work, then starts the rollout. The skills for AI assistants describe the pattern, so a new checklist with parts and a verdict is written the same way. *Where:* The example folder, the assistants' skills
+- **See every linked run of a run in one place** (Runs). A run with two or more steps that start other checklists lists them under Linked runs on its screen: each step, the run it started, how that run stands or how it ended with its result, and whether the step counted it or is held and why. Open goes to that run. *Where:* A run's screen
 
 ## 4.0.0 · Nov 15, 2026
 

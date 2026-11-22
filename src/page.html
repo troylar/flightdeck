@@ -1441,6 +1441,11 @@ html.rw-on #app { padding: 0; max-width: none; }
 .rw-picker .rw-utils { flex-direction: row; flex-wrap: wrap; border: 0; padding: 0; }
 .rw-panel { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; }
 .rw-panel .fulist { margin: 6px 0 0; }
+.rl-list { list-style: none; margin: 6px 0 0; padding: 0; }
+.rl-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 6px 0; border-top: 1px solid var(--line); min-width: 0; }
+.rl-row:first-child { border-top: 0; }
+.rl-step, .rl-how { min-width: 0; overflow-wrap: anywhere; }
+.rl-how { flex: 1 1 16em; }
 .rw .phase .placard { position: relative; top: auto; box-shadow: none; }
 .rw .p-title { font-size: 21px; }
 .rw .phase[data-s="open"]:not([data-cur]) .placard { background: var(--chip); color: var(--ink); }

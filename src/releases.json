@@ -2,7 +2,7 @@
   {
     "version": "4.1.0",
     "date": "2026-11-21",
-    "headline": "A worked family of linked checklists",
+    "headline": "A worked family of linked checklists, and every linked run in one place",
     "changes": [
       {
         "kind": "new",
@@ -10,6 +10,13 @@
         "title": "Ship a service change: a thin parent checklist that only links and routes",
         "now": "The example folder has a family of four checklists. Ship a service change starts a review, keeps its result, runs a rework and a second review only when the review returned needs-work, then starts the rollout. The skills for AI assistants describe the pattern, so a new checklist with parts and a verdict is written the same way.",
         "where": "The example folder, the assistants' skills"
+      },
+      {
+        "kind": "new",
+        "area": "Runs",
+        "title": "See every linked run of a run in one place",
+        "now": "A run with two or more steps that start other checklists lists them under Linked runs on its screen: each step, the run it started, how that run stands or how it ended with its result, and whether the step counted it or is held and why. Open goes to that run.",
+        "where": "A run's screen"
       }
     ]
   },
