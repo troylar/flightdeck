@@ -244,6 +244,24 @@ What an older copy does with them:
 
 **Rolling back.** Until someone publishes a version that uses results or loops, nothing in the folder needs 3.0, and rolling back follows the steps below. After that, never below 3.0: on an older copy those versions, their runs and the loop's records turn read-only, by name only. They aren't lost; they work again once you update.
 
+### Moving a team to Flightdeck 4.0
+
+1. Put Flightdeck 4.0 (or newer) in the team folder and have everyone reopen it from there. A team still on 2.x moves to 3.0 first, as above. Confirm each computer's version directly: Settings → About in the app it opens, or `flightdeck version` for the command on that computer. Folder health's "Teammates are using an older Flightdeck" can stay up to 7 days after the last older copy was used.
+2. Only then add a to-do or a spread to a run, or file facts with `flightdeck fact sync`. A run nobody adds a to-do to reads and saves as on 3.0.
+
+What an older copy does with them:
+
+- **Only runs that took on to-dos change format.** A run a to-do has changed is marked as a living run (the `living-runs` feature), and the to-do, spread and fact records in `proposals/` use a format only 4.0 reads. Copies before 4.0 show those runs and records by name only and never change them. `check_folder.py` names the version they need. A run without to-dos reads and saves byte for byte as on 3.0.
+- **No new publication is needed.** To-dos are added to runs of versions you already published, so a checklist doesn't have to change before someone uses them. That is why every computer must be on 4.0 first.
+- **Loops behave as on 3.0,** apart from one hold: a loop's approval stays put while a story's run can't be read, and its phase gate waits until it reads again.
+
+**Rolling back.** Until anyone adds a to-do or a spread, nothing in the folder needs 4.0, and rolling back follows the steps below. After that, never below 4.0: on an older copy those runs and their records turn read-only, by name only. They aren't lost; they work again once you update. What to do when an older window says it can't save is in [An older Flightdeck said it couldn't save](recovery.md#an-older-flightdeck-said-it-couldnt-save).
+
+### What to know when moving to 4.1
+
+- **Nothing in the team folder changes.** Computers on 4.0 and 4.1 can share a folder.
+- **What's new needs no step first:** the `flightdeck-walk-run` skill arrives with the AI assistant files when you install or update them, the *Ship a service change* family is in the examples, Linked runs shows on a run's screen, and `flightdeck next --json` adds `waitingOn`. An app that reads `next` gets an added field; nothing it read before changes.
+
 ## Rolling back
 
 If an update goes wrong, install the older version over it. For example, from 2.6.1 back to 2.6.0:
@@ -262,5 +280,6 @@ Don't roll back past what the folder already uses:
 - never below 2.1 once anyone published `only when` or staged a version;
 - never below 2.1.1 while plans are being started, since its planned-start protection works only when every computer has it.
 - never below 3.0 once anyone published a version that uses results or loops (see [Moving a team to Flightdeck 3.0](updating.md#moving-a-team-to-flightdeck-30)).
+- never below 4.0 once anyone added a to-do or a spread to a run (see [Moving a team to Flightdeck 4.0](updating.md#moving-a-team-to-flightdeck-40)).
 
 If you need the folder exactly as it was, restore your backup instead (see [When something goes wrong](recovery.md#restoring-from-a-backup)).

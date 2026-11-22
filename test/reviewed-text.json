@@ -29,12 +29,12 @@
       "reviewed": "4.1.0 combined: the four 4.1 branches and #62 merged; one 4.1.0 release entry; baselines, changelog and the page rebuilt; checked for direct writes and unconditional deletes: none added by the merge"
     },
     "docs/design.md": {
-      "sha256": "9cfb5a8dd9f7a054912a20482f8184b2fbcf2a2afd818cd4cd0cc4d412cbc198",
-      "reviewed": "4.1.0 combined: the four 4.1 branches and #62 merged; one 4.1.0 release entry; baselines, changelog and the page rebuilt; checked for direct writes and unconditional deletes: none added by the merge"
+      "sha256": "e0f5d602ae9f85c297818d3d6bc49e429f1b2b3469e512fb8f90dd38d5743989",
+      "reviewed": "4.0 docs gaps (#115, #116, #118, #120, #121): 4.0 and 4.1 in updating.md, 'Ending a run with to-dos is refused' and copies before 4.0 in recovery.md, design.md's status and navigation through 45, the evidence paragraph split, ten skills; docs only, no behavior change"
     },
     "docs/evidence.md": {
-      "sha256": "f6aa6267ae03a0401aff464615ca57b4930fee28f0acf338d4ea295c23650ecc",
-      "reviewed": "release 4.0.0 fold of slice 6 (ee1ec1b3) onto facts and slice 5: both sides' reviewed text merged; hand resolutions only read and name problems (one problem formatter, proposals/ listing named as a part, receipt ownership, cleanLiving union, effect_of cut, duplicate run verdict removed); checked for direct writes and unconditional deletes"
+      "sha256": "07d7259ba6978cee3b603ba780f427d7810a5ce4b9cbfabe02c5528faaf421a7",
+      "reviewed": "4.0 docs gaps (#115, #116, #118, #120, #121): 4.0 and 4.1 in updating.md, 'Ending a run with to-dos is refused' and copies before 4.0 in recovery.md, design.md's status and navigation through 45, the evidence paragraph split, ten skills; docs only, no behavior change"
     },
     "docs/map-format.md": {
       "sha256": "1039413fbe273716aecb523798c1ae9f7477532dc3da62b15f16bc0fb5c09ad9",
@@ -45,16 +45,16 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 8 sentences here, each read by hand: a rule, a prohibition or a description of what a command writes, never a direct write for an assistant."
     },
     "docs/recovery.md": {
-      "sha256": "2e0675de341740557ab0b86abb4d0c643375da1754bf94bbe476a2bc3ba922fa",
-      "reviewed": "health.js: the older-copies warning names results and loops (Flightdeck 3.0 features) for copies before 3.0; recovery.md says the same; checked for direct writes and unconditional deletes"
+      "sha256": "13db5bb4079a4d57cdad68287228f42ba378a229382b2f0f152ce10a62a5d38b",
+      "reviewed": "4.0 docs gaps (#115, #116, #118, #120, #121): 4.0 and 4.1 in updating.md, 'Ending a run with to-dos is refused' and copies before 4.0 in recovery.md, design.md's status and navigation through 45, the evidence paragraph split, ten skills; docs only, no behavior change"
     },
     "docs/skills.md": {
-      "sha256": "2abd71764f795ab1c9caafb1153eedee7275635fdfe2f6ef7e58156ea1b2cfb2",
-      "reviewed": "4.1: the walk-run skill, its rows in AGENTS.md and docs/skills.md, the release entry; checked for direct writes and unconditional deletes"
+      "sha256": "9491cd3362571524ccf7ec6c958f13ac2d5c8c510a11ec3657dcba5ba54cbfa0",
+      "reviewed": "4.0 docs gaps (#115, #116, #118, #120, #121): 4.0 and 4.1 in updating.md, 'Ending a run with to-dos is refused' and copies before 4.0 in recovery.md, design.md's status and navigation through 45, the evidence paragraph split, ten skills; docs only, no behavior change"
     },
     "docs/updating.md": {
-      "sha256": "b7afa89b3756d82b7df5172d24f1542486f688ba6433c2bbde0440236128fff3",
-      "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
+      "sha256": "848e9d7f94d0388023abaef662477c7e02e10ac914465fdf16d6d4d66c6c3086",
+      "reviewed": "4.0 docs gaps (#115, #116, #118, #120, #121): 4.0 and 4.1 in updating.md, 'Ending a run with to-dos is refused' and copies before 4.0 in recovery.md, design.md's status and navigation through 45, the evidence paragraph split, ten skills; docs only, no behavior change"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
       "sha256": "0201f9fb9e66b0d1682334fbf5c1589cd1f61d4103ae325a1c194fa8c9f2b4c6",

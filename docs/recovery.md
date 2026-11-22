@@ -8,7 +8,7 @@ Flightdeck has this guide too: **Settings → When something goes wrong**. **Set
 
 **On this page:**
 
-- **Runs:** [A run has conflict copies](#a-run-has-conflict-copies) · [A run's file is gone](#a-runs-file-is-gone) · [A replaced file with no steps](#a-replaced-file-with-no-steps) · [A step says "Continued in run"](#a-step-says-continued-in-run)
+- **Runs:** [A run has conflict copies](#a-run-has-conflict-copies) · [A run's file is gone](#a-runs-file-is-gone) · [A replaced file with no steps](#a-replaced-file-with-no-steps) · [A step says "Continued in run"](#a-step-says-continued-in-run) · [Ending a run with to-dos is refused](#ending-a-run-with-to-dos-is-refused)
 - **Plans and requests:** [A planned run arrived twice](#a-planned-run-arrived-twice) · [A started plan's run isn't in the folder](#a-started-plans-run-isnt-in-the-folder) · [A plan file with another name can't be read](#a-plan-file-with-another-name-cant-be-read) · [A request file is incomplete](#a-request-file-is-incomplete) · [A plan or a linked run won't start on its version](#a-plan-or-a-linked-run-wont-start-on-its-version)
 - **The folder and OneDrive:** [Flightdeck lost access to the folder](#flightdeck-lost-access-to-the-folder) · [OneDrive isn't syncing](#onedrive-isnt-syncing) · [OneDrive made a copy of a draft, people.json or a step type](#onedrive-made-a-copy-of-a-draft-peoplejson-or-a-step-type) · [A file can't be read](#a-file-cant-be-read) · [Leftover files](#leftover-files) · [The folder is getting big](#the-folder-is-getting-big) · [Two windows used the same name](#two-windows-used-the-same-name) · [Restoring from a backup](#restoring-from-a-backup)
 - **Drafts and proposals:** [A draft says it's being edited, but nobody is](#a-draft-says-its-being-edited-but-nobody-is) · [A proposal was decided twice](#a-proposal-was-decided-twice) · [A proposal can't be read](#a-proposal-cant-be-read)
@@ -304,9 +304,9 @@ Other JSON in `validations/` or `proposals/` that isn't a sign-off or a plan is 
 
 **What you see:** Folder health says "Teammates are using an older Flightdeck" and names the versions it saw in the last 7 days, from connection checks and draft editors.
 
-**What it means:** some computers still run an older copy. Copies from 1.11.1 on refuse files they can't read and show them by name. Copies older than 1.11.1 (1.10.0 and 1.11.0) can't tell: they may hide runs made with Flightdeck 2.0 and offer a 2.0 version as if they could run it. Copies before 3.0 show a version that uses results or loops, and its runs, by name only and can't run them.
+**What it means:** some computers still run an older copy. Copies from 1.11.1 on refuse files they can't read and show them by name. Copies older than 1.11.1 (1.10.0 and 1.11.0) can't tell: they may hide runs made with Flightdeck 2.0 and offer a 2.0 version as if they could run it. Copies before 3.0 show a version that uses results or loops, and its runs, by name only and can't run them. Copies before 4.0 show a run that has taken on to-dos or a spread, and the to-do records in `proposals/`, by name only and never change them.
 
-**What to do:** move every computer to the newest Flightdeck in the team folder before anyone records on a Flightdeck 2.0 version or publishes one that uses results or loops (see [Updating Flightdeck](updating.md) and [Moving a team to Flightdeck 3.0](updating.md#moving-a-team-to-flightdeck-30)). If an older window said it couldn't save, re-enter that change (see [An older Flightdeck said it couldn't save](#an-older-flightdeck-said-it-couldnt-save)).
+**What to do:** move every computer to the newest Flightdeck in the team folder before anyone records on a Flightdeck 2.0 version or publishes one that uses results or loops, and before anyone adds a to-do or a spread to a run (see [Updating Flightdeck](updating.md), [Moving a team to Flightdeck 3.0](updating.md#moving-a-team-to-flightdeck-30) and [Moving a team to Flightdeck 4.0](updating.md#moving-a-team-to-flightdeck-40)). If an older window said it couldn't save, re-enter that change (see [An older Flightdeck said it couldn't save](#an-older-flightdeck-said-it-couldnt-save)).
 
 ## A skill can't be matched
 
@@ -369,3 +369,19 @@ Other JSON in `validations/` or `proposals/` that isn't a sign-off or a plan is 
 **What it means:** the other process's newest version needs Flightdeck 2.0, which a run made with Flightdeck 1.x can't follow. Someone chose **Start it as a Flightdeck 2.0 run**: a new run of the same version, with the same details and roles and no answers, which starts the other process on its exact version. The old run stays as it was, readable by every copy.
 
 **What to do:** carry on in the new run. End the old one when you're ready (Canceled, with a note pointing to the new run, is usual).
+
+## Ending a run with to-dos is refused
+
+**What you see:** you end a run that has to-dos (Finish the run, or End run…), and Flightdeck says why it can't, then "The run wasn't ended." The message names the file or the limit. For example: "The loops of release/run-a start runs in runs/validate-story/, which hold 5,012 run folders; its loop children are looked for among at most 5000, so none of them was read."
+
+**What it means:** before it ends a run with to-dos, Flightdeck writes a receipt that says what the run ended with, and it checks everything the receipt rests on first. If any of it can't be read or is past a limit, it writes nothing: no receipt, and the run stays open. Nothing is lost. The usual reasons:
+
+- a to-do record, a loop's records or a spread's coverage can't be read (a file is still syncing, torn or a link);
+- a run the work depends on can't be read the way every reader reads it;
+- more than 50 of the run's to-do records are still unsettled, or a list is over its limit;
+- the processes the run's loops start hold more than 5,000 run folders. That count is every run folder there, old runs that have nothing to do with this one included, and the evidence export stops at the same limit.
+
+**What to do:** for a file that can't be read, wait for OneDrive to finish (see [OneDrive isn't syncing](#onedrive-isnt-syncing)) or follow [A file can't be read](#a-file-cant-be-read), then end the run again. For too many unsettled records, decide the run's open to-do requests first, then end it again. Past the 5,000-folder limit there is no way to end the run in Flightdeck today: the run stays open and readable, and its work is kept.
+
+**What not to do:** don't delete or move run folders to get under the limit, and don't edit the run's `run.json` to mark it ended. Other runs' records would be lost, and a run ended by hand has no receipt any reader confirms.
+
