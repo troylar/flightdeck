@@ -437,8 +437,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1: an embedded font file, binary; no text."
     },
     "src/page.html": {
-      "sha256": "4950db60b78a3178809fe73303efff0674fc50ddd271f2d9b53176a7a9ff78a1",
-      "reviewed": "4.1.0 combined: the four 4.1 branches and #62 merged; one 4.1.0 release entry; baselines, changelog and the page rebuilt; checked for direct writes and unconditional deletes: none added by the merge"
+      "sha256": "c41afad78c7986a43190d2671ed62b08f332a7f6aee006915483e7fec786c276",
+      "reviewed": "4.1.1 #109: lanes at least 320 px (builder flex-basis, Flight plan and run tracks minmax(min(320px, 100%))); CSS only; checked for direct writes and unconditional deletes"
     },
     "src/releases.json": {
       "sha256": "35e0cb841fdc9a6e1bea6fcf263bb3ddfaf9329cf4ba50e05b4cec79b39a9a3f",

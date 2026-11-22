@@ -819,6 +819,19 @@ const shown = app => { const m = /<div class="notice[^"]*"(?: role="status")?><s
 const pageCss = () => /<style>([\s\S]*?)<\/style>/.exec(require('fs').readFileSync(require('path').join(__dirname, '..', 'dist', 'flightdeck.html'), 'utf8'))[1];
 const cssRules = css => css.replace(/\/\*[\s\S]*?\*\//g, '').match(/[^{}@]+\{[^{}]*\}/g).map(r => ({ sel: r.slice(0, r.indexOf('{')).trim(), body: r.slice(r.indexOf('{') + 1, -1) }));
 
+/* #109 (4.1.1): parallel lanes are at least 320 px wide wherever they sit side by side, and never wider than the screen. */
+rule('Parallel lanes are at least 320 px wide in the builder, the Flight plan and the run screen, and fit a 375 px screen', () => {
+  const rules = cssRules(pageCss()), at = sel => rules.filter(r => r.sel === sel).map(r => r.body).join(';');
+  const px = s => +(/(\d+)px/.exec(s) || [0, 0])[1];
+  const lane = /flex:\s*1 1 ([^;]+)/.exec(at('.ob-lane'));
+  assert.ok(lane && px(lane[1]) >= 320, 'builder lanes: ' + at('.ob-lane'));
+  [['.mapview .fp-lanes', 'Flight plan'], ['.tracks', 'run screen']].forEach(([sel, where]) => {
+    const m = /minmax\(\s*(min\(\s*(\d+)px,\s*100%\s*\)|(\d+)px)/.exec(at(sel));
+    assert.ok(m && +(m[2] || m[3]) >= 320, where + ' lanes: ' + at(sel));
+    assert.ok(m[2], where + ' lanes shrink to the screen below 320 px: ' + at(sel));
+  });
+});
+
 rule('App: a browser that refuses all storage still opens the examples, says they last only for this tab, and resizes', async () => {
   const app = boot({ storageThrows: true, firstRun: true }); await app.tick(80);
   assert.ok(app.fs && app.files('runs/').length > 3 && app.files('publications/').length > 3, 'the examples are there, with their run history');
