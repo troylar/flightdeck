@@ -761,7 +761,7 @@ The run is the one that has the loop. `--from` is a JSON file (or `-` for standa
 { "key": "abc-102-prs-2026-11-09T09", "loopStep": "stories", "item": "ABC-102",
   "source": { "feed": "bitbucket", "site": "git.example.com" }, "domain": "prs",
   "observedAt": "2026-11-09T09:00:00Z", "maxAgeSeconds": 86400,
-  "complete": true, "reported": 2, "errors": [],
+  "complete": true, "reported": 1, "errors": [],
   "entries": [ { "id": "17", "text": "Fix the login", "state": "merged", "link": "https://git.example.com/pr/17" } ] }
 ```
 
