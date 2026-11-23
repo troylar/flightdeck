@@ -43,7 +43,7 @@
         "kind": "fixed",
         "area": "Docs",
         "title": "Documentation that matches what ships",
-        "now": "The fact sync example for other apps now works as written. The design notes list every section, the page for other apps links every 4.0 command, and a team folder's AGENTS.md names every tool that writes living-run records.",
+        "now": "Updating now says to move every computer to 4.0 before anyone adds a to-do, and what older copies do with them. The skills page counts all ten skills. The fact sync example for other apps now works as written. The design notes list every section, the page for other apps links every 4.0 command, and a team folder's AGENTS.md names every tool that writes living-run records.",
         "where": "docs/apps.md, docs/design.md, a team folder's AGENTS.md"
       }
     ]

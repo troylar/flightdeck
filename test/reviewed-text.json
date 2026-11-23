@@ -1,8 +1,8 @@
 {
   "texts": {
     "CHANGELOG.md": {
-      "sha256": "9ce637ff7ae87b91c679ec2485d1568bc9eb768ef622b337134edfb7b10311e0",
-      "reviewed": "4.1.1 release entry and changelog; next --contract 2 lists no waiting report while a decision on the run can't be read (read-only, no writes or deletes; reviewed)"
+      "sha256": "958d3742a972114cf0c9dfd1ac492e70704071e677c47d8f160134be04547ebe",
+      "reviewed": "4.1.1 release entry and changelog wording, update and recovery guidance for 4.0, skills count (documentation text only; no writes or deletes; reviewed)"
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
@@ -45,16 +45,16 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 8 sentences here, each read by hand: a rule, a prohibition or a description of what a command writes, never a direct write for an assistant."
     },
     "docs/recovery.md": {
-      "sha256": "2e0675de341740557ab0b86abb4d0c643375da1754bf94bbe476a2bc3ba922fa",
-      "reviewed": "health.js: the older-copies warning names results and loops (Flightdeck 3.0 features) for copies before 3.0; recovery.md says the same; checked for direct writes and unconditional deletes"
+      "sha256": "d55aea27f2a07c0e370704e225a49c07a0a679536dc5dd99fe4c0801ea0cac0b",
+      "reviewed": "4.1.1 release entry and changelog wording, update and recovery guidance for 4.0, skills count (documentation text only; no writes or deletes; reviewed)"
     },
     "docs/skills.md": {
-      "sha256": "2abd71764f795ab1c9caafb1153eedee7275635fdfe2f6ef7e58156ea1b2cfb2",
-      "reviewed": "4.1: the walk-run skill, its rows in AGENTS.md and docs/skills.md, the release entry; checked for direct writes and unconditional deletes"
+      "sha256": "07e4403840c68862faf5a8975e094e0aa9fa32fa43eb71229271d32492d442d8",
+      "reviewed": "4.1.1 release entry and changelog wording, update and recovery guidance for 4.0, skills count (documentation text only; no writes or deletes; reviewed)"
     },
     "docs/updating.md": {
-      "sha256": "b7afa89b3756d82b7df5172d24f1542486f688ba6433c2bbde0440236128fff3",
-      "reviewed": "3.0.0 headline names results and loops; updating.md says the older-copies warning can stay 7 days and to check each computer's version directly; checked for direct writes and unconditional deletes"
+      "sha256": "4f9ea2085a9bb4f290f413e5fa20572ca631873c5e3f99bc99c56c1bf57ded31",
+      "reviewed": "4.1.1 release entry and changelog wording, update and recovery guidance for 4.0, skills count (documentation text only; no writes or deletes; reviewed)"
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
       "sha256": "0201f9fb9e66b0d1682334fbf5c1589cd1f61d4103ae325a1c194fa8c9f2b4c6",
@@ -441,8 +441,8 @@
       "reviewed": "4.1.1 #109: lanes at least 320 px (builder flex-basis, Flight plan and run tracks minmax(min(320px, 100%))); CSS only; checked for direct writes and unconditional deletes"
     },
     "src/releases.json": {
-      "sha256": "9646d50c9452fa7e6ea31879bef4186d86489b1f546a2db0a71d264f6eb948b1",
-      "reviewed": "4.1.1 release entry and changelog; next --contract 2 lists no waiting report while a decision on the run can't be read (read-only, no writes or deletes; reviewed)"
+      "sha256": "e601629c7dcac8c96967313cc8b5132d09452e95f3a6cc09989770a199258fda",
+      "reviewed": "4.1.1 release entry and changelog wording, update and recovery guidance for 4.0, skills count (documentation text only; no writes or deletes; reviewed)"
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",
