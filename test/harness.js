@@ -73,6 +73,8 @@ async function run() {
       failed++;
       console.log('FAIL: ' + name + '\n  ' + (process.env.STACK ? e && e.stack : e && e.message) + (timed ? '\n  (a speed budget; load average ' + os.loadavg()[0].toFixed(1) + ' on ' + os.cpus().length + ' CPUs when it ended)' : ''));
     }
+    /* On test/virtual-clock.js's clock, the windows this rule opened close with it. */
+    if (globalThis.__virtualClock) globalThis.__virtualClock.ruleEnded();
     if (process.env.RULE_TIMES) console.log((Date.now() - t0) + ' ms: ' + name);
   }
   done = true;

@@ -505,7 +505,9 @@ async function template(o, P) {
   const files = {}, session = {}, app = await o.prep(Object.assign({ sharedFiles: files, locks: locks(), sessionStore: session }, otherHtml()));
   if (P.disk) await P.disk(app, o);
   await app.tick(100);
-  return { files: JSON.stringify(files), session: JSON.stringify(session), store: JSON.stringify(app.store), hash: app.hash() };
+  const t = { files: JSON.stringify(files), session: JSON.stringify(session), store: JSON.stringify(app.store), hash: app.hash() };
+  app.close();
+  return t;
 }
 async function opened(t, P) {
   const app = boot(Object.assign({ sharedFiles: JSON.parse(t.files), locks: locks(), sessionStore: JSON.parse(t.session), localStore: JSON.parse(t.store), hash: t.hash }, otherHtml()));
@@ -528,14 +530,18 @@ async function suspension(o, how, changes, shard) {
   const before0 = wrote(app0), w0 = guardWatch(app0, namer(app0, kid0));
   await P.go(app0); await quiet(app0, w0); w0.off();
   const points = w0.st.log.slice(), hasHead = !!headFile(app0, kid0);
+  /* What the dry run wrote and read is all it is for: its window closes now, as each cell's does once it is judged. */
+  const dryUnchanged = wrote(app0) === before0;
+  app0.close();
   if (!points.length) return { cells, applicable, off: [how + ': set-up: no read inside the guard'] };
-  if (wrote(app0) === before0) off.push(how + ': with nothing changed, the approval wasn\'t written');
+  if (dryUnchanged) off.push(how + ': with nothing changed, the approval wasn\'t written');
   /* The order the guard reads in: within each snapshot, nothing but the records it lists is read after proposals/ is listed. */
   for (let i = 0; i < points.length; i++) {
     if (points[i].op !== 'list' || points[i].p !== 'proposals') continue;
     for (let j = i + 1; j < points.length && points[j].win === points[i].win && points[j].phase === 'snap'; j++) if (!/^proposals\//.test(points[j].p)) { off.push(how + ': read after the proposals listing: ' + points[j].op + ' ' + points[j].p + ' #' + points[j].n); break; }
   }
   const todo = [];
+  let last = null;
   for (const ch of changes || Object.keys(CHANGES)) {
     if (P.changes && !P.changes.includes(ch)) continue;
     if (ch === 'the story\'s to-do changed' && !hasHead) continue;
@@ -551,6 +557,9 @@ async function suspension(o, how, changes, shard) {
     applicable++;
     const tag = [how, ch, 'at ' + pt.op + ' ' + pt.p + ' #' + pt.n].join(' · ');
     const { app, why } = await opened(tpl, P);
+    /* The cell before this one is judged: its window closes, as a tab would. */
+    if (last) last.close();
+    last = app;
     if (why) { off.push(tag + ': set-up: ' + why); continue; }
     if (P.pre) await P.pre(app, o);
     const kid = kidFor(P, o, app), w = guardWatch(app, namer(app, kid)), hold = gate();
@@ -598,10 +607,11 @@ async function suspension(o, how, changes, shard) {
     else if (C.kept && !C.kept(app, mid)) off.push(tag + ': the source as replaced wasn\'t kept');
     w.off(); undo();
   }
+  if (last) last.close();
   return { cells, applicable, required, limit, points: points.length, todo: todo.length, off };
 }
 module.exports.suspension = suspension;
-/* Round 15 (SD): the guard's first read never settles. Past the guard's deadline (waitMs, real time) the approval has
+/* Round 15 (SD): the guard's first read never settles. Past the guard's deadline (waitMs, on the clock the file runs on) the approval has
    refused: nothing written or removed, the click (or Try again) offered again, a recovery's source kept. The read then
    answers late, and still nothing is written. Returns what was off. */
 async function stalled(o, how, waitMs) {
