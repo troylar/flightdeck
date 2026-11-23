@@ -2604,6 +2604,14 @@ rule('READ: next --contract 2 says the run waits on a report a tool wrote on an 
   assert.ok(b.json.problems.some(p => p.path === REP_NAME), 'named: ' + JSON.stringify(b.json.problems));
   same(b.json.data.next.waitingOn.filter(x => x.kind === 'report'), []);
 });
+rule('READ: next --contract 2 lists no waiting report while a decision on this run can\'t be read, since that decision may be the one that declined it', async () => {
+  const DEC = 'report-decisions/release/' + SRC.reports.decisionName({ process: 'release', run: 'run1', step: 'tests', producer: 'ci-check', report: 'k3m9p2q8x7', rev: 1 }, 'w-a');
+  const dir = await readFolder(f => { f[REP_NAME] = JSON.stringify(REPORT); f[DEC] = '{"format": "flightdeck-report-decision/1", '; });
+  const r = repAgree(readCli('next', dir, 'release/run1', '--contract', '2', '--json'), 'next');
+  assert.strictEqual(r.code, 4, r.out + r.err);
+  assert.ok(r.json.problems.some(p => p.path === DEC), 'named: ' + JSON.stringify(r.json.problems));
+  same(r.json.data.next.waitingOn.filter(x => x.kind === 'report'), []);
+});
 rule('READ: next --contract 2 reads this run\'s reports and report decisions and nothing else of reports/ or report-decisions/', async () => {
   await readFolder();
   const files = Object.assign({}, rfBuilt.files);
