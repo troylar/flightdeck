@@ -2,6 +2,7 @@
 // run, approves the loop from its roll-up, and sends the approval back for review when the list changes after it. Every
 // change to the list is a scope record in proposals/, the same ones flightdeck loop writes.
 'use strict';
+require('./virtual-clock');
 const assert = require('assert');
 const { rule, run } = require('./harness');
 const { boot, gate } = require('./app-harness');
@@ -1199,7 +1200,7 @@ for (const how of BB.holdPathsFor(bbLoop)) for (const ch of HA_CHANGES.filter(c 
   assert.deepStrictEqual(r.off, []);
 });
 /* Round 15 (SD): a read inside the approval guard that never settles refuses at the guard's deadline, offers the click or
-   Try again again, keeps a recovery's source, and its late answer writes nothing. (Waits out the deadline in real time.) */
+   Try again again, keeps a recovery's source, and its late answer writes nothing. (Waits out the deadline on test/virtual-clock.js's clock: the full 16 s pass, nobody waits for them.) */
 for (const how of ['Pass', 'Use copy', 'Use copy, no approvals']) rule('SD: ' + how + ' on a plain loop whose guard read never settles refuses at the deadline and ignores the late answer', async () => {
   assert.deepStrictEqual(await BB.stalled(bbLoop, how, 16000), []);
 });

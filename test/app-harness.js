@@ -351,9 +351,16 @@ function boot(opts) {
   const timerQ = [], clock = { now: 0, id: 1 };
   const appSetTimeout = !opts.timers ? setTimeout : (fn, ms) => { if (!(ms > 0)) return setTimeout(fn, 0); const t = { id: 'm' + clock.id++, at: clock.now + ms, fn }; timerQ.push(t); return t.id; };
   const appClearTimeout = !opts.timers ? clearTimeout : id => { const i = timerQ.findIndex(t => t.id === id); if (i >= 0) timerQ.splice(i, 1); else clearTimeout(id); };
+  /* app.close(): the window is closed, as a tab is. Its pending timers are cleared and it sets no more, so a window a test is
+     done with never works on in the background (on test/virtual-clock.js's clock, nothing would hold it back). Until then
+     these only keep a list. */
+  const pending = new Set();
+  let closed = false;
+  const windowSetTimeout = (fn, ms) => { if (closed) return 0; const id = appSetTimeout(() => { pending.delete(id); fn(); }, ms); pending.add(id); return id; };
+  const windowClearTimeout = id => { pending.delete(id); appClearTimeout(id); };
   const base = {
     window, document, history, location, localStorage: storage(), sessionStorage, navigator: Object.assign(opts.locks ? { locks: opts.locks } : {}, opts.navigator || {}), BroadcastChannel: opts.Channel, console, Date: opts.Date || Date, Math, JSON, Promise, Blob, fetch, btoa, Uint8Array,
-    setTimeout: appSetTimeout, clearTimeout: appClearTimeout, setInterval: fn => { intervals.push(fn); return 0; }, requestAnimationFrame: fn => setTimeout(fn, 0), URL: opts.urlParser ? Object.assign(class extends URL {}, { createObjectURL: b => { lastBlob = b; return 'blob:x'; }, revokeObjectURL() {} }) : { createObjectURL: b => { lastBlob = b; return 'blob:x'; }, revokeObjectURL() {} },
+    setTimeout: windowSetTimeout, clearTimeout: windowClearTimeout, setInterval: fn => { intervals.push(fn); return 0; }, requestAnimationFrame: fn => windowSetTimeout(fn, 0), URL: opts.urlParser ? Object.assign(class extends URL {}, { createObjectURL: b => { lastBlob = b; return 'blob:x'; }, revokeObjectURL() {} }) : { createObjectURL: b => { lastBlob = b; return 'blob:x'; }, revokeObjectURL() {} },
     crypto: globalThis.crypto, TextEncoder, TextDecoder, indexedDB: opts.indexedDB, IntersectionObserver: opts.IntersectionObserver,
     // An elapsed-time clock the test moves (performance.now()); left out, the app falls back on Date.now().
     performance: opts.performance,
@@ -382,6 +389,7 @@ function boot(opts) {
   const tick = (n = 20) => new Promise(res => { let i = 0; (function loop() { if (i++ >= n) return res(); setTimeout(loop, 0); })(); });
   app = {
     PF, store, session, fs: null, tick,
+    close() { closed = true; pending.forEach(id => appClearTimeout(id)); pending.clear(); if (globalThis.__virtualClock) globalThis.__virtualClock.closed(app); },
     // With opts.timers: move the app's clock by ms, firing every delayed timer that comes due, in order; and the ones waiting.
     advanceTimers(ms) { const until = clock.now + ms; for (;;) { timerQ.sort((x, y) => x.at - y.at); const t = timerQ[0]; if (!t || t.at > until) break; timerQ.shift(); clock.now = t.at; t.fn(); } clock.now = until; },
     pendingTimers: () => timerQ.map(t => ({ in: t.at - clock.now })),
@@ -523,6 +531,7 @@ function boot(opts) {
     activeId() { const a = document.activeElement; if (!a || a === document.body) return 'body'; if (a.id) return a.id; return a.dataset && a.dataset.act ? '[data-act="' + a.dataset.act + '"]' + (a.dataset.id != null ? '[data-id="' + a.dataset.id + '"]' : '') : null; },
     node: sel => drawnAnywhere(sel)
   };
+  if (globalThis.__virtualClock) globalThis.__virtualClock.opened(app);
   return app;
 }
 

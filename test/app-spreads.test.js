@@ -3,6 +3,7 @@
 // what it showed, and keeps every exception apart; every count said is the count opened. Adding, including and stopping a
 // spread go through flightdeck spread and the skills; the app is a faithful view plus easy decisions.
 'use strict';
+require('./virtual-clock');
 const assert = require('assert');
 const { rule, run } = require('./harness');
 const F = require('./app-spread-fixture');
@@ -348,7 +349,7 @@ for (const how of BB.holdPathsFor(bbSpread)) for (const ch of HA_CHANGES.filter(
   assert.deepStrictEqual(r.off, []);
 });
 /* Round 15 (SD): a read inside the approval guard that never settles refuses at the guard's deadline, offers the click or
-   Try again again, keeps a recovery's source, and its late answer writes nothing. (Waits out the deadline in real time.) */
+   Try again again, keeps a recovery's source, and its late answer writes nothing. (Waits out the deadline on test/virtual-clock.js's clock: the full 16 s pass, nobody waits for them.) */
 for (const how of ['Pass', 'Use copy', 'Use copy, no approvals', 'Accept', 'Accept all', 'Delegate', 'Land a delegated spread', 'Land a delegated fulfillment']) rule('SD: ' + how + ' on a fulfilled spread\'s loop whose guard read never settles refuses at the deadline and ignores the late answer', async () => {
   assert.deepStrictEqual(await BB.stalled(bbSpread, how, 16000), []);
 });
