@@ -1,5 +1,54 @@
 [
   {
+    "version": "4.1.1",
+    "date": "2026-11-22",
+    "headline": "Wider lanes, full step sentences in the builder, a renamed draft that shows its new name, and clearer messages",
+    "changes": [
+      {
+        "kind": "fixed",
+        "area": "Builder",
+        "title": "Parallel lanes are wide enough to read",
+        "now": "Lanes in one phase are now at least 320 px wide in the builder, the Flight plan and the run screen. With three lanes, two sit side by side and the third goes under them, so a step reads in a line or two. On a phone each lane takes the full width.",
+        "where": "The builder, the Flight plan, the run screen"
+      },
+      {
+        "kind": "fixed",
+        "area": "Builder",
+        "title": "A step sentence keeps its run details in place",
+        "now": "A step like \"Deploy record shows ^tag in ^environment\" now reads in full in the builder, with each run detail where it's written. Before, it read \"Deploy record shows in\", with the details moved to the end.",
+        "where": "The draft editor's builder"
+      },
+      {
+        "kind": "fixed",
+        "area": "Draft editor",
+        "title": "A renamed draft shows its new name",
+        "now": "When a published checklist's draft gets a new title, the draft editor, the draft part of the checklist's page and Home's card show the new name. The Checklists list keeps the published name and says it's renamed in the draft. Publishing makes the new name official.",
+        "where": "The draft editor, a checklist's page, Home, Checklists"
+      },
+      {
+        "kind": "fixed",
+        "area": "Recovery",
+        "title": "A copy that can't be kept says why",
+        "now": "Keeping a copy saved in this browser, for a run that needs a newer Flightdeck, now says that and that the copy is still there. It used to blame a loop and suggest Refresh, which couldn't help. Nothing is written either way.",
+        "where": "A run's screen, copies kept in this browser"
+      },
+      {
+        "kind": "fixed",
+        "area": "Other apps",
+        "title": "next no longer says a run waits on a report that may be declined",
+        "now": "When a decision on a run's reports can't be read, flightdeck next --contract 2 now lists no report as waiting, and still names the unreadable file and exits 4. Before, it could still list a report that someone had already declined, so a reminder bot might nudge the wrong person.",
+        "where": "flightdeck next --json, docs/apps.md"
+      },
+      {
+        "kind": "fixed",
+        "area": "Docs",
+        "title": "Documentation that matches what ships",
+        "now": "The fact sync example for other apps now works as written. The design notes list every section, the page for other apps links every 4.0 command, and a team folder's AGENTS.md names every tool that writes living-run records.",
+        "where": "docs/apps.md, docs/design.md, a team folder's AGENTS.md"
+      }
+    ]
+  },
+  {
     "version": "4.1.0",
     "date": "2026-11-21",
     "headline": "Walk a run with your assistant, see every linked run in one place, and let other apps see what a run is waiting on",

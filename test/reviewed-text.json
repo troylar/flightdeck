@@ -1,20 +1,20 @@
 {
   "texts": {
     "CHANGELOG.md": {
-      "sha256": "f87386ad937f87eeb7c40aed2ab31afbafdeab6e769c5fcd079d5bf8730f044c",
-      "reviewed": "4.1.0 combined: the four 4.1 branches and #62 merged; one 4.1.0 release entry; baselines, changelog and the page rebuilt; checked for direct writes and unconditional deletes: none added by the merge"
+      "sha256": "9ce637ff7ae87b91c679ec2485d1568bc9eb768ef622b337134edfb7b10311e0",
+      "reviewed": "4.1.1 release entry and changelog; next --contract 2 lists no waiting report while a decision on the run can't be read (read-only, no writes or deletes; reviewed)"
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1: a license text, shipped unchanged; no instruction."
     },
     "README.md": {
-      "sha256": "be609a053d4284a030c4fd8621ab06e9c02a31d5ba71621bef6a39f04360dd2a",
-      "reviewed": "4.1.0 combined: the four 4.1 branches and #62 merged; one 4.1.0 release entry; baselines, changelog and the page rebuilt; checked for direct writes and unconditional deletes: none added by the merge"
+      "sha256": "cc102cd8b9cd0d02e467db97298483d46b112f7ddd68dbff954ec72cd3d1bdc3",
+      "reviewed": "4.1.1: README download link names 4.1.1; checked for direct writes and unconditional deletes"
     },
     "bin/flightdeck.js": {
-      "sha256": "021c1017349a4474d85a4184527931a8c9124272a5410adbd20a1d7a0331ba0d",
-      "reviewed": "4.1.0 combined: the four 4.1 branches and #62 merged; one 4.1.0 release entry; baselines, changelog and the page rebuilt; checked for direct writes and unconditional deletes: none added by the merge"
+      "sha256": "b9cbe802eec9600fc3151ed26f8dc25b7ea290e8e76c42f7276da66f01856ea1",
+      "reviewed": "4.1.1 release entry and changelog; next --contract 2 lists no waiting report while a decision on the run can't be read (read-only, no writes or deletes; reviewed)"
     },
     "build.py": {
       "sha256": "4930aee232c7766241927d231c2eb0729443450de507161a3f0e85b7e7f5fb8e",
@@ -205,8 +205,8 @@
       "reviewed": "Round 20, at 64e1c01: the file list npm packs (npm pack --dry-run on a mirror of the tree), read in full: CHANGELOG.md, LICENSE, README.md, bin/flightdeck.js, the two dist files, package.json. Each is pinned whole or checked by parity. No new text."
     },
     "package.json": {
-      "sha256": "eac09ecf7c23ff789c10740454a2c65128c5bd64891221d7dace68ec1e638ee6",
-      "reviewed": "4.1: the walk-run skill, its rows in AGENTS.md and docs/skills.md, the release entry; checked for direct writes and unconditional deletes"
+      "sha256": "01bba07d6aeab40b44693f600be7dce958f07ef680dcc55abf2c26452420b6c1",
+      "reviewed": "4.1.1: the release entry, package version, changelog and baselines for 4.1.1; checked for direct writes and unconditional deletes"
     },
     "rendered: the merge README, AGENTS.md held": {
       "sha256": "587c6fe0a4080614f1661c880aa058e9dd8180b5595d72bfaaf90b9f297f8d95",
@@ -225,8 +225,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "bdb54ee189030d6a81c064f74f00fba26efa0a034449f5b63331db1623b57877",
-      "reviewed": "4.1.0 combined: the four 4.1 branches and #62 merged; one 4.1.0 release entry; baselines, changelog and the page rebuilt; checked for direct writes and unconditional deletes: none added by the merge"
+      "sha256": "1b48c47df76117bff604c598b0f82da73c27ad5bf78e1a744ecab7a258a297c2",
+      "reviewed": "4.1.1: the release entry, package version, changelog and baselines for 4.1.1; checked for direct writes and unconditional deletes"
     },
     "src/core/appjson.js": {
       "sha256": "11e34bc4fac1219d75104336f0eae278fd0b4b942707c753a4c3867f4a8c33ec",
@@ -441,8 +441,8 @@
       "reviewed": "4.1.1 #109: lanes at least 320 px (builder flex-basis, Flight plan and run tracks minmax(min(320px, 100%))); CSS only; checked for direct writes and unconditional deletes"
     },
     "src/releases.json": {
-      "sha256": "35e0cb841fdc9a6e1bea6fcf263bb3ddfaf9329cf4ba50e05b4cec79b39a9a3f",
-      "reviewed": "4.1.0 combined: the four 4.1 branches and #62 merged; one 4.1.0 release entry; baselines, changelog and the page rebuilt; checked for direct writes and unconditional deletes: none added by the merge"
+      "sha256": "9646d50c9452fa7e6ea31879bef4186d86489b1f546a2db0a71d264f6eb948b1",
+      "reviewed": "4.1.1 release entry and changelog; next --contract 2 lists no waiting report while a decision on the run can't be read (read-only, no writes or deletes; reviewed)"
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",

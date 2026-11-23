@@ -702,17 +702,18 @@ rule('A folder installed by 2.12.0\'s own command, with Team notes, upgrades wit
   assert.ok(back.code === 1 && back.out.includes('is a newer version (' + VER + ') than this one (2.12.0)'), '2.12.0\'s own command sees a newer folder: ' + back.out);
 });
 
-rule('This release is dated 2026-11-21 in the entry, the waiver and the list, and each text in the entry is under 400 characters', () => {
+/* 4.1.1 is a patch. It touches recover() in app.js (#130: a message and a return before any write), so whether it needs a
+   rehearsal or a waiver is the owner's call (docs/rehearsals/README.md, "when in doubt"); none is claimed here. If the owner
+   records one, this rule names it. */
+rule('This release is dated 2026-11-22 in its entry, each text in the entry is under 400 characters, and no rehearsal record is claimed for it', () => {
   const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')).find(r => r.version === VER);
-  assert.strictEqual(VER, '4.1.0');
-  assert.strictEqual(rel.date, '2026-11-21');
+  assert.strictEqual(VER, '4.1.1');
+  assert.strictEqual(rel.date, '2026-11-22');
   for (const c of rel.changes) for (const f of ['now', 'before']) if (c[f] != null) assert.ok(c[f].length < 400, c.title + ': ' + f + ' is ' + c[f].length);
-  const at = path.join(ROOT, 'docs', 'rehearsals', '4.1.0-2026-11-21-waiver.md');
-  assert.ok(fs.existsSync(at) && /Version: 4\.1\.0/.test(fs.readFileSync(at, 'utf8')) && /Date: 2026-11-21/.test(fs.readFileSync(at, 'utf8')), 'the waiver');
+  const recs = fs.readdirSync(path.join(ROOT, 'docs', 'rehearsals'));
+  assert.deepStrictEqual(recs.filter(f => /^4\.1\.1-/.test(f)), [], 'no record for 4.1.1 yet');
   const list = fs.readFileSync(path.join(ROOT, 'docs', 'rehearsals', 'README.md'), 'utf8');
-  assert.ok(list.includes('[4.1.0, 2026-11-21](4.1.0-2026-11-21-waiver.md)'), 'the list');
-  const n = fs.readdirSync(path.join(ROOT, 'docs', 'rehearsals')).filter(f => /-waiver\.md$/.test(f)).length;
-  assert.strictEqual(n, 22);
+  assert.strictEqual(recs.filter(f => /-waiver\.md$/.test(f)).length, 22);
   assert.ok(list.includes('All twenty-two are waivers'), 'the count');
 });
 
