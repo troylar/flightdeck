@@ -819,6 +819,19 @@ const shown = app => { const m = /<div class="notice[^"]*"(?: role="status")?><s
 const pageCss = () => /<style>([\s\S]*?)<\/style>/.exec(require('fs').readFileSync(require('path').join(__dirname, '..', 'dist', 'flightdeck.html'), 'utf8'))[1];
 const cssRules = css => css.replace(/\/\*[\s\S]*?\*\//g, '').match(/[^{}@]+\{[^{}]*\}/g).map(r => ({ sel: r.slice(0, r.indexOf('{')).trim(), body: r.slice(r.indexOf('{') + 1, -1) }));
 
+/* #109 (4.1.1): parallel lanes are at least 320 px wide wherever they sit side by side, and never wider than the screen. */
+rule('Parallel lanes are at least 320 px wide in the builder, the Flight plan and the run screen, and fit a 375 px screen', () => {
+  const rules = cssRules(pageCss()), at = sel => rules.filter(r => r.sel === sel).map(r => r.body).join(';');
+  const px = s => +(/(\d+)px/.exec(s) || [0, 0])[1];
+  const lane = /flex:\s*1 1 ([^;]+)/.exec(at('.ob-lane'));
+  assert.ok(lane && px(lane[1]) >= 320, 'builder lanes: ' + at('.ob-lane'));
+  [['.mapview .fp-lanes', 'Flight plan'], ['.tracks', 'run screen']].forEach(([sel, where]) => {
+    const m = /minmax\(\s*(min\(\s*(\d+)px,\s*100%\s*\)|(\d+)px)/.exec(at(sel));
+    assert.ok(m && +(m[2] || m[3]) >= 320, where + ' lanes: ' + at(sel));
+    assert.ok(m[2], where + ' lanes shrink to the screen below 320 px: ' + at(sel));
+  });
+});
+
 rule('App: a browser that refuses all storage still opens the examples, says they last only for this tab, and resizes', async () => {
   const app = boot({ storageThrows: true, firstRun: true }); await app.tick(80);
   assert.ok(app.fs && app.files('runs/').length > 3 && app.files('publications/').length > 3, 'the examples are there, with their run history');
@@ -9310,6 +9323,57 @@ rule('Start: a saved plan keeps its approver; one written with the approver left
   const html = app.html(), at = k => html.slice(html.indexOf('id="role-' + k + '"'), html.indexOf('</select>', html.indexOf('id="role-' + k + '"')));
   assert.ok(/<option value="">Choose a person<\/option>/.test(at('release-lead')) && !/ selected>/.test(at('release-lead')), 'the approver waits for a person');
   assert.ok(/<option value="person-morgan" selected>/.test(at('qa')) && /<option value="person-casey" selected>/.test(at('backend')), 'the other roles are kept');
+});
+
+/* #130 (4.1.1): keeping a browser copy of a run that needs a newer Flightdeck writes nothing, and says it's the newer run. */
+rule('App: Restore on a browser copy of a run that needs a newer Flightdeck writes nothing and says a newer copy is needed, not a loop', async () => {
+  const other = folderHandle('Other', { 'people.json': '[]' });
+  const app = boot({ picker: other, indexedDB: memoryIDB() }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  let r = app.run(); app.click('open-run', r.key); await app.tick(); app.click('pickup'); await app.tick(40); r = app.run();
+  const j = typeof r.json === 'string' ? JSON.parse(r.json) : r.json, map = app.PF.map.parse(j.snapshot);
+  const id = (app.html().match(/data-act="toggle" data-id="[\w-]+"/g) || []).map(x => /data-id="([\w-]+)"/.exec(x)[1])
+    .find(x => !(j.steps[x] && j.steps[x].s === 'done') && app.PF.map.findStep(map, x).step.type !== 'run.process' && app.PF.run.evidenceFor(j, app.PF.map.findStep(map, x).step).list.every(d => !d.required));
+  const newer = JSON.parse(app.fs.files[r.path].t); newer.format = 'preflight-run/3'; newer.features = ['from-a-later-release']; newer.app = '99.0.0';
+  app.fs.files[r.path] = { t: JSON.stringify(newer, null, 2), m: Date.now() }; app.fs.persist();
+  app.click('toggle', id); await app.tick(80);
+  app.click('connect'); await app.tick(200);
+  assert.ok(Object.keys(app.store).some(k => /^preflight:unsaved:/.test(k)), 'the refused change went to browser storage');
+  const b = boot({ localStore: Object.assign({}, app.store) }); await b.tick(80); b.choose('person-casey'); await b.tick();
+  b.click('open-run', r.key); await b.tick(40);
+  const snap = () => { const o = {}; Object.keys(b.fs.files).sort().forEach(p => { o[p] = b.fs.files[p].t; }); return o; };
+  const before = snap();
+  const pg = b.html(); assert.ok(/A copy kept in this browser/.test(pg) && /newer copy of Flightdeck|Flightdeck 99/.test(pg), 'listed, and the page says why');
+  b.click('restore-local'); await b.tick(120);
+  const after = snap(); assert.deepStrictEqual(Object.keys(after).filter(p => after[p] !== before[p]), [], 'nothing written');
+  assert.ok(/wasn't kept/.test(b.live()) && /still there/.test(b.live()), b.live());
+  assert.ok(/newer copy of Flightdeck/.test(b.live()) && !/loop/.test(b.live()), 'it says a newer copy is needed: ' + b.live());
+});
+
+/* #111 (4.1.1): a draft given a new title shows it where the screen is about the draft; lists keep the published name and say
+   it's renamed in the draft; publishing makes the new name official. */
+rule('App: a renamed draft shows its new title in the editor, the checklist page\'s draft part and Home, and lists say it\'s renamed until it\'s published', async () => {
+  const app = boot(); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const p = 'maps/drafts/release.md', old = /^title: (.*)$/m.exec(app.fs.files[p].t)[1];
+  app.fs.files[p] = { t: app.fs.files[p].t.replace(/^title: .*$/m, 'title: Ship to production'), m: Date.now() }; app.fs.persist();
+  app.click('refresh'); await app.tick(80);
+  app.click('nav', 'processes'); await app.tick();
+  const list = app.html();
+  assert.ok(list.includes(old) && /renamed to Ship to production in the draft/.test(list), 'the list keeps the published name and says the new one');
+  app.click('nav', 'home'); await app.tick();
+  assert.ok(/Ship to production: the draft has unpublished changes/.test(app.html()), 'Home\'s card names the draft');
+  app.click('open-process', 'release'); await app.tick();
+  const page = app.html();
+  assert.ok(/Has changes not yet published<\/span><\/div><p class="small">Renamed to Ship to production in the draft\./.test(page), 'the page\'s draft part says the new title');
+  assert.ok(/<span class="hd-t" title="Production release">Production release<\/span>/.test(page), 'and the page keeps the published name');
+  app.click('ptab', 'edit'); await app.tick();
+  assert.ok(/<h1 id="ed-h"><span class="hd-t" title="Ship to production">Ship to production<\/span>/.test(app.html()), 'the editor\'s header is the draft\'s title');
+  /* Publishing makes it official: the list shows the new name, and nothing says renamed. */
+  app.click('ed-done'); await app.tick();
+  app.set('change-note', 'New name'); app.click('publish', 'release'); await app.tick(80);
+  app.click('nav', 'processes'); await app.tick();
+  assert.ok(/<span class="t">Ship to production<\/span>/.test(app.html()) && !/renamed to/.test(app.html()), 'after publishing, the new name is the name');
 });
 
 run();

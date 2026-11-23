@@ -464,4 +464,14 @@ rule('Filing: a retry under the same key with the same observation is already; t
   assert.ok(/isn't a loop step/.test(noLoop.why));
 });
 
+/* #123 (4.1.1): the example in docs/apps.md is one `fact sync` takes as written, only placed on this world's loop. */
+rule('The fact sync example in docs/apps.md passes the same check fact sync uses', () => {
+  const doc = require('fs').readFileSync(require('path').join(__dirname, '..', 'docs', 'apps.md'), 'utf8');
+  const at = doc.indexOf('`--from` is a JSON file'), m = /```json\n([\s\S]*?)\n```/.exec(doc.slice(at));
+  assert.ok(at > 0 && m, 'the example is there');
+  const W = world(), ex = JSON.parse(m[1]);
+  const Pp = F.prepare(W.r, { obs: Object.assign({}, ex, { loopStep: 'each', item: 'ABC-101' }), by: { tool: 'git-bot', version: '1.0' }, records: W.recs, unread: W.unread, items: W.items(), at: AT, app: '4.0.0' });
+  assert.ok(!Pp.why, Pp.why);
+});
+
 run();

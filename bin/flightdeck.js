@@ -1035,13 +1035,15 @@ async function runReports(PF, L, proc, run, scope, take) {
     (g.copies || []).filter((c) => !c.ok).forEach((c) => take([{ path: X.DIR + '/' + proc + '/' + c.name, kind: c.kind || 'malformed', why: fileWhy(c.why || 'This report can\'t be read.') }]));
     if (g.differ) take([{ path: X.DIR + '/' + proc + '/' + g.copies[0].name, kind: 'malformed', why: 'Copies of this report say different things, so it can\'t be accepted.' }]);
   });
-  const all = await repo.loadReportDecisions(v).catch((e) => { take([{ path: X.DDIR + '/' + proc + '/', kind: 'unreadable', why: fileWhy(e && e.message || String(e)) }]); return []; });
+  let undecidable = false;
+  const all = await repo.loadReportDecisions(v).catch((e) => { undecidable = true; take([{ path: X.DDIR + '/' + proc + '/', kind: 'unreadable', why: fileWhy(e && e.message || String(e)) }]); return []; });
   const decisions = [];
   all.forEach((d) => {
-    if (d._unread) take([{ path: X.DDIR + '/' + d.process + '/' + d._file, kind: d.kind || 'unreadable', why: fileWhy(d.why || 'This decision can\'t be read.') }]);
+    if (d._unread) { undecidable = true; take([{ path: X.DDIR + '/' + d.process + '/' + d._file, kind: d.kind || 'unreadable', why: fileWhy(d.why || 'This decision can\'t be read.') }]); }
     else if (d.process === proc && d.run === run) decisions.push(d);
   });
-  return { list: got.list, decisions };
+  /* A decision that can't be read might be the one that declined a report, so none is listed as waiting. */
+  return { list: undecidable ? [] : got.list, decisions };
 }
 
 /* eng: { PF, version } (loadEngine()). adapter: a folder with list, read, stat and blob (and links and skipped, as the

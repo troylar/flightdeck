@@ -211,16 +211,25 @@
   function incoming(ctx, kind, key) { var ed = ctx.state.editor, inc = ed && ed.incoming; return inc && inc.keys && inc.keys[kind + ':' + key] ? inc : null; }
   function incWords(inc) { return inc ? '<span class="ob-inc-t">' + (inc.who === 'assistant' ? 'Changed by your AI assistant' : 'Changed in the team folder') + '</span>' : ''; }
   function isNew(ctx, kind, key, track) { var f = ctx.state.obFlash; return !!f && f.kind === kind && f.key === key && (track == null || +f.track === +track); }
+  /* #110 (4.1.1): the step's sentence as written, each ^detail in its place (a chip), so "shows ^tag in ^environment" never
+     reads "shows in". The outline's text has the references taken out, so this reads the line's own words; '' when it can't. */
+  function stepSentence(s) {
+    var rest = s.parts && typeof s.parts.rest === 'string' ? s.parts.rest : null;
+    if (rest == null || !s.binds.length) return '';
+    var words = plain(rest.replace(/\s*@[\w-]+/g, '')).trim(), out = '', re = /\^([\w-]+)/g, last = 0, m;
+    while ((m = re.exec(words))) { out += esc(words.slice(last, m.index)) + '<span class="ob-chip">^' + esc(m[1]) + '</span>'; last = re.lastIndex; }
+    return out + esc(words.slice(last));
+  }
   function stepRow(ctx, p, s, sel, B) {
-    var t = T.get(s.type, teamTypes(ctx)), on = sel && sel.kind === 'step' && sel.key === s.key;
+    var t = T.get(s.type, teamTypes(ctx)), on = sel && sel.kind === 'step' && sel.key === s.key, inline = stepSentence(s);
     var meta = (s.must ? '<span class="badge b-must">Must do</span>' : '') + (s.planned ? '<span class="badge b-plan">Automation planned</span>' : '') +
-      (s.roles.length ? '<span class="ob-role">' + esc(K.atRoles(s.roles, 'ob-step-roles')) + '</span>' : '') + s.binds.map(function (b) { return '<span class="ob-chip">^' + esc(b) + '</span>'; }).join('') + fixBadge(B, s.id);
+      (s.roles.length ? '<span class="ob-role">' + esc(K.atRoles(s.roles, 'ob-step-roles')) + '</span>' : '') + (inline ? '' : s.binds.map(function (b) { return '<span class="ob-chip">^' + esc(b) + '</span>'; }).join('')) + fixBadge(B, s.id);
     var inc = incoming(ctx, 'step', s.key);
     if (inc) meta = incWords(inc) + meta;
     return slot(B, 'li', 'step', 'before:' + s.key, '') +
       '<li class="ob-step' + (on ? ' sel' : '') + (s.odd ? ' odd' : '') + (isNew(ctx, 'step', s.key) ? ' ob-new' : '') + (inc ? ' ob-inc' : '') + '" draggable="' + !s.odd + '" data-ob-step="' + esc(s.key) + '"><span class="ob-grip" aria-hidden="true"></span>' +
       '<button type="button" class="ob-pick" data-act="ob-sel" data-id="' + esc(s.key) + '" aria-pressed="' + on + '" aria-describedby="ob-kbd">' + (t ? I(t.icon, T.nameOf(t)) : I('check', 'Unknown type')) +
-      '<span class="ob-row"><span class="ob-txt">' + esc(plain(s.text)) + '</span>' + (meta ? '<span class="ob-meta">' + meta + '</span>' : '') + '</span></button></li>';
+      '<span class="ob-row"><span class="ob-txt">' + (inline || esc(plain(s.text))) + '</span>' + (meta ? '<span class="ob-meta">' + meta + '</span>' : '') + '</span></button></li>';
   }
   /* One group of steps: the steps before any lane (g = -1) or one lane's. */
   function groupList(ctx, p, ph, g, sel, add, B, label) {

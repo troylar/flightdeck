@@ -32,6 +32,7 @@ Read the release's notes (`CHANGELOG.md`, or What's new in the app once installe
 | 2.1.1 (patch) | Nothing new to read. | Yes: a planned run starts once only when every computer has 2.1.1. |
 | 2.2 to 2.6.1 | Nothing new to read: no checklist feature and no file format changed. | No. Computers can update one at a time. |
 | 3.0 (major) | Copies before 3.0 show a version that uses results or loops (`result:`, `accepts:`, `sets: <detail>=decision` or `=result`, `{for.each}`) by name, with its runs, and never change them; they never offer a loop's records in `proposals/` as plans. A checklist that uses neither publishes as on 2.16. | Yes, before anyone publishes a version that uses results or loops ([Moving a team to Flightdeck 3.0](updating.md#moving-a-team-to-flightdeck-30)). |
+| 4.0 (major) | Copies before 4.0 show a run that has taken on to-dos, and the to-do records in `proposals/`, by name and never change them. A run without to-dos reads and saves as before. | Yes, before anyone adds a to-do to a run ([Moving a team to Flightdeck 4.0](updating.md#moving-a-team-to-flightdeck-40)). |
 
 ## 3. Pick a time
 
@@ -244,6 +245,18 @@ What an older copy does with them:
 
 **Rolling back.** Until someone publishes a version that uses results or loops, nothing in the folder needs 3.0, and rolling back follows the steps below. After that, never below 3.0: on an older copy those versions, their runs and the loop's records turn read-only, by name only. They aren't lost; they work again once you update.
 
+### Moving a team to Flightdeck 4.0
+
+1. Put Flightdeck 4.0 in the team folder and have everyone reopen it from there. Then confirm each computer's version directly: Settings → About in the app it opens, or `flightdeck version` for the command on that computer. Folder health's "Teammates are using an older Flightdeck" can stay up to 7 days after the last older copy was used, so don't wait for it to clear.
+2. Only then add a to-do to a run, from the run screen or with `flightdeck todo`. A run that has taken on to-dos, and the to-do records in `proposals/`, use a format only 4.0 reads. A checklist, a run without to-dos and a loop without spreads or to-dos work as they did on 3.0.
+
+What an older copy does with them:
+
+- **It shows them by name and writes nothing.** A run with to-dos opens read-only in a copy before 4.0, and its to-do records are never offered as plans or applied. `check_folder.py` names the version they need.
+- **A request waits for 4.0.** A to-do asked for with `flightdeck todo` or `flightdeck spread` is carried out only by the run's recorder in a 4.0 window. Until then it waits in `proposals/`.
+
+**Rolling back.** Until someone adds a to-do to a run, nothing in the folder needs 4.0, and rolling back follows the steps below. After that, never below 4.0: on an older copy those runs and their records turn read-only, by name only. They aren't lost; they work again once you update.
+
 ## Rolling back
 
 If an update goes wrong, install the older version over it. For example, from 2.6.1 back to 2.6.0:
@@ -261,6 +274,7 @@ Don't roll back past what the folder already uses:
 - never below 1.21 once the folder has files from Flightdeck 2.0 (see [Moving a team to Flightdeck 2.0](updating.md#moving-a-team-to-flightdeck-20) and [Two limits to know](updating.md#two-limits-to-know));
 - never below 2.1 once anyone published `only when` or staged a version;
 - never below 2.1.1 while plans are being started, since its planned-start protection works only when every computer has it.
-- never below 3.0 once anyone published a version that uses results or loops (see [Moving a team to Flightdeck 3.0](updating.md#moving-a-team-to-flightdeck-30)).
+- never below 3.0 once anyone published a version that uses results or loops (see [Moving a team to Flightdeck 3.0](updating.md#moving-a-team-to-flightdeck-30));
+- never below 4.0 once anyone added a to-do to a run (see [Moving a team to Flightdeck 4.0](updating.md#moving-a-team-to-flightdeck-40)).
 
 If you need the folder exactly as it was, restore your backup instead (see [When something goes wrong](recovery.md#restoring-from-a-backup)).

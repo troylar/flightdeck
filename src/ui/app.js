@@ -647,6 +647,9 @@
       }
       e.draft = d; e.draftMeta = { owner: m.meta.owner, backup: m.meta.backup };
       if (!e.latest) { e.title = m.meta.title || id; e.category = m.meta.category || 'Other'; e.group = m.meta.group; e.tags = m.meta.tags; }
+      /* #111 (4.1.1): a published checklist keeps its published name; a new title in the draft shows where a screen is about the
+         draft, and lists say it's renamed, until publishing makes it official. */
+      else e.draftTitle = m.meta.title && m.meta.title !== e.title ? String(m.meta.title) : '';
       e.draftChanged = !e.latest || U.hash(d.md) !== e.latest.info.mapHash;
       /* A team step type the map uses changed since it was frozen into the publication: republishing picks it up. */
       if (e.latest && !e.draftChanged) {
@@ -11131,6 +11134,8 @@
       if (!c) { say('That copy can\'t be read.', 'bad'); return; }
       /* Keeping it would save only what this copy understands of it, erasing the rest. */
       if (c._unrunnable) { say(c._unrunnable + ' That copy can only be read here, so it wasn\'t kept.', 'warn'); return; }
+      /* #130 (4.1.1): the run itself needs a newer Flightdeck, so nothing here can be written over it; say that, not a loop. */
+      if (cur._unrunnable) { say('The copy wasn\'t kept: this run needs a newer copy of Flightdeck. ' + cur._unrunnable + ' The copy is still there. Keep it from a copy of Flightdeck that can read this run.', 'warn'); return; }
       text = snapshot(cur);
       /* The guard captured at the click, with the to-dos it keeps (todoStill, as a landing's) asked before every write; when it
          fails, the kept copy is put back in this window (loopEdit) and the copy stays. */

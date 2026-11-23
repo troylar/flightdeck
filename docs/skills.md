@@ -1,6 +1,6 @@
 # Skills for your AI assistant
 
-A skill is reusable instructions for an AI assistant. Flightdeck ships eight: write a checklist, change one, review one, learn from runs, plan a run, see where things stand, add a step type, and brief a skill built from a process. You don't need to learn their names. [Back to the README](../README.md#skills-for-your-ai-assistant).
+A skill is reusable instructions for an AI assistant. Flightdeck ships ten: write a checklist, change one, review one, learn from runs, plan a run, add to-dos to a running run, walk through a run, see where things stand, add a step type, and brief a skill built from a process. You don't need to learn their names. [Back to the README](../README.md#skills-for-your-ai-assistant).
 
 ## Start the assistant
 
