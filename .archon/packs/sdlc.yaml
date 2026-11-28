@@ -1,0 +1,4 @@
+settings:
+  ci: none
+  build_lane: manual
+  merge_lane: manual
